@@ -6,102 +6,86 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-14 ~ 2026-05-23
-- 运行时间：2026-05-23 03:58:05 UTC
+- 最新运行日期：2026-05-23
+- 运行时间：2026-05-23 19:56:13 UTC
 - 运行状态：成功
-- 本次总论文数：26
-- 精读区：15
+- 本次总论文数：22
+- 精读区：11
 - 速读区：11
 
 ### 今日简报（AI）
-今日共推荐26篇论文，精读15篇，重点精读了两篇高分论文：皮肤科图像分析的智能体系统DermAgent和高效视觉语言理解的医学注意力模型RoiMAM。
-
-最值得关注的方向是：皮肤科图像的多工具推理与可追溯决策，以及面向医学视觉语言理解的区域注意力机制。
-
-建议普通读者优先阅读这两篇精读论文，它们分别代表了智能体在医学图像中的新应用和高效多模态理解的前沿进展。
-- 详情：[/20260514-20260523/README](/20260514-20260523/README)
+今日聚焦22篇医疗AI论文，精读两篇9分研究：CT影像分析与生物医学问答的结构化证据融合模型。最值得关注的是统一分割检测解释框架和不确定性感知的问答方法，速读中结肠镜实时分割与脑MRI自监督学习也具潜力。建议普通读者优先关注多模态模型与可解释性方向的交叉进展。
+- 详情：[/202605/23/README](/202605/23/README)
 
 ### 精读区论文标签
-1. [DermAgent: A Self-Reflective Agentic System for Dermatological Image Analysis with Multi-Tool Reasoning and Traceable Decision-Making](/20260514-20260523/2605.14403v1-dermagent-a-self-reflective-agentic-system-for-dermatological-image-analysis-with-multi-tool-reasoning-and-traceable-decision-making)  
+1. [Segmentation, Detection and Explanation: A Unified Framework for CT Appearance Reasoning](/202605/23/2605.15997v1-segmentation-detection-and-explanation-a-unified-framework-for-ct-appearance-reasoning)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：用于皮肤科图像分析的多工具代理
-2. [RoiMAM: Region-of-Interest Medical Attention Model for Efficient Vision-Language Understanding](/20260514-20260523/2605.15561v1-roimam-region-of-interest-medical-attention-model-for-efficient-vision-language-understanding)  
+   evidence：语言引导的CT推理统一框架
+2. [BELIEF: Structured Evidence Modeling and Uncertainty-Aware Fusion for Biomedical Question Answering](/202605/23/2605.17435v1-belief-structured-evidence-modeling-and-uncertainty-aware-fusion-for-biomedical-question-answering)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：用于医学视觉问答的高效VLM与ROI注意力
-3. [MI-CXR: A Benchmark for Longitudinal Reasoning over Multi-Interval Chest X-rays](/20260514-20260523/2605.15574v1-mi-cxr-a-benchmark-for-longitudinal-reasoning-over-multi-interval-chest-x-rays)  
+   evidence：结构化证据建模和不确定性融合用于生物医学问答
+3. [Beyond Euclidean Prototypes: Spectral Disentanglement and Geodesic Matching for Few-Shot Medical Image Segmentation](/202605/23/2605.17904v1-beyond-euclidean-prototypes-spectral-disentanglement-and-geodesic-matching-for-few-shot-medical-image-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：胸部 X 光纵向推理基准，医疗 VQA
-4. [Semi-MedRef: Semi-Supervised Medical Referring Image Segmentation with Cross-Modal Alignment](/20260514-20260523/2605.15720v1-semi-medref-semi-supervised-medical-referring-image-segmentation-with-cross-modal-alignment)  
+   evidence：基于频谱解缠和测地匹配的少样本医学图像分割
+4. [Token-Space Mask Prediction for Efficient Vision Transformer Segmentation](/202605/23/2605.18177v1-token-space-mask-prediction-for-efficient-vision-transformer-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：半监督医学指代分割与跨模态对齐
-5. [BiomedAP: A Vision-Informed Dual-Anchor Framework with Gated Cross-Modal Fusion for Robust Medical Vision-Language Adaptation](/20260514-20260523/2605.15736v1-biomedap-a-vision-informed-dual-anchor-framework-with-gated-cross-modal-fusion-for-robust-medical-vision-language-adaptation)  
+   evidence：用于高效视觉Transformer分割的令牌空间掩码头
+5. [Vision Harnessing Agent for Open Ad-hoc Segmentation](/202605/23/2605.19410v1-vision-harnessing-agent-for-open-ad-hoc-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：基于门控跨模态融合的医学视觉语言适应
-6. [SEMA-RAG: A Self-Evolving Multi-Agent Retrieval-Augmented Generation Framework for Medical Reasoning](/20260514-20260523/2605.17101v1-sema-rag-a-self-evolving-multi-agent-retrieval-augmented-generation-framework-for-medical-reasoning)  
+   evidence：使用VLM智能体的开放即席分割视觉利用智能体
+6. [ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning](/202605/23/2605.20176v1-clinseekagent-automating-multimodal-evidence-seeking-for-agentic-clinical-reasoning)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：多代理RAG框架用于医学推理
-7. [Medical Context Distorts Decisions in Clinical Vision Language Models](/20260514-20260523/2605.17436v1-medical-context-distorts-decisions-in-clinical-vision-language-models)  
+   evidence：临床推理中多模态证据检索的智能体框架
+7. [Universal CT Representations from Anatomy to Disease Phenotype through Agglomerative Pretraining](/202605/23/2605.21906v1-universal-ct-representations-from-anatomy-to-disease-phenotype-through-agglomerative-pretraining)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：临床 VLM 在胸部 X 光任务中的失败模式
-8. [Rad-VLSM: A Cross-Modal Framework with Semantics-Assisted Prompting for Medical Segmentation and Diagnosis](/20260514-20260523/2605.18130v1-rad-vlsm-a-cross-modal-framework-with-semantics-assisted-prompting-for-medical-segmentation-and-diagnosis)  
+   evidence：CT基础模型支持切片级、体积级和视觉-语言分析
+8. [ConvNeXt-FD: A Fractal-Based Deep Model for Robust Biomedical Image Segmentation](/202605/23/2605.22002v1-convnext-fd-a-fractal-based-deep-model-for-robust-biomedical-image-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：带有语义提示的跨模态医学分割与诊断框架
-9. [Wasserstein Equilibrium Decoding for Reliable Medical Visual Question Answering](/20260514-20260523/2605.18313v1-wasserstein-equilibrium-decoding-for-reliable-medical-visual-question-answering)  
+   evidence：基于分形深度模型的鲁棒生物医学图像分割
+9. [D3Seg: Dependency-Aware Diffusion for Brain Tumor Segmentation with Missing Modalities](/202605/23/2605.22249v1-d3seg-dependency-aware-diffusion-for-brain-tumor-segmentation-with-missing-modalities)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：利用Wasserstein解码实现小型视觉语言模型的可靠医学VQA
-10. [MedFM-Robust: Benchmarking Robustness of Medical Foundation Models](/20260514-20260523/2605.19027v1-medfm-robust-benchmarking-robustness-of-medical-foundation-models)  
+   evidence：面向缺失模态的依赖感知扩散脑肿瘤分割
+10. [SegGuidedNet: Sub-Region-Aware Attention Supervision for Interpretable Brain Tumor Segmentation](/202605/23/2605.22572v1-segguidednet-sub-region-aware-attention-supervision-for-interpretable-brain-tumor-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：基准测试医学VLM和分割的鲁棒性
-11. [MedFM-Robust: Benchmarking Robustness of Medical Foundation Models](/20260514-20260523/2605.19027v2-medfm-robust-benchmarking-robustness-of-medical-foundation-models)  
+   evidence：用于脑肿瘤分割的注意力监督机制
+11. [GLeVE: Graph-Guided Lesion Grounding with Proposal Verification in 3D CT](/202605/23/2605.22619v1-gleve-graph-guided-lesion-grounding-with-proposal-verification-in-3d-ct)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：对医学视觉语言和分割基础模型的鲁棒性进行基准测试
-12. [MAM-CLIP: Vision-Language Pretraining on Mammography Atlases for BI-RADS Classification](/20260514-20260523/2605.19359v1-mam-clip-vision-language-pretraining-on-mammography-atlases-for-bi-rads-classification)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：基于乳腺摄影图谱的视觉-语言预训练用于BI-RADS分类
-13. [Rethinking Visual Attribution for Chest X-ray Reasoning in Large Vision Language Models](/20260514-20260523/2605.20158v1-rethinking-visual-attribution-for-chest-x-ray-reasoning-in-large-vision-language-models)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：大型视觉语言模型用于胸部X光推理与归因
-14. [Regulating Anatomy-Aware Rewards via Trajectory-Integral Feedback for Volumetric Computed Tomography Analysis](/20260514-20260523/2605.20277v1-regulating-anatomy-aware-rewards-via-trajectory-integral-feedback-for-volumetric-computed-tomography-analysis)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：医学VLM用于CT分析，具有解剖意识奖励
-15. [MedCRP-CL: Continual Medical Image Segmentation via Bayesian Nonparametric Semantic Modality Discovery](/20260514-20260523/2605.20297v1-medcrp-cl-continual-medical-image-segmentation-via-bayesian-nonparametric-semantic-modality-discovery)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：持续医学图像分割与任务发现
+   evidence：3D CT中的视觉语言病变定位
 
 ### 速读区论文标签
-1. [Med-DisSeg: Dispersion-Driven Representation Learning for Fine-Grained Medical Image Segmentation](/20260514-20260523/2605.14579v1-med-disseg-dispersion-driven-representation-learning-for-fine-grained-medical-image-segmentation)  
+1. [DepthPolyp: Pseudo-Depth Guided Lightweight Segmentation for Real-Time Colonoscopy](/202605/23/2605.16519v1-depthpolyp-pseudo-depth-guided-lightweight-segmentation-for-real-time-colonoscopy)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：创新的分散驱动分割与自适应注意力
-2. [COTCAgent: Preventive Consultation via Probabilistic Chain-of-Thought Completion](/20260514-20260523/2605.15016v1-cotcagent-preventive-consultation-via-probabilistic-chain-of-thought-completion)  
+   evidence：使用伪深度引导和高效特征调制的轻量级分割
+2. [VolTA-3D: Self-Supervised Learning for Brain MRI using 3D Volumetric Token Alignment](/202605/23/2605.16775v1-volta-3d-self-supervised-learning-for-brain-mri-using-3d-volumetric-token-alignment)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：用于预防性咨询的概率CoT智能体
-3. [Text Knows What, Tables Know When: Clinical Timeline Reconstruction via Retrieval-Augmented Multimodal Alignment](/20260514-20260523/2605.15168v1-text-knows-what-tables-know-when-clinical-timeline-reconstruction-via-retrieval-augmented-multimodal-alignment)  
+   evidence：脑MRI的自监督3D视觉Transformer
+3. [AnchorDiff: Topology-Aware Masked Diffusion with Confidence-based Rewriting for Radiology Report Generation](/202605/23/2605.17071v1-anchordiff-topology-aware-masked-diffusion-with-confidence-based-rewriting-for-radiology-report-generation)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：RAG用于临床时间线重建
-4. [Degradation-Aware Blur-Segmentation of Brain Tumor](/20260514-20260523/2605.15671v1-degradation-aware-blur-segmentation-of-brain-tumor)  
+   evidence：从图像生成放射学报告的掩码扩散框架
+4. [UCSF-PDGM-VQA: Visual Question Answering dataset for brain tumor MRI interpretation](/202605/23/2605.17140v1-ucsf-pdgm-vqa-visual-question-answering-dataset-for-brain-tumor-mri-interpretation)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：医学图像分割与跨模态注意力
-5. [SpectraFlow: Unifying Structural Pretraining and Frequency Adaptation for Medical Image Segmentation](/20260514-20260523/2605.14566v1-spectraflow-unifying-structural-pretraining-and-frequency-adaptation-for-medical-image-segmentation)  
+   evidence：用于评估VLM的脑肿瘤MRI视觉问答数据集
+5. [Evaluation of Anatomical Shape Priors in Deep Learning-Based Cardiac Multi-Compartment Segmentation](/202605/23/2605.15707v1-evaluation-of-anatomical-shape-priors-in-deep-learning-based-cardiac-multi-compartment-segmentation)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：结构感知预训练和频率适应用于医学图像分割
-6. [Retrieval-Augmented Large Language Models for Schema-Constrained Clinical Information Extraction](/20260514-20260523/2605.15467v1-retrieval-augmented-large-language-models-for-schema-constrained-clinical-information-extraction)  
+   evidence：心脏多腔室分割中形状先验的评估
+6. [BioXArena: Benchmarking LLM Agents on Multi-Modal Biomedical Machine Learning Tasks](/202605/23/2605.15766v1-bioxarena-benchmarking-llm-agents-on-multi-modal-biomedical-machine-learning-tasks)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：用于临床信息抽取的检索增强生成
-7. [Unlocking Biological Workflows for Robust Protein-Text Question Answering: A Dual-Dimensional RAG Framework](/20260514-20260523/2605.17261v1-unlocking-biological-workflows-for-robust-protein-text-question-answering-a-dual-dimensional-rag-framework)  
+   evidence：多模态生物医学任务上的LLM智能体基准测试
+7. [MedMIX: Modality-Internal Expert Fusion for Multimodal Medical Diagnosis](/202605/23/2605.16639v1-medmix-modality-internal-expert-fusion-for-multimodal-medical-diagnosis)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：生物医学领域的蛋白质文本问答RAG
-8. [VoxShield: Protecting 3D Medical Datasets from Unauthorized Training via Frequency-Aware Inter-Slice Disruption](/20260514-20260523/2605.17345v1-voxshield-protecting-3d-medical-datasets-from-unauthorized-training-via-frequency-aware-inter-slice-disruption)  
+   evidence：医学诊断的多模态融合框架，使用专家模型
+8. [GLT-PEFT: Gated Lie-Tucker Parameter-Efficient Fine-Tuning for Alzheimer's Disease Diagnosis with Hippocampal Segmentation Pretraining](/202605/23/2605.16769v1-glt-peft-gated-lie-tucker-parameter-efficient-fine-tuning-for-alzheimers-disease-diagnosis-with-hippocampal-segmentation-pretraining)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：保护3D医学分割数据集
-9. [Deepchecks: Evaluating Retrieval-Augmented Generation (RAG)](/20260514-20260523/2605.14488v1-deepchecks-evaluating-retrieval-augmented-generation-rag)  
+   evidence：用于阿尔茨海默病诊断的参数高效微调与分割预训练
+9. [Fairness-Aware Retrieval Optimization for Retrieval-Augmented Generation](/202605/23/2605.15790v1-fairness-aware-retrieval-optimization-for-retrieval-augmented-generation)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：RAG评估框架，提及医疗
-10. [Deep Image Segmentation via Discriminant Feature Learning](/20260514-20260523/2605.14609v1-deep-image-segmentation-via-discriminant-feature-learning)  
+   evidence：面向RAG的公平感知检索优化，可应用于医学
+10. [Vision Inference Former: Sustaining Visual Consistency in Multimodal Large Language Models](/202605/23/2605.18160v1-vision-inference-former-sustaining-visual-consistency-in-multimodal-large-language-models)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：用于分割的判别损失，适用于医学图像
-11. [RadGenome-Anatomy: A Large-Scale Anatomy-Labeled Chest Radiograph Dataset via Physically Grounded Volumetric Projection](/20260514-20260523/2605.17368v1-radgenome-anatomy-a-large-scale-anatomy-labeled-chest-radiograph-dataset-via-physically-grounded-volumetric-projection)  
+   evidence：维持多模态大语言模型中的视觉一致性，可迁移到医学VLM
+11. [Vector RAG vs LLM-Compiled Wiki: A Preregistered Comparison on a Small Multi-Domain Research](/202605/23/2605.18490v1-vector-rag-vs-llm-compiled-wiki-a-preregistered-comparison-on-a-small-multi-domain-research)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：大规模胸部X光解剖标注数据集
+   evidence：RAG系统比较，非医学专用
 
 
 <div class="dpr-home-promo-card">
