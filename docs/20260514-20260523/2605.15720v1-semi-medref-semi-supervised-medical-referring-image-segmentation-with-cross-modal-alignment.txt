@@ -1,0 +1,256 @@
+Title: Semi-MedRef: Semi-Supervised Medical Referring Image Segmentation with Cross-Modal Alignment
+
+URL Source: https://arxiv.org/pdf/2605.15720v1
+
+Published Time: Mon, 18 May 2026 00:41:53 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# Semi-MedRef: Semi-Supervised Medical Referring Image Segmentation with Cross-Modal Alignment 
+
+Yuchen Li 1, Zhen Zhao 2, Yi Liu 3, and Luping Zhou 1 
+
+> 1
+
+The University of Sydney, Sydney, NSW 2006, Australia 
+
+{yuli0016,luping.zhou}@sydney.edu.au  
+
+> 2
+
+Shanghai Artificial Intelligence Laboratory, Shanghai, China 
+
+zhaozhen@pjlab.org.cn  
+
+> 3
+
+Changzhou University, Changzhou, China 
+
+liuyi0089@gmail.com 
+
+Abstract. Medical referring image segmentation (MRIS) requires pixel-level masks aligned with textual descriptions of anatomical locations, making annotation costly in low-label regimes. Semi-supervised learn-ing (SSL) can mitigate this burden by leveraging unlabeled data, but its success hinges on maintaining reliable image–text alignment under perturbations. Most existing SSL-based referred segmentation methods use either independent or simplistic multi-modal perturbations ( e.g., 
+
+left–right flips), without fully addressing cross-modal alignment under strong augmentation, while CutMix, highly effective in single-modal SSL, remains underexplored in multi-modal settings due to its tendency to dis-rupt image–text coherence. We propose Semi-MedRef, a teacher–student SSL framework designed to explicitly maintain consistency between med-ical images and positional language through three alignment-preserving components: T-PatchMix, a cross-modal CutMix-style augmentation that synchronizes patch mixing with referring expressions via position-constrained and probability-driven rules; PosAug, a position-aware text augmentation that masks or fuzzes anatomical phrases; and ITCL, a position-guided image–text contrastive learning module, which lever-ages positional pseudo-labels to construct soft anatomical positives and strengthen medically grounded cross-modal alignment. Experiments on QaTa-COV19 and MosMedData+ demonstrate that Semi-MedRef consis-tently outperforms both fully supervised and semi-supervised baselines across all label regimes. 
+
+Keywords: Medical Referring Image Segmentation · Semi-supervised Learning · Multi-Modal Learning. 
+
+## 1 Introduction 
+
+Medical image segmentation supports key clinical tasks such as lesion quantifi-cation, treatment planning, and disease monitoring [9, 16, 21]. While modern deep models have achieved strong performance across modalities and anatomical targets [9, 21], purely visual cues can be ambiguous. Recent systems therefore  
+
+> arXiv:2605.15720v1 [cs.CV] 15 May 2026 2Y. Li et al.
+
+incorporate textual information—such as diagnostic reports or concise referring descriptions—to specify what to segment. This gives rise to medical referring image segmentation (MRIS), where the segmentation target is guided by language (e.g., “bilateral pulmonary infection, lower left and lower right lung”). However, obtaining paired pixel-level masks and referring expressions is costly, and annotation scarcity is particularly severe for lesion-level tasks with ambiguous boundaries and high inter-observer variability. Models trained in low-label regimes consequently suffer from poor generalization. Semi-supervised learning (SSL) [1,2,28] mitigates annotation demand by leveraging unlabeled data through pseudo-labeling and consistency regularization, assuming that applied perturbations preserve the semantics of supervision. SSL has recently been explored for referring expression segmentation (RES) in natural images. Teacher–student [22] consistency approaches, such as RES-Match [27], introduce weak-to-strong consistency and limited multi-modal per-turbations, e.g., swapping left/right words under horizontal flips. SemiRES [23] improves pseudo-label quality using external priors such as SAM [10]. In the medical domain, Textmatch [11] applies an EMA teacher–student framework with multi-modal fusion and pseudo-label regularization. Yet, these methods largely treat image and text perturbations independently or provide only coarse mechanisms for maintaining cross-modal alignment. A key challenge in SSL-based MRIS is that modern consistency-based SSL relies on strong perturbations to enforce invariance, yet maintaining reliable image–text alignment under such perturbations is difficult. Spatially altering operations, such as CutMix-style [7, 26] patch replacement, random cropping, or aggressive transforms, can disrupt the correspondence between textual descrip-tions and referenced image regions, corrupting pseudo-supervision [27]. This issue is especially acute in medical settings, where referring expressions rely heavily on structured positional language (left/right, upper/middle/lower): even simple flips may invert laterality. While CutMix is highly successful in single-modal SSL, directly applying it to multi-modal MRIS often breaks image–text correspondence, making strong perturbations difficult to use safely in SSL. To address these challenges, we propose Semi-MedRef (Fig. 1), a semi-supervised framework that improves MRIS by explicitly stabilizing cross-modal alignment between images and positional language under strong perturbations. Semi-MedRef integrates three complementary mechanisms. T-PatchMix adapts patch-level mixing to the cross-modal setting by selectively mixing anatomically compatible regions and updating corresponding positional spans, allowing strong perturbation-based augmentation without breaking spatial grounding. PosAug regularizes the language stream by introducing controlled perturbations to posi-tional phrases, encouraging the model to rely on image evidence when textual location cues are partially absent or imprecise. Finally, position-guided image–text contrastive learning (ITCL) converts coarse positional pseudo-labels into explicit cross-modal supervision, shaping a region-aware contrastive objective that re-inforces alignment at representation level. These strategies help Semi-MedRef maintain reliable cross-modal consistency during teacher–student training. Semi-MedRef 3
+
+Fig. 1. Overview of Semi-MedRef: (a) the full pipeline (refer to Sec. 2.2), (b) the T-PatchMix augmentation, and (c) the teacher/student model architecture. In summary, our contributions are four-fold: 
+
+– We propose Semi-MedRef , a Semi -supervised Med ical Ref erring image segmentation framework that explicitly preserves cross-modal alignment under strong perturbations through alignment-aware augmentation and cross-modal supervision. 
+
+– We introduce T-PatchMix, a CutMix-style multi-modal augmentation, and PosAug, a position-aware text augmentation, both tailored for MRIS to preserve image–text consistency under strong perturbations. 
+
+– We develop position-guided ITCL to further align cross-modal representations by leveraging coarse positional cues. 
+
+– Experiments on QaTa-COV19 and MosMedData+ demonstrate consistent gains over supervised and semi-supervised baselines across all label ratios. 
+
+## 2 Method 
+
+2.1 Problem Setting 
+
+In semi-supervised MRIS task, each input is an image–text pair (I, T ), and the model predicts a binary mask ˆY ∈ { 0, 1}H×W . The training data include a small labeled set Dl and a much larger unlabeled set Du:
+
+Dl = {(( Ili , T li ), Y li )}Nl
+
+> i=1
+
+, Du = {(Iuj , T uj )}Nu
+
+> j=1
+
+, Nl ≪ Nu, (1) 4 Y. Li et al. 
+
+where (Ili , T li ) and (Iuj , T uj ) denote labeled and unlabeled image–text pairs, re-spectively. For unlabeled samples, no ground-truth masks are available. We learn a multi-modal segmentation model fθ that outputs a pixel-wise probability map 
+
+P = σ(fθ (I, T )) ∈ [0 , 1] H×W after sigmoid function σ(·).
+
+2.2 Overview 
+
+Figure 1 illustrates Semi-MedRef, our teacher–student framework for SSL-based MRIS. The student receives strongly augmented image–text pairs, combining T-PatchMix for alignment-preserving patch mixing and PosAug for position-aware text perturbation, while the teacher processes weak views to provide stable segmentation pseudo-labels. Coarse positional pseudo-labels extracted from the referring text serve as soft positives for ITCL, a position-guided contrastive objective that reinforces region-aware image–text alignment. The student is trained with supervised loss, consistency loss, and ITCL, enabling Semi-MedRef to maintain cross-modal coherence under strong perturbations. We optimize Semi-MedRef in two phases: (i) the labeled-only burn-in stage for stable initialization [13, 17], and (ii) the semi-supervised learning stage where the teacher generates pseudo-masks on weakly augmented unlabeled samples and the student learns under strong augmentation. In the burn-in stage, we train the student model on Dl with: 
+
+Lsup = LDiceCE 
+
+ σ fθS (Ili , T li ) , Y li
+
+ , (2) where LDiceCE [4] is the Dice loss [18] plus pixel-wise binary cross-entropy [21]. In the semi-supervised learning stage, we update the teacher parameters by EMA: θT ← m θ T + (1 − m) θS , with decay coefficient m = 0 .999 . Given an unlabeled pair (Iui , T ui ) ∈ D u, the teacher predicts on the weak view (Iui,w , T ui,w )
+
+and produces a hard pseudo-mask ˜Y ui with confidence threshold δ:
+
+P Ti,w = σ fθT (Iui,w , T ui,w ) , ˜Y ui = I P Ti,w ≥ δ . (3) The student is trained on the corresponding strong view (Iui,s , T ui,s ) to match ˜Y ui :
+
+Lunsup = LDiceCE 
+
+
+
+σ fθS (Iui,s , T ui,s ) , ˜Y ui
+
+
+
+. (4) Finally, we optimize the student with the overall objective: 
+
+L = Lsup + λu Lunsup + λsup itcl Lsup itcl + λunsup itcl Lunsup itcl . (5) Here, λu weights the unsupervised term, while λsup itcl and λunsup itcl weight Litcl on labeled and unlabeled branches, respectively (Sec. 2.4). 
+
+2.3 Multi-modal Augmentation 
+
+To preserve image–text alignment under strong perturbations, we design MRIS-tailored text and multi-modal augmentations. Semi-MedRef 5
+
+Position-aware Text Augmentation (PosAug). Positional phrases ( e.g., upper left lung ) provide critical grounding cues but can be sensitive to wording variations under limited supervision [25]. On the student branch, we extract and normalize the positional phrase, and then stochastically apply one of two edits: (i) dropout , which replaces the phrase with [UNK_POS] ; or (ii) fuzzing , which substitutes it with a location-agnostic phrase ( e.g., upper left lung → a region of the lung ). Dropout is applied with probability ρ, and fuzzing with probability 
+
+1 − ρ. The teacher text remains unchanged to ensure stable pseudo-labels. 
+
+Image–Text Alignment-preserving Patch Mixing (T-PatchMix). To benefit from mixing while preserving referring alignment, as illustrated in Fig. 1, we construct the student strong view by patch-mixing [8] two unlabeled pairs 
+
+(Iui , T ui ) and (Iuj , T uj ) with a block-wise binary mask Mi:
+
+Imix = (1 − Mi) ⊙ Iui + Mi ⊙ Iuj . (6) We sample Mi in two ways: (i) Position-constrained mixing extracts a posi-tional phrase from the student text, maps it to a coarse region (left/right ×
+
+upper/middle/lower), and samples Mi only within this region; mixing is disabled when two texts conflict in laterality. (ii) Probability-driven mixing samples Mi
+
+from high-confidence regions of the teacher probability map P Tj,w on weak view of sample j. To avoid mixing background or non-lesion patches, we introduce a lesion-gating ratio ri measuring the lesion fraction inside the mixed patch: 
+
+ri =
+
+P(P Tj,w ⊙ Mi)
+
+P Mi + ϵ , ˆMi = Mi · I(ri ≥ δ). (7) The mixed pseudo-mask is obtained by combining teacher probabilities: 
+
+˜Y (i) 
+
+> mix
+
+= I
+
+h 
+
+(1 − ˆMi) ⊙ P Ti,w + ˆMi ⊙ P Tj,w 
+
+i
+
+≥ 0.5
+
+
+
+. (8) We synchronize the text with the mixed image to maintain semantic consistency. We apply position-aware span mixing ( e.g., “pos i and pos j ”) only when ˆMi̸ = 0 .Span mixing replaces the positional phrase span in one caption with the positional phrase from another caption or their conjunction. 
+
+2.4 Image–Text Contrastive Learning (ITCL) 
+
+Standard CLIP [20] loss enforces only global image–text alignment and treats all other texts in the batch as hard negatives, even when they describe anatomically similar regions. In contrast, ITCL uses text-derived positional pseudo-labels to define region-aware soft positives, encouraging stronger alignment between images and texts that refer to compatible anatomical locations–an ability essential for MRIS. As shown in Fig. 1, for an image–text pair (I, T ), the network produces a fused feature map F . We obtain an image embedding v = Proj I ( GAP (F )) ∈ Rd
+
+and a text embedding u = Proj T (T ) ∈ Rd, and ℓ2-normalize both. For a mini-batch of size B, we compute similarities Sij = v⊤ 
+
+> i
+
+uj /τ , where τ is the temperature. 6 Y. Li et al. 
+
+To construct soft positives, we use a position pseudo-label qi ∈ { 0, 1}6 encoding the coarse anatomical region (left/right × upper/middle/lower) described by the text. For QaTa-COV19, qi is directly taken from the dataset metadata released by [25]; for MosMedData+, we extract qi from the referring text in our extended annotations. Then we compute the Jaccard affinity as Aij = |qi ∩ qj |/|qi ∪ qj |
+
+with Aii = 1 , and optimize a bidirectional weighted contrastive loss: 
+
+Litcl = − 12B
+
+> B
+
+X
+
+> i=1
+
+P 
+
+> j
+
+Aij log softmax( Sij )
+
+P 
+
+> j
+
+Aij 
+
++
+
+P 
+
+> j
+
+Aij log softmax( Sji )
+
+P 
+
+> j
+
+Aij 
+
+!
+
+. (9) 
+
+## 3 Experiments and Results 
+
+3.1 Datasets, Metrics and Implementation Datasets and Metrics. We evaluate Semi-MedRef on two public MRIS datasets, QaTa-COV19 [6] and MosMedData+ [19], following the official splits. QaTa-COV19 comprises 5,716 training, 1,429 validation, and 2,113 test samples. MosMedData+ comprises 2,183 training, 273 validation, and 273 test samples. The referring texts are structured infection-site descriptions from prior work [12]. For semi-supervised learning, we randomly sample labeled subsets from the training split with ratios r ∈ { 1% , 2% , 5% , 15% } and treat the remaining training samples as unlabeled. Subsequent refinement [25] of QaTa-COV19 provides posi-tion pseudo-labels; we extract the same labels for MosMedData+ and include them in the dataset. We employ Dice and mIoU to evaluate the performance. 
+
+Implementation Details. We implement our method in PyTorch Lightning and MONAI [5], and train on one NVIDIA RTX A6000 GPU. Input images are resized to 224 × 224 . Weak augmentation uses RandomZoom. Image strong augmentation applies ColorJitter and GaussianBlur. We optimize with AdamW [15] with an initial learning rate of 3 × 10 −4, cosine annealing to 10 −6, and batch size is 32. For ITCL, we set temperature τ as 0.07, supervised weight λsup itcl as 0.02 and unsupervised weight λunsup itcl as 0.1. For multi-modal augmentation, PosAug dropout probability ρ is 0.5 and block size of T-PatchMix is 16 . Unless noted, we use MMI-UNet [4] with a ConvNeXt [14] visual encoder and a CXR-BERT [3] text encoder. We also report results with alternative backbones to show generality. 
+
+3.2 Performance Comparison with State-Of-The-Art Methods 
+
+Table 1 reports results on QaTa-COV19 and MosMedData+ under different label ratios. We compare Semi-MedRef with four groups of methods: (i) natural-image supervised RES (LAVT), (ii) natural-image semi-supervised RES (SemiRES), (iii) medical-image semi-supervised referring segmentation (LViT and Textmatch), and (iv) medical supervised backbones (GuideDecoder and MMI-UNet), on which we instantiate Semi-MedRef. Since Textmatch is not open-sourced, its 5% and 15% results are taken from the original paper and other ratios are left blank. Semi-MedRef 7
+
+Table 1. Performance comparison under different label ratios. 
+
+QaTa-COV19 
+
+Methods 2% 5% 15% 100% Dice ↑ mIoU ↑ Dice ↑ mIoU ↑ Dice ↑ mIoU ↑ Dice ↑ mIoU ↑
+
+LAVT (CVPR '22) [24] 69.25 57.56 73.93 63.24 76.61 66.49 79.28 69.89 SemiRES (ICML '24) [23] 75.33 64.82 77.40 67.45 77.52 67.59 80.16 70.20 LViT (TMI '23) [12] 75.23 64.51 77.24 66.31 79.98 70.04 83.66 75.11 Textmatch (MICCAI '24) [11] - - 83.56 71.67 86.21 75.64 - -GuideDecoder (MICCAI '23) [29] 80.44 67.28 84.23 72.76 85.03 73.95 89.78 81.45 MMI-UNet (MICCAI '24) [4] 84.63 73.36 87.35 77.55 88.72 79.73 90.88 83.28 
+
+Ours(GuideDecoder) 86.07 75.54 87.12 77.18 89.13 80.39 90.91 83.34 
+
+Ours(MMI-UNet) 87.25 77.38 88.31 78.98 89.84 81.56 91.39 84.14 MosMedData+ 
+
+Methods 2% 5% 15% 100% Dice ↑ mIoU ↑ Dice ↑ mIoU ↑ Dice ↑ mIoU ↑ Dice ↑ mIoU ↑
+
+LAVT (CVPR '22) [24] 58.44 40.23 67.54 55.39 69.75 57.64 73.29 60.41 SemiRES (ICML '24) [23] 61.90 46.22 68.64 55.96 71.03 59.07 74.40 61.05 LViT (TMI '23) [12] 64.19 52.19 68.61 56.49 71.45 59.64 74.57 61.33 Textmatch (MICCAI '24) [11] - - 72.46 58.12 75.73 60.93 - -GuideDecoder (MICCAI '23) [29] 66.34 49.63 71.21 55.30 73.10 57.95 77.75 63.60 MMI-UNet (MICCAI '24) [4] 68.23 51.78 72.26 56.57 74.00 58.73 78.42 64.50 
+
+Ours(GuideDecoder) 72.87 57.32 73.11 57.62 74.70 59.61 77.94 63.86 
+
+Ours(MMI-UNet) 71.16 55.18 74.51 59.38 76.42 61.84 78.70 64.89 
+
+Fig. 2. Examples of segmentation results. From left to right are the input image, ground-truth mask, and the segmentation results of the methods in comparison. 
+
+Across both datasets and all evaluated label ratios, Semi-MedRef consistently improves over its corresponding backbone and existing fully supervised and semi-supervised baselines. In particular, Semi-MedRef (MMI-UNet) achieves Dice scores of 87.25% (2%) and 91.39% (100%) on QaTa-COV19, and 74.51% (5%) and 78.70% (100%) on MosMedData+. Semi-MedRef also yields consistent gains when instantiated on GuideDecoder, indicating the improvements are not backbone-specific. Compared with medical semi-supervised baselines, Semi-MedRef outperforms LViT across all ratios and surpasses Textmatch under 8 Y. Li et al. 
+
+Table 2. Ablation studies on model components on QaTa-COV19 dataset.                                                      
+
+> Method T-S EMA PosAug T-PatchMix ITCL 1% 2% Dice ↑mIoU ↑Dice ↑mIoU ↑
+> Baseline ✗✗✗✗81.02 68.09 84.63 73.36 + T-S EMA ✓✗✗✗84.58 73.27 85.75 75.06 + PosAug ✓✓✗✗85.89 75.27 86.59 76.35 + T-PatchMix ✓✓✓✗86.02 75.47 87.05 77.07 + ITCL ( Ours )✓✓✓✓86.39 76.03 87.25 77.38
+
+Table 3. Augmentation and alignment ablations. ImgStrong includes ColorJitter and GaussianBlur. TextStrong includes Synonym Replacement and Random Deletion. SPC follows RESMatch [27] by editing positional words to match image transformations.                                                                 
+
+> Method ImgStrong TextStrong PosAug T-PatchMix CLIP ITCL Dice ↑
+> Baseline ✓✗✗✗✗✗84.58 TextStrong ✓✓✗✗✗✗84.60 w/ CutMix ✓✗✗✗✗✗83.09 w/ SPC ✓✗✗✗✗✗84.64 Ours-V1 ✓✗✓✗✗✗85.89 Ours-V2 ✓✗✗✓✗✗85.59 Ours-V3 ✓✗✓✓✓✗85.35 Ours-All ✓✗✓✓✗✓86.39
+
+the reported settings (5%, 15%). Qualitatively, Fig. 2 shows that Semi-MedRef produces masks with cleaner boundaries and finer details with reduced leakage. 
+
+3.3 Ablation Study 
+
+Table 2 reports component-wise ablations on QaTa-COV19, indicating each component contributes positive gains, with the full model performing best. Table 3 summarizes augmentation and alignment ablations. Ours-V1 vs TextStrong (85.89% vs. 84.60%) shows that PosAug provides a more effective MRIS-specific text perturbation than generic text augmentations. Ours-V2 vs. CutMix (85.59% vs. 83.09%) demonstrates that T-PatchMix preserves image–text coherence, while naive CutMix disrupts alignment: its performance even drops below the baseline. Finally, Ours-V3 vs. Ours-All (85.35% vs. 86.39%) confirms that ITCL offers stronger cross-modal alignment than a CLIP-style loss in our setting. 
+
+## 4 Conclusion 
+
+This paper presents Semi-MedRef, a semi-supervised teacher–student framework for MRIS that stabilizes cross-modal alignment between images and positional language under strong perturbations. We integrate two alignment-preserving augmentations, PosAug for position-aware text and T-PatchMix for patch mixing Semi-MedRef 9
+
+with synchronized location phrases, together with an ITCL module that provides explicit cross-modal supervision to reinforce alignment. Experiments on QaTa-COV19 and MosMedData+ show that Semi-MedRef consistently outperforms supervised and semi-supervised baselines across all label ratios. 
+
+## References 
+
+1. Bachman, P., Alsharif, Q., Precup, D.: Learning with pseudo-ensembles. Advances in neural information processing systems 27 (2014) 2. Berthelot, D., Carlini, N., Cubuk, E.D., Kurakin, A., Sohn, K., Zhang, H., Raf-fel, C.: Remixmatch: Semi-supervised learning with distribution alignment and augmentation anchoring. arXiv preprint arXiv:1911.09785 (2019) 3. Boecking, B., Usuyama, N., Bannur, S., Castro, D.C., Schwaighofer, A., Hyland, S., Wetscherek, M., Naumann, T., Nori, A., Alvarez-Valle, J., et al.: Making the most of text semantics to improve biomedical vision–language processing. In: European conference on computer vision. pp. 1–21. Springer (2022) 4. Bui, P.N., Le, D.T., Choo, H.: Visual-textual matching attention for lesion seg-mentation in chest images. In: Linguraru, M.G., Dou, Q., Feragen, A., Giannarou, S., Glocker, B., Lekadir, K., Schnabel, J.A. (eds.) Medical Image Computing and Computer Assisted Intervention – MICCAI 2024. pp. 702–711. Springer Nature Switzerland, Cham (2024) 5. Cardoso, M.J., Li, W., Brown, R., Ma, N., Kerfoot, E., Wang, Y., Murrey, B., Myronenko, A., Zhao, C., Yang, D., et al.: Monai: An open-source framework for deep learning in healthcare. arXiv preprint arXiv:2211.02701 (2022) 6. Degerli, A., Kiranyaz, S., Chowdhury, M.E., Gabbouj, M.: Osegnet: Operational segmentation network for covid-19 detection using chest x-ray images. In: IEEE International Conference on Image Processing (ICIP). pp. 2306–2310. IEEE (2022) 7. Hong, T., Wang, Y., Sun, X., Li, X., Ma, J.: Cmmix: Cross-modal mix augmentation between images and texts for visual grounding. In: International Conference on Neural Information Processing. pp. 471–482. Springer (2023) 8. Hong, Y., Chen, Y.: Patchmix: patch-level mixup for data augmentation in convo-lutional neural networks. Knowledge and Information Systems 66 (7), 3855–3881 (2024) 9. Isensee, F., Jaeger, P.F., Kohl, S.A., Petersen, J., Maier-Hein, K.H.: nnu-net: a self-configuring method for deep learning-based biomedical image segmentation. Nature methods 18 (2), 203–211 (2021) 10. Kirillov, A., Mintun, E., Ravi, N., Mao, H., Rolland, C., Gustafson, L., Xiao, T., Whitehead, S., Berg, A.C., Lo, W.Y., et al.: Segment anything. In: Proceedings of the IEEE/CVF international conference on computer vision. pp. 4015–4026 (2023) 11. Li, A., Zeng, X., Zeng, P., Ding, S., Wang, P., Wang, C., Wang, Y.: Textmatch: Using text prompts to improve semi-supervised medical image segmentation. In: International Conference on Medical Image Computing and Computer-Assisted Intervention. pp. 699–709. Springer (2024) 12. Li, Z., Li, Y., Li, Q., Wang, P., Guo, D., Lu, L., Jin, D., Zhang, Y., Hong, Q.: Lvit: language meets vision transformer in medical image segmentation. IEEE transactions on medical imaging 43 (1), 96–107 (2023) 13. Liu, Y.C., Ma, C.Y., Kira, Z.: Unbiased teacher v2: Semi-supervised object detection for anchor-free and anchor-based detectors. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 9819–9828 (2022) 10 Y. Li et al. 14. Liu, Z., Mao, H., Wu, C.Y., Feichtenhofer, C., Darrell, T., Xie, S.: A convnet for the 2020s. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 11976–11986 (2022) 15. Loshchilov, I., Hutter, F.: Decoupled weight decay regularization. arXiv preprint arXiv:1711.05101 (2017) 16. Lu, Y., Wang, A.: Integrating language into medical visual recognition and reasoning: A survey. Medical image analysis 102 , 103514 (2025) 17. Mi, P., Lin, J., Zhou, Y., Shen, Y., Luo, G., Sun, X., Cao, L., Fu, R., Xu, Q., Ji, R.: Active teacher for semi-supervised object detection. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 14482–14491 (2022) 18. Milletari, F., Navab, N., Ahmadi, S.A.: V-net: Fully convolutional neural networks for volumetric medical image segmentation. In: 2016 Fourth International Conference on 3D Vision (3DV). pp. 565–571 (2016). https://doi.org/10.1109/3DV.2016.79 
+
+19. Morozov, S.P., Andreychenko, A.E., Pavlov, N.A., Vladzymyrskyy, A., Ledikhova, N.V., Gombolevskiy, V.A., Blokhin, I.A., Gelezhe, P.B., Gonchar, A., Chernina, V.Y.: Mosmeddata: Chest ct scans with covid-19 related findings dataset. arXiv preprint arXiv:2005.06465 (2020) 20. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al.: Learning transferable visual models from natural language supervision. In: International conference on machine learning. pp. 8748–8763. PmLR (2021) 21. Ronneberger, O., Fischer, P., Brox, T.: U-net: Convolutional networks for biomedical image segmentation. In: Navab, N., Hornegger, J., Wells, W.M., Frangi, A.F. (eds.) Medical Image Computing and Computer-Assisted Intervention – MICCAI 2015. pp. 234–241. Springer International Publishing, Cham (2015) 22. Sohn, K., Berthelot, D., Carlini, N., Zhang, Z., Zhang, H., Raffel, C.A., Cubuk, E.D., Kurakin, A., Li, C.L.: Fixmatch: Simplifying semi-supervised learning with consistency and confidence. Advances in neural information processing systems 33 ,596–608 (2020) 23. Yang, D., Ji, J., Ma, Y., Guo, T., Wang, H., Sun, X., Ji, R.: Sam as the guide: Mas-tering pseudo-label refinement in semi-supervised referring expression segmentation. In: International Conference on Machine Learning. pp. 56139–56155. PMLR (2024) 24. Yang, Z., Wang, J., Tang, Y., Chen, K., Zhao, H., Torr, P.H.: Lavt: Language-aware vision transformer for referring image segmentation. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 18155–18165 (2022) 25. Ye, S., Meng, M., Li, M., Feng, D., Kim, J.: Enabling text-free inference in language-guided segmentation of chest x-rays via self-guidance. In: Medical Image Computing and Computer Assisted Intervention – MICCAI 2024. pp. 242–252. Springer Nature Switzerland, Cham (2024) 26. Yun, S., Han, D., Oh, S.J., Chun, S., Choe, J., Yoo, Y.: Cutmix: Regularization strategy to train strong classifiers with localizable features. In: Proceedings of the IEEE/CVF international conference on computer vision. pp. 6023–6032 (2019) 27. Zang, Y., Cao, R., Fu, C., Zhu, D., Zhang, M., Hu, W., Zhu, L., Chen, T.: Res-match: Referring expression segmentation in a semi-supervised manner. Information Sciences 694 , 121709 (2025) 28. Zhao, Z., Zhou, L., Duan, Y., Wang, L., Qi, L., Shi, Y.: Dc-ssl: Addressing mis-matched class distribution in semi-supervised learning. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 9757–9765 (2022) Semi-MedRef 11 29. Zhong, Y., Xu, M., Liang, K., Chen, K., Wu, M.: Ariadne’s thread: Using text prompts to improve segmentation of infected areas from chest x-ray images. In: International Conference on Medical Image Computing and Computer-Assisted Intervention. pp. 724–733. Springer (2023)
