@@ -8,7 +8,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from llm import BltClient
+import requests
 
 
 SCRIPT_DIR = os.path.dirname(__file__)
@@ -22,6 +22,7 @@ RANGE_DATE_RE = re.compile(r"^(\d{8})-(\d{8})$")
 
 BLT_API_KEY = os.getenv("BLT_API_KEY")
 BLT_MODEL = os.getenv("BLT_SUMMARY_MODEL") or os.getenv("SUMMARY_MODEL") or "gemini-3-flash-preview"
+DEFAULT_BASE_URL = "https://api.bltcy.ai/v1"
 
 
 def log(message: str) -> None:
@@ -120,6 +121,104 @@ def read_json(path: str, default: Any) -> Any:
     except Exception as exc:
         log(f"[WARN] failed to read json: {path}: {exc}")
         return default
+
+
+class SimpleLLMClient:
+    def __init__(self, api_key: str, model: str) -> None:
+        self.api_key = api_key
+        self.model = model
+        self.base_urls = self._resolve_base_urls()
+
+    @staticmethod
+    def _resolve_base_urls() -> List[str]:
+        candidates = [
+            os.getenv("LLM_PRIMARY_BASE_URL"),
+            os.getenv("BLT_PRIMARY_BASE_URL"),
+            os.getenv("BLT_API_BASE"),
+            os.getenv("SUMMARY_BASE_URL"),
+            DEFAULT_BASE_URL,
+        ]
+        output: List[str] = []
+        for item in candidates:
+            text = str(item or "").strip().rstrip("/")
+            if text and text not in output:
+                output.append(text)
+        return output
+
+    @staticmethod
+    def _chat_url(base_url: str) -> str:
+        base = str(base_url or "").strip().rstrip("/")
+        if base.lower().endswith("/chat/completions"):
+            return base
+        if re.search(r"/v\d+$", base, flags=re.IGNORECASE):
+            return f"{base}/chat/completions"
+        return f"{base}/v1/chat/completions"
+
+    @staticmethod
+    def _strip_json_wrappers(text: str) -> str:
+        cleaned = str(text or "").strip()
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+        return cleaned.strip()
+
+    @classmethod
+    def _parse_json(cls, text: str) -> Dict[str, Any] | None:
+        cleaned = cls._strip_json_wrappers(text)
+        if not cleaned:
+            return None
+        try:
+            parsed = json.loads(cleaned)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            pass
+
+        match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+        if not match:
+            return None
+        try:
+            parsed = json.loads(match.group(0))
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+
+    def chat_json(self, messages: List[Dict[str, str]], max_tokens: int) -> Dict[str, Any] | None:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": int(max_tokens),
+            "response_format": {"type": "json_object"},
+        }
+
+        last_error: Exception | None = None
+        for base_url in self.base_urls:
+            try:
+                resp = requests.post(self._chat_url(base_url), headers=headers, json=payload, timeout=120)
+                if resp.status_code in {400, 404, 415, 422}:
+                    # Some OpenAI-compatible gateways do not support response_format.
+                    payload.pop("response_format", None)
+                    resp = requests.post(self._chat_url(base_url), headers=headers, json=payload, timeout=120)
+                resp.raise_for_status()
+                data = resp.json()
+                choices = data.get("choices") or []
+                if not choices:
+                    raise RuntimeError("LLM response missing choices")
+                message = choices[0].get("message") or {}
+                content = message.get("content") or ""
+                if isinstance(content, list):
+                    content = "\n".join(str(x.get("text") or x.get("content") or x) for x in content)
+                return self._parse_json(str(content))
+            except Exception as exc:
+                last_error = exc
+                continue
+
+        if last_error is not None:
+            raise last_error
+        return None
 
 
 def normalize_paper_id(value: Any) -> str:
@@ -267,19 +366,16 @@ def build_paper_prompt(paper: Dict[str, Any]) -> List[Dict[str, str]]:
     ]
 
 
-def call_structured(client: BltClient, messages: List[Dict[str, str]], schema_name: str, schema: Dict[str, Any], max_tokens: int) -> Dict[str, Any] | None:
-    client.kwargs.update({"temperature": 0.2, "max_tokens": int(max_tokens)})
-    resp = client.chat_structured(
-        messages=messages,
-        schema_name=schema_name,
-        schema=schema,
-        strict=True,
-        allow_json_object_fallback=True,
-    )
-    if resp.get("refusal") or resp.get("parse_error"):
-        return None
-    parsed = resp.get("parsed")
-    return parsed if isinstance(parsed, dict) else None
+def call_structured(client: SimpleLLMClient, messages: List[Dict[str, str]], schema_name: str, schema: Dict[str, Any], max_tokens: int) -> Dict[str, Any] | None:
+    schema_hint = {
+        "role": "system",
+        "content": (
+            f"请只返回一个 JSON object，schema_name={schema_name}。"
+            "不要输出 Markdown，不要输出解释文字。JSON 字段必须符合："
+            + json.dumps(schema, ensure_ascii=False)
+        ),
+    }
+    return client.chat_json([schema_hint, *messages], max_tokens=max_tokens)
 
 
 def fallback_innovation(paper: Dict[str, Any]) -> Dict[str, Any]:
@@ -297,7 +393,7 @@ def fallback_innovation(paper: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def summarize_paper(client: BltClient | None, paper: Dict[str, Any]) -> Dict[str, Any]:
+def summarize_paper(client: SimpleLLMClient | None, paper: Dict[str, Any]) -> Dict[str, Any]:
     if client is None:
         return fallback_innovation(paper)
     try:
@@ -309,7 +405,7 @@ def summarize_paper(client: BltClient | None, paper: Dict[str, Any]) -> Dict[str
     return fallback_innovation(paper)
 
 
-def build_daily_synthesis(client: BltClient | None, papers: List[Dict[str, Any]], innovations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def build_daily_synthesis(client: SimpleLLMClient | None, papers: List[Dict[str, Any]], innovations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     if not papers:
         return {"daily_trends": [], "most_worth_reading": []}
     if client is None:
@@ -487,7 +583,7 @@ def main() -> None:
 
     client = None
     if not args.no_llm and BLT_API_KEY:
-        client = BltClient(api_key=BLT_API_KEY, model=BLT_MODEL)
+        client = SimpleLLMClient(api_key=BLT_API_KEY, model=BLT_MODEL)
     elif not args.no_llm:
         log("[WARN] 未配置 BLT_API_KEY，使用基础版创新点总结。")
 
