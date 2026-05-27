@@ -229,6 +229,9 @@ def normalize_paper_id(value: Any) -> str:
         text = text.rstrip("/").rsplit("/", 1)[-1]
     if text.lower().startswith("arxiv:"):
         text = text.split(":", 1)[1].strip()
+    match = re.search(r"(\d{4}\.\d{4,5}v?\d*)", text)
+    if match:
+        return match.group(1)
     return text
 
 
@@ -298,6 +301,25 @@ INNOVATION_SCHEMA = {
     "properties": {
         "one_sentence_contribution": {"type": "string"},
         "technical_innovations": {"type": "array", "items": {"type": "string"}},
+        "technical_core": {"type": "string"},
+        "method_pipeline": {"type": "array", "items": {"type": "string"}},
+        "key_modules": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "module": {"type": "string"},
+                    "role": {"type": "string"},
+                    "technical_detail": {"type": "string"},
+                },
+                "required": ["module", "role", "technical_detail"],
+            },
+        },
+        "training_or_inference_details": {"type": "array", "items": {"type": "string"}},
+        "experiment_evidence": {"type": "array", "items": {"type": "string"}},
+        "limitations": {"type": "array", "items": {"type": "string"}},
+        "extension_opportunities": {"type": "array", "items": {"type": "string"}},
         "problem_setting_innovation": {"type": "array", "items": {"type": "string"}},
         "evidence_or_result_innovation": {"type": "array", "items": {"type": "string"}},
         "difference_from_prior_work": {"type": "string"},
@@ -307,6 +329,13 @@ INNOVATION_SCHEMA = {
     "required": [
         "one_sentence_contribution",
         "technical_innovations",
+        "technical_core",
+        "method_pipeline",
+        "key_modules",
+        "training_or_inference_details",
+        "experiment_evidence",
+        "limitations",
+        "extension_opportunities",
         "problem_setting_innovation",
         "evidence_or_result_innovation",
         "difference_from_prior_work",
@@ -392,16 +421,17 @@ DIRECTIONS_SCHEMA = {
 
 def build_paper_prompt(paper: Dict[str, Any]) -> List[Dict[str, str]]:
     title = clean_text(paper.get("title_en") or paper.get("title"), 500)
-    abstract = clean_text(paper.get("abstract_en") or paper.get("abstract"), 3000)
-    tldr = clean_text(paper.get("tldr") or paper.get("summary"), 1000)
-    evidence = clean_text(paper.get("evidence") or paper.get("reason"), 1000)
+    abstract = clean_text(paper.get("abstract_en") or paper.get("abstract"), 5000)
+    tldr = clean_text(paper.get("tldr") or paper.get("summary"), 1600)
+    evidence = clean_text(paper.get("evidence") or paper.get("reason"), 1600)
     tags = clean_text(paper.get("tags"), 500)
     return [
         {
             "role": "system",
             "content": (
-                "你是论文创新点分析助手。请用中文输出，聚焦'这篇论文新在哪里'，"
-                "避免泛泛复述摘要。只基于输入信息，证据不足时降低 confidence。"
+                "你是严谨的论文技术审读助手。请用中文输出，目标不是写新闻摘要，"
+                "而是给研究者做二次创新准备的技术拆解。必须尽量具体到方法机制、"
+                "模块职责、训练/推理流程、实验依据和可延展点。"
             ),
         },
         {
@@ -412,7 +442,13 @@ def build_paper_prompt(paper: Dict[str, Any]) -> List[Dict[str, str]]:
                 f"已有速览/TLDR：{tldr}\n"
                 f"推荐证据：{evidence}\n"
                 f"标签：{tags}\n\n"
-                "请提炼该论文的创新点，保持短句、可读、具体。"
+                "请输出详细技术内容，遵守以下要求：\n"
+                "1. technical_core 写清楚方法到底怎么做，不要只说'提出框架/提高性能'。\n"
+                "2. method_pipeline 按步骤描述输入、关键处理、输出。\n"
+                "3. key_modules 至少列出 2-5 个核心模块或机制；如果摘要信息不足，说明推断依据。\n"
+                "4. experiment_evidence 写具体评测对象、指标、对比或结论；没有就写'摘要未提供'。\n"
+                "5. limitations 和 extension_opportunities 要服务于二次创新选题。\n"
+                "6. 只基于输入信息，不要编造论文没有出现的模块名或结果。"
             ),
         },
     ]
@@ -437,6 +473,19 @@ def fallback_innovation(paper: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "one_sentence_contribution": base,
         "technical_innovations": ["需结合全文进一步确认具体技术创新；当前基础信息不足。"],
+        "technical_core": "当前仅基于题目、摘要或既有速览生成，无法可靠还原完整技术机制。",
+        "method_pipeline": ["摘要级信息不足：建议结合论文方法部分补充输入、核心处理流程和输出。"],
+        "key_modules": [
+            {
+                "module": "待确认核心模块",
+                "role": "占位",
+                "technical_detail": "当前信息不足，需从论文方法图、算法框或代码中确认。",
+            }
+        ],
+        "training_or_inference_details": ["摘要级信息不足，暂不能确认训练或推理细节。"],
+        "experiment_evidence": ["摘要级信息不足，建议检查实验表格、消融实验和外部验证结果。"],
+        "limitations": ["当前总结未读取全文，可能遗漏关键模块、假设条件和失败案例。"],
+        "extension_opportunities": ["优先阅读方法和实验部分，再基于明确技术短板设计二次创新。"],
         "problem_setting_innovation": ["从题目与摘要看，该工作可能面向一个更具体或更实用的任务设定。"],
         "evidence_or_result_innovation": ["建议阅读论文实验部分确认主要结果、对比基线与消融证据。"],
         "difference_from_prior_work": "当前可用信息不足，暂不强行判断与已有工作的明确差异。",
@@ -449,7 +498,7 @@ def summarize_paper(client: SimpleLLMClient | None, paper: Dict[str, Any]) -> Di
     if client is None:
         return fallback_innovation(paper)
     try:
-        parsed = call_structured(client, build_paper_prompt(paper), "paper_innovation", INNOVATION_SCHEMA, 1800)
+        parsed = call_structured(client, build_paper_prompt(paper), "paper_innovation", INNOVATION_SCHEMA, 3200)
         if parsed:
             return parsed
     except Exception as exc:
@@ -513,7 +562,11 @@ def paper_compact_item(paper: Dict[str, Any], innovations: Dict[str, Dict[str, A
         "abstract": clean_text(paper.get("abstract_en") or paper.get("abstract"), 800),
         "tags": clean_text(paper.get("tags"), 240),
         "contribution": clean_text(innov.get("one_sentence_contribution"), 260),
+        "technical_core": clean_text(innov.get("technical_core"), 500),
         "technical_innovations": innov.get("technical_innovations") or [],
+        "key_modules": innov.get("key_modules") or [],
+        "limitations": innov.get("limitations") or [],
+        "extension_opportunities": innov.get("extension_opportunities") or [],
         "problem_setting_innovation": innov.get("problem_setting_innovation") or [],
         "reader_takeaway": clean_text(innov.get("reader_takeaway"), 220),
     }
@@ -523,13 +576,47 @@ def fallback_research_directions(papers: List[Dict[str, Any]], innovations: Dict
     if not papers:
         return {"directions": []}
 
+    def clean_tag_label(value: Any) -> str:
+        text = clean_text(value).strip("[]'\" ")
+        text = re.sub(r"['\"\[\]]", "", text)
+        text = re.sub(r"\b(keyword|query|source|topic)\s*:", "", text, flags=re.IGNORECASE)
+        text = text.strip(" ,;，；")
+        if text.lower() == "vlmmed":
+            return "医学视觉语言模型"
+        return text
+
+    direction_rules = [
+        ("医学 VLM 可解释性与视觉证据定位", ["ground", "interpretable", "evidence", "lesion", "audit", "trust", "reasoning", "adversarial"]),
+        ("医学多智能体与可靠推理", ["multi-agent", "agent", "collaboration", "checker", "rag", "calibration", "risk"]),
+        ("医学图像分割与低标注学习", ["segmentation", "segment", "u-net", "ultrasound video", "partial annotation", "stroke lesion", "cell"]),
+        ("医学基础模型鲁棒性与评测基准", ["benchmark", "robust", "robustness", "evaluation", "vqa benchmark"]),
+        ("参数高效医学 VLM 与生成", ["parameter-efficient", "peft", "generation", "synthetic", "gan", "image-to-image"]),
+        ("大规模视觉识别与高效推理", ["gigapixel", "large-scale", "divide-and-conquer", "adaptive", "continuous reasoning", "early stopping"]),
+    ]
+
+    def infer_direction(paper: Dict[str, Any]) -> str:
+        text = " ".join(
+            [
+                clean_text(paper.get("title_en") or paper.get("title")),
+                clean_text(paper.get("abstract_en") or paper.get("abstract")),
+                clean_text(paper.get("tldr")),
+                clean_text(paper.get("evidence")),
+            ]
+        ).lower()
+        for name, keywords in direction_rules:
+            if any(keyword in text for keyword in keywords):
+                return name
+        tags = clean_text(paper.get("tags"))
+        if tags:
+            first = re.split(r"[,;，；]\s*", tags)[0]
+            label = clean_tag_label(first)
+            if label:
+                return label
+        return "综合医学 AI 方法"
+
     groups: Dict[str, List[Dict[str, Any]]] = {}
     for paper in papers:
-        tags = clean_text(paper.get("tags"))
-        label = "综合医学 AI 方向"
-        if tags:
-            label = re.split(r"[,;，；]\s*", tags)[0].strip() or label
-            label = re.sub(r"^(query|source|topic):", "", label, flags=re.IGNORECASE).strip() or label
+        label = infer_direction(paper)
         groups.setdefault(label, []).append(paper)
 
     directions: List[Dict[str, Any]] = []
@@ -571,6 +658,46 @@ def fallback_research_directions(papers: List[Dict[str, Any]], innovations: Dict
     return {"directions": directions}
 
 
+def normalize_direction_name(name: Any) -> str:
+    text = clean_text(name).strip("[]'\" ")
+    text = re.sub(r"['\"\[\]]", "", text)
+    text = re.sub(r"\b(keyword|query|source|topic)\s*:", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip(" ,;，；")
+    if text.lower() == "vlmmed":
+        return "医学视觉语言模型"
+    return text or "未命名方向"
+
+
+def normalize_directions_payload(payload: Dict[str, Any], papers: List[Dict[str, Any]]) -> Dict[str, Any]:
+    valid_ids = {str(p.get("paper_id") or "").strip() for p in papers if str(p.get("paper_id") or "").strip()}
+    output: List[Dict[str, Any]] = []
+    seen_sets: List[set[str]] = []
+
+    for raw in payload.get("directions") or []:
+        if not isinstance(raw, dict):
+            continue
+        paper_ids = [normalize_paper_id(x) for x in raw.get("paper_ids") or []]
+        paper_ids = [pid for pid in paper_ids if pid in valid_ids]
+        if not paper_ids:
+            continue
+        current = set(paper_ids)
+        duplicate = False
+        for existing in seen_sets:
+            overlap = len(current & existing) / max(1, min(len(current), len(existing)))
+            if overlap >= 0.8:
+                duplicate = True
+                break
+        if duplicate:
+            continue
+        seen_sets.append(current)
+        item = dict(raw)
+        item["name"] = normalize_direction_name(item.get("name"))
+        item["paper_ids"] = paper_ids
+        output.append(item)
+
+    return {"directions": output}
+
+
 def build_research_directions(client: SimpleLLMClient | None, papers: List[Dict[str, Any]], innovations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     if not papers:
         return {"directions": []}
@@ -601,7 +728,9 @@ def build_research_directions(client: SimpleLLMClient | None, papers: List[Dict[
     try:
         parsed = call_structured(client, messages, "research_directions", DIRECTIONS_SCHEMA, 5000)
         if parsed and isinstance(parsed.get("directions"), list):
-            return parsed
+            cleaned = normalize_directions_payload(parsed, papers)
+            if cleaned.get("directions"):
+                return cleaned
     except Exception as exc:
         log(f"[WARN] LLM research directions failed: {exc}")
     return fallback_research_directions(papers, innovations)
@@ -609,6 +738,12 @@ def build_research_directions(client: SimpleLLMClient | None, papers: List[Dict[
 
 def md_escape_table(text: Any) -> str:
     return clean_text(text).replace("|", "\\|")
+
+
+def clean_list(items: Any, max_len: int = 260) -> List[str]:
+    if not isinstance(items, list):
+        return []
+    return [clean_text(x, max_len) for x in items if clean_text(x)]
 
 
 def paper_link(paper: Dict[str, Any]) -> str:
@@ -676,13 +811,61 @@ def render_markdown(date_str: str, papers: List[Dict[str, Any]], innovations: Di
         if link:
             lines.append(f"- 原文链接：{link}")
         lines.append(f"- 一句话贡献：{clean_text(innov.get('one_sentence_contribution'), 260)}")
-        lines.append("- 核心创新点：")
-        tech = [clean_text(x, 180) for x in innov.get("technical_innovations") or [] if clean_text(x)]
-        setting = [clean_text(x, 180) for x in innov.get("problem_setting_innovation") or [] if clean_text(x)]
-        evidence = [clean_text(x, 180) for x in innov.get("evidence_or_result_innovation") or [] if clean_text(x)]
-        for item in (tech + setting + evidence)[:5]:
-            lines.append(f"  - {item}")
+        technical_core = clean_text(innov.get("technical_core"), 700)
+        if technical_core:
+            lines.append(f"- 技术核心：{technical_core}")
+
+        pipeline = clean_list(innov.get("method_pipeline"), 300)
+        if pipeline:
+            lines.append("- 方法流程：")
+            for item in pipeline[:6]:
+                lines.append(f"  - {item}")
+
+        modules = [m for m in innov.get("key_modules") or [] if isinstance(m, dict)]
+        if modules:
+            lines.append("- 关键模块/机制：")
+            for module in modules[:6]:
+                name = clean_text(module.get("module"), 100) or "未命名模块"
+                role = clean_text(module.get("role"), 180)
+                detail = clean_text(module.get("technical_detail"), 300)
+                text = f"{name}"
+                if role:
+                    text += f"：{role}"
+                if detail:
+                    text += f"；{detail}"
+                lines.append(f"  - {text}")
+
+        train_details = clean_list(innov.get("training_or_inference_details"), 260)
+        if train_details:
+            lines.append("- 训练/推理细节：")
+            for item in train_details[:5]:
+                lines.append(f"  - {item}")
+
+        experiment = clean_list(innov.get("experiment_evidence"), 260)
+        if experiment:
+            lines.append("- 实验支撑：")
+            for item in experiment[:5]:
+                lines.append(f"  - {item}")
+
+        tech = clean_list(innov.get("technical_innovations"), 220)
+        setting = clean_list(innov.get("problem_setting_innovation"), 220)
+        evidence = clean_list(innov.get("evidence_or_result_innovation"), 220)
+        if tech or setting or evidence:
+            lines.append("- 核心创新点：")
+            for item in (tech + setting + evidence)[:6]:
+                lines.append(f"  - {item}")
+
         lines.append(f"- 和已有工作的区别：{clean_text(innov.get('difference_from_prior_work'), 260)}")
+        limitations = clean_list(innov.get("limitations"), 240)
+        if limitations:
+            lines.append("- 局限与风险：")
+            for item in limitations[:4]:
+                lines.append(f"  - {item}")
+        extensions = clean_list(innov.get("extension_opportunities"), 260)
+        if extensions:
+            lines.append("- 可延展点：")
+            for item in extensions[:4]:
+                lines.append(f"  - {item}")
         lines.append(f"- 阅读启发：{clean_text(innov.get('reader_takeaway'), 260)}")
         lines.append(f"- 可信度：{clean_text(innov.get('confidence')) or 'medium'}")
         lines.append("")
