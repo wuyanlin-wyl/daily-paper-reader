@@ -738,15 +738,6 @@ def main() -> None:
         ],
         env=resolve_summary_step_env(),
     )
-    run_step(
-        "Step 7 - Generate Innovation Brief",
-        [
-            python,
-            os.path.join(SRC_DIR, "7.generate_innovation_brief.py"),
-            *(["--mode", "skims"] if use_skims_mode else []),
-        ],
-        env=resolve_summary_step_env(),
-    )
 
 
 if __name__ == "__main__":
