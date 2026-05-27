@@ -123,6 +123,20 @@ def read_json(path: str, default: Any) -> Any:
         return default
 
 
+def read_text_file(path: str, max_chars: int = 0) -> str:
+    if not os.path.exists(path):
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read()
+    except Exception:
+        return ""
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if max_chars and len(text) > max_chars:
+        return text[:max_chars]
+    return text
+
+
 class SimpleLLMClient:
     def __init__(self, api_key: str, model: str) -> None:
         self.api_key = api_key
@@ -295,6 +309,130 @@ def merge_paper_records(meta_papers: List[Dict[str, Any]], recommend_by_id: Dict
     return records
 
 
+SECTION_HEADING_RE = re.compile(r"(?m)^(#{1,4})\s+(.+?)\s*$")
+METHOD_SECTION_KEYWORDS = (
+    "method",
+    "methods",
+    "methodology",
+    "approach",
+    "model",
+    "architecture",
+    "framework",
+    "algorithm",
+    "proposed",
+    "formulation",
+    "objective",
+    "loss",
+    "training",
+    "inference",
+    "implementation",
+    "experiment",
+    "experiments",
+    "evaluation",
+    "benchmark",
+)
+
+
+def find_paper_text_path(docs_dir: str, date_str: str, paper: Dict[str, Any]) -> str:
+    target_dir = day_dir_for(docs_dir, date_str)
+    if not os.path.isdir(target_dir):
+        return ""
+    pid = normalize_paper_id(paper.get("paper_id") or paper.get("id"))
+    candidates: List[str] = []
+    for name in os.listdir(target_dir):
+        path = os.path.join(target_dir, name)
+        if not os.path.isfile(path):
+            continue
+        lower = name.lower()
+        if not (lower.endswith(".txt") or lower.endswith(".md")):
+            continue
+        if lower in {"readme.md", "innovation-brief.md", "research-directions.md"}:
+            continue
+        if pid and name.startswith(pid):
+            candidates.append(path)
+    if candidates:
+        candidates.sort(key=lambda p: (0 if p.lower().endswith(".txt") else 1, len(p)))
+        return candidates[0]
+
+    title = clean_text(paper.get("title_en") or paper.get("title")).lower()
+    title_tokens = [t for t in re.split(r"[^a-z0-9]+", title) if len(t) >= 5][:6]
+    best_path = ""
+    best_score = 0
+    for name in os.listdir(target_dir):
+        path = os.path.join(target_dir, name)
+        if not os.path.isfile(path):
+            continue
+        lower = name.lower()
+        if not (lower.endswith(".txt") or lower.endswith(".md")):
+            continue
+        score = sum(1 for token in title_tokens if token in lower)
+        if score > best_score:
+            best_score = score
+            best_path = path
+    return best_path if best_score >= 2 else ""
+
+
+def extract_relevant_paper_sections(full_text: str, max_chars: int = 16000) -> str:
+    text = str(full_text or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    matches = list(SECTION_HEADING_RE.finditer(text))
+    selected: List[str] = []
+    if matches:
+        for idx, match in enumerate(matches):
+            heading = clean_text(match.group(2)).lower()
+            if not any(keyword in heading for keyword in METHOD_SECTION_KEYWORDS):
+                continue
+            start = match.start()
+            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+            section = text[start:end].strip()
+            if len(section) < 200:
+                continue
+            selected.append(section)
+            if sum(len(s) for s in selected) >= max_chars:
+                break
+
+    if not selected:
+        # Fall back to the central part after abstract/introduction, where method
+        # sections usually begin in converted arXiv text.
+        lowered = text.lower()
+        start_candidates = [
+            lowered.find("\n## 2"),
+            lowered.find("\n## 3"),
+            lowered.find("\n# 2"),
+            lowered.find("\n# 3"),
+        ]
+        start_candidates = [x for x in start_candidates if x >= 0]
+        start = min(start_candidates) if start_candidates else 0
+        selected_text = text[start : start + max_chars]
+    else:
+        selected_text = "\n\n".join(selected)
+
+    if len(selected_text) > max_chars:
+        selected_text = selected_text[:max_chars]
+    return selected_text.strip()
+
+
+def attach_full_text_context(papers: List[Dict[str, Any]], docs_dir: str, date_str: str) -> None:
+    found = 0
+    for paper in papers:
+        path = find_paper_text_path(docs_dir, date_str, paper)
+        if not path:
+            paper["_full_text_context"] = ""
+            paper["_full_text_path"] = ""
+            continue
+        full_text = read_text_file(path)
+        context = extract_relevant_paper_sections(full_text)
+        paper["_full_text_context"] = context
+        paper["_full_text_path"] = path
+        if context:
+            found += 1
+    if papers:
+        log(f"[INFO] full-text method context found: {found}/{len(papers)}")
+
+
 INNOVATION_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -429,6 +567,13 @@ def build_paper_prompt(paper: Dict[str, Any]) -> List[Dict[str, str]]:
     tldr = clean_text(paper.get("tldr") or paper.get("summary"), 1600)
     evidence = clean_text(paper.get("evidence") or paper.get("reason"), 1600)
     tags = clean_text(paper.get("tags"), 500)
+    full_text_context = str(paper.get("_full_text_context") or "").strip()
+    full_text_path = str(paper.get("_full_text_path") or "").strip()
+    context_note = (
+        "已读取论文全文中的方法/模型/实验相关段落。请优先依据这些段落提取方法、模块、公式和算法细节。"
+        if full_text_context
+        else "未找到论文全文方法段落；只能基于摘要和已有速览，必须保守标注信息不足。"
+    )
     return [
         {
             "role": "system",
@@ -446,6 +591,9 @@ def build_paper_prompt(paper: Dict[str, Any]) -> List[Dict[str, str]]:
                 f"已有速览/TLDR：{tldr}\n"
                 f"推荐证据：{evidence}\n"
                 f"标签：{tags}\n\n"
+                f"全文上下文状态：{context_note}\n"
+                f"全文来源文件：{full_text_path}\n"
+                f"方法/模型/实验相关原文片段：\n{full_text_context[:16000]}\n\n"
                 "请输出详细技术内容，遵守以下要求：\n"
                 "1. method_pipeline 必须按阶段/步骤写，突出输入、处理、输出。\n"
                 "2. key_modules 必须详细总结原论文的核心模块/机制，尽量写清楚模块如何工作。\n"
@@ -1215,6 +1363,7 @@ def main() -> None:
     recommend_by_id = collect_recommend_papers(date_str, mode)
     meta_papers = collect_meta_papers(docs_dir, date_str)
     papers = merge_paper_records(meta_papers, recommend_by_id)
+    attach_full_text_context(papers, docs_dir, date_str)
 
     client = None
     if not args.no_llm and BLT_API_KEY:
