@@ -624,16 +624,50 @@ def ensure_sidebar_innovation_links(docs_dir: str) -> bool:
         ]
 
     changed = False
+    original_lines = list(lines)
+
+    def is_date_line(line: str) -> bool:
+        text = line.strip()
+        if not text.startswith("* "):
+            return False
+        label = text[2:].strip()
+        return bool(
+            re.match(r"^\d{4}-\d{2}-\d{2}$", label)
+            or re.match(r"^\d{4}-\d{2}-\d{2}\s+~\s+\d{4}-\d{2}-\d{2}$", label)
+        )
+
+    def has_child(idx: int, current_lines: List[str]) -> bool:
+        return idx + 1 < len(current_lines) and current_lines[idx + 1].startswith("    * ")
+
+    # Rebuild innovation entries each run. This avoids duplicate date blocks and
+    # keeps old innovation links after the upstream sidebar is regenerated.
+    lines = [line for line in lines if "innovation-brief" not in line]
+    pruned: List[str] = []
+    for idx, line in enumerate(lines):
+        if line.startswith("  * ") and is_date_line(line) and not has_child(idx, lines):
+            changed = True
+            continue
+        pruned.append(line)
+    lines = pruned
+    if lines != original_lines:
+        changed = True
+
     if not any(line.strip() == "* Daily Papers" for line in lines):
         lines.append("* Daily Papers")
         changed = True
 
     def find_date_line(label: str) -> int:
         target = f"  * {label}"
+        candidates: List[int] = []
         for idx, line in enumerate(lines):
             if line.rstrip() == target:
+                candidates.append(idx)
+        if not candidates:
+            return -1
+        for idx in candidates:
+            if has_child(idx, lines):
                 return idx
-        return -1
+        return candidates[0]
 
     daily_idx = next((idx for idx, line in enumerate(lines) if line.strip() == "* Daily Papers"), len(lines) - 1)
 
@@ -641,8 +675,6 @@ def ensure_sidebar_innovation_links(docs_dir: str) -> bool:
         label = entry["label"]
         href = entry["href"]
         link_line = f'    * <a class="dpr-sidebar-item-link" href="{href}">创新点总结</a>'
-        if any(href in line for line in lines):
-            continue
 
         date_idx = find_date_line(label)
         if date_idx < 0:
@@ -652,10 +684,7 @@ def ensure_sidebar_innovation_links(docs_dir: str) -> bool:
             changed = True
             continue
 
-        insert_idx = date_idx + 1
-        while insert_idx < len(lines) and lines[insert_idx].startswith("    * "):
-            insert_idx += 1
-        lines.insert(insert_idx, link_line)
+        lines.insert(date_idx + 1, link_line)
         changed = True
 
     if changed:
