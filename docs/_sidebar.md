@@ -1,9 +1,8 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
-  * 2026-05-26
-    * <a class="dpr-sidebar-item-link" href="#/202605/26/innovation-brief">创新点总结</a>
   * 2026-05-26 <!--dpr-date:20260526-->
+    * <a class="dpr-sidebar-item-link" href="#/202605/26/innovation-brief">创新点总结</a>
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202605/26/2605.22414v1-towards-clinically-interpretable-ophthalmic-vqa-via-spatially-grounded-lesion-evidence" data-sidebar-item="{&quot;title&quot;: &quot;Towards Clinically Interpretable Ophthalmic VQA via Spatially-Grounded Lesion Evidence&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2605.22414v1-towards-clinically-interpretable-ophthalmic-vqa-via-spatially-grounded-lesion-evidence&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;vlmmed&quot;}], &quot;evidence&quot;: &quot;具有空间定位病灶证据的临床可解释眼科VQA&quot;}">Towards Clinically Interpretable Ophthalmic VQA via Spatially-Grounded Lesion Evidence</a>
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202605/26/2605.24249v1-privfusion-a-privacy-preserving-multi-agent-framework-for-harmonizing-distributed-datasets" data-sidebar-item="{&quot;title&quot;: &quot;PrivFusion: A Privacy-preserving Multi-Agent Framework for Harmonizing Distributed Datasets&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2605.24249v1-privfusion-a-privacy-preserving-multi-agent-framework-for-harmonizing-distributed-datasets&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;vlmmed&quot;}], &quot;evidence&quot;: &quot;医学数据协调的多智能体框架&quot;}">PrivFusion: A Privacy-preserving Multi-Agent Framework for Harmonizing Distributed Datasets</a>
