@@ -626,15 +626,56 @@ def ensure_sidebar_innovation_links(docs_dir: str) -> bool:
     changed = False
     original_lines = list(lines)
 
-    def is_date_line(line: str) -> bool:
+    def line_date_token(line: str) -> str:
         text = line.strip()
         if not text.startswith("* "):
-            return False
+            return ""
+        marker = re.search(r"<!--\s*dpr-date:(\d{8}(?:-\d{8})?)\s*-->", text)
+        if marker:
+            return marker.group(1)
         label = text[2:].strip()
-        return bool(
-            re.match(r"^\d{4}-\d{2}-\d{2}$", label)
-            or re.match(r"^\d{4}-\d{2}-\d{2}\s+~\s+\d{4}-\d{2}-\d{2}$", label)
-        )
+        label = re.sub(r"\s*<!--.*?-->\s*", "", label).strip()
+        range_match = re.match(r"^(\d{4})-(\d{2})-(\d{2})\s+~\s+(\d{4})-(\d{2})-(\d{2})$", label)
+        if range_match:
+            y1, m1, d1, y2, m2, d2 = range_match.groups()
+            return f"{y1}{m1}{d1}-{y2}{m2}{d2}"
+        single_match = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", label)
+        if single_match:
+            y, m, d = single_match.groups()
+            return f"{y}{m}{d}"
+        return ""
+
+    def is_date_line(line: str) -> bool:
+        return bool(line_date_token(line))
+
+    def date_label_from_line(line: str) -> str:
+        text = line.strip()
+        if not text.startswith("* "):
+            return ""
+        text = re.sub(r"\s*<!--.*?-->\s*", "", text[2:]).strip()
+        return text
+
+    def make_date_line(entry: Dict[str, str]) -> str:
+        token = entry["token"]
+        return f"  * {entry['label']} <!--dpr-date:{token}-->"
+
+    def indent_level(line: str) -> int:
+        return len(line) - len(line.lstrip(" "))
+
+    def is_section_heading(line: str) -> bool:
+        stripped = line.strip()
+        return stripped in {"* 精读区", "* 速读区"} and indent_level(line) >= 4
+
+    def is_empty_innovation_date_block(idx: int, current_lines: List[str]) -> bool:
+        if not current_lines[idx].startswith("  * ") or not is_date_line(current_lines[idx]):
+            return False
+        next_idx = idx + 1
+        if next_idx >= len(current_lines) or not current_lines[next_idx].startswith("    * "):
+            return False
+        if "innovation-brief" not in current_lines[next_idx]:
+            return False
+        after_idx = next_idx + 1
+        return after_idx >= len(current_lines) or not current_lines[after_idx].startswith("    * ")
 
     def has_child(idx: int, current_lines: List[str]) -> bool:
         return idx + 1 < len(current_lines) and current_lines[idx + 1].startswith("    * ")
@@ -642,9 +683,20 @@ def ensure_sidebar_innovation_links(docs_dir: str) -> bool:
     # Rebuild innovation entries each run. This avoids duplicate date blocks and
     # keeps old innovation links after the upstream sidebar is regenerated.
     lines = [line for line in lines if "innovation-brief" not in line]
+    tokens_with_children = {
+        line_date_token(line)
+        for idx, line in enumerate(lines)
+        if line.startswith("  * ") and line_date_token(line) and has_child(idx, lines)
+    }
     pruned: List[str] = []
     for idx, line in enumerate(lines):
-        if line.startswith("  * ") and is_date_line(line) and not has_child(idx, lines):
+        token = line_date_token(line)
+        if (
+            line.startswith("  * ")
+            and token
+            and not has_child(idx, lines)
+            and token in tokens_with_children
+        ):
             changed = True
             continue
         pruned.append(line)
@@ -657,15 +709,24 @@ def ensure_sidebar_innovation_links(docs_dir: str) -> bool:
         changed = True
 
     def find_date_line(label: str) -> int:
-        target = f"  * {label}"
+        target_token = ""
+        for entry in entries:
+            if entry["label"] == label:
+                target_token = entry["token"]
+                break
         candidates: List[int] = []
         for idx, line in enumerate(lines):
-            if line.rstrip() == target:
+            if line.startswith("  * ") and line_date_token(line) == target_token:
                 candidates.append(idx)
+        if not candidates:
+            target = f"  * {label}"
+            for idx, line in enumerate(lines):
+                if re.sub(r"\s*<!--.*?-->\s*", "", line).rstrip() == target:
+                    candidates.append(idx)
         if not candidates:
             return -1
         for idx in candidates:
-            if has_child(idx, lines):
+            if has_child(idx, lines) and not is_empty_innovation_date_block(idx, lines):
                 return idx
         return candidates[0]
 
@@ -679,12 +740,16 @@ def ensure_sidebar_innovation_links(docs_dir: str) -> bool:
         date_idx = find_date_line(label)
         if date_idx < 0:
             insert_idx = daily_idx + 1
-            lines.insert(insert_idx, f"  * {label}")
+            lines.insert(insert_idx, make_date_line(entry))
             lines.insert(insert_idx + 1, link_line)
             changed = True
             continue
 
-        lines.insert(date_idx + 1, link_line)
+        insert_idx = date_idx + 1
+        while insert_idx < len(lines) and lines[insert_idx].startswith("    * ") and is_section_heading(lines[insert_idx]):
+            # Keep the innovation brief before section headings like 精读区.
+            break
+        lines.insert(insert_idx, link_line)
         changed = True
 
     if changed:
