@@ -562,6 +562,108 @@ def insert_link_into_day_readme(day_readme: str) -> bool:
     return True
 
 
+def sidebar_href_for_date_token(date_token: str) -> str:
+    if RANGE_DATE_RE.match(date_token):
+        return f"#/{date_token}/innovation-brief"
+    return f"#/{date_token[:6]}/{date_token[6:]}/innovation-brief"
+
+
+def collect_existing_innovation_briefs(docs_dir: str) -> List[Dict[str, str]]:
+    entries: List[Dict[str, str]] = []
+    if not os.path.isdir(docs_dir):
+        return entries
+
+    for name in os.listdir(docs_dir):
+        top_path = os.path.join(docs_dir, name)
+        if not os.path.isdir(top_path):
+            continue
+        if RANGE_DATE_RE.match(name):
+            brief_path = os.path.join(top_path, "innovation-brief.md")
+            if os.path.exists(brief_path):
+                entries.append(
+                    {
+                        "token": name,
+                        "label": format_date(name),
+                        "href": sidebar_href_for_date_token(name),
+                    }
+                )
+            continue
+        if not re.match(r"^\d{6}$", name):
+            continue
+        for day in os.listdir(top_path):
+            if not re.match(r"^\d{2}$", day):
+                continue
+            token = f"{name}{day}"
+            brief_path = os.path.join(top_path, day, "innovation-brief.md")
+            if os.path.exists(brief_path):
+                entries.append(
+                    {
+                        "token": token,
+                        "label": format_date(token),
+                        "href": sidebar_href_for_date_token(token),
+                    }
+                )
+
+    entries.sort(key=lambda item: item["token"], reverse=True)
+    return entries
+
+
+def ensure_sidebar_innovation_links(docs_dir: str) -> bool:
+    entries = collect_existing_innovation_briefs(docs_dir)
+    if not entries:
+        return False
+
+    sidebar_path = os.path.join(docs_dir, "_sidebar.md")
+    if os.path.exists(sidebar_path):
+        with open(sidebar_path, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    else:
+        lines = [
+            '* <a class="dpr-sidebar-root-link" href="#/">首页</a>',
+            "* Daily Papers",
+        ]
+
+    changed = False
+    if not any(line.strip() == "* Daily Papers" for line in lines):
+        lines.append("* Daily Papers")
+        changed = True
+
+    def find_date_line(label: str) -> int:
+        target = f"  * {label}"
+        for idx, line in enumerate(lines):
+            if line.rstrip() == target:
+                return idx
+        return -1
+
+    daily_idx = next((idx for idx, line in enumerate(lines) if line.strip() == "* Daily Papers"), len(lines) - 1)
+
+    for entry in entries:
+        label = entry["label"]
+        href = entry["href"]
+        link_line = f'    * <a class="dpr-sidebar-item-link" href="{href}">创新点总结</a>'
+        if any(href in line for line in lines):
+            continue
+
+        date_idx = find_date_line(label)
+        if date_idx < 0:
+            insert_idx = daily_idx + 1
+            lines.insert(insert_idx, f"  * {label}")
+            lines.insert(insert_idx + 1, link_line)
+            changed = True
+            continue
+
+        insert_idx = date_idx + 1
+        while insert_idx < len(lines) and lines[insert_idx].startswith("    * "):
+            insert_idx += 1
+        lines.insert(insert_idx, link_line)
+        changed = True
+
+    if changed:
+        with open(sidebar_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines).rstrip() + "\n")
+    return changed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Step 7: generate daily innovation brief.")
     parser.add_argument("--date", type=str, default=TODAY_STR, help="date string YYYYMMDD, range token, or latest.")
@@ -606,6 +708,8 @@ def main() -> None:
     day_readme = os.path.join(target_dir, "README.md")
     if insert_link_into_day_readme(day_readme):
         log(f"[OK] day README linked: {day_readme}")
+    if ensure_sidebar_innovation_links(docs_dir):
+        log(f"[OK] sidebar innovation links updated: {os.path.join(docs_dir, '_sidebar.md')}")
 
 
 if __name__ == "__main__":
