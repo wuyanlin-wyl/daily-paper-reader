@@ -316,6 +316,8 @@ INNOVATION_SCHEMA = {
                 "required": ["module", "role", "technical_detail"],
             },
         },
+        "formulas_or_objectives": {"type": "array", "items": {"type": "string"}},
+        "algorithm_details": {"type": "array", "items": {"type": "string"}},
         "training_or_inference_details": {"type": "array", "items": {"type": "string"}},
         "experiment_evidence": {"type": "array", "items": {"type": "string"}},
         "limitations": {"type": "array", "items": {"type": "string"}},
@@ -332,6 +334,8 @@ INNOVATION_SCHEMA = {
         "technical_core",
         "method_pipeline",
         "key_modules",
+        "formulas_or_objectives",
+        "algorithm_details",
         "training_or_inference_details",
         "experiment_evidence",
         "limitations",
@@ -430,8 +434,8 @@ def build_paper_prompt(paper: Dict[str, Any]) -> List[Dict[str, str]]:
             "role": "system",
             "content": (
                 "你是严谨的论文技术审读助手。请用中文输出，目标不是写新闻摘要，"
-                "而是给研究者做二次创新准备的技术拆解。必须尽量具体到方法机制、"
-                "模块职责、训练/推理流程、实验依据和可延展点。"
+                "而是给研究者做二次创新准备的论文方法拆解。必须尽量具体到方法流程、"
+                "关键模块/机制、公式或目标函数、算法步骤。不要输出泛泛的意义评价。"
             ),
         },
         {
@@ -443,12 +447,13 @@ def build_paper_prompt(paper: Dict[str, Any]) -> List[Dict[str, str]]:
                 f"推荐证据：{evidence}\n"
                 f"标签：{tags}\n\n"
                 "请输出详细技术内容，遵守以下要求：\n"
-                "1. technical_core 写清楚方法到底怎么做，不要只说'提出框架/提高性能'。\n"
-                "2. method_pipeline 按步骤描述输入、关键处理、输出。\n"
-                "3. key_modules 至少列出 2-5 个核心模块或机制；如果摘要信息不足，说明推断依据。\n"
-                "4. experiment_evidence 写具体评测对象、指标、对比或结论；没有就写'摘要未提供'。\n"
-                "5. limitations 和 extension_opportunities 要服务于二次创新选题。\n"
-                "6. 只基于输入信息，不要编造论文没有出现的模块名或结果。"
+                "1. method_pipeline 必须按阶段/步骤写，突出输入、处理、输出。\n"
+                "2. key_modules 必须详细总结原论文的核心模块/机制，尽量写清楚模块如何工作。\n"
+                "3. formulas_or_objectives 提取论文中可从摘要/速览推断的公式、目标函数、指标定义或符号化关系；"
+                "如果输入未提供公式，写'输入信息未提供明确公式'，不要编造。\n"
+                "4. algorithm_details 写算法层面的执行细节，如检索、门控、融合、校准、分解、记忆更新、网格映射等。\n"
+                "5. training_or_inference_details 只写与训练/推理直接相关的技术信息。\n"
+                "6. 不要写空泛的'意义重大/值得关注'，不要编造输入中没有的模块名、公式和数值。"
             ),
         },
     ]
@@ -482,6 +487,8 @@ def fallback_innovation(paper: Dict[str, Any]) -> Dict[str, Any]:
                 "technical_detail": "当前信息不足，需从论文方法图、算法框或代码中确认。",
             }
         ],
+        "formulas_or_objectives": ["输入信息未提供明确公式。"],
+        "algorithm_details": ["摘要级信息不足，暂不能确认完整算法细节。"],
         "training_or_inference_details": ["摘要级信息不足，暂不能确认训练或推理细节。"],
         "experiment_evidence": ["摘要级信息不足，建议检查实验表格、消融实验和外部验证结果。"],
         "limitations": ["当前总结未读取全文，可能遗漏关键模块、假设条件和失败案例。"],
@@ -771,30 +778,7 @@ def render_markdown(date_str: str, papers: List[Dict[str, Any]], innovations: Di
         lines.extend(["## 今日趋势", "今日无新推荐，暂未生成创新点总结。", ""])
         return "\n".join(lines).rstrip() + "\n"
 
-    trends = [clean_text(x, 220) for x in synthesis.get("daily_trends") or [] if clean_text(x)]
-    lines.append("## 今日趋势")
-    if trends:
-        lines.extend([f"- {item}" for item in trends])
-    else:
-        lines.append("- 今日论文较少，暂无稳定趋势判断。")
-    lines.append("")
-
-    worth = synthesis.get("most_worth_reading") or []
-    worth_by_id = {normalize_paper_id(item.get("paper_id")): clean_text(item.get("reason"), 180) for item in worth if isinstance(item, dict)}
-    if worth_by_id:
-        lines.extend(["## 最值得先读", "", "| 论文 | 推荐理由 |", "|---|---|"])
-        by_id = {str(p.get("paper_id") or ""): p for p in papers}
-        for pid, reason in worth_by_id.items():
-            paper = by_id.get(pid)
-            if not paper:
-                continue
-            title = md_escape_table(paper.get("title_en") or paper.get("title") or pid)
-            link = paper_link(paper)
-            title_md = f"[{title}]({link})" if link else title
-            lines.append(f"| {title_md} | {md_escape_table(reason)} |")
-        lines.append("")
-
-    lines.append("## 单篇创新点")
+    lines.append("## 单篇方法拆解")
     lines.append("")
     for idx, paper in enumerate(papers, start=1):
         pid = str(paper.get("paper_id") or "")
@@ -810,20 +794,18 @@ def render_markdown(date_str: str, papers: List[Dict[str, Any]], innovations: Di
             lines.append(f"- {'；'.join(meta_parts)}")
         if link:
             lines.append(f"- 原文链接：{link}")
-        lines.append(f"- 一句话贡献：{clean_text(innov.get('one_sentence_contribution'), 260)}")
-        technical_core = clean_text(innov.get("technical_core"), 700)
-        if technical_core:
-            lines.append(f"- 技术核心：{technical_core}")
 
         pipeline = clean_list(innov.get("method_pipeline"), 300)
+        lines.append("- 方法流程：")
         if pipeline:
-            lines.append("- 方法流程：")
-            for item in pipeline[:6]:
+            for item in pipeline[:8]:
                 lines.append(f"  - {item}")
+        else:
+            lines.append("  - 输入信息未提供明确方法流程。")
 
         modules = [m for m in innov.get("key_modules") or [] if isinstance(m, dict)]
+        lines.append("- 关键模块/机制：")
         if modules:
-            lines.append("- 关键模块/机制：")
             for module in modules[:6]:
                 name = clean_text(module.get("module"), 100) or "未命名模块"
                 role = clean_text(module.get("role"), 180)
@@ -834,40 +816,26 @@ def render_markdown(date_str: str, papers: List[Dict[str, Any]], innovations: Di
                 if detail:
                     text += f"；{detail}"
                 lines.append(f"  - {text}")
+        else:
+            lines.append("  - 输入信息未提供明确关键模块。")
 
-        train_details = clean_list(innov.get("training_or_inference_details"), 260)
+        formulas = clean_list(innov.get("formulas_or_objectives"), 360)
+        if formulas:
+            lines.append("- 公式/目标函数/指标定义：")
+            for item in formulas[:6]:
+                lines.append(f"  - {item}")
+
+        algorithm_details = clean_list(innov.get("algorithm_details"), 320)
+        if algorithm_details:
+            lines.append("- 算法细节：")
+            for item in algorithm_details[:8]:
+                lines.append(f"  - {item}")
+
+        train_details = clean_list(innov.get("training_or_inference_details"), 300)
         if train_details:
             lines.append("- 训练/推理细节：")
-            for item in train_details[:5]:
+            for item in train_details[:6]:
                 lines.append(f"  - {item}")
-
-        experiment = clean_list(innov.get("experiment_evidence"), 260)
-        if experiment:
-            lines.append("- 实验支撑：")
-            for item in experiment[:5]:
-                lines.append(f"  - {item}")
-
-        tech = clean_list(innov.get("technical_innovations"), 220)
-        setting = clean_list(innov.get("problem_setting_innovation"), 220)
-        evidence = clean_list(innov.get("evidence_or_result_innovation"), 220)
-        if tech or setting or evidence:
-            lines.append("- 核心创新点：")
-            for item in (tech + setting + evidence)[:6]:
-                lines.append(f"  - {item}")
-
-        lines.append(f"- 和已有工作的区别：{clean_text(innov.get('difference_from_prior_work'), 260)}")
-        limitations = clean_list(innov.get("limitations"), 240)
-        if limitations:
-            lines.append("- 局限与风险：")
-            for item in limitations[:4]:
-                lines.append(f"  - {item}")
-        extensions = clean_list(innov.get("extension_opportunities"), 260)
-        if extensions:
-            lines.append("- 可延展点：")
-            for item in extensions[:4]:
-                lines.append(f"  - {item}")
-        lines.append(f"- 阅读启发：{clean_text(innov.get('reader_takeaway'), 260)}")
-        lines.append(f"- 可信度：{clean_text(innov.get('confidence')) or 'medium'}")
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
