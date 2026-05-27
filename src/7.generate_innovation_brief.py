@@ -77,6 +77,40 @@ def day_dir_for(docs_dir: str, date_str: str) -> str:
     return os.path.join(docs_dir, date_str[:6], date_str[6:])
 
 
+def resolve_latest_date_token(docs_dir: str) -> str:
+    candidates: List[tuple[str, str]] = []
+    if not os.path.isdir(docs_dir):
+        return TODAY_STR
+
+    for name in os.listdir(docs_dir):
+        top_path = os.path.join(docs_dir, name)
+        if not os.path.isdir(top_path):
+            continue
+        if RANGE_DATE_RE.match(name):
+            meta_path = os.path.join(top_path, "papers.meta.json")
+            readme_path = os.path.join(top_path, "README.md")
+            if os.path.exists(meta_path) or os.path.exists(readme_path):
+                _, end = name.split("-", 1)
+                candidates.append((end, name))
+            continue
+        if not re.match(r"^\d{6}$", name):
+            continue
+        for day in os.listdir(top_path):
+            if not re.match(r"^\d{2}$", day):
+                continue
+            token = f"{name}{day}"
+            day_path = os.path.join(top_path, day)
+            meta_path = os.path.join(day_path, "papers.meta.json")
+            readme_path = os.path.join(day_path, "README.md")
+            if os.path.exists(meta_path) or os.path.exists(readme_path):
+                candidates.append((token, token))
+
+    if not candidates:
+        return TODAY_STR
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
 def read_json(path: str, default: Any) -> Any:
     if not os.path.exists(path):
         return default
@@ -132,7 +166,7 @@ def collect_recommend_papers(date_str: str, mode: str) -> Dict[str, Dict[str, An
 def collect_meta_papers(docs_dir: str, date_str: str) -> List[Dict[str, Any]]:
     meta_path = os.path.join(day_dir_for(docs_dir, date_str), "papers.meta.json")
     payload = read_json(meta_path, {})
-    papers = payload.get("papers") if isinstance(payload, dict) else []
+    papers = (payload.get("papers") if isinstance(payload, dict) else []) or []
     return [p for p in papers if isinstance(p, dict)]
 
 
@@ -434,15 +468,16 @@ def insert_link_into_day_readme(day_readme: str) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Step 7: generate daily innovation brief.")
-    parser.add_argument("--date", type=str, default=TODAY_STR, help="date string YYYYMMDD or range token.")
+    parser.add_argument("--date", type=str, default=TODAY_STR, help="date string YYYYMMDD, range token, or latest.")
     parser.add_argument("--mode", type=str, default=None, help="recommend mode.")
     parser.add_argument("--docs-dir", type=str, default=None, help="override docs dir.")
     parser.add_argument("--no-llm", action="store_true", help="generate fallback brief without calling LLM.")
     args = parser.parse_args()
 
-    date_str = args.date or TODAY_STR
     mode = args.mode or resolve_mode()
     docs_dir = args.docs_dir or resolve_docs_dir()
+    date_arg = str(args.date or "").strip()
+    date_str = resolve_latest_date_token(docs_dir) if date_arg.lower() == "latest" else (date_arg or TODAY_STR)
     target_dir = day_dir_for(docs_dir, date_str)
     os.makedirs(target_dir, exist_ok=True)
 
