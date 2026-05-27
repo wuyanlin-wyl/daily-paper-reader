@@ -1,6 +1,6 @@
 # 研究方向与二次创新路线 · 2026-05-26
 
-- 生成时间：2026-05-27 08:49:16 UTC
+- 生成时间：2026-05-27 09:30:46 UTC
 - 当日论文数：18
 - 方向数：6
 
@@ -20,23 +20,23 @@
 
 ### 代表论文
 
-- [Towards Clinically Interpretable Ophthalmic VQA via Spatially-Grounded Lesion Evidence](https://arxiv.org/abs/2605.22414v1)：提出FundusGround基准，通过ETDRS网格空间定位病变证据，提升眼科VQA的可解释性和准确性。
-- [Towards Reliable Fetal Ultrasound Interpretation with Multi-Agent Collaboration](https://arxiv.org/abs/2605.25357v1)：提出FetUSAgents，一种工具增强的多智能体系统，通过双路径证据仲裁和检索增强证据库，实现可靠的胎儿超声解读，在VQA等任务上显著优于现有方法。
-- [RAPTOR+: A Visually Grounded Vision-Language Framework to Improve Clinical Trust and Auditability in Automated Cancer Referral Processing](https://arxiv.org/abs/2605.25956v1)：提出RAPTOR+，一种基于视觉语言模型的多模态框架，通过微调VLM实现端到端癌症转诊表单理解，显著提升阅读准确率和视觉证据定位的严格安全性，增强临床可审计性。
-- [MedFM-Robust: Benchmarking Robustness of Medical Foundation Models](https://arxiv.org/abs/2605.19027v3)：构建了涵盖40种扰动、8种成像模态的医疗基础模型鲁棒性基准，系统评估了VLM和分割模型在不同微调策略下的性能退化，揭示了微调策略与领域特定扰动对鲁棒性的主导作用。
-- [RoboSurg-VQA: A Multimodal Benchmark for Surgical Segmentation-Aware Visual Question Answering](https://arxiv.org/abs/2605.23068v1)：提出一个面向机器人辅助手术的分割感知视觉问答基准RoboSurg-VQA，通过重用公共分割数据集、设计临床问题集和约束提示自动标注+人工审计，为手术视觉理解提供标准化评估平台。
-- [What Makes a Medical Checker Trainable? Diagnosing Signal Collapse and Reward Hacking in Checker-Guided RAG for Biomedical QA](https://arxiv.org/abs/2605.25988v1)：发现医学RAG中NLI检查器的输出分布（而非准确率）决定其作为RL奖励的可训练性，诊断出信号坍缩和奖励破解两种现象，并证明适度信号检查器训练出的模型优于强信号检查器。
-- [BalanceRAG: Joint Risk Calibration for Cascaded Retrieval-Augmented Generation](https://arxiv.org/abs/2605.20084v1)：提出BalanceRAG方法，通过二维网格上的序列图检验联合校准LLM-only和RAG分支的不确定性阈值，在控制系统级错误率的同时保留更多样本，并可扩展至多风险校准。
-- [VRXU-net: A Deep Learning Approach for Brain Ischemic Stroke Lesion Detection and Segmentation in T1W MRI](https://arxiv.org/abs/2605.21633v1)：提出一种结合预分类器与三平面融合残差U-Net的VRXU-net方法，用于脑缺血性卒中病变检测与分割，在ATLAS数据集上提升准确率和Dice系数。
-- [Med-R2: An Adversarial Benchmark for Evidence-Grounded Reasoning in Medical VLMs](https://arxiv.org/abs/2605.24492v1)：提出Med-R2 Bench，一个层级化对抗性基准，系统评估医学视觉语言模型在临床推理中是否真正基于视觉证据而非虚假相关性。
-- [Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning](https://arxiv.org/abs/2605.19491v2)：提出PathCTM模型，实现token高效的尺度空间连续推理，大幅减少计算开销而不损失性能。
-- [Cardiac fat segmentation using computed tomography and an image-to-image conditional generative adversarial neural network](https://arxiv.org/abs/2605.20064v1)：首次将pix2pix条件生成对抗网络应用于CT图像中心外膜和纵隔脂肪的自动分割，实现高精度和实时分割。
+- [Towards Clinically Interpretable Ophthalmic VQA via Spatially-Grounded Lesion Evidence](https://arxiv.org/abs/2605.22414v1)：提出一个具有空间定位病灶证据的临床可解释眼科VQA基准FundusGround，通过ETDRS网格映射病灶，生成多格式问题，并验证病灶级视觉证据提升模型性能与透明度。
+- [Towards Reliable Fetal Ultrasound Interpretation with Multi-Agent Collaboration](https://arxiv.org/abs/2605.25357v1)：提出FetUSAgents，一种工具增强的多智能体系统，通过双路径证据仲裁（DPEA）和检索增强证据库，实现可靠、可溯源的胎儿超声解读。
+- [RAPTOR+: A Visually Grounded Vision-Language Framework to Improve Clinical Trust and Auditability in Automated Cancer Referral Processing](https://arxiv.org/abs/2605.25956v1)：针对紧急疑似结直肠癌转诊处理中手动审查的瓶颈，本文提出RAPTOR+多模态框架，通过微调视觉语言模型实现端到端转诊理解，并在223份临床转诊表单上评估。相比零样本模型和OCR管道，微调模型显著提升了阅读准确率（96.1%）和证据定位的严格安全性（60.6%），增强了临床可审计性。
+- [MedFM-Robust: Benchmarking Robustness of Medical Foundation Models](https://arxiv.org/abs/2605.19027v3)：构建了一个包含40种扰动类型、覆盖八种成像模态的医疗基础模型鲁棒性基准，系统评估了视觉-语言模型和分割模型在不同微调策略下的表现，揭示了微调策略的主导作用及领域特定扰动的严重性。
+- [RoboSurg-VQA: A Multimodal Benchmark for Surgical Segmentation-Aware Visual Question Answering](https://arxiv.org/abs/2605.23068v1)：提出了RoboSurg-VQA，一个通过重用公共手术分割数据集构建的分割感知视觉问答基准，配有一组固定的临床问题，并采用约束提示自动生成候选答案加人工审计以确保质量。
+- [What Makes a Medical Checker Trainable? Diagnosing Signal Collapse and Reward Hacking in Checker-Guided RAG for Biomedical QA](https://arxiv.org/abs/2605.25988v1)：发现医学RAG中NLI检查器的输出分布而非准确率决定其作为强化学习奖励的可训练性，诊断了信号坍缩和奖励破解，并提出适度信号策略可提升模型质量。
+- [BalanceRAG: Joint Risk Calibration for Cascaded Retrieval-Augmented Generation](https://arxiv.org/abs/2605.20084v1)：提出BalanceRAG，通过联合校准LLM-only和RAG两个分支的不确定性阈值，在二维网格上用序列图检验控制系统级错误率，提高覆盖率并减少不必要的检索调用。
+- [VRXU-net: A Deep Learning Approach for Brain Ischemic Stroke Lesion Detection and Segmentation in T1W MRI](https://arxiv.org/abs/2605.21633v1)：提出一种结合改进VGG分类和残差U-Net分割的VRXU-net方法，通过三平面聚合和预分类器减少非病变切片处理，提高脑缺血性卒中病变检测和分割的准确率及Dice系数。
+- [Med-R2: An Adversarial Benchmark for Evidence-Grounded Reasoning in Medical VLMs](https://arxiv.org/abs/2605.24492v1)：提出Med-R2 Bench基准，通过层级化对抗性评估来测试医学视觉语言模型是否基于视觉证据推理而非依赖虚假先验。
+- [Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning](https://arxiv.org/abs/2605.19491v2)：提出PathCTM模型，通过自适应连续推理（动态尺度切换和早期停止）大幅提升全切片图像分析的效率，减少约96%的patch和推理时间，同时保持诊断准确率。
+- [Cardiac fat segmentation using computed tomography and an image-to-image conditional generative adversarial neural network](https://arxiv.org/abs/2605.20064v1)：提出基于条件生成对抗网络pix2pix的自动分割方法，实现CT图像中心外膜和纵隔脂肪的高精度实时分割。
 
 ### 共同创新点
-- 提出FundusGround基准，通过ETDRS网格空间定位病变证据，提升眼科VQA的可解释性和准确性。
-- 提出FetUSAgents，一种工具增强的多智能体系统，通过双路径证据仲裁和检索增强证据库，实现可靠的胎儿超声解读，在VQA等任务上显著优于现有方法。
-- 提出RAPTOR+，一种基于视觉语言模型的多模态框架，通过微调VLM实现端到端癌症转诊表单理解，显著提升阅读准确率和视觉证据定位的严格安全性，增强临床可审计性。
-- 构建了涵盖40种扰动、8种成像模态的医疗基础模型鲁棒性基准，系统评估了VLM和分割模型在不同微调策略下的性能退化，揭示了微调策略与领域特定扰动对鲁棒性的主导作用。
+- 提出一个具有空间定位病灶证据的临床可解释眼科VQA基准FundusGround，通过ETDRS网格映射病灶，生成多格式问题，并验证病灶级视觉证据提升模型性能与透明度。
+- 提出FetUSAgents，一种工具增强的多智能体系统，通过双路径证据仲裁（DPEA）和检索增强证据库，实现可靠、可溯源的胎儿超声解读。
+- 针对紧急疑似结直肠癌转诊处理中手动审查的瓶颈，本文提出RAPTOR+多模态框架，通过微调视觉语言模型实现端到端转诊理解，并在223份临床转诊表单上评估。相比零样本模型和OCR管道，微调模型显著提升了阅读准确率（96.1%）和证据定位的严格安全性（60.6%），增强了临床可审计性。
+- 构建了一个包含40种扰动类型、覆盖八种成像模态的医疗基础模型鲁棒性基准，系统评估了视觉-语言模型和分割模型在不同微调策略下的表现，揭示了微调策略的主导作用及领域特定扰动的严重性。
 
 ### 尚未解决的问题
 - 现有工作之间的评测协议、数据集和临床适用边界可能尚未统一。
@@ -60,14 +60,14 @@
 
 ### 代表论文
 
-- [PrivFusion: A Privacy-preserving Multi-Agent Framework for Harmonizing Distributed Datasets](https://arxiv.org/abs/2605.24249v1)：提出PrivFusion框架，通过多智能体自动协调分布式医疗数据集，减少人工干预，提高联邦学习前的数据一致性。
-- [Parameter-Efficient VLMs for Gastrointestinal Endoscopy: Medical Image Generation and Clinical Visual Question Answering](https://arxiv.org/abs/2605.24792v1)：提出双流水线参数高效微调（PEFT）模型，同时解决胃肠内镜中隐私保护合成图像生成和临床视觉问答问题。
-- [ImPartial: Multi-channel Whole-Cell Segmentation using Partial Annotations](https://arxiv.org/abs/2605.24128v1)：提出ImPartial框架，利用稀疏部分标注和自监督多通道量化插值，实现与全监督相当的细胞分割性能，大幅减少标注需求。
+- [PrivFusion: A Privacy-preserving Multi-Agent Framework for Harmonizing Distributed Datasets](https://arxiv.org/abs/2605.24249v1)：提出PrivFusion，一个在联邦学习前自动协调多机构结构化数据集的隐私保护多智能体框架，通过本地数据分析和语义聚类减少人工干预。
+- [Parameter-Efficient VLMs for Gastrointestinal Endoscopy: Medical Image Generation and Clinical Visual Question Answering](https://arxiv.org/abs/2605.24792v1)：提出双流水线PEFT模型，利用Florence-2和LoRA微调Stable Diffusion 2.1，同时解决胃肠内镜VQA和隐私保护合成图像生成问题。
+- [ImPartial: Multi-channel Whole-Cell Segmentation using Partial Annotations](https://arxiv.org/abs/2605.24128v1)：提出ImPartial框架，利用稀疏涂鸦和自监督多通道量化插值，在部分标注下实现与全监督相当的细胞分割性能。
 
 ### 共同创新点
-- 提出PrivFusion框架，通过多智能体自动协调分布式医疗数据集，减少人工干预，提高联邦学习前的数据一致性。
-- 提出双流水线参数高效微调（PEFT）模型，同时解决胃肠内镜中隐私保护合成图像生成和临床视觉问答问题。
-- 提出ImPartial框架，利用稀疏部分标注和自监督多通道量化插值，实现与全监督相当的细胞分割性能，大幅减少标注需求。
+- 提出PrivFusion，一个在联邦学习前自动协调多机构结构化数据集的隐私保护多智能体框架，通过本地数据分析和语义聚类减少人工干预。
+- 提出双流水线PEFT模型，利用Florence-2和LoRA微调Stable Diffusion 2.1，同时解决胃肠内镜VQA和隐私保护合成图像生成问题。
+- 提出ImPartial框架，利用稀疏涂鸦和自监督多通道量化插值，在部分标注下实现与全监督相当的细胞分割性能。
 
 ### 尚未解决的问题
 - 现有工作之间的评测协议、数据集和临床适用边界可能尚未统一。
@@ -91,10 +91,10 @@
 
 ### 代表论文
 
-- [Universal Boosts, Specific Suppressors: Sparse Autoencoder Steering of Medical Vision-Language Models](https://arxiv.org/abs/2605.24977v1)：提出一种基于稀疏自编码器的解码时残差引导方法，通过逐token因果干预（提升正确特征、抑制错误特征），在不更新权重的情况下显著减少医学视觉语言模型在胸部X光报告生成中的幻觉，并发现提升方向跨模型通用而抑制方向模型特异。
+- [Universal Boosts, Specific Suppressors: Sparse Autoencoder Steering of Medical Vision-Language Models](https://arxiv.org/abs/2605.24977v1)：提出一种基于稀疏自编码器的解码时残差引导方法，通过逐token因果干预（提升正确特征、抑制错误特征）改善医学视觉语言模型生成胸部X光报告的质量。
 
 ### 共同创新点
-- 提出一种基于稀疏自编码器的解码时残差引导方法，通过逐token因果干预（提升正确特征、抑制错误特征），在不更新权重的情况下显著减少医学视觉语言模型在胸部X光报告生成中的幻觉，并发现提升方向跨模型通用而抑制方向模型特异。
+- 提出一种基于稀疏自编码器的解码时残差引导方法，通过逐token因果干预（提升正确特征、抑制错误特征）改善医学视觉语言模型生成胸部X光报告的质量。
 
 ### 尚未解决的问题
 - 现有工作之间的评测协议、数据集和临床适用边界可能尚未统一。
@@ -118,10 +118,10 @@
 
 ### 代表论文
 
-- [EchoPilot: Training-Free Ultrasound Video Segmentation via Scale-Space Semantic Prompting and Reliability-Gated Memory](https://arxiv.org/abs/2605.25944v1)：提出一种无需训练的超声视频分割框架EchoPilot，通过尺度空间语义提示和可靠性门控记忆，仅需单点点击和类别名称即可实现高质量分割，并在多个数据集上达到最优性能。
+- [EchoPilot: Training-Free Ultrasound Video Segmentation via Scale-Space Semantic Prompting and Reliability-Gated Memory](https://arxiv.org/abs/2605.25944v1)：EchoPilot提出一种无需训练的超声视频分割框架，通过尺度空间语义提示和可靠性门控记忆，仅需单点点击和类别名称即可实现高质量分割。
 
 ### 共同创新点
-- 提出一种无需训练的超声视频分割框架EchoPilot，通过尺度空间语义提示和可靠性门控记忆，仅需单点点击和类别名称即可实现高质量分割，并在多个数据集上达到最优性能。
+- EchoPilot提出一种无需训练的超声视频分割框架，通过尺度空间语义提示和可靠性门控记忆，仅需单点点击和类别名称即可实现高质量分割。
 
 ### 尚未解决的问题
 - 现有工作之间的评测协议、数据集和临床适用边界可能尚未统一。
@@ -145,10 +145,10 @@
 
 ### 代表论文
 
-- [PromptRad: Knowledge-Enhanced Multi-Label Prompt-Tuning for Low-Resource Radiology Report Labeling](https://arxiv.org/abs/2605.20052v1)：提出一种知识增强的多标签提示调优方法PromptRad，在低资源放射学报告标注中仅需少量标注数据即可超越传统方法并与GPT-4性能相当。
+- [PromptRad: Knowledge-Enhanced Multi-Label Prompt-Tuning for Low-Resource Radiology Report Labeling](https://arxiv.org/abs/2605.20052v1)：提出PromptRad，一种知识增强的多标签提示调优方法，用于低资源放射学报告标注，将多标签分类转化为掩码语言建模并利用UMLS同义词扩展词汇表。
 
 ### 共同创新点
-- 提出一种知识增强的多标签提示调优方法PromptRad，在低资源放射学报告标注中仅需少量标注数据即可超越传统方法并与GPT-4性能相当。
+- 提出PromptRad，一种知识增强的多标签提示调优方法，用于低资源放射学报告标注，将多标签分类转化为掩码语言建模并利用UMLS同义词扩展词汇表。
 
 ### 尚未解决的问题
 - 现有工作之间的评测协议、数据集和临床适用边界可能尚未统一。
@@ -172,10 +172,10 @@
 
 ### 代表论文
 
-- [Divide-and-Conquer Inference for Large-Scale Visual Recognition with Multimodal Large Language Models](https://arxiv.org/abs/2605.24799v1)：提出分而治之推理（DCI）策略，通过递归分解大规模分类任务并动态剪枝，克服MLLM在长序列推理中的性能崩溃，实现即插即用的测试时扩展。
+- [Divide-and-Conquer Inference for Large-Scale Visual Recognition with Multimodal Large Language Models](https://arxiv.org/abs/2605.24799v1)：提出分而治之推理（DCI）策略，通过递归分解大规模分类任务并动态剪枝，缓解多模态大语言模型在长序列识别中的注意力稀释和性能崩溃问题，实现无训练加速和精度提升。
 
 ### 共同创新点
-- 提出分而治之推理（DCI）策略，通过递归分解大规模分类任务并动态剪枝，克服MLLM在长序列推理中的性能崩溃，实现即插即用的测试时扩展。
+- 提出分而治之推理（DCI）策略，通过递归分解大规模分类任务并动态剪枝，缓解多模态大语言模型在长序列识别中的注意力稀释和性能崩溃问题，实现无训练加速和精度提升。
 
 ### 尚未解决的问题
 - 现有工作之间的评测协议、数据集和临床适用边界可能尚未统一。
