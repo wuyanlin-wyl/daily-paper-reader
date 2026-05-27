@@ -338,6 +338,58 @@ DAILY_SCHEMA = {
 }
 
 
+DIRECTIONS_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "directions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "name": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "paper_ids": {"type": "array", "items": {"type": "string"}},
+                    "shared_innovations": {"type": "array", "items": {"type": "string"}},
+                    "open_gaps": {"type": "array", "items": {"type": "string"}},
+                    "innovation_routes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "route_name": {"type": "string"},
+                                "idea": {"type": "string"},
+                                "why_promising": {"type": "string"},
+                                "possible_experiment": {"type": "string"},
+                                "risk": {"type": "string"},
+                            },
+                            "required": [
+                                "route_name",
+                                "idea",
+                                "why_promising",
+                                "possible_experiment",
+                                "risk",
+                            ],
+                        },
+                    },
+                },
+                "required": [
+                    "name",
+                    "summary",
+                    "paper_ids",
+                    "shared_innovations",
+                    "open_gaps",
+                    "innovation_routes",
+                ],
+            },
+        }
+    },
+    "required": ["directions"],
+}
+
+
 def build_paper_prompt(paper: Dict[str, Any]) -> List[Dict[str, str]]:
     title = clean_text(paper.get("title_en") or paper.get("title"), 500)
     abstract = clean_text(paper.get("abstract_en") or paper.get("abstract"), 3000)
@@ -452,6 +504,109 @@ def build_daily_synthesis(client: SimpleLLMClient | None, papers: List[Dict[str,
     return build_daily_synthesis(None, papers, innovations)
 
 
+def paper_compact_item(paper: Dict[str, Any], innovations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    pid = str(paper.get("paper_id") or "").strip()
+    innov = innovations.get(pid) or {}
+    return {
+        "paper_id": pid,
+        "title": clean_text(paper.get("title_en") or paper.get("title"), 240),
+        "abstract": clean_text(paper.get("abstract_en") or paper.get("abstract"), 800),
+        "tags": clean_text(paper.get("tags"), 240),
+        "contribution": clean_text(innov.get("one_sentence_contribution"), 260),
+        "technical_innovations": innov.get("technical_innovations") or [],
+        "problem_setting_innovation": innov.get("problem_setting_innovation") or [],
+        "reader_takeaway": clean_text(innov.get("reader_takeaway"), 220),
+    }
+
+
+def fallback_research_directions(papers: List[Dict[str, Any]], innovations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    if not papers:
+        return {"directions": []}
+
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for paper in papers:
+        tags = clean_text(paper.get("tags"))
+        label = "综合医学 AI 方向"
+        if tags:
+            label = re.split(r"[,;，；]\s*", tags)[0].strip() or label
+            label = re.sub(r"^(query|source|topic):", "", label, flags=re.IGNORECASE).strip() or label
+        groups.setdefault(label, []).append(paper)
+
+    directions: List[Dict[str, Any]] = []
+    for label, items in groups.items():
+        paper_ids = [str(p.get("paper_id") or "").strip() for p in items if str(p.get("paper_id") or "").strip()]
+        contributions = [
+            clean_text((innovations.get(pid) or {}).get("one_sentence_contribution"), 180)
+            for pid in paper_ids
+        ]
+        contributions = [x for x in contributions if x]
+        directions.append(
+            {
+                "name": label,
+                "summary": f"该方向包含 {len(items)} 篇论文，建议结合单篇创新点进一步细分子问题。",
+                "paper_ids": paper_ids,
+                "shared_innovations": contributions[:4] or ["当前信息不足，需结合摘要和论文正文进一步归纳共同创新。"],
+                "open_gaps": [
+                    "现有工作之间的评测协议、数据集和临床适用边界可能尚未统一。",
+                    "需要进一步确认方法在真实场景、跨中心数据或外部验证集上的稳定性。",
+                ],
+                "innovation_routes": [
+                    {
+                        "route_name": "统一评测与误差分解",
+                        "idea": "把同方向论文放到统一任务、统一指标和统一错误类型下比较，寻找稳定短板。",
+                        "why_promising": "同方向论文往往各自验证，统一评测能暴露可继续推进的真实问题。",
+                        "possible_experiment": "复现或复用公开结果，构建共享测试集，按失败类型进行分层统计。",
+                        "risk": "不同论文的数据和任务定义不一致，可能需要较多人工清洗。",
+                    },
+                    {
+                        "route_name": "方法组合与轻量增强",
+                        "idea": "抽取该方向中互补的模块，例如解释、校准、隐私、效率或多智能体协作，组合成更完整方案。",
+                        "why_promising": "单篇论文通常只优化一个环节，模块组合可能带来更强的系统效果。",
+                        "possible_experiment": "选择一个强基线，逐步加入互补模块并做消融实验。",
+                        "risk": "模块叠加可能增加复杂度，收益未必线性增长。",
+                    },
+                ],
+            }
+        )
+    return {"directions": directions}
+
+
+def build_research_directions(client: SimpleLLMClient | None, papers: List[Dict[str, Any]], innovations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    if not papers:
+        return {"directions": []}
+    if client is None:
+        return fallback_research_directions(papers, innovations)
+
+    items = [paper_compact_item(paper, innovations) for paper in papers]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是科研选题顾问。请把当天论文自动划分成若干研究方向，"
+                "并在每个方向内进行二次创新路线开发。请用中文，避免空泛，"
+                "每条路线都要包含想法、为什么有潜力、可做实验和风险。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "下面是当天论文和单篇创新点。请完成：\n"
+                "1. 自动划分 2-8 个研究方向；论文少时可以少于 2 个。\n"
+                "2. 每篇论文归入最相关的方向，必要时可少量交叉，但不要过度重复。\n"
+                "3. 每个方向给出共同创新、未解决问题和 2-4 条二次创新路线。\n\n"
+                + json.dumps(items, ensure_ascii=False, indent=2)
+            ),
+        },
+    ]
+    try:
+        parsed = call_structured(client, messages, "research_directions", DIRECTIONS_SCHEMA, 5000)
+        if parsed and isinstance(parsed.get("directions"), list):
+            return parsed
+    except Exception as exc:
+        log(f"[WARN] LLM research directions failed: {exc}")
+    return fallback_research_directions(papers, innovations)
+
+
 def md_escape_table(text: Any) -> str:
     return clean_text(text).replace("|", "\\|")
 
@@ -535,6 +690,111 @@ def render_markdown(date_str: str, papers: List[Dict[str, Any]], innovations: Di
     return "\n".join(lines).rstrip() + "\n"
 
 
+def render_research_directions_markdown(
+    date_str: str,
+    papers: List[Dict[str, Any]],
+    innovations: Dict[str, Dict[str, Any]],
+    directions_payload: Dict[str, Any],
+) -> str:
+    label = format_date(date_str)
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    directions = [d for d in directions_payload.get("directions") or [] if isinstance(d, dict)]
+    paper_by_id = {str(p.get("paper_id") or "").strip(): p for p in papers}
+
+    lines: List[str] = [
+        f"# 研究方向与二次创新路线 · {label}",
+        "",
+        f"- 生成时间：{generated_at}",
+        f"- 当日论文数：{len(papers)}",
+        f"- 方向数：{len(directions)}",
+        "",
+    ]
+
+    if not papers:
+        lines.extend(["## 今日方向总览", "今日无新推荐，暂未生成研究方向。", ""])
+        return "\n".join(lines).rstrip() + "\n"
+
+    lines.extend(["## 今日方向总览", "", "| 方向 | 论文数 | 代表论文 |", "|---|---:|---|"])
+    for direction in directions:
+        name = md_escape_table(direction.get("name") or "未命名方向")
+        paper_ids = [normalize_paper_id(x) for x in direction.get("paper_ids") or []]
+        titles = []
+        for pid in paper_ids[:3]:
+            paper = paper_by_id.get(pid)
+            if paper:
+                titles.append(md_escape_table(paper.get("title_en") or paper.get("title") or pid))
+        lines.append(f"| {name} | {len([pid for pid in paper_ids if pid])} | {'<br>'.join(titles) or '-'} |")
+    lines.append("")
+
+    for idx, direction in enumerate(directions, start=1):
+        name = clean_text(direction.get("name") or f"方向 {idx}")
+        summary = clean_text(direction.get("summary"), 500)
+        paper_ids = [normalize_paper_id(x) for x in direction.get("paper_ids") or [] if normalize_paper_id(x)]
+        lines.append(f"## 方向 {idx}：{name}")
+        if summary:
+            lines.append(summary)
+            lines.append("")
+
+        lines.extend(["### 代表论文", ""])
+        if paper_ids:
+            for pid in paper_ids:
+                paper = paper_by_id.get(pid)
+                if not paper:
+                    continue
+                title = clean_text(paper.get("title_en") or paper.get("title") or pid)
+                link = paper_link(paper)
+                contribution = clean_text((innovations.get(pid) or {}).get("one_sentence_contribution"), 220)
+                title_md = f"[{title}]({link})" if link else title
+                if contribution:
+                    lines.append(f"- {title_md}：{contribution}")
+                else:
+                    lines.append(f"- {title_md}")
+        else:
+            lines.append("- 暂无明确归属论文。")
+        lines.append("")
+
+        shared = [clean_text(x, 260) for x in direction.get("shared_innovations") or [] if clean_text(x)]
+        lines.append("### 共同创新点")
+        if shared:
+            lines.extend([f"- {item}" for item in shared])
+        else:
+            lines.append("- 暂无稳定共同创新点。")
+        lines.append("")
+
+        gaps = [clean_text(x, 260) for x in direction.get("open_gaps") or [] if clean_text(x)]
+        lines.append("### 尚未解决的问题")
+        if gaps:
+            lines.extend([f"- {item}" for item in gaps])
+        else:
+            lines.append("- 需要结合全文和实验设置进一步判断。")
+        lines.append("")
+
+        routes = [r for r in direction.get("innovation_routes") or [] if isinstance(r, dict)]
+        lines.append("### 二次创新路线")
+        if not routes:
+            lines.append("- 暂无可用路线。")
+            lines.append("")
+            continue
+        for route_idx, route in enumerate(routes, start=1):
+            route_name = clean_text(route.get("route_name") or f"路线 {route_idx}", 120)
+            lines.append(f"#### 路线 {route_idx}：{route_name}")
+            idea = clean_text(route.get("idea"), 360)
+            why = clean_text(route.get("why_promising"), 300)
+            experiment = clean_text(route.get("possible_experiment"), 320)
+            risk = clean_text(route.get("risk"), 260)
+            if idea:
+                lines.append(f"- 核心想法：{idea}")
+            if why:
+                lines.append(f"- 为什么值得做：{why}")
+            if experiment:
+                lines.append(f"- 可验证实验：{experiment}")
+            if risk:
+                lines.append(f"- 主要风险：{risk}")
+            lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def insert_link_into_day_readme(day_readme: str) -> bool:
     if not os.path.exists(day_readme):
         return False
@@ -543,20 +803,26 @@ def insert_link_into_day_readme(day_readme: str) -> bool:
             content = f.read()
     except Exception:
         return False
-    link_line = "- [今日创新点总结](innovation-brief.md)"
-    if link_line in content:
+    link_lines = [
+        "- [今日创新点总结](innovation-brief.md)",
+        "- [研究方向与二次创新路线](research-directions.md)",
+    ]
+    missing = [line for line in link_lines if line not in content]
+    if not missing:
         return False
     marker = "## 今日简报（AI）"
+    insert_text = "\n".join(missing)
     if marker in content:
-        updated = content.replace(marker, f"{link_line}\n\n{marker}", 1)
+        updated = content.replace(marker, f"{insert_text}\n\n{marker}", 1)
     else:
         lines = content.splitlines()
         if lines and lines[0].startswith("# "):
             lines.insert(1, "")
-            lines.insert(2, link_line)
+            for offset, line in enumerate(missing):
+                lines.insert(2 + offset, line)
             updated = "\n".join(lines) + ("\n" if content.endswith("\n") else "")
         else:
-            updated = link_line + "\n\n" + content
+            updated = insert_text + "\n\n" + content
     with open(day_readme, "w", encoding="utf-8") as f:
         f.write(updated)
     return True
@@ -566,6 +832,12 @@ def sidebar_href_for_date_token(date_token: str) -> str:
     if RANGE_DATE_RE.match(date_token):
         return f"#/{date_token}/innovation-brief"
     return f"#/{date_token[:6]}/{date_token[6:]}/innovation-brief"
+
+
+def directions_href_for_date_token(date_token: str) -> str:
+    if RANGE_DATE_RE.match(date_token):
+        return f"#/{date_token}/research-directions"
+    return f"#/{date_token[:6]}/{date_token[6:]}/research-directions"
 
 
 def collect_existing_innovation_briefs(docs_dir: str) -> List[Dict[str, str]]:
@@ -580,11 +852,14 @@ def collect_existing_innovation_briefs(docs_dir: str) -> List[Dict[str, str]]:
         if RANGE_DATE_RE.match(name):
             brief_path = os.path.join(top_path, "innovation-brief.md")
             if os.path.exists(brief_path):
+                directions_path = os.path.join(top_path, "research-directions.md")
                 entries.append(
                     {
                         "token": name,
                         "label": format_date(name),
                         "href": sidebar_href_for_date_token(name),
+                        "directions_href": directions_href_for_date_token(name),
+                        "has_directions": "1" if os.path.exists(directions_path) else "",
                     }
                 )
             continue
@@ -596,11 +871,14 @@ def collect_existing_innovation_briefs(docs_dir: str) -> List[Dict[str, str]]:
             token = f"{name}{day}"
             brief_path = os.path.join(top_path, day, "innovation-brief.md")
             if os.path.exists(brief_path):
+                directions_path = os.path.join(top_path, day, "research-directions.md")
                 entries.append(
                     {
                         "token": token,
                         "label": format_date(token),
                         "href": sidebar_href_for_date_token(token),
+                        "directions_href": directions_href_for_date_token(token),
+                        "has_directions": "1" if os.path.exists(directions_path) else "",
                     }
                 )
 
@@ -680,9 +958,13 @@ def ensure_sidebar_innovation_links(docs_dir: str) -> bool:
     def has_child(idx: int, current_lines: List[str]) -> bool:
         return idx + 1 < len(current_lines) and current_lines[idx + 1].startswith("    * ")
 
-    # Rebuild innovation entries each run. This avoids duplicate date blocks and
+    # Rebuild custom entries each run. This avoids duplicate date blocks and
     # keeps old innovation links after the upstream sidebar is regenerated.
-    lines = [line for line in lines if "innovation-brief" not in line]
+    lines = [
+        line
+        for line in lines
+        if "innovation-brief" not in line and "research-directions" not in line
+    ]
     tokens_with_children = {
         line_date_token(line)
         for idx, line in enumerate(lines)
@@ -735,13 +1017,18 @@ def ensure_sidebar_innovation_links(docs_dir: str) -> bool:
     for entry in entries:
         label = entry["label"]
         href = entry["href"]
-        link_line = f'    * <a class="dpr-sidebar-item-link" href="{href}">创新点总结</a>'
+        link_lines = [f'    * <a class="dpr-sidebar-item-link" href="{href}">创新点总结</a>']
+        if entry.get("has_directions"):
+            link_lines.append(
+                f'    * <a class="dpr-sidebar-item-link" href="{entry["directions_href"]}">研究方向与路线</a>'
+            )
 
         date_idx = find_date_line(label)
         if date_idx < 0:
             insert_idx = daily_idx + 1
             lines.insert(insert_idx, make_date_line(entry))
-            lines.insert(insert_idx + 1, link_line)
+            for offset, line in enumerate(link_lines):
+                lines.insert(insert_idx + 1 + offset, line)
             changed = True
             continue
 
@@ -749,7 +1036,8 @@ def ensure_sidebar_innovation_links(docs_dir: str) -> bool:
         while insert_idx < len(lines) and lines[insert_idx].startswith("    * ") and is_section_heading(lines[insert_idx]):
             # Keep the innovation brief before section headings like 精读区.
             break
-        lines.insert(insert_idx, link_line)
+        for offset, line in enumerate(link_lines):
+            lines.insert(insert_idx + offset, line)
         changed = True
 
     if changed:
@@ -793,11 +1081,23 @@ def main() -> None:
 
     synthesis = build_daily_synthesis(client, papers, innovations)
     markdown = render_markdown(date_str, papers, innovations, synthesis)
+    directions_payload = build_research_directions(client, papers, innovations)
+    directions_markdown = render_research_directions_markdown(
+        date_str,
+        papers,
+        innovations,
+        directions_payload,
+    )
 
     out_path = os.path.join(target_dir, "innovation-brief.md")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(markdown)
     log(f"[OK] innovation brief saved: {out_path}")
+
+    directions_path = os.path.join(target_dir, "research-directions.md")
+    with open(directions_path, "w", encoding="utf-8") as f:
+        f.write(directions_markdown)
+    log(f"[OK] research directions saved: {directions_path}")
 
     day_readme = os.path.join(target_dir, "README.md")
     if insert_link_into_day_readme(day_readme):
