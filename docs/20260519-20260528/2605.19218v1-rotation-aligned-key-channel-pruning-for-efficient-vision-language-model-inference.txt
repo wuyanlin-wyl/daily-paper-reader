@@ -1,0 +1,794 @@
+Title: Rotation-Aligned Key Channel Pruning for Efficient Vision-Language Model Inference
+
+URL Source: https://arxiv.org/pdf/2605.19218v1
+
+Published Time: Wed, 20 May 2026 00:41:27 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Rotation-Aligned Key Channel Pruning for Efficient Vision-Language Model Inference 
+
+Beomseok Kang, Dongwon Jo, Jiwon Song, Donghwee Son, Jae-Joon Kim 
+
+Seoul National University 
+
+{beomseok,kimjaejoon}@snu.ac.kr 
+
+## Abstract 
+
+Vision-Language Models suffer severe KV cache pressure at inference, as a single image often encodes into thousands of tokens. Most existing methods exploit token sparsity through token pruning, but permanently discarding visual content causes substantial degradation on fine-grained perception tasks. This motivates a complementary axis, feature sparsity: under a fixed KV cache budget, compressing the channel dimension preserves more visual tokens at the same memory cost. Prior Key channel pruning methods, however, face a structural trade-off: token-wise channel pruning is expressive but unstructured and slow, while head-wise approach is hardware-friendly but less robust. We resolve this with RotateK, a rotation-based structured Key channel pruning framework. RotateK applies an online PCA-based rotation that aligns token-dependent channel importance into a shared low-dimensional subspace, enabling accurate pruning under lightweight head-wise masks; a fused Triton attention kernel operates directly on sparse-channel Keys for efficient decoding. Experiments on two representative VLM backbones show that RotateK consistently outperforms prior Key channel pruning in both accuracy and decoding latency, while joint token-channel pruning improves over token-only baselines at matched KV cache budgets. 
+
+## 1 Introduction 
+
+Recent progress in Large Language Models (LLMs) has naturally extended to multi-modal systems such as Vision-Language Models (VLMs) [ 1, 2, 3]. By inheriting the broad world knowledge and reasoning capabilities of their language backbones, VLMs have demonstrated remarkable visual understanding across diverse tasks, from fine-grained perception [ 4 , 5] to complex reasoning over images [ 6, 7] and videos [ 8, 9]. However, they inherit the inference bottlenecks of LLMs as well, most notably the KV cache, whose size grows linearly with sequence length. This issue is more severe in the visual setting, where a single image is encoded as hundreds to thousands of tokens [ 10 , 11 , 12 ], and video or multi-image inputs can easily reach tens of thousands [ 13 ]. As a result, the visual KV cache often dominates memory usage during inference [ 14 , 15 , 16 ], making its compression a key requirement for practical VLM deployment. In recent years, visual KV cache compression has been predominantly driven by token pruning [ 17 ,15 , 18 , 19 , 20 ], which permanently discards visual tokens deemed less informative. While effective on many benchmarks, this strategy incurs irreversible information loss that degrades performance on tasks where relevant content is distributed broadly across the scene [ 18 ], such as document understanding [ 21 , 22 ] and visual grounding [ 23 ]. The KV cache, however, scales not only with the number of tokens L, but also with the channel dimension d. This suggests that, rather than relying solely on token sparsity, compression can also be achieved along the feature dimension. By incorporating feature sparsity via pruning less informative channels, the same memory budget can be met while retaining more visual tokens, thereby mitigating the information loss inherent in token pruning (see Figure 1).                     
+
+> Pre-print.
+> arXiv:2605.19218v1 [cs.CV] 19 May 2026 TVQA
+> 100
+> 80
+> 60
+> 40 IVQA CQA DVQA
+> Dataset
+> 100
+> 80
+> 60
+> 40 TVQA IVQA CQA DVQA
+> Accuracy (%)
+> +13.3
+> +11.4 +4.3
+> +14.1
+> +8.2
+> +10.1
+> +1.4
+> VisionZip +RotateK
+> FastK +RotateK
+> +9.9
+> (a) (b)
+> Fewer tokens ×More channels
+> Token Pruning Only
+> Remove many visual tokens
+> Token + Channel Pruning
+> Keep more tokens, But prune key channels
+> More tokens ×Fewer channels
+
+× ×
+
+×
+
+××
+
+×
+
+×
+
+> Same
+> KV Cache
+> Memory
+
+× 
+
+> Before (full channels)
+> Kept
+> channel s
+> Pruned
+> channel s
+> After (channel pruning)
+> ……
+
+=
+
+×
+
+×Figure 1: Token Pruning only vs. Token and Channel Pruning . (a) Comparison between token pruning only (red) and joint token-channel pruning with RotateK (green) under similar KV cache budgets. For FastV, we compare 0.20 token sparsity against FastV (0.30 × token) + RotateK (0.25 ×
+
+channel). For VisionZip, we compare 0.22 token sparsity against VisionZip (0.35 × token) + RotateK (0.25 × channel). (b) Unlike token pruning, which removes many visual tokens entirely, our approach preserves more visual tokens by additionally pruning less informative key channels under the same KV cache memory budget. In practice, prior feature-dimension compression methods have primarily focused on pruning Key channels [ 24 , 25 , 26 ]. Existing Key channel pruning methods largely fall into two regimes: head-wise pruning [ 24 , 26 ], where a shared set of channels is pruned across tokens within each head, and token-wise pruning [ 25 ], where pruning decisions vary per token. These approaches reflect a trade-off between efficiency and expressivity: token-wise pruning achieves higher accuracy [ 25 ], suggesting that channel importance varies significantly across tokens, but requires a mask of size O(Ld ) and incurs substantial memory and IO overhead during decoding; in contrast, head-wise pruning is far more efficient with a lightweight O(d) mask, but suffers from notable accuracy degradation at high compression ratios due to its inability to capture per-token differences. This raises a central question: Can token-dependent channel importance be captured within a structured, head-wise mask? In this work, we propose RotateK , a rotation-based structured Key channel pruning framework for robust token–channel joint compression in VLMs. Our key insight is that token-dependent channel importance, while appearing highly unstructured in the original Key representation, becomes substan-tially more aligned under an appropriate orthogonal basis transformation. Based on this observation, RotateK computes an online PCA-based rotation that compresses visual Keys into a shared low-dimensional subspace across tokens, enabling efficient structured channel pruning while preserving more visual tokens under the same KV cache budget. As a result, RotateK substantially improves the robustness of KV cache compression compared to token-only pruning, while its structured sparsity patterns naturally simplify kernel design and facilitate efficient decoding acceleration. To the best of our knowledge, RotateK is the first dedicated study of Key channel pruning in VLM inference. Our key contributions are as follows: • We introduce token-channel joint compression for robust visual KV cache compression in VLMs. By additionally compressing the Key channel dimension, RotateK preserves more visual tokens under the same KV cache budget and substantially improves robustness over token-only pruning on fine-grained visual understanding tasks. • RotateK uses query-weighted PCA to concentrate query-relevant Key information into a shared low-dimensional subspace, minimizing perturbation to attention scores while enabling accurate structured channel pruning. This substantially narrows the accuracy gap between efficient head-wise pruning and expressive token-wise pruning. • We develop a hardware-efficient implementation of RotateK by reducing online PCA over-head through Cholesky-based subspace iteration and enabling decoding acceleration via a custom Triton kernel over structured sparse channels. We further provide a detailed latency and memory analysis of Key channel pruning methods for long-context VLM inference. 2Token Index      
+
+> Channel Index Channel Index Channel Index
+> SparK per -token mask ThinK per -head mask Original Key
+> Token Index
+> Token Index
+> (c) (b) (a)
+
+Figure 2: Key Channel Pruning Masks . (a) Visualization of the original visual Key states, where few channels exhibit strong outlier patterns across tokens. (b) ThinK applies a shared head-wise mask, retaining the same channels for all tokens. (c) SparK applies token-wise masks that vary across tokens, reflecting token-dependent channel importance. The heterogeneous patterns suggest that informative channels are not aligned across tokens in the original channel basis. Results are experimented using LLaVA-NeXT-8B (layer-4 and head-4) on the TextVQA validation set. 
+
+## 2 Motivational Study 
+
+Outliers in Visual Key Channels. Key channel pruning is motivated by a structural property of Key states (see "Related Works" in Appendix A): only a small subset of channels exhibit significantly larger magnitudes across tokens. Such channel-wise outliers have been widely observed in LLMs [ 27 ,24 , 26 , 25 , 28 ], and recent studies suggest that they primarily arise from the interaction between Rotary Position Embedding (RoPE) and learned Key projections [ 29 , 26 , 30 ]. Since modern VLMs inherit the same transformer backbone and RoPE mechanism from their underlying LLMs, a similar outlier structure naturally emerges in visual Key states. Figure 2(a) visualizes the Key tensor, where channels near indices 40 and 100 appear as clear outliers. 
+
+Token-dependent Channel Importance. However, such universally dominant channels are few in number, suggesting that preserving only these outliers may not be sufficient for robust Key channel pruning. To further investigate this, we compare the pruning masks retaining 32 channels ( 25% )produced by ThinK (head-wise pruning) [ 24 ] and SparK (token-wise pruning) [ 25 ] in Figure 2(b)-(c). Notably, SparK’s mask contains only a small number of consistently preserved channels, appearing as the solid black columns in Figure 2(c). While these correspond to universally important outlier channels, most retained channels vary substantially across tokens, indicating that channel importance is largely token-dependent. This dependency becomes particularly pronounced under RoPE, where channels near indices 20 and 80 exhibit token-dependent magnitude oscillations induced by rotational encoding, making no fixed subset uniformly informative across tokens. 
+
+Toward Token-invariant Basis. This token dependency creates a fundamental challenge for structured Key channel pruning, which relies on a static channel mask shared across tokens. Under RoPE, informative directions vary across token positions, making structured pruning in the standard channel basis inherently suboptimal. We interpret this phenomenon as a basis mismatch : although each token admits a compact informative subspace, those directions are not aligned across tokens in the original channel coordinates. This suggests a natural remedy: instead of pruning channels directly in the original basis, we first seek a transformed coordinate system, realized through an orthogonal rotation of the Key space, where informative directions become more consistently aligned across tokens. In such a basis, a single structured mask can better preserve the informative subspace across diverse tokens, enabling more robust structured channel pruning at aggressive compression ratios. 
+
+## 3 Proposed Methods 
+
+3.1 Background Rotation Matrix. To make channel-wise pruning more effective, we apply a rotation in the channel space. The key idea is to transform the channel basis so that token-wise importance is concentrated in a small subset of channels, making the less informative ones easier to discard (see Figure 3(a)). 3Channel -1         
+
+> Channel -2
+> Some Tokens Low in Ch -2,
+> Others Low in Ch -1
+> Channel -2
+> Channel -1
+> Original Channel Basis Rotated Channel Basis
+> Most Tokens Low in Ch -2
+> →Prunable
+> Rotated Key
+> Channel Index
+> Token Index Rotation ( 𝑅 )
+> (a )(b)
+
+Figure 3: High-level Idea of RotateK . (a) In the original channel basis, different visual tokens exhibit different low-importance channels, making structured head-wise pruning ineffective. RotateK applies an orthogonal rotation R to align token-dependent importance into a shared channel basis, where most tokens consistently exhibit low activations on the same channels. (b) Visualization of the rotated Key states after applying RotateK, where informative channels become concentrated into a smaller subset of aligned channels across tokens, enabling effective structured key channel pruning. A rotation matrix R ∈ Rd×d, where d denotes the channel dimension, is an orthogonal matrix satisfying RR ⊤ = I (and typically det( R) = 1 ). It preserves inner products, and hence the norms and pairwise angles of vectors. Multiplying features by R thus amounts to a change of orthonormal basis: no information is lost, but information is redistributed across channels. Crucially, the nature of this redistribution depends entirely on the choice of R. Some rotations, such as Hadamard transforms, deliberately spread energy uniformly across channels to suppress activation outliers; in contrast, we seek rotations that do the opposite, i.e. , concentrating information into a small subset of channels so that the remaining channels can be safely pruned. 
+
+Variance Concentration via PCA. Our approach is closely related to principal component analysis (PCA), which concentrates the variance of the data along a few rotated axes, or equivalently, identifies a low-rank subspace that well approximates the Key states. Such a subspace can be obtained via eigendecomposition of the covariance matrix. However, because the optimal subspace varies across visual inputs, performing an eigendecomposition for every input at inference time would substantially inflate latency. It is therefore essential to construct the rotation matrix R in a way that is efficient enough to be generated on the fly. 
+
+3.2 Overview of RotateK 
+
+Our goal is to compress the Key states K ∈ RN ×d of N visual tokens (observed at prefill) from d
+
+to k < d channels with minimal perturbation to the attention scores qtK⊤ at decode step t, where 
+
+qt ∈ Rd is the new query. RotateK achieves this in two steps: (1) rotate the channel space with an orthogonal matrix R ∈ Rd×d, and (2) prune the less informative channels in the rotated basis. Figure 4 illustrates the overall inference flow of RotateK (see algorithmic overview in Appendix F). 
+
+Step (1): Rotation is lossless. RotateK computes a rotation matrix R (R⊤R = Id) once at the end of prefill, separately for each attention head, and reuses it for every subsequent decode step; the construction of R is described in the following paragraphs. If we rotate both keys and queries by R
+
+and retain all d channels, the attention scores are exactly preserved, 
+
+(qtR) ( KR )⊤ = qt RR ⊤ K⊤ = qtK⊤, (1) since RR ⊤ = Id. Step (1) alone therefore introduces no approximation error and no compression. It merely re-expresses the channels in a different basis. 
+
+Step (2): Channel pruning introduces the approximation. Compression appears once we prune channels in the rotated basis . Let Rk ∈ Rd×k collect the top-k columns of R, so that R⊤ 
+
+> k
+
+Rk = Ik.At prefill, RotateK caches the truncated rotated keys ˜K = KR k ∈ RN ×k in place of the full N × d
+
+matrix K; at decode, the incoming query is rotated to ˜qt = qtRk ∈ Rk and computed with ˜K.Notably, pruning the rotated channel is essentially structured ( i.e. , head-wise) as a rotation matrix is 4𝐾 !"#"$%              
+
+> 𝐾 &'$(&)
+> 𝐾 )*+)
+> Sparse -channel Path
+> Full -channel Path
+> Token
+> Pruning
+> Channel
+> Pruning
+> 𝐾 !"#"$%
+> 𝐾 &'$(&)
+> 𝐾 )*+)
+> 𝐾 &'$(&)
+> 𝐾 )*+)
+> Sequence  Length ( 𝑁 )
+> Key Channel ( 𝑑 )
+> +𝑅 ,𝐾 "!"#"$%
+> 𝑞 -
+> 𝑅 ,𝑞 &)
+> (a) Prefill –Once per Layer 𝑙 (b) Decode –Fused Attention Kernel
+> Attention
+> output
+> 𝑞 -
+> 𝐾 &'$(&)
+> 𝐾 )*+)
+> 𝐾 "!"#"$%
+> 𝑞 -
+> 𝐾 &'$(&)
+> 𝐾 )*+)
+> +𝑅 ,𝐾 "!"#"$%
+
+Figure 4: Inference Flow of RotateK . (a) Following visual token compression, RotateK applies head-wise rotation-based channel pruning to visual Key states during prefill, caching the compressed KV states together with the corresponding rotation matrices. (b) During decoding, queries are transformed using the cached rotations, while a fused attention kernel (see Appendix C for details) combines full-channel attention for prompt/text tokens with sparse-channel attention for visual tokens. shared across tokens. The resulting attention scores no longer match qtK⊤:
+
+˜qt ˜K⊤ = ( qtRk) ( KR k)⊤ = qt Pk K⊤, Pk := RkR⊤ 
+
+> k
+
+, (2) because Pk is a rank-k projector and Pk̸ = Id whenever k < d . The approximation error introduced by step (2) is therefore exactly: 
+
+qtK⊤ − ˜qt ˜K⊤ = qt (Id − Pk) K⊤, (3) the projection of qtK⊤ onto the d − k discarded channels of the rotated basis. The remainder of this section is concerned with choosing R, and hence Rk and Pk, so that this residual is small for the decode queries qt that will arrive after Rk is fixed. 
+
+Query-Weighted PCA. Our goal is to rotate the Key channels such that the information relevant to the attention scores is concentrated into a smaller set of leading channels, making subsequent channel pruning less destructive. A natural approach is to apply PCA directly to the Key states K, which preserves directions with large Key variance. However, the pruning error is ultimately measured on the attention scores qtK⊤, not on the Keys themselves. Consequently, channels where both the Key activations and query magnitudes are large should be preserved preferentially. We capture this intuition by weighting each Key channel according to the typical magnitude of recent queries. Let QW ∈ RW ×d denote the window of the W most recent prefill queries (we use W = 32 ,following [24]), and let σW ∈ Rd collect their per-channel ℓ2 norms: (σW )j = ∥(QW ):,j ∥2.We then apply PCA to the mean-centered, query-weighted Key activations Kq = ( K − μ) diag( σW ),where μ ∈ Rd is the per-head channel mean of K over the N visual tokens. The rotation matrix 
+
+R = [ r1, . . . , r d] collects the eigenvectors of the query-weighted covariance given by: 
+
+Cq = K⊤ 
+
+> q
+
+Kq = diag( σW ) C diag( σW ), (4) where C = ( K − μ)⊤(K − μ) is the centered Key covariance. We obtain the rotation matrix R = [ r1, r 2, ..., r d] by eigendecomposing Cq , where the columns of R
+
+are eigenvectors of Cq ordered by decreasing eigenvalue magnitude. The first k columns are retained as Rk ∈ Rd×k for channel pruning. The mean μ is not in general aligned with the column space of 
+
+Rk, so its discarded component reintroduces a constant bias q⊤ 
+
+> t
+
+(Id −RkR⊤ 
+
+> k
+
+) μ in the rotated attention, which is added back during decoding. Comparison between query-weighted vs. query-agnostic PCA is available in Appendix D.1. 
+
+3.3 Hardware-efficient Implementation Post-Hoc Reweighting. A naive implementation of query-weighted PCA would explicitly construct the rescaled Key matrix Kq ∈ RN ×d, introducing an additional intermediate of the same size as K.This increases memory traffic by materializing and accessing another N × d tensor, and incurs an extra O(N d ) cost for channel-wise rescaling. 5Instead, we observe that the query-weighted covariance can be formed directly from the original covariance C = K⊤K:
+
+Cq = K⊤ 
+
+> q
+
+Kq = diag( σW ) C diag( σW ) = ( σW σ⊤ 
+
+> W
+
+) ⊙ C, (5) where ⊙ denotes the Hadamard (element-wise) product. Thus, once C is computed, query-weighting requires only a rank-one outer product and an element-wise multiplication on a d × d matrix, resulting in an additional complexity of O(d2) per head (typically d ≪ N ). Crucially, this overhead is independent of the context length N , making the query-weighting step effectively free in the long-context regime targeted by KV-cache pruning. 
+
+Cholesky-based Subspace Iteration. While the additional overhead of query-weighted PCA itself is marginal, PCA still introduces noticeable prefill latency. The standard pipeline computes the covariance at O(N d 2) followed by a full eigendecomposition at O(d3). Although this is theoretically small compared to the attention cost O(N 2d) (N ≫ d), wall-clock latency is dominated less by arithmetic throughput than by GPU kernel-dispatch overhead. In particular, functions such as 
+
+torch.linalg.eigh internally launch tens of fragmented CUDA kernels for tridiagonalisation, the inner eigensolver, and eigenvector reconstruction. To reduce this overhead, RotateK replaces full eigendecomposition with a Cholesky-based subspace iteration that directly estimates only the top-k eigenspace. Starting from a random basis V (0) ∈ Rd×k,each iteration applies V (t) ← Cq V (t−1) , progressively aligning V with the dominant eigenspace of 
+
+Cq , followed by a Cholesky-QR orthonormalisation to preserve the rank-k structure (see Appendix E); in practice, T =5 iterations already match the accuracy of full eigendecomposition (see Appendix D.1). Per iteration costs O(d2k), dominated by the GEMM Cq V , and is comparable to O(d3) in flops at our matrix sizes–but issues only four CUDA kernels per iteration (two GEMMs, one k × k Cholesky, one triangular solve), with fixed tensor shapes that allow CUDA-graph capture of the entire T -step loop and an order-of-magnitude lower dispatch latency in practice. 
+
+## 4 Experimental Results 
+
+Dataset and Implementation Details. Following the lmms-eval [ 31 ] protocol, we evaluate on VQA benchmarks (TextVQA, InfoVQA, DocVQA, ChartQA, VizWiz-VQA) and open-ended generation benchmarks (LLaVA-in-the-Wild, MM-Vet). Throughout the paper, TextVQA, InfoVQA, DocVQA, and ChartQA are abbreviated as TVQA, IVQA, DVQA, and CQA, respectively. For latency evaluation, we compare Triton-based FlashAttention kernels against our Triton-based sparse attention kernel under identical settings. Unless otherwise specified, RotateK operates in an online calibration-free mode, recomputing the PCA-based rotation matrix during each prefill stage. All experiments are conducted on a single NVIDIA A100-80GB GPU. 
+
+Baselines. We evaluate RotateK on LLaVA-NeXT-8B (llama3-llava-next-8b-hf ) and Qwen2.5-VL-7B-Instruct. To isolate the effect of channel pruning, RotateK is integrated into two orthogonal token-pruning frameworks: VisionZip [ 17 ] and FastV [ 15 ]. We compare against two recent training-free Key channel pruning techniques, ThinK [ 24 ] and SparK [ 25 ] under identical mem-ory budgets, and additionally report token-only and channel-only baselines. Detailed hyperparameter settings are provided in Appendix B. 
+
+4.1 Comparison with Token Pruning Accuracy–KV Cache Trade-offs. To further investigate the accuracy-memory trade-offs of token pruning versus joint token-channel pruning, Figure 5 compares their performance on ChartQA under varying compression ratios, e.g. , channel sparsity ratios of 0.500 , 0.375 , and 0.250 (less channels) are evaluated. The horizontal points labeled “Less Channels” apply additional channel pruning on top of fixed token sparsity ratios. While token-only pruning degrades rapidly at aggressive compression ratios, RotateK consistently achieves higher accuracy under the same KV cache budget, remaining robust even at 75% channel sparsity. These results demonstrate that channel pruning complements token pruning, enabling more robust KV cache compression in VLMs. 
+
+Comparison under Fixed KV Cache Budgets. Table 1 compares RotateK across five benchmarks under two KV cache memory budgets. We observe that the degradation caused by token-only pruning 6Accuracy (%)            
+
+> KV Cache Memory ( ×)
+> 0.60 0.50 0.40 0.30 0.20
+> 85
+> 80
+> 75
+> 70
+> 65
+> 60Qwen2.5 -VL -7B
+> Less Tokens
+> VisionZip
+> Less Channels
+> RotateK
+> (d)
+> Accuracy (%)
+> KV Cache Memory ( ×)
+> 0.55 0.45 0.35 0.25 0.15
+> 85
+> 80
+> 75
+> 70
+> 65
+> 60Qwen2.5 -VL -7B
+> Less Tokens
+> FastV
+> (c)
+> Accuracy (%)
+> KV Cache Memory ( ×)
+> 0.60 0.50 0.40 0.30 0.20
+> 70
+> 66
+> 62
+> 58
+> 54
+> 50 LLaVA -NeXT -8B
+> Less Channels
+> RotateK
+> Less Tokens
+> VisionZip
+> (b)
+> Accuracy (%)
+> KV Cache Memory ( ×)
+> 0.55 0.45 0.35 0.25 0.15
+> 72
+> 68
+> 64
+> 60
+> 56
+> 52 LLaVA -NeXT -8B
+> Less Tokens
+> FastV
+> (a)
+> Token Pruning only Token + Channel Pruning
+
+Figure 5: Accuracy–KV Cache Trade-offs . Accuracy–memory trade-offs on ChartQA using LLaVA-NeXT-8B (orange) and Qwen2.5-VL-7B (green) under varying token and channel sparsity ratios. Compared to token-only pruning (black), RotateK jointly prunes tokens and Key channels, consistently achieving higher accuracy under the same KV cache budget. Table 1: Comparison under Fixed KV Cache Budgets . Accuracy comparison between token-only pruning and joint token-channel pruning under identical KV cache budgets. Across both LLaVA-NeXT-8B and Qwen2.5-VL-7B-Instruct, RotateK consistently improves over token-only pruning and prior Key channel pruning. More results are provided in Table 4 (Appendix). 
+
+Method Token Channel KV Cache TVQA IVQA CQA DVQA VizWiz mean 
+
+LLAMA 3-LL AVA-N EXT-8B Baseline 1.00 × 1.00 × 1.00 × 65.40 32.27 69.08 72.44 57.50 59.34 FastV token only 0.25 × 1.00 × 0.25 × 62.69 25.91 59.64 56.39 58.56 52.64 FastV + ThinK 0.40 × 0.25 × 0.25 × 54.07 25.51 60.56 51.72 57.70 49.91 FastV + RotateK 0.40 × 0.25 × 0.25 × 62.67 28.37 65.25 62.46 58.34 55.42 VisionZip token only 0.28 × 1.00 × 0.28 × 63.33 27.70 57.32 64.08 58.97 54.28 VisionZip + ThinK 0.45 × 0.25 × 0.28 × 54.22 27.81 58.52 53.77 57.81 50.43 VisionZip + RotateK 0.45 × 0.25 × 0.28 × 62.62 28.97 62.88 66.99 58.94 56.08 QWEN 2.5-VL-7B-I NSTRUCT 
+
+Baseline 1.00 × 1.00 × 1.00 × 82.92 80.12 83.04 94.40 70.58 82.21 FastV token only 0.25 × 1.00 × 0.25 × 81.49 52.76 67.44 75.04 69.13 69.17 FastV + ThinK 0.40 × 0.25 × 0.25 × 77.81 63.01 77.12 81.74 69.25 73.79 FastV + RotateK 0.40 × 0.25 × 0.25 × 82.38 65.79 77.40 87.28 70.32 76.63 VisionZip token only 0.28 × 1.00 × 0.28 × 76.84 58.46 70.32 84.71 68.97 71.86 VisionZip + ThinK 0.45 × 0.25 × 0.28 × 75.72 67.13 79.64 85.83 68.93 75.45 VisionZip + RotateK 0.45 × 0.25 × 0.28 × 80.84 70.51 79.56 91.29 70.13 78.47 
+
+varies substantially across datasets, even at similar token sparsity ratios. In particular, InfoVQA on Qwen2.5-VL-7B suffers severe degradation under token-only pruning, where RotateK consistently improves accuracy by more than 10% .RotateK also consistently outperforms ThinK across most settings, with especially large gains on DocVQA for LLaVA-NeXT-8B. Across 40 evaluated cases, ThinK surpasses RotateK in only five cases, and only by marginal differences below 0.6% . Notably, the benefits of RotateK are not limited to scenarios where token-only pruning collapses; even on relatively robust benchmarks such as TextVQA and VizWiz, RotateK consistently maintains comparable or better performance under the same KV cache budget. 
+
+Comparison on Open-Ended Benchmarks. As, channel pruning methods typically do not impact the prefill and rather impact the decode, we compare how robust token-channel pruning is on longer-generation tasks, beyond short generation VQA tasks. Table 2 presents the accuracy in two open-ended benchmarks, LLava-in-the-wild and MMVet, where typically tens of tokens are generated to provide the details in the scene. We consistently observe Token Pruning + RotateK > Token Pruning + ThinK ≈ Token Pruning only. This further confirms the generality of our strategy to jointly combine token pruning and RotateK. 7Channel Sparsity      
+
+> 0.85 0.75 0.65 0.55 0.45
+> Accuracy (%)
+> 70
+> 65
+> 60
+> 55
+> 50
+> 45
+> 40
+> LLaVA -NeXT -8B
+> VisionZip 0.45
+> Channel Sparsity
+> 0.85 0.75 0.65 0.55 0.45
+> Accuracy (%)
+> 70
+> 65
+> 60
+> 55
+> 50
+> 45
+> 40
+> LLaVA -NeXT -8B
+> FastV 0.40
+> Channel Sparsity
+> 0.85 0.75 0.65 0.55 0.45
+> Accuracy (%)
+> 87
+> 83
+> 79
+> 75
+> 71
+> 67
+> Qwen2.5 -VL -7B
+> FastV 0.40
+> Channel Sparsity
+> 0.85 0.75 0.65 0.55 0.45
+> Accuracy (%)
+> 85
+> 81
+> 77
+> 73
+> 69
+> 65
+> Qwen2.5 -VL -7B
+> VisionZip 0.45
+> ThinK SparK RotateK
+> (a) (b) (c) (d)
+
+Figure 6: Channel Pruning Robustness. Accuracy under increasing channel sparsity ratios for ThinK, SparK, and RotateK integrated with FastV and VisionZip on LLaVA-NeXT-8B and Qwen2.5-VL-7B. While ThinK rapidly degrades at high sparsity ratios, RotateK consistently maintains strong performance even at aggressive channel pruning levels, demonstrating improved robustness of structured Key channel pruning. 
+
+4.2 Comparison with Channel Pruning Table 2: Comparison on Open-Ended Bench-marks . Results on LLaVA-in-the-Wild and MM-Vet using LLaVA-NeXT-8B and Qwen2.5-VL-7B-Instruct. RotateK consistently improves over token-only pruning and prior Key channel pruning methods under the same KV cache budget. Sub-scripts denote token and channel sparsity ratios. 
+
+Method Llava-Wild MMVet 
+
+LLAMA 3-LL AVA-N EXT-8B Baseline 84.10 27.14 FastV 0.1875 84.60 24.50 FastV 0.30 + ThinK 0.25 80.40 25.05 FastV 0.30 + RotateK 0.25 85.50 26.97 VisionZip 0.22 81.10 24.59 VisionZip 0.35 + ThinK 0.25 75.30 23.72 VisionZip 0.35 + RotateK 0.25 84.70 26.97 QWEN 2.5-VL-7B-I NSTRUCT 
+
+Baseline 109.30 45.55 FastV 0.1875 100.00 32.61 FastV 0.30 + ThinK 0.25 99.80 32.61 FastV 0.30 + RotateK 0.25 106.90 41.24 VisionZip 0.22 104.00 34.77 VisionZip 0.35 + ThinK 0.25 99.10 35.00 VisionZip 0.35 + RotateK 0.25 106.20 44.04 
+
+Structured vs. Unstructured Channel Prun-ing. Since RotateK aims to concentrate token-dependent channel importance into a smaller subset of channels, we examine how effectively it closes the performance gap between head-wise (structured; e.g. , ThinK) and token-wise (unstructured; e.g. , SparK) channel pruning. Fig-ure 6 shows the accuracy-channel sparsity trade-offs on TextVQA across two VLMs and two token pruning methods. At 50% channel spar-sity, all methods achieve similar accuracy. How-ever, as sparsity increases, ThinK shows clear degradation, whereas RotateK maintains accu-racy comparable to SparK across most sparsity levels. SparK achieves slightly higher accuracy at 80% sparsity in LLaVA, likely due to its mean-based interpolation for pruned channels. 
+
+4.3 Computational Efficiency 
+
+While prior channel pruning methods such as ThinK and SparK analyze accuracy and mem-ory overhead, their latency behavior remains underexplored. We therefore provide a detailed analysis of the latency and memory overhead of key channel pruning methods. 
+
+Prefill Latency. ThinK, SparK, and RotateK all introduce additional prefill computation to identify informative channels. Although RotateK performs online PCA with O(N d 2) complexity, Fig-ure 7(a,c) shows that all three methods achieve prefill latency comparable to the full-channel baseline in practice. 
+
+Decode Latency. Decoding latency exhibits a markedly different trend (Figure 7(b,d)). As input length or batch size increases, ThinK and SparK become progressively slower, eventually reaching up to 1.8× higher latency than the full-channel baseline. Although these methods reduce KV cache foot-print through channel pruning, they reconstruct dense full-channel Keys during decoding, concatenate them with unpruned Keys ( e.g. , recent tokens), and apply the standard FlashAttention2 kernel on the recovered tensor. This reconstruction introduces substantial memory IO overhead, largely negating the benefit of sparse-channel KV caches. 8KV Cache + Overhead (GB)                            
+
+> 18 15 12 9630
+> Overhead
+> 0.63 ×
+> 128K
+> 64K
+> 32K
+> 16K
+> Input Tokens
+> Visual Tokens =
+> 16K / batch
+> Batch Size
+> 20 1612 840
+> GPU Peak Memory (GB)
+> 0
+> 80
+> 64
+> 48
+> 32
+> 16
+> Throughput ( tok /s)
+> 150
+> 120
+> 90
+> 69
+> 30
+> 0
+> Batch Size
+> 20 1612 840
+> Batch size = 1
+> Input Tokens
+> 16K 32K 64K 128K
+> 10
+> 8
+> 6
+> 2
+> 0
+> RotateK 0. 25
+> Decode Latency ( ms )
+> 4
+> Input Tokens
+> 16K 32K 64K 128K
+> 1.0
+> 0.8
+> 0.6
+> 0.2
+> 0
+> Prefill Latency (s)
+> 0.4
+> Visual Tokens =
+> 16K / batch
+> Batch Size
+> 1248
+> 10
+> 8
+> 6
+> 2
+> 0
+> Decode Latency ( ms )
+> 4
+> Batch Size
+> 1248
+> 0.5
+> 0.4
+> 0.3
+> 0.1
+> 0
+> Prefill Latency (s)
+> 0.2
+> RotateK 0. 25
+> 0.6 2×0.6 1×
+> (a) (b) (c) (d)
+> 8.0 6.4 4.8 3.2 1.6 0
+> Full
+> ThinK
+> Rotate K
+> SparK
+> Decode Latency (ms )
+> (e)(f) (g) (h)
+> Full -channel ThinK 0. 25SparK 0. 25
+> KV cache update
+> recovery
+> concat
+> attn RotateK 0. 25
+> RotateK 0. 25RotateK 0. 25
+
+Figure 7: Latency and Memory Analysis. Comparison of RotateK, ThinK, and SparK on prefill latency, decoding latency, KV cache memory, GPU peak memory, and generation throughput. (a,c) RotateK introduces negligible prefill overhead across varying batch sizes and sequence lengths. (b,d) Unlike ThinK and SparK, which reconstruct full-channel Keys before attention, RotateK directly performs sparse-channel attention and substantially reduces decoding latency. (e) RotateK incurs significantly smaller memory overhead than prior methods, leading to lower effective KV cache usage. (f,g) The reduced memory footprint enables larger batch sizes and higher generation throughput. (h) Decode latency breakdown, showing that full-channel Key recovery dominates the latency of prior channel pruning methods. In contrast, RotateK employs a custom Triton-based attention kernel that directly operates on sparse-channel Keys without reconstruction. Its structured sparsity further enables a fused attention design over both sparse- and full-channel Keys, allowing sparse KV caches to translate into real decoding speedups. Figure 7(h) further confirms that recovery and concatenation dominate the additional latency of ThinK and SparK, whereas RotateK eliminates these overheads entirely. 
+
+Memory Overhead. Figure 7(e,f) compares KV cache size and GPU peak memory. Notably, SparK introduces substantial memory overhead due to its token-wise pruning masks, largely offsetting the benefit of channel pruning. In contrast, ThinK and RotateK use head-wise sparsity and incur negligible overhead, enabling larger feasible batch sizes. However, larger batch sizes do not necessarily translate into higher throughput. As shown in Figure 7(g), ThinK can still underperform the full-channel baseline due to its degraded decoding latency, whereas RotateK achieves consistently higher throughput. 
+
+## 5 Conclusion 
+
+We presented RotateK, a rotation-based structured Key channel pruning framework for efficient VLM inference. RotateK aligns token-dependent channel importance through an online PCA-based rotation, enabling accurate structured pruning with lightweight head-wise masks. By jointly compressing visual tokens and Key channels, RotateK preserves more visual information under the same KV cache budget and consistently improves robustness over token-only pruning on fine-grained visual understanding tasks. Furthermore, our hardware-efficient implementation, including Cholesky-based subspace iteration and a fused Triton sparse attention kernel, translates sparse-channel KV caches into actual decoding speedups with negligible memory overhead. 9References 
+
+[1] Haotian Liu, Chunyuan Li, Yuheng Li, Bo Li, Yuanhan Zhang, Sheng Shen, and Yong Jae Lee. Llavanext: Improved reasoning, ocr, and world knowledge, 2024. [2] Zhe Chen, Jiannan Wu, Wenhai Wang, Weijie Su, Guo Chen, Sen Xing, Muyan Zhong, Qinglong Zhang, Xizhou Zhu, Lewei Lu, et al. Internvl: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 24185–24198, 2024. [3] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 , 2025. [4] Minesh Mathew, Dimosthenis Karatzas, and CV Jawahar. Docvqa: A dataset for vqa on document images. In Proceedings of the IEEE/CVF winter conference on applications of computer vision , pages 2200–2209, 2021. [5] Licheng Yu, Patrick Poirson, Shan Yang, Alexander C Berg, and Tamara L Berg. Modeling context in referring expressions. In European conference on computer vision , pages 69–85. Springer, 2016. [6] Pan Lu, Hritik Bansal, Tony Xia, Jiacheng Liu, Chunyuan Li, Hannaneh Hajishirzi, Hao Cheng, Kai-Wei Chang, Michel Galley, and Jianfeng Gao. Mathvista: Evaluating mathematical reasoning of foundation models in visual contexts. arXiv preprint arXiv:2310.02255 , 2023. [7] Pan Lu, Swaroop Mishra, Tanglin Xia, Liang Qiu, Kai-Wei Chang, Song-Chun Zhu, Oyvind Tafjord, Peter Clark, and Ashwin Kalyan. Learn to explain: Multimodal reasoning via thought chains for science question answering. Advances in neural information processing systems , 35:2507–2521, 2022. [8] Bin Lin, Yang Ye, Bin Zhu, Jiaxi Cui, Munan Ning, Peng Jin, and Li Yuan. Video-llava: Learning united visual representation by alignment before projection. In Proceedings of the 2024 conference on empirical methods in natural language processing , pages 5971–5984, 2024. [9] KunChang Li, Yinan He, Yi Wang, Yizhuo Li, Wenhai Wang, Ping Luo, Yali Wang, Limin Wang, and Yu Qiao. Videochat: Chat-centric video understanding. Science China Information Sciences ,68(10):200102, 2025. [10] Peiyuan Zhang, Kaichen Zhang, Bo Li, Guangtao Zeng, Jingkang Yang, Yuanhan Zhang, Ziyue Wang, Haoran Tan, Chunyuan Li, and Ziwei Liu. Long context transfer from language to vision. arXiv preprint arXiv:2406.16852 , 2024. [11] Xiaoqian Shen, Yunyang Xiong, Changsheng Zhao, Lemeng Wu, Jun Chen, Chenchen Zhu, Zechun Liu, Fanyi Xiao, Balakrishnan Varadarajan, Florian Bordes, et al. Longvu: Spatiotemporal adaptive compression for long video-language understanding. arXiv preprint arXiv:2410.17434 , 2024. [12] Yukang Chen, Fuzhao Xue, Dacheng Li, Qinghao Hu, Ligeng Zhu, Xiuyu Li, Yunhao Fang, Haotian Tang, Shang Yang, Zhijian Liu, et al. Longvila: Scaling long-context visual language models for long videos. In 
+
+The Thirteenth International Conference on Learning Representations , 2024. [13] Dezhan Tu, Danylo Vashchilenko, Yuzhe Lu, and Panpan Xu. Vl-cache: Sparsity and modality-aware kv cache compression for vision-language model inference acceleration. arXiv preprint arXiv:2410.23317 ,2024. [14] Long Xing, Qidong Huang, Xiaoyi Dong, Jiajie Lu, Pan Zhang, Yuhang Zang, Yuhang Cao, Conghui He, Jiaqi Wang, Feng Wu, et al. Pyramiddrop: Accelerating your large vision-language models via pyramid visual redundancy reduction. arXiv preprint arXiv:2410.17247 , 2024. [15] Liang Chen, Haozhe Zhao, Tianyu Liu, Shuai Bai, Junyang Lin, Chang Zhou, and Baobao Chang. An image is worth 1/2 tokens after layer 2: Plug-and-play inference acceleration for large vision-language models. In European Conference on Computer Vision , pages 19–35. Springer, 2024. [16] Zhongwei Wan, Ziang Wu, Che Liu, Jinfa Huang, Zhihong Zhu, Peng Jin, Longyue Wang, and Li Yuan. Look-m: Look-once optimization in kv cache for efficient multimodal long-context inference. In Findings of the Association for Computational Linguistics: EMNLP 2024 , pages 4065–4078, 2024. [17] Senqiao Yang, Yukang Chen, Zhuotao Tian, Chengyao Wang, Jingyao Li, Bei Yu, and Jiaya Jia. Visionzip: Longer is better but not necessary in vision language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 19792–19802, 2025. 
+
+10 [18] Saeed Ranjbar Alvar, Gursimran Singh, Mohammad Akbari, and Yong Zhang. Divprune: Diversity-based visual token pruning for large multimodal models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 9392–9401, 2025. [19] Samir Khaki, Junxian Guo, Jiaming Tang, Shang Yang, Yukang Chen, Konstantinos N Plataniotis, Yao Lu, Song Han, and Zhijian Liu. Sparsevila: Decoupling visual sparsity for efficient vlm inference. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 23784–23794, 2025. [20] Weihao Ye, Qiong Wu, Wenhao Lin, and Yiyi Zhou. Fit and prune: Fast and training-free visual token pruning for multi-modal large language models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 22128–22136, 2025. [21] Ahmed Masry, Xuan Long Do, Jia Qing Tan, Shafiq Joty, and Enamul Hoque. Chartqa: A benchmark for question answering about charts with visual and logical reasoning. In Findings of the association for computational linguistics: ACL 2022 , pages 2263–2279, 2022. [22] Yuliang Liu, Zhang Li, Mingxin Huang, Biao Yang, Wenwen Yu, Chunyuan Li, Xu-Cheng Yin, Cheng-Lin Liu, Lianwen Jin, and Xiang Bai. Ocrbench: on the hidden mystery of ocr in large multimodal models. 
+
+Science China Information Sciences , 67(12):220102, 2024. [23] Weihan Wang, Qingsong Lv, Wenmeng Yu, Wenyi Hong, Ji Qi, Yan Wang, Junhui Ji, Zhuoyi Yang, Lei Zhao, Xixuan Song, et al. Cogvlm: Visual expert for pretrained language models. Advances in Neural Information Processing Systems , 37:121475–121499, 2024. [24] Yuhui Xu, Zhanming Jie, Hanze Dong, Lei Wang, Xudong Lu, Aojun Zhou, Amrita Saha, Caiming Xiong, and Doyen Sahoo. Think: Thinner key cache by query-driven pruning. arXiv preprint arXiv:2407.21018 ,2024. [25] Huanxuan Liao, Yixing Xu, Shizhu He, Guanchen Li, Xuanwu Yin, Dong Li, Emad Barsoum, Jun Zhao, and Kang Liu. Spark: Query-aware unstructured sparsity with recoverable kv cache channel pruning. In 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 31961–31969, 2026. [26] Yike Zhang, Zhiyuan He, Huiqiang Jiang, Chengruidong Zhang, Yuqing Yang, Jianyong Wang, and Lili Qiu. Leank: Learnable k cache channel pruning for efficient decoding. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 31110–31125, 2025. [27] Zirui Liu, Jiayi Yuan, Hongye Jin, Shaochen Zhong, Zhaozhuo Xu, Vladimir Braverman, Beidi Chen, and Xia Hu. Kivi: A tuning-free asymmetric 2bit quantization for kv cache. arXiv preprint arXiv:2402.02750 ,2024. [28] Coleman Hooper, Sehoon Kim, Hiva Mohammadzadeh, Michael W Mahoney, Yakun S Shao, Kurt Keutzer, and Amir Gholami. Kvquant: Towards 10 million context length llm inference with kv cache quantization. 
+
+Advances in Neural Information Processing Systems , 37:1270–1303, 2024. [29] Federico Barbero, Alex Vitvitskyi, Christos Perivolaropoulos, Razvan Pascanu, and Petar Veliˇ ckovi´ c. Round and round we go! what makes rotary positional encodings useful? arXiv preprint arXiv:2410.06205 ,2024. [30] Ye Qiao, Haocheng Xu, Xiaofan Zhang, and Sitao Huang. Rethinking rope scaling in quantized llm: Theory, outlier, and channel-band analysis with weight rescaling. arXiv preprint arXiv:2510.00028 , 2025. [31] Kaichen Zhang, Bo Li, Peiyuan Zhang, Fanyi Pu, Joshua Adrian Cahyono, Kairui Hu, Shuai Liu, Yuanhan Zhang, Jingkang Yang, Chunyuan Li, et al. Lmms-eval: Reality check on the evaluation of large multimodal models. In Findings of the Association for Computational Linguistics: NAACL 2025 , pages 881–916, 2025. [32] Yuzhang Shang, Mu Cai, Bingxin Xu, Yong Jae Lee, and Yan Yan. Llava-prumerge: Adaptive token reduction for efficient large multimodal models. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 22857–22867, 2025. [33] Qizhe Zhang, Aosong Cheng, Ming Lu, Renrui Zhang, Zhiyong Zhuo, Jiajun Cao, Shaobo Guo, Qi She, and Shanghang Zhang. Beyond text-visual attention: Exploiting visual cues for effective token pruning in vlms. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 20857–20867, 2025. [34] Jintao Tong, Wenwei Jin, Pengda Qin, Anqi Li, Yixiong Zou, Yuhong Li, Yuhua Li, and Ruixuan Li. Flowcut: Rethinking redundancy via information flow for efficient vision-language models. arXiv preprint arXiv:2505.19536 , 2025. 
+
+11 [35] Yuan Zhang, Chun-Kai Fan, Junpeng Ma, Wenzhao Zheng, Tao Huang, Kuan Cheng, Denis Gudovskiy, Tomoyuki Okuno, Yohei Nakata, Kurt Keutzer, et al. Sparsevlm: Visual token sparsification for efficient vision-language model inference. arXiv preprint arXiv:2410.04417 , 2024. [36] Ting Liu, Liangtao Shi, Richang Hong, Yue Hu, Quanjun Yin, and Linfeng Zhang. Multi-stage vision token dropping: Towards efficient multimodal large language model. arXiv preprint arXiv:2411.10803 ,2024. [37] Shuo Yang, Ying Sheng, Joseph E Gonzalez, Ion Stoica, and Lianmin Zheng. Post-training sparse attention with double sparsity. arXiv preprint arXiv:2408.07092 , 2024. [38] Saleh Ashkboos, Amirkeivan Mohtashami, Maximilian L Croci, Bo Li, Pashmina Cameron, Martin Jaggi, Dan Alistarh, Torsten Hoefler, and James Hensman. Quarot: Outlier-free 4-bit inference in rotated llms. 
+
+Advances in Neural Information Processing Systems , 37:100213–100240, 2024. [39] Zechun Liu, Changsheng Zhao, Igor Fedorov, Bilge Soran, Dhruv Choudhary, Raghuraman Krishnamoorthi, Vikas Chandra, Yuandong Tian, and Tijmen Blankevoort. Spinquant: Llm quantization with learned rotations. arXiv preprint arXiv:2405.16406 , 2024. [40] Haokun Lin, Haobo Xu, Yichen Wu, Jingzhi Cui, Yingtao Zhang, Linzhan Mou, Linqi Song, Zhenan Sun, and Ying Wei. Duquant: Distributing outliers via dual transformation makes stronger quantized llms. 
+
+Advances in Neural Information Processing Systems , 37:87766–87800, 2024. [41] Yuxuan Sun, Ruikang Liu, Haoli Bai, Han Bao, Kang Zhao, Yuening Li, Jiaxin Hu, Xianzhi Yu, Lu Hou, Chun Yuan, et al. Flatquant: Flatness matters for llm quantization. arXiv preprint arXiv:2410.09426 , 2024. [42] Saleh Ashkboos, Maximilian L Croci, Marcelo Gennari Do Nascimento, Torsten Hoefler, and James Hensman. Slicegpt: Compress large language models by deleting rows and columns. In The Twelfth International Conference on Learning Representations , 2024. [43] Chi-Chih Chang, Wei-Cheng Lin, Chien-Yu Lin, Chong-Yan Chen, Yu-Fang Hu, Pei-Shuo Wang, Ning-Chi Huang, Luis Ceze, Mohamed S Abdelfattah, and Kai-Chiang Wu. Palu: Compressing kv-cache with low-rank projection. arXiv preprint arXiv:2407.21118 , 2024. [44] Bokai Lin, Zihao Zeng, Zipeng Xiao, Siqi Kou, Tianqi Hou, Xiaofeng Gao, Hao Zhang, and Zhijie Deng. Matryoshkakv: Adaptive kv compression via trainable orthogonal projection. arXiv preprint arXiv:2410.14731 , 2024. 
+
+12 A Related Works 
+
+A.1 Visual Token Pruning 
+
+Token-axis compression of the visual KV cache falls into two regimes. Pre-LLM methods, exemplified by VisionZip [ 17 ] and LLaVA-PruMerge [ 32 ], discard tokens at the vision encoder using saliency signals such as [CLS] attention [ 33 ] or token-flow propagation [ 34 ]; lacking access to the language query, they risk removing tokens critical to the downstream task. In-LLM methods defer pruning until after vision-text attention: FastV [ 15 ] drops visual tokens with low post-prefill attention, with extensions adding adaptive layer ratios [ 20 ], token recycling [ 35 ], or dual attention filtering [ 36 ]. Yet visual token pruning still incurs substantial degradation on fine-grained tasks such as ChartQA, DocVQA, and InfoVQA, where informative content is densely distributed across the scene [19]. 
+
+A.2 KV Channel Pruning 
+
+A complementary line of work compresses the KV cache along the channel axis, with most effort on Key channels [ 24 , 26 , 25 , 37 ]. ThinK [ 24 ] performs training-free structured pruning via a query-driven saliency score, retaining a fixed channel subset per layer. LeanK [ 26 ] learns a model-wise static mask through two-stage calibration and supplies a custom GPU kernel that turns the sparsity into measurable decoding speedup. Both fall under a head-wise regime, pruned channels are fixed across all tokens within a head, yielding lightweight masks but unable to adapt to per-token variation. SparK [ 25 ], in contrast, prunes at the token-wise level with a prune-and-recover mechanism; this finer granularity recovers accuracy lost under coarse pruning, but the unstructured sparsity scales with sequence length and resists hardware speedup. Notably, all of these methods are developed and evaluated only in the text-only LLM setting; their behavior in the vision-language regime, where visual tokens dominate the cache, remains largely unexplored. 
+
+A.3 Rotation-based Compression 
+
+A separate line treats orthogonal rotations as a free degree of freedom: attention is invariant to change of basis, so the model can be rotated into a representation more amenable to compression without altering outputs. For quantization, QuaRot [ 38 ] and SpinQuant [ 39 ] apply Hadamard or learned rotations to suppress activation outliers, with DuQuant [ 40 ] and FlatQuant [ 41 ] extending this via grouped or block-diagonal rotations. SliceGPT [ 42 ] carries the same invariance into structural weight pruning. For the KV cache, Palu [ 43 ] and MatryoshkaKV [ 44 ] use SVD-derived or trainable orthogonal projections to compress the channel dimension via low-rank reconstruction. While these works establish rotation as a versatile primitive for quantization and low-rank approximation, its use for channel pruning of the KV cache, particularly in the post-RoPE regime, where the rotation must coexist with RoPE’s position-dependent structure on Keys, remains unexplored. 13 B Additional Experimental Details 
+
+B.1 Dataset and Implementation Details. 
+
+Following the lmms-eval [ 31 ] protocol, we evaluate on both discriminative VQA benchmarks and open-ended generation benchmarks. The VQA benchmarks include TextVQA, InfoVQA, DocVQA, ChartQA, and VizWiz-VQA, covering OCR-intensive reasoning, document understanding, chart interpretation, and visually grounded question answering. Following prior work, we evaluate on the validation splits for all VQA benchmarks except ChartQA, where the test split is used. We further evaluate on LLaVA-in-the-Wild and MM-Vet to measure open-ended visual reasoning and generation quality. For benchmarks requiring generative evaluation, GPT-4o-mini is used as the judge model following the default lmms-eval setup. Unless otherwise specified, RotateK operates in an online calibration-free setting, recomputing the PCA-based rotation matrix directly from visual activations during each prefill stage. The resulting compressed KV states and rotation matrices are cached and reused during decoding. We additionally evaluate an offline calibrated variant in the ablation studies, where the rotation basis is precomputed from calibration data and reused across samples. For latency evaluation, all methods are implemented using Triton-based attention kernels for fair comparison. Specifically, full-channel baselines use the Triton implementation of FlashAttention-2, while RotateK uses our custom Triton sparse attention kernel operating directly on compressed Key states without reconstructing full-channel Keys. Unless otherwise stated, all experiments are conducted on a single NVIDIA A100-80GB GPU. 
+
+B.2 Baselines. 
+
+We evaluate RotateK on two representative open-source VLMs with different architectural backbones: LLaVA-NeXT-8B ( llama3-llava-next-8b-hf ) and Qwen2.5-VL-7B-Instruct. To isolate the effect of Key channel pruning from token reduction, RotateK is integrated into two orthogonal visual token-pruning frameworks: VisionZip [17] and FastV [15]. For VisionZip, we follow the original implementation and fix the contextual ratio to 0.05 , while sweeping the dominant token ratio over 0.40 , 0.30 . For FastV, we use the standard pruning stage K=2 
+
+with token keep ratios in 0.40 , 0.30 . On top of these token-pruning settings, RotateK further applies Key channel pruning ratios of 0.625 , 0.750 to visual KV states. We compare against recent Key channel pruning methods ThinK [ 24 ] and SparK [ 25 ] under identical KV-cache memory budgets. We additionally report token-only baselines without channel pruning, as well as channel-only baselines without token pruning, to separately analyze the contribution of token and channel compression. 14 C RotateK Decode Kernel Implementation 
+
+At each decode step RotateK serves two attention paths against a single query: a full-rank path over the Sfull non-vision tokens at head dimension d, and a rotated–truncated path over the Sv vision tokens at dkeep < d , projected by the per-head PCA basis R ∈ RB×Hkv ×d×dkeep . A naive implementation would issue four launches: a Q·R matmul, a sparse flash-decoding over the vision keys, a dense flash-decoding over the non-vision keys, and an online-softmax merge. We collapse these into two Triton kernels by inlining Q·R at the top of the sparse kernel and fusing the merge into the full-d kernel, matching the launch count of a dense decoder. The split-K factor over vision tokens is 
+
+Ns = max(1 , min( ⌈Sv /BLOCK_N ⌉, 64)) .
+
+C.1 Two-kernel decomposition 
+
+A natural single-kernel design fuses the full-d and sparse paths and gates the full-d loop on if pid_s == 0 . Triton cannot statically eliminate the branch, so it allocates the union of both paths’ register tiles for every split program, even though only the pid s = 0 program executes the full-d loop. The 
+
+[BLOCK_N , d ] full-d K, V tile inflates per-program register count from 111 to 141 , dropping SM occupancy from 25% to 19% and breaking memory-latency hiding, the fused kernel ends up reading less memory than the dense baseline yet running slower. Splitting the work into a register-lean sparse kernel and a small full+merge kernel restores sparse-path occupancy. 
+
+C.2 Phase 1: sparse split-K with inlined rotation 
+
+Launched on a (B, H q , N s) grid; each program processes ⌈Sv /N s⌉ vision tokens for one query head and writes a partial (m, ℓ, acc) tuple to HBM scratch. Rather than launch a separate prelude that materialises the rotated query to HBM, we compute it (and an optional bias term) at the top of every sparse program in registers, 
+
+qsparse [b, h, k ] = 
+
+> d
+
+X
+
+> k=1
+
+qfull [b, h, k ] R[b, h kv , k, k ], (6) 
+
+β[b, h ] = 
+
+> d
+
+X
+
+> k=1
+
+qfull [b, h, k ] δμ [b, h kv , k ], (7) trading Ns-fold reads of R[b, h kv ] for one fewer kernel launch and one fewer HBM round-trip. The inner loop is a standard online-softmax update over Ksparse ∈ RBLOCK_N ×dkeep and Vsparse ∈
+
+RBLOCK_N ×d; V retains the full dimension since truncation is a basis change for QK ⊤ only. We use BLOCK_N = 64 , with num_warps=1, num_stages=3 to triple-buffer K, V loads against the inner FMAs. 
+
+C.3 Phase 2: combined full-d and merge 
+
+Launched on a (B, H q ) grid, this kernel runs the full-d attention over the prompt and text tokens and then folds in the Ns sparse partials via the standard online-softmax merge of (m, ℓ, acc) tuples, writing the final output as acc /(ℓ + ε). Combining the two sub-tasks into a single launch matters because both are launch-overhead-bound: the non-vision segment is short and the merge processes only Ns ≤ 64 partials per (b, h ), so issuing them separately would double the launch overhead with little inner work to hide it. The kernel uses num_warps=1, num_stages=2 ; deeper pipelining buys little for the short non-vision loop. After the two-kernel split, the inlined Q · R prelude, and the full+merge fusion, RotateK decode issues two Triton launches per layer per step, the same as a dense flash-decoding kernel. The four scratch buffers shared between phases are cached in a module-level dictionary keyed by 
+
+(B, H q , d, N s, device , dtype ), eliminating per-call allocator overhead at negligible memory cost. 
+
+C.4 Fair-comparison protocol for latency 
+
+All decode-time latency numbers reported in this paper use Triton kernels under a common launcher for every method. The full-channel (unpruned) baseline, ThinK, and SparK use a dense Triton 15 FlashAttention-2 implementation; RotateK uses its Triton sparse-channel kernel described above. This ensures that reported speedups reflect differences in the algorithmic structure of attention, fewer K channels, fused rotation, etc., rather than disparities between optimised Triton kernels and unoptimised reference implementations. 16 D Additional Experimental Results 
+
+D.1 RotateK Design-Choice Ablation 
+
+Table 3: Ablation of RotateK Design Choices . Three short-answer VQA benchmarks (accuracy, %) are evaluated. We isolate two axes: (i) Q-aware (query-weighted PCA, our default) vs. Q-agnostic (K-only PCA); and (ii) Cholesky -based truncated subspace iteration (our default) vs. full 
+
+eigh (torch.linalg.eigh ). Highlighted entries (red) mark non-trivial accuracy drops when query-awareness is removed. We omit the (eigh, Q-agnostic) corner since it is dominated by both alternatives along each axis.                                        
+
+> RotateK variant TextVQA InfoVQA ChartQA
+> LLaVA-NeXT + FastV
+> Cholesky, Q-aware (ours) 63.38 27.26 56.00 eigh, Q-aware 64.52 27.52 56.20 Cholesky, Q-agnostic 61.70 27.78 57.20
+> LLaVA-NeXT + VisionZip
+> Cholesky, Q-aware (ours) 65.50 28.81 58.20 eigh, Q-aware 66.54 28.91 57.60 Cholesky, Q-agnostic 63.46 29.61 56.40
+> Qwen2.5-VL + FastV
+> Cholesky, Q-aware (ours) 83.50 58.05 63.80 eigh, Q-aware 83.92 58.21 63.60 Cholesky, Q-agnostic 84.50 57.00 63.40
+> Qwen2.5-VL + VisionZip
+> Cholesky, Q-aware (ours) 80.06 64.46 68.60 eigh, Q-aware 80.50 64.95 68.40 Cholesky, Q-agnostic 80.66 65.00 67.20
+
+We ablate two RotateK design choices: (i) Cholesky-based truncated subspace iteration vs. full eigendecomposition ( torch.linalg.eigh ), and (ii) query-weighted PCA vs. K-only PCA. Table 3 reports validation-lite accuracy across two backbones (LLaVA-NeXT, Qwen2.5-VL) crossed with two token-pruning counterparts (FastV, VisionZip). 
+
+Setup. Channel keep ratio 0.75 (0.25 × channels); FastV with K=2 , keep ratio 0.30 (0.30 ×
+
+tokens); VisionZip with dominant ratio 0.20 , contextual ratio 0.05 (0.25 × tokens). Backbones: 
+
+llama3-llava-next-8b-hf and Qwen2.5-VL-7B-Instruct . We use LMM S-E VAL -L ITE vali-dation splits ( ∼100–500 examples each) for tractability; full-validation accuracies are reported in Table 3. 
+
+Cholesky-based subspace iteration matches full eigh in accuracy. Across all twelve (backbone, token-pruner, dataset) cells, the gap between our Cholesky variant and full eigh stays within ∼1percentage point, with neither solver consistently dominating (largest gap +1 .14 pts on LLaVA-NeXT+FastV/TextVQA in favour of eigh ; the Cholesky variant matches or wins on the InfoVQA and ChartQA columns). The Cholesky-based solver therefore contributes purely on the latency axis, fewer kernel launches and CUDA-graph capture, while preserving the rotation basis quality of the full eigendecomposition. This accuracy parity is what licenses us to use the faster Cholesky path as the default throughout the main results. 
+
+Query-aware PCA is the safer default. The K-only variant tracks the query-weighted de-fault closely on most cells, occasionally outperforming it slightly ( +1 .00 pt on Qwen2.5-VL+FastV/TextVQA, +1 .20 pts on LLaVA-NeXT+FastV/ChartQA). This is consistent with Sec-tion 3.2: when the recent-query distribution QW is roughly isotropic across channels, diag( σW ) ≈
+
+αI and the query-weighted covariance collapses to a uniformly scaled K-only covariance with the same top-k eigenbasis. However, on a non-trivial subset of cells K-only degrades meaningfully (by 1 to 2 points) and these degradations cluster on benchmarks whose queries probe narrow channel directions: TextVQA on 17 Table 4: Comparison under Fixed KV Cache Budgets . Results with addtional KV cache budget is included from Table 1. 
+
+Method Token Channel KV Cache TVQA IVQA CQA DVQA VizWiz mean 
+
+LLAMA 3-LL AVA-N EXT-8B Baseline 1.00 × 1.00 × 1.00 × 65.40 32.27 69.08 72.44 57.50 59.34 FastV token only 0.25 × 1.00 × 0.25 × 62.69 25.91 59.64 56.39 58.56 52.64 FastV + ThinK 0.40 × 0.25 × 0.25 × 54.07 25.51 60.56 51.72 57.70 49.91 FastV + RotateK 0.40 × 0.25 × 0.25 × 62.67 28.37 65.25 62.46 58.34 55.42 FastV token only 0.20 × 1.00 × 0.20 × 61.03 24.25 54.28 51.23 58.16 49.79 FastV + ThinK 0.30 × 0.25 × 0.19 × 54.07 23.84 58.76 47.33 57.41 48.28 FastV + RotateK 0.30 × 0.25 × 0.19 × 61.53 25.40 62.36 57.59 58.53 53.08 VisionZip token only 0.28 × 1.00 × 0.28 × 63.33 27.70 57.32 64.08 58.97 54.28 VisionZip + ThinK 0.45 × 0.25 × 0.28 × 54.22 27.81 58.52 53.77 57.81 50.43 VisionZip + RotateK 0.45 × 0.25 × 0.28 × 62.62 28.97 62.88 66.99 58.94 56.08 VisionZip token only 0.22 × 1.00 × 0.22 × 62.07 26.11 55.16 59.18 58.95 52.29 VisionZip + ThinK 0.35 × 0.25 × 0.22 × 54.24 27.81 55.56 50.76 58.20 49.31 VisionZip + RotateK 0.35 × 0.25 × 0.22 × 62.73 27.70 60.16 64.73 59.33 54.93 QWEN 2.5-VL-7B-I NSTRUCT 
+
+Baseline 1.00 × 1.00 × 1.00 × 82.92 80.12 83.04 94.40 70.58 82.21 FastV token only 0.25 × 1.00 × 0.25 × 81.49 52.76 67.44 75.04 69.13 69.17 FastV + ThinK 0.40 × 0.25 × 0.25 × 77.81 63.01 77.12 81.74 69.25 73.79 FastV + RotateK 0.40 × 0.25 × 0.25 × 82.38 65.79 77.40 87.28 70.32 76.63 FastV token only 0.20 × 1.00 × 0.20 × 80.44 46.73 63.08 66.06 68.34 64.93 FastV + ThinK 0.30 × 0.25 × 0.19 × 77.76 54.79 71.40 75.58 68.82 69.67 FastV + RotateK 0.30 × 0.25 × 0.19 × 81.80 56.82 71.32 80.13 69.86 71.99 VisionZip token only 0.28 × 1.00 × 0.28 × 76.84 58.46 70.32 84.71 68.97 71.86 VisionZip + ThinK 0.45 × 0.25 × 0.28 × 75.72 67.13 79.64 85.83 68.93 75.45 VisionZip + RotateK 0.45 × 0.25 × 0.28 × 80.84 70.51 79.56 91.29 70.13 78.47 VisionZip token only 0.22 × 1.00 × 0.22 × 74.19 50.58 64.40 78.01 68.84 67.20 VisionZip + ThinK 0.35 × 0.25 × 0.22 × 73.83 60.95 76.44 82.78 68.35 72.47 VisionZip + RotateK 0.35 × 0.25 × 0.22 × 78.48 63.86 75.84 87.91 69.38 75.09 
+
+LLaVA-NeXT under both pruners ( −1.68 and −2.04 pts), ChartQA on both VisionZip configurations (−1.80 , −1.40 pts), and InfoVQA on Qwen2.5-VL+FastV ( −1.05 pts). The asymmetry is decisive: K-only’s wins are small ( ≤ 1.2 pts) and unpredictable, while its losses are larger and concentrated on the benchmarks where channel pruning is most consequential. Combined with the negligible cost of query-awareness (an O(d2) Hadamard product on the already-computed covariance, independent of context length), we adopt query-weighted PCA as the default. 
+
+D.2 Comparison under Fixed KV Cache Budgets 
+
+Additional results under tighter KV cache budgets are provided in Table 4. Consistent with the main results in Table 1, RotateK continues to outperform token-only pruning and prior Key channel pruning methods across most settings, while maintaining the same KV cache budget. Notably, the performance gap further widens at more aggressive compression ratios, demonstrating the robustness of rotation-based channel pruning in extreme low-memory regimes. 18 E Cholesky-Based Subspace Iteration 
+
+RotateK computes the PCA basis online at the end of prefill, making the efficiency of eigendecom-position critical for practical deployment. A standard PCA pipeline first computes the covariance matrix Cq ∈ Rd×d at cost O(N d 2), followed by a full symmetric eigendecomposition at cost O(d3).However, RotateK ultimately retains only the top-k channels, making the computation of the full 
+
+d-dimensional eigenspace unnecessary. To avoid this overhead, RotateK directly estimates only the top-k eigenspace using a Cholesky-based subspace iteration method. We first briefly review the intuition behind subspace iteration. Consider the eigendecomposition of the covariance matrix: 
+
+Cq = U ΛU ⊤, (8) where U = [ u1, . . . , u d] contains the eigenvectors and Λ = diag( λ1, . . . , λ d) contains the eigenval-ues ordered as λ1 ≥ λ2 ≥ · · · ≥ λd ≥ 0. By definition, each eigenvector satisfies: 
+
+Cq ui = λiui. (9) That is, multiplication by Cq preserves the direction of an eigenvector while scaling its magnitude by the corresponding eigenvalue. Now consider an arbitrary initial vector v(0) ∈ Rd, which can be expressed in the eigenbasis of Cq :
+
+v(0) = a1u1 + a2u2 + · · · + adud. (10) Applying the covariance matrix repeatedly yields: 
+
+v(1) = Cq v(0) = a1λ1u1 + a2λ2u2 + · · · , (11) 
+
+v(t) = Ctq v(0) = a1λt
+
+> 1
+
+u1 + a2λt
+
+> 2
+
+u2 + · · · . (12) Since the dominant eigenvalue satisfies λt 
+
+> 1
+
+≫ λt 
+
+> 2
+
+as t increases, the component along u1 progressively dominates: 
+
+v(t) ≈ u1. (13) This is the classical power iteration method: repeated multiplication by the covariance matrix amplifies directions associated with large eigenvalues. In the context of PCA, the eigenvectors of Cq = K⊤ 
+
+> q
+
+Kq
+
+correspond to directions of large query-weighted variance, so power iteration progressively aligns vectors with the principal PCA directions. RotateK, however, requires not only the dominant eigenvector but the entire top-k eigenspace. Subspace iteration extends power iteration from a single vector to a k-dimensional basis: 
+
+V (0) = [ v(0) 1 , . . . , v (0)  
+
+> k
+
+] ∈ Rd×k. (14) At each iteration, the basis is multiplied by the covariance matrix: 
+
+V (t+1) ← Cq V (t). (15) Repeated multiplication progressively amplifies directions associated with the largest eigenvalues, causing the column space of V (t) to converge toward the top-k eigenspace of Cq .A naive iteration, however, causes all basis vectors to collapse toward the dominant eigenvector u1.To maintain a valid k-dimensional subspace, each iteration additionally performs orthogonalisation. Rather than using a full QR decomposition, RotateK employs a more lightweight Cholesky-QR procedure. First, the Gram matrix is constructed: 
+
+G(t+1) = ( V (t+1) )⊤V (t+1) . (16) Since G(t+1) is positive definite, it admits a Cholesky factorisation: 
+
+G(t+1) = L(t+1) (L(t+1) )⊤. (17) The basis is then orthogonalised via: 
+
+V (t+1) ← V (t+1) (L(t+1) )−⊤ . (18) 19 This transformation guarantees orthonormal columns since: 
+
+(V (t+1) )⊤V (t+1) = ( L−1)⊤G(t+1) L−1 (19) 
+
+= ( L−1)⊤LL ⊤L−1 = I. (20) The dominant cost of each iteration arises from the matrix multiplication Cq V (t), resulting in a per-iteration complexity of O(d2k) and a total eigensolve complexity of O(T d 2k) over T iterations. The overall PCA complexity therefore becomes: 
+
+O(N d 2 + T d 2k), (21) compared to O(N d 2 + d3) for full eigendecomposition. Importantly, at the small matrix sizes relevant to KV-cache pruning ( e.g. , d=128 ), practical latency is dominated less by arithmetic throughput than by GPU kernel dispatch overhead. Full eigendecom-position launches many small CUDA kernels for tridiagonalisation, eigensolving, and eigenvector reconstruction, whereas subspace iteration repeatedly executes only a small set of structured op-erations (matrix multiplication, Gram matrix construction, Cholesky factorisation, and triangular solve) with fixed tensor shapes. This structure enables efficient CUDA graph capture and replay, substantially reducing wall-clock latency for online PCA despite comparable FLOPs. 20 F Algorithmic Overview of RotateK 
+
+Algorithm 1 RotateK – Prefill (Rotation Construction). 
+
+Require: Key states K ∈ RN ×d, recent queries QW ∈ RW ×d, target rank k, iteration count T ,ridge factor ϵ
+
+Ensure: Cached rotated keys ˜K, truncated rotation Rk, mean residual δμ 
+
+# Step 1: centered, query-weighted covariance  
+
+> 1:
+
+μ ← 1
+
+> N
+
+PNn=1 Kn ▷ per-channel mean of K 
+
+> 2:
+
+¯K ← K − 1N μ⊤ ▷ centered keys  
+
+> 3:
+
+¯C ← ¯K⊤ ¯K ▷ centered covariance, O(N d 2) 
+
+> 4:
+
+σj ← ∥ (QW ):,j ∥2 for j = 1 , . . . , d ▷ per-channel query magnitudes  
+
+> 5:
+
+Cq ← (σ σ ⊤) ⊙ ¯C ▷ Hadamard, O(d2)
+
+# Step 2: subspace iteration with shifted Cholesky-QR  
+
+> 6:
+
+Sample V ∈ Rd×k with i.i.d. N (0 , 1) entries  
+
+> 7:
+
+for t = 1 , . . . , T do  
+
+> 8:
+
+V ← Cq V ▷ GEMM, O(d2k) 
+
+> 9:
+
+G ← V ⊤V ▷ Gram, O(dk 2) 
+
+> 10:
+
+ρ ← ϵ · tr( G)/k ▷ trace-scaled ridge  
+
+> 11:
+
+L ← Cholesky( G + ρI k) ▷ O(k3) 
+
+> 12:
+
+V ← V L −⊤ ▷ triangular solve  
+
+> 13:
+
+end for  
+
+> 14:
+
+Rk ← V ▷ top-k basis of Cq
+
+# Step 3: cache rotated keys and mean correction  
+
+> 15:
+
+˜K ← KR k ▷ stored in place of K 
+
+> 16:
+
+δμ ← μ − Rk R⊤ 
+
+> k
+
+μ ▷ (Id − Pk) μ, used at decode  
+
+> 17:
+
+return ˜K, R k, δμ 
+
+Algorithm 2 RotateK – Decode (per step). 
+
+Require: Query qt ∈ Rd, cached visual ( ˜K, R k, δμ ), prompt+text keys Kpt ∈ RM ×d and concate-nated values V
+
+Ensure: Attention output ˜at 
+
+> 1:
+
+˜qt ← qtRk ▷ rotate query, O(dk ) 
+
+> 2:
+
+bt ← q⊤ 
+
+> t
+
+δμ ▷ scalar mean-correction bias  
+
+> 3:
+
+svis ←  ˜qt ˜K⊤ + bt 1⊤
+
+> N
+
+/√d ▷ rotated visual scores ( ∈ RN ) 
+
+> 4:
+
+spt ← qt K⊤
+
+> pt
+
+/√d ▷ unrotated prompt+text scores ( ∈ RM ) 
+
+> 5:
+
+s ←  svis ; spt 
+
+ ▷ concatenate over the N + M tokens  
+
+> 6:
+
+˜at ← softmax( s) · V ▷ weighted sum of values  
+
+> 7:
+
+return ˜at
+
+21 G Limitations 
+
+RotateK introduces additional prefill computation due to the online PCA-based rotation. Although our Cholesky-based subspace iteration substantially reduces the practical overhead, the cost may still become noticeable in highly latency-sensitive settings. In addition, RotateK primarily targets visual Key states during decoding, where visual KV caches dominate memory usage; thus, its benefits are less pronounced for short-context or text-only workloads. While RotateK significantly improves the robustness of structured head-wise channel pruning, it still relies on a shared subspace within each attention head and may not fully capture highly token-specific channel importance under extreme sparsity ratios. Finally, our experiments focus on image-based VLM benchmarks and two representative model families. Evaluating RotateK on broader long-video and multi-image reasoning settings remains future work. 
+
+## H Societal Impact 
+
+This work improves the efficiency of Vision-Language Model (VLM) inference by reducing KV cache memory and decoding latency through Key channel pruning. More efficient VLM inference may lower computational and energy costs, enabling broader accessibility of multimodal AI systems on resource-constrained hardware and reducing the environmental footprint of large-scale deployment. At the same time, as with other advances in efficient AI inference, improved efficiency may facilitate wider deployment of VLMs, including applications that could generate misleading, biased, or harmful content. In addition, compression methods may introduce uneven performance degradation across tasks or domains, potentially affecting reliability in safety-critical settings. Our work focuses solely on inference efficiency and does not introduce new model capabilities beyond the underlying VLMs. 22
