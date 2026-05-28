@@ -6,76 +6,75 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-19 ~ 2026-05-28
-- 运行时间：2026-05-28 11:33:50 UTC
+- 最新运行日期：2026-05-28
+- 运行时间：2026-05-28 21:58:48 UTC
 - 运行状态：成功
-- 本次总论文数：18
-- 精读区：7
+- 本次总论文数：17
+- 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-1) 本期日报聚焦医学影像AI与高风险RAG安全认证，精选7篇精读、11篇速读成果。  
-2) 最值得关注两个方向：人机协同优化显微镜视觉语言模型的prompt选择，以及面向高风险医疗RAG的声明级安全认证方法。  
-3) 建议普通读者优先精读这两篇9分论文，并关注速读中负样本抑制与OCTA分割的改进思路。
-- 详情：[/20260519-20260528/README](/20260519-20260528/README)
+今日精读两篇高分论文：医疗多智能体诊断系统MDIA与CLIP引导的语义分割SAM，速读覆盖可解释性迁移、多模态对齐与无标注血管分割等方向。
+
+最值得关注的是MDIA在HealthBench专业基准上的诊断表现，以及CLIP-Guided SAM实现无需微调的语义条件分割。
+
+建议普通读者优先阅读精读两篇，尤其关注医疗AI与视觉语言模型交叉应用的突破。
+- 详情：[/202605/28/README](/202605/28/README)
 
 ### 精读区论文标签
-1. [A Human-in-the-Loop Framework for Efficient Prompt Selection in Microscopy Vision-Language Models](/20260519-20260528/2605.20495v1-a-human-in-the-loop-framework-for-efficient-prompt-selection-in-microscopy-vision-language-models)  
+1. [MDIA: A Multi-Agent Diagnostic Intelligence Pipeline on HealthBench Professional](/202605/28/2605.24699v1-mdia-a-multi-agent-diagnostic-intelligence-pipeline-on-healthbench-professional)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：用于显微镜图像分类的视觉语言模型
-2. [Claim-Selective Certification for High-Risk Medical Retrieval-Augmented Generation](/20260519-20260528/2605.21949v1-claim-selective-certification-for-high-risk-medical-retrieval-augmented-generation)  
+   evidence：用于临床基准的多智能体诊断流水线
+2. [CLIP-Guided SAM: Parameter-Efficient Semantic Conditioning for Promptable Segmentation](/202605/28/2605.24807v1-clip-guided-sam-parameter-efficient-semantic-conditioning-for-promptable-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：医学检索增强生成与声明选择性认证
-3. [Case-Aware Medical Image Classification with Multimodal Knowledge Graphs and Reliability-Guided Refinement](/20260519-20260528/2605.22547v2-case-aware-medical-image-classification-with-multimodal-knowledge-graphs-and-reliability-guided-refinement)  
+   evidence：CLIP引导SAM进行语义分割
+3. [DeCoDrift: Stabilizing Decoder Coupling in Closed-Loop Foundation Segmentation](/202605/28/2605.25730v1-decodrift-stabilizing-decoder-coupling-in-closed-loop-foundation-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：基于多模态知识图谱的医学图像分类
-4. [Benchmarking Convolutional, Transformer, Hybrid, and Vision Language Models for Multi Disease Retinal Screening](/20260519-20260528/2605.26283v1-benchmarking-convolutional-transformer-hybrid-and-vision-language-models-for-multi-disease-retinal-screening)  
+   evidence：SAM解码器耦合分析用于分割
+4. [SCKAN: Structural Consensus-based KAN Prototype Learning for Semi-Supervised Pancreas Segmentation](/202605/28/2605.27032v1-sckan-structural-consensus-based-kan-prototype-learning-for-semi-supervised-pancreas-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：视网膜筛查VLM基准测试
-5. [Evi-Steer: Learning to Steer Biomedical Vision-Language Models through Efficient and Generalizable Evidential Tuning](/20260519-20260528/2605.26292v1-evi-steer-learning-to-steer-biomedical-vision-language-models-through-efficient-and-generalizable-evidential-tuning)  
+   evidence：KAN原型学习用于胰腺分割
+5. [VITAL: Visual-Semantic Dual Supervision for Enhanced and Interpretable Latent Reasoning in Medical MLLMs](/202605/28/2605.28422v1-vital-visual-semantic-dual-supervision-for-enhanced-and-interpretable-latent-reasoning-in-medical-mllms)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：生物医学视觉语言模型高效证据调优
-6. [MedVol-R1: Reward-Driven Evidence Grounding for Volumetric Reasoning Segmentation](/20260519-20260528/2605.26621v1-medvol-r1-reward-driven-evidence-grounding-for-volumetric-reasoning-segmentation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：基于临床查询的体素推理分割
-7. [OphIn-500K: Curating Web-Scale Visual Instructions for Scaling Ophthalmic Multimodal Large Language Models](/20260519-20260528/2605.27916v1-ophin-500k-curating-web-scale-visual-instructions-for-scaling-ophthalmic-multimodal-large-language-models)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：大规模眼科指令数据用于医学多模态大模型
+   evidence：医学多模态大语言模型中的潜在推理与视觉-语义双监督
+6. [GALAR-TemporalNet v2: Anatomy-Guided Dual-Branch Temporal Classification with Bidirectional Mamba and Dual-Graph GCN for Video Capsule Endoscopy -- after competition results](/202605/28/2605.22209v1-galar-temporalnet-v2-anatomy-guided-dual-branch-temporal-classification-with-bidirectional-mamba-and-dual-graph-gcn-for-video-capsule-endoscopy----after-competition-results)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：创新的医学内窥镜时间分类
 
 ### 速读区论文标签
-1. [Concept-Guided Noisy Negative Suppression for Zero-Shot Classification and Grounding of Chest X-Ray Findings](/20260519-20260528/2605.19374v1-concept-guided-noisy-negative-suppression-for-zero-shot-classification-and-grounding-of-chest-x-ray-findings)  
+1. [Interpretability Transfer from Language to Vision via Sparse Autoencoders](/202605/28/2605.24946v1-interpretability-transfer-from-language-to-vision-via-sparse-autoencoders)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：使用视觉语言对齐进行胸片零样本分类和定位
-2. [Gaze into the Details: Locality-Sensitive Enhancement for OCTA Retinal Vessel Segmentation](/20260519-20260528/2605.20651v1-gaze-into-the-details-locality-sensitive-enhancement-for-octa-retinal-vessel-segmentation)  
+   evidence：通过稀疏自编码器将可解释性从语言迁移到视觉
+2. [MAGIC: Multimodal Alignment & Grounding-aware Instruction Coreset for Vision-Language Models](/202605/28/2605.26004v1-magic-multimodal-alignment--grounding-aware-instruction-coreset-for-vision-language-models)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：OCTA视网膜血管分割的局部敏感增强
-3. [SpineContextResUNet: A Computationally Efficient Residual UNet for Spine CT Segmentation](/20260519-20260528/2605.20760v1-spinecontextresunet-a-computationally-efficient-residual-unet-for-spine-ct-segmentation)  
+   evidence：多模态指令调优核心集选择方法
+3. [VesselSim: learning 3D blood vessel segmentation without expert annotations](/202605/28/2605.26277v1-vesselsim-learning-3d-blood-vessel-segmentation-without-expert-annotations)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：用于脊柱CT分割的轻量级残差UNet及上下文模块
-4. [Radiuma: A Unified Zero-Code Executable Graphical Workflow Generator for Reproducible and Shareable Medical Image Analysis and Machine Learning](/20260519-20260528/2605.24201v1-radiuma-a-unified-zero-code-executable-graphical-workflow-generator-for-reproducible-and-shareable-medical-image-analysis-and-machine-learning)  
+   evidence：基于模拟的无标注3D血管分割
+4. [Detail Consistent Stage-Wise Distillation for Efficient 3D MRI Segmentation](/202605/28/2605.26382v1-detail-consistent-stage-wise-distillation-for-efficient-3d-mri-segmentation)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：医学图像分析平台，包含分割和分类模块
-5. [D-Convexity: A Unified Differentiable Convex Shape Prior via Quasi-Concavity for Data-driven Image Segmentation](/20260519-20260528/2605.19210v1-d-convexity-a-unified-differentiable-convex-shape-prior-via-quasi-concavity-for-data-driven-image-segmentation)  
+   evidence：使用阶段式蒸馏进行3D MRI分割
+5. [Local-sensitive connectivity filter (ls-cf): A post-processing unsupervised improvement of the frangi, hessian and vesselness filters for multimodal vessel segmentation](/202605/28/2605.21251v1-local-sensitive-connectivity-filter-ls-cf-a-post-processing-unsupervised-improvement-of-the-frangi-hessian-and-vesselness-filters-for-multimodal-vessel-segmentation)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：创新的几何先验分割方法
-6. [Pixel Wised Lesion Prediction on COVID-19 CT Imagery: A Comparative Analysis of Automated Image Segmentation Architectures](/20260519-20260528/2605.20459v1-pixel-wised-lesion-prediction-on-covid-19-ct-imagery-a-comparative-analysis-of-automated-image-segmentation-architectures)  
+   evidence：视网膜血管分割的创新滤波器
+6. [Robustness of breast lesion segmentation under MRI undersampling improves with k-space-aware deep learning](/202605/28/2605.22327v1-robustness-of-breast-lesion-segmentation-under-mri-undersampling-improves-with-k-space-aware-deep-learning)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：COVID-19 CT分割架构比较分析
-7. [VISTA: Validation-Guided Integration of Spatial and Temporal Foundation Models with Anatomical Decoding for Rare-Pathology VCE Event Detection -- after competition results](/20260519-20260528/2605.22096v1-vista-validation-guided-integration-of-spatial-and-temporal-foundation-models-with-anatomical-decoding-for-rare-pathology-vce-event-detection----after-competition-results)  
+   evidence：创新的k空间感知深度学习用于乳腺病变分割
+7. [ChronoMedKG: A Temporally-Grounded Biomedical Knowledge Graph and Benchmark for Clinical Reasoning](/202605/28/2605.22734v1-chronomedkg-a-temporally-grounded-biomedical-knowledge-graph-and-benchmark-for-clinical-reasoning)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：使用基础模型的多骨干框架用于罕见病理检测
-8. [What Does the Caption Really Say? Counterfactual Phrase Intervention for Compositional Data Selection in Vision-Language Pretraining](/20260519-20260528/2605.22651v1-what-does-the-caption-really-say-counterfactual-phrase-intervention-for-compositional-data-selection-in-vision-language-pretraining)  
+   evidence：用于临床推理和RAG的时间生物医学知识图谱
+8. [X-Edit: Exact, Explicit, and Explainable Null-Space Editing for Medical Vision Transformers](/202605/28/2605.24932v1-x-edit-exact-explicit-and-explainable-null-space-editing-for-medical-vision-transformers)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：用于视觉语言预训练的反事实短语干预
-9. [Rotation-Aligned Key Channel Pruning for Efficient Vision-Language Model Inference](/20260519-20260528/2605.19218v1-rotation-aligned-key-channel-pruning-for-efficient-vision-language-model-inference)  
+   evidence：医学视觉Transformer的模型编辑方法
+9. [VISTA: Validation-Guided Integration of Spatial and Temporal Foundation Models with Anatomical Decoding for Rare-Pathology VCE Event Detection -- after competition results](/202605/28/2605.22096v1-vista-validation-guided-integration-of-spatial-and-temporal-foundation-models-with-anatomical-decoding-for-rare-pathology-vce-event-detection----after-competition-results)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：通过关键通道剪枝提升VLM推理效率，减少KV缓存
-10. [WBCAtt+: Fine-Grained Pixel-Level Morphological Annotations for White Blood Cell Images](/20260519-20260528/2605.19692v1-wbcatt-fine-grained-pixel-level-morphological-annotations-for-white-blood-cell-images)  
+   evidence：用于内窥镜事件检测的多骨干VLM框架
+10. [Conceptualizing Embeddings: Sparse Disentanglement for Vision-Language Models](/202605/28/2605.22679v1-conceptualizing-embeddings-sparse-disentanglement-for-vision-language-models)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：医学图像分割数据集，带有细粒度标注
-11. [X-Ray cardiac angiographic vessel segmentation based on pixel classification using machine learning and region growing](/20260519-20260528/2605.20073v1-x-ray-cardiac-angiographic-vessel-segmentation-based-on-pixel-classification-using-machine-learning-and-region-growing)  
+   evidence：VLM嵌入的稀疏解缠
+11. [Weierstrass Positional Encoding for Vision Transformers](/202605/28/2605.23719v1-weierstrass-positional-encoding-for-vision-transformers)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：基于像素分类和区域生长的医学图像分割
+   evidence：Weierstrass位置编码用于ViT
 
 
 <div class="dpr-home-promo-card">
