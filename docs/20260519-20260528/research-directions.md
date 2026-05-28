@@ -1,6 +1,6 @@
 # 研究方向与二次创新路线 · 2026-05-19 ~ 2026-05-28
 
-- 生成时间：2026-05-28 11:45:55 UTC
+- 生成时间：2026-05-28 22:07:52 UTC
 - 当日论文数：18
 - 方向数：4
 
@@ -18,22 +18,22 @@
 
 ### 代表论文
 
-- [A Human-in-the-Loop Framework for Efficient Prompt Selection in Microscopy Vision-Language Models](https://arxiv.org/abs/2605.20495v1)：提出一种人机协同框架，通过目标驱动的主动学习策略选择优先标注的显微镜图像，以最少专家验证的示例构建提示集，达到分类性能目标。
-- [Claim-Selective Certification for High-Risk Medical Retrieval-Augmented Generation](https://arxiv.org/abs/2605.21949v1)：提出声明选择性认证方法，将RAG回答分解为可验证声明，通过关系评分和意图感知选择器映射到四种动作（full/partial/conflict/abstain），实现高风险医疗场景下混合证据的细粒度决策。
-- [Case-Aware Medical Image Classification with Multimodal Knowledge Graphs and Reliability-Guided Refinement](https://arxiv.org/abs/2605.22547v2)：提出一种基于多模态知识图谱和可靠性引导细化的案例感知推理框架MKG-CARE，用于医学图像分类，显式利用相似历史案例和结构化知识。
-- [Evi-Steer: Learning to Steer Biomedical Vision-Language Models through Efficient and Generalizable Evidential Tuning](https://arxiv.org/abs/2605.26292v1)：提出Evi-Steer，一种基于证据推理的低维表征引导框架，通过仅更新0.11%参数实现生物医学视觉语言模型的不确定性感知高效微调，在少样本学习和域泛化设置下显著优于现有方法。
-- [MedVol-R1: Reward-Driven Evidence Grounding for Volumetric Reasoning Segmentation](https://arxiv.org/abs/2605.26621v1)：提出MedVol-R1，一个基于GRPO强化学习的框架，将体素推理分割解耦为可验证的2D证据锚点（关键切片+边界框）和由冻结MedSAM2传播的3D掩码，无需链式思维标注。
-- [OphIn-500K: Curating Web-Scale Visual Instructions for Scaling Ophthalmic Multimodal Large Language Models](https://arxiv.org/abs/2605.27916v1)：提出OphIn-Engine管线从网络眼科视频自动构建大规模指令数据OphIn-500K（50万+实例、15万+独特图像），并训练眼科专用多模态大语言模型OphIn-VL，在多项任务上超越通用医疗和专科模型。
-- [Concept-Guided Noisy Negative Suppression for Zero-Shot Classification and Grounding of Chest X-Ray Findings](https://arxiv.org/abs/2605.19374v1)：提出概念引导的噪声负抑制框架CoNNS，利用层次概念本体和跨病人对重标策略，结合概念感知NCE损失，解决胸片零样本分类和定位中对比学习的噪声负样本问题。
-- [Gaze into the Details: Locality-Sensitive Enhancement for OCTA Retinal Vessel Segmentation](https://arxiv.org/abs/2605.20651v1)：提出LSENet，通过补丁级局部信息增强（PIE）、多尺度特征融合（MFF）和连通性细化解码器（CRD）三个模块，有效解决OCTA视网膜血管分割中的低对比度导致的血管不连续和细节丢失问题，在三个公开数据集上以更少参数取得最优性能。
-- [Pixel Wised Lesion Prediction on COVID-19 CT Imagery: A Comparative Analysis of Automated Image Segmentation Architectures](https://arxiv.org/abs/2605.20459v1)：本文通过综合评估四种深度学习分割架构（UNet、PSPNet、Linknet、FPN）与六种预训练编码器（VGG19、DenseNet121、Inception ResNet V2、MobileNet V2、SeresNet 101、EfficientNet B0）在三个COVID-19 CT数据集上的二分类和多分类分割性能，提供了标准化比较基准。
-- [What Does the Caption Really Say? Counterfactual Phrase Intervention for Compositional Data Selection in Vision-Language Pretraining](https://arxiv.org/abs/2605.22651v1)：提出反事实短语干预（CPI）框架，通过受控非词替换生成短语敏感性分数，用于CLIP式对比预训练中组合性数据的筛选，仅用50%数据提升组合泛化指标。
+- [A Human-in-the-Loop Framework for Efficient Prompt Selection in Microscopy Vision-Language Models](https://arxiv.org/abs/2605.20495v1)：提出一种人类在环的主动学习框架，通过目标驱动的提示集构建策略，以最少专家标注图像达到显微镜图像分类的目标性能。
+- [Claim-Selective Certification for High-Risk Medical Retrieval-Augmented Generation](https://arxiv.org/abs/2605.21949v1)：提出声明选择性认证方法，将RAG回答分解为可验证声明，通过关系评分和意图感知选择器映射到四种动作（完整/部分/冲突/放弃），在弱标签协议下实现零UCCR和高PAU。
+- [Case-Aware Medical Image Classification with Multimodal Knowledge Graphs and Reliability-Guided Refinement](https://arxiv.org/abs/2605.22547v2)：提出一种基于多模态知识图谱的案例感知推理框架，通过检索相似历史案例并注入视觉特征，同时用可靠性引导的决策细化机制校准预测，实现可解释的医学图像分类。
+- [Evi-Steer: Learning to Steer Biomedical Vision-Language Models through Efficient and Generalizable Evidential Tuning](https://arxiv.org/abs/2605.26292v1)：提出Evi-Steer，一个基于证据学习的跨模态低维引导框架，通过仅更新0.11%参数实现不确定性感知的BiomedCLIP参数高效微调，在15个生物医学数据集上超越现有方法。
+- [MedVol-R1: Reward-Driven Evidence Grounding for Volumetric Reasoning Segmentation](https://arxiv.org/abs/2605.26621v1)：本文针对三维医学图像中基于自由形式临床查询的体素推理分割任务，提出MedVol-R1框架。该方法通过强化学习将语言模型的临床推理解耦为可验证的二维证据锚点（关键轴向切片和边界框），再由冻结的MedSAM2模块传播为一致的三维掩码。采用冷启动监督微调结合GRPO训练，多组件奖励引导证据选择、空间定位和跨切片一致性。在三个公共数据集上取得最优性能，显著优于基线方法。
+- [OphIn-500K: Curating Web-Scale Visual Instructions for Scaling Ophthalmic Multimodal Large Language Models](https://arxiv.org/abs/2605.27916v1)：提出OphIn-Engine自动数据流水线，从网络视频构建眼科指令数据集OphIn-500K（50万+实例），并训练眼科MLLM OphIn-VL，性能优于现有通用医疗和专科模型。
+- [Concept-Guided Noisy Negative Suppression for Zero-Shot Classification and Grounding of Chest X-Ray Findings](https://arxiv.org/abs/2605.19374v1)：提出概念引导的噪声负抑制框架CoNNS，通过层次概念本体、跨患者对重标策略和概念感知NCE损失，解决胸片零样本分类和定位中对比学习噪声负样本导致的语义模糊问题。
+- [Gaze into the Details: Locality-Sensitive Enhancement for OCTA Retinal Vessel Segmentation](https://arxiv.org/abs/2605.20651v1)：提出LSENet，通过在U-Net中引入Patch Information Enhance (PIE)、Multiscale Feature Fusion (MFF)和Connectivity Refinement Decoder (CRD)三个模块，解决OCTA视网膜血管分割中低局部对比度导致的血管不连续和细节丢失问题。
+- [Pixel Wised Lesion Prediction on COVID-19 CT Imagery: A Comparative Analysis of Automated Image Segmentation Architectures](https://arxiv.org/abs/2605.20459v1)：综合评估4种分割架构（Unet、PSPNet、Linknet、FPN）与6种预训练编码器（VGG19、DenseNet121、Inception ResNet V2、MobileNet V2、SeresNet 101、EfficientNet B0）在COVID-19 CT图像二分类和多分类病变分割上的性能，并建立标准化比较基准。
+- [What Does the Caption Really Say? Counterfactual Phrase Intervention for Compositional Data Selection in Vision-Language Pretraining](https://arxiv.org/abs/2605.22651v1)：提出反事实短语干预（CPI）框架，通过受控替换生成短语敏感性分数，用于视觉-语言对比预训练中的数据筛选，仅用50%数据即可提升组合泛化指标。
 
 ### 共同创新点
-- 提出一种人机协同框架，通过目标驱动的主动学习策略选择优先标注的显微镜图像，以最少专家验证的示例构建提示集，达到分类性能目标。
-- 提出声明选择性认证方法，将RAG回答分解为可验证声明，通过关系评分和意图感知选择器映射到四种动作（full/partial/conflict/abstain），实现高风险医疗场景下混合证据的细粒度决策。
-- 提出一种基于多模态知识图谱和可靠性引导细化的案例感知推理框架MKG-CARE，用于医学图像分类，显式利用相似历史案例和结构化知识。
-- 提出Evi-Steer，一种基于证据推理的低维表征引导框架，通过仅更新0.11%参数实现生物医学视觉语言模型的不确定性感知高效微调，在少样本学习和域泛化设置下显著优于现有方法。
+- 提出一种人类在环的主动学习框架，通过目标驱动的提示集构建策略，以最少专家标注图像达到显微镜图像分类的目标性能。
+- 提出声明选择性认证方法，将RAG回答分解为可验证声明，通过关系评分和意图感知选择器映射到四种动作（完整/部分/冲突/放弃），在弱标签协议下实现零UCCR和高PAU。
+- 提出一种基于多模态知识图谱的案例感知推理框架，通过检索相似历史案例并注入视觉特征，同时用可靠性引导的决策细化机制校准预测，实现可解释的医学图像分类。
+- 提出Evi-Steer，一个基于证据学习的跨模态低维引导框架，通过仅更新0.11%参数实现不确定性感知的BiomedCLIP参数高效微调，在15个生物医学数据集上超越现有方法。
 
 ### 尚未解决的问题
 - 现有工作之间的评测协议、数据集和临床适用边界可能尚未统一。
@@ -57,12 +57,12 @@
 
 ### 代表论文
 
-- [Benchmarking Convolutional, Transformer, Hybrid, and Vision Language Models for Multi Disease Retinal Screening](https://arxiv.org/abs/2605.26283v1)：本研究系统比较了卷积神经网络、视觉Transformer、混合CNN-Transformer及视觉语言模型在视网膜多疾病筛查中的性能。使用RFMiD数据集进行二分类和28类多标签分类，标准化训练与评估。结果表明注意力模型（如SwinTiny、混合CoAtNet0/MaxViTTiny）在二分类和多标签任务中表现最优，AUC超84%；视觉语言模型与CNN基线相当但未超越最优模型。外部验证Messidor-2上混合和Transformer...
-- [WBCAtt+: Fine-Grained Pixel-Level Morphological Annotations for White Blood Cell Images](https://arxiv.org/abs/2605.19692v1)：提出WBCAtt+数据集，首次为白细胞图像提供11种细粒度形态属性和5类像素级分割标注，并构建利用分割信息提升属性识别性能的基线模型。
+- [Benchmarking Convolutional, Transformer, Hybrid, and Vision Language Models for Multi Disease Retinal Screening](https://arxiv.org/abs/2605.26283v1)：系统比较了四类视觉模型（CNN、混合CNN-Transformer、Transformer、视觉语言模型）在多疾病视网膜筛查中的性能，通过标准化训练、校准和评估协议，为模型选择提供可重复的基准。
+- [WBCAtt+: Fine-Grained Pixel-Level Morphological Annotations for White Blood Cell Images](https://arxiv.org/abs/2605.19692v1)：提出了WBCAtt+数据集，包含11种形态属性和5类像素级细胞组件的密集标注（113k图像级标签、10k分割图），并设计融入细胞组成结构的属性识别模型，提升了属性识别性能。
 
 ### 共同创新点
-- 本研究系统比较了卷积神经网络、视觉Transformer、混合CNN-Transformer及视觉语言模型在视网膜多疾病筛查中的性能。使用RFMiD数据集进行二分类和28类多标签分类，标准化训练与评估。结果表明注意力模型（如SwinTiny、混合CoAtNet0/MaxViTTiny）在二分类和多标签任务中表现最优，AUC超84%；视觉语言模型与CNN基线...
-- 提出WBCAtt+数据集，首次为白细胞图像提供11种细粒度形态属性和5类像素级分割标注，并构建利用分割信息提升属性识别性能的基线模型。
+- 系统比较了四类视觉模型（CNN、混合CNN-Transformer、Transformer、视觉语言模型）在多疾病视网膜筛查中的性能，通过标准化训练、校准和评估协议，为模型选择提供可重复的基准。
+- 提出了WBCAtt+数据集，包含11种形态属性和5类像素级细胞组件的密集标注（113k图像级标签、10k分割图），并设计融入细胞组成结构的属性识别模型，提升了属性识别性能。
 
 ### 尚未解决的问题
 - 现有工作之间的评测协议、数据集和临床适用边界可能尚未统一。
@@ -86,16 +86,16 @@
 
 ### 代表论文
 
-- [SpineContextResUNet: A Computationally Efficient Residual UNet for Spine CT Segmentation](https://arxiv.org/abs/2605.20760v1)：提出一种计算高效的3D残差U-Net (SpineContextResUNet)，通过轻量级上下文块（并行多膨胀卷积）捕获长程依赖，在资源受限硬件上实现脊柱CT分割，达到与大规模模型可比的精度。
-- [Radiuma: A Unified Zero-Code Executable Graphical Workflow Generator for Reproducible and Shareable Medical Image Analysis and Machine Learning](https://arxiv.org/abs/2605.24201v1)：Radiuma是一个零代码图形工作流生成器，通过整合图像处理与机器学习模块并支持工作流保存共享，实现可重复和可共享的医学图像分析。
-- [D-Convexity: A Unified Differentiable Convex Shape Prior via Quasi-Concavity for Data-driven Image Segmentation](https://arxiv.org/abs/2605.19210v1)：从拟凹性出发，提出无阈值的可微凸性先验，通过零阶、一阶、二阶条件将全局凸形状约束转化为局部可微不等式，并设计凸梯度投影模块(CGPM)集成到分割网络。
-- [X-Ray cardiac angiographic vessel segmentation based on pixel classification using machine learning and region growing](https://arxiv.org/abs/2605.20073v1)：提出一种结合像素分类和区域增长的X射线心脏造影血管分割方法，通过提取多类纹理特征并使用随机森林分类器和ELEMENT迭代机制，达到95.48%准确率，优于现有无监督方法。
+- [SpineContextResUNet: A Computationally Efficient Residual UNet for Spine CT Segmentation](https://arxiv.org/abs/2605.20760v1)：提出 SpineContextResUNet，一种计算高效的 3D 残差 U-Net，通过轻量级上下文块（并行多膨胀卷积）捕获长程依赖，在脊柱 CT 分割中实现高精度与低资源需求。
+- [Radiuma: A Unified Zero-Code Executable Graphical Workflow Generator for Reproducible and Shareable Medical Image Analysis and Machine Learning](https://arxiv.org/abs/2605.24201v1)：Radiuma是一个统一的零代码可执行图形化工作流生成器，将医学图像分析（读取、配准、融合、分割、特征提取）与机器学习（分类、回归、聚类）集成在一个模块化平台中，支持工作流的保存、共享和重放，以提高可重现性。
+- [D-Convexity: A Unified Differentiable Convex Shape Prior via Quasi-Concavity for Data-driven Image Segmentation](https://arxiv.org/abs/2605.19210v1)：提出一种基于拟凹性的可微凸性先验，通过约束网络输出掩膜的所有超水平集为凸，将全局形状约束转化为局部可微不等式，并设计凸梯度投影模块（CGPM）实现端到端分割。
+- [X-Ray cardiac angiographic vessel segmentation based on pixel classification using machine learning and region growing](https://arxiv.org/abs/2605.20073v1)：提出一种结合像素分类与ELEMENT区域生长控制策略的X射线心脏造影血管分割方法，采用随机森林分类器和多种纹理特征，在公开数据集上达到95.48%的准确率，优于现有无监督方法。
 
 ### 共同创新点
-- 提出一种计算高效的3D残差U-Net (SpineContextResUNet)，通过轻量级上下文块（并行多膨胀卷积）捕获长程依赖，在资源受限硬件上实现脊柱CT分割，达到与大规模模型可比的精度。
-- Radiuma是一个零代码图形工作流生成器，通过整合图像处理与机器学习模块并支持工作流保存共享，实现可重复和可共享的医学图像分析。
-- 从拟凹性出发，提出无阈值的可微凸性先验，通过零阶、一阶、二阶条件将全局凸形状约束转化为局部可微不等式，并设计凸梯度投影模块(CGPM)集成到分割网络。
-- 提出一种结合像素分类和区域增长的X射线心脏造影血管分割方法，通过提取多类纹理特征并使用随机森林分类器和ELEMENT迭代机制，达到95.48%准确率，优于现有无监督方法。
+- 提出 SpineContextResUNet，一种计算高效的 3D 残差 U-Net，通过轻量级上下文块（并行多膨胀卷积）捕获长程依赖，在脊柱 CT 分割中实现高精度与低资源需求。
+- Radiuma是一个统一的零代码可执行图形化工作流生成器，将医学图像分析（读取、配准、融合、分割、特征提取）与机器学习（分类、回归、聚类）集成在一个模块化平台中，支持工作流的保存、共享和重放，以提高可重现性。
+- 提出一种基于拟凹性的可微凸性先验，通过约束网络输出掩膜的所有超水平集为凸，将全局形状约束转化为局部可微不等式，并设计凸梯度投影模块（CGPM）实现端到端分割。
+- 提出一种结合像素分类与ELEMENT区域生长控制策略的X射线心脏造影血管分割方法，采用随机森林分类器和多种纹理特征，在公开数据集上达到95.48%的准确率，优于现有无监督方法。
 
 ### 尚未解决的问题
 - 现有工作之间的评测协议、数据集和临床适用边界可能尚未统一。
@@ -119,12 +119,12 @@
 
 ### 代表论文
 
-- [VISTA: Validation-Guided Integration of Spatial and Temporal Foundation Models with Anatomical Decoding for Rare-Pathology VCE Event Detection -- after competition results](https://arxiv.org/abs/2605.22096v1)：提出VISTA框架，融合EndoFM-LV时态模型与DINOv3帧级视觉模型，通过多样头集成、验证引导加权融合和解剖感知时序解码，解决胶囊内镜罕见病理事件检测中稀疏、异质和事件级评估的挑战。
-- [Rotation-Aligned Key Channel Pruning for Efficient Vision-Language Model Inference](https://arxiv.org/abs/2605.19218v1)：提出旋转对齐关键通道剪枝框架RotateK，通过在线PCA旋转将token相关通道重要性对齐到共享低维子空间，实现结构化头维度剪枝，并使用融合Triton注意力核加速解码，在固定KV缓存预算下显著提升视觉语言模型推理效率。
+- [VISTA: Validation-Guided Integration of Spatial and Temporal Foundation Models with Anatomical Decoding for Rare-Pathology VCE Event Detection -- after competition results](https://arxiv.org/abs/2605.22096v1)：提出VISTA框架，融合EndoFM-LV时态模型与DINOv3帧级视觉模型，通过多样头集成、验证引导加权融合和解剖感知时序解码，提升胶囊内镜罕见病理事件检测精度，并在竞赛后通过全局阈值搜索优化获得第二名。
+- [Rotation-Aligned Key Channel Pruning for Efficient Vision-Language Model Inference](https://arxiv.org/abs/2605.19218v1)：视觉语言模型推理时KV缓存压力大，现有方法通过token剪枝导致细粒度任务性能下降。本文提出旋转对齐关键通道剪枝（RotateK），通过在线PCA旋转将token相关通道重要性对齐到低维子空间，实现结构化剪枝，同时使用融合Triton注意力核加速解码。实验表明RotateK在准确率和延迟上均优于先前方法，联合token-通道剪枝进一步提升了KV缓存效率。
 
 ### 共同创新点
-- 提出VISTA框架，融合EndoFM-LV时态模型与DINOv3帧级视觉模型，通过多样头集成、验证引导加权融合和解剖感知时序解码，解决胶囊内镜罕见病理事件检测中稀疏、异质和事件级评估的挑战。
-- 提出旋转对齐关键通道剪枝框架RotateK，通过在线PCA旋转将token相关通道重要性对齐到共享低维子空间，实现结构化头维度剪枝，并使用融合Triton注意力核加速解码，在固定KV缓存预算下显著提升视觉语言模型推理效率。
+- 提出VISTA框架，融合EndoFM-LV时态模型与DINOv3帧级视觉模型，通过多样头集成、验证引导加权融合和解剖感知时序解码，提升胶囊内镜罕见病理事件检测精度，并在竞赛后通过全局阈值搜索优化获得第二名。
+- 视觉语言模型推理时KV缓存压力大，现有方法通过token剪枝导致细粒度任务性能下降。本文提出旋转对齐关键通道剪枝（RotateK），通过在线PCA旋转将token相关通道重要性对齐到低维子空间，实现结构化剪枝，同时使用融合Triton注意力核加速解码。实验表明RotateK在准确率和延迟上均优于先前方法，联合token-通道剪枝进一步提升了KV缓存效率。
 
 ### 尚未解决的问题
 - 现有工作之间的评测协议、数据集和临床适用边界可能尚未统一。
