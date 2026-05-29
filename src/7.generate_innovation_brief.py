@@ -533,6 +533,26 @@ DIRECTIONS_SCHEMA = {
                                 "route_name": {"type": "string"},
                                 "idea": {"type": "string"},
                                 "why_promising": {"type": "string"},
+                                "new_problem_definition": {"type": "string"},
+                                "source_mechanisms": {"type": "array", "items": {"type": "string"}},
+                                "theoretical_rationale": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "math_object": {"type": "string"},
+                                        "source_decomposition": {"type": "string"},
+                                        "new_formulation": {"type": "string"},
+                                        "formula_sketch": {"type": "string"},
+                                        "why_it_may_work": {"type": "string"},
+                                    },
+                                    "required": [
+                                        "math_object",
+                                        "source_decomposition",
+                                        "new_formulation",
+                                        "formula_sketch",
+                                        "why_it_may_work",
+                                    ],
+                                },
                                 "possible_experiment": {"type": "string"},
                                 "risk": {"type": "string"},
                             },
@@ -540,6 +560,9 @@ DIRECTIONS_SCHEMA = {
                                 "route_name",
                                 "idea",
                                 "why_promising",
+                                "new_problem_definition",
+                                "source_mechanisms",
+                                "theoretical_rationale",
                                 "possible_experiment",
                                 "risk",
                             ],
@@ -797,6 +820,18 @@ def fallback_research_directions(papers: List[Dict[str, Any]], innovations: Dict
                         "route_name": "统一评测与误差分解",
                         "idea": "把同方向论文放到统一任务、统一指标和统一错误类型下比较，寻找稳定短板。",
                         "why_promising": "同方向论文往往各自验证，统一评测能暴露可继续推进的真实问题。",
+                        "new_problem_definition": "把同方向方法从单篇论文结论转化为一个跨方法、跨数据集的可靠性诊断任务。",
+                        "source_mechanisms": [
+                            "A 类论文提供候选模型、模块或任务设定。",
+                            "B 类论文提供评测协议、校准指标或失败类型划分。"
+                        ],
+                        "theoretical_rationale": {
+                            "math_object": "统一风险函数、分层误差分解和跨域泛化差距。",
+                            "source_decomposition": "现有论文通常只优化各自任务损失，缺少同一风险空间下的横向比较。",
+                            "new_formulation": "定义 R(m, d, e)=E[L(m(x), y) | domain=d, error=e]，按模型 m、数据域 d 和错误类型 e 分解风险。",
+                            "formula_sketch": "Gap(m)=max_d R(m,d)-min_d R(m,d)，RobustScore(m)=Avg_d R(m,d)+lambda*Gap(m)。",
+                            "why_it_may_work": "把平均性能和最坏域差距同时显式化，有助于发现真实部署中的不稳定来源。"
+                        },
                         "possible_experiment": "复现或复用公开结果，构建共享测试集，按失败类型进行分层统计。",
                         "risk": "不同论文的数据和任务定义不一致，可能需要较多人工清洗。",
                     },
@@ -804,6 +839,18 @@ def fallback_research_directions(papers: List[Dict[str, Any]], innovations: Dict
                         "route_name": "方法组合与轻量增强",
                         "idea": "抽取该方向中互补的模块，例如解释、校准、隐私、效率或多智能体协作，组合成更完整方案。",
                         "why_promising": "单篇论文通常只优化一个环节，模块组合可能带来更强的系统效果。",
+                        "new_problem_definition": "把多个互补机制组织成一个端到端系统设定，并检验组合是否带来超过简单相加的收益。",
+                        "source_mechanisms": [
+                            "A 论文解决核心预测、检索或生成问题。",
+                            "B 论文补足校准、约束、不确定性估计或证据融合机制。"
+                        ],
+                        "theoretical_rationale": {
+                            "math_object": "联合目标函数、约束正则项和不确定性加权融合。",
+                            "source_decomposition": "现有论文分别处理主任务损失和辅助可靠性约束，但没有把二者写成统一优化问题。",
+                            "new_formulation": "定义 L_total=L_task+lambda_1 L_constraint+lambda_2 U(x) L_risk，其中 U(x) 表示样本或声明级不确定性。",
+                            "formula_sketch": "f*(x)=argmin_f E[L_task(f(x),y)+lambda C(f,x)+gamma U(f,x)R(f,x)]。",
+                            "why_it_may_work": "不确定性加权能让模型在高风险样本上更重视约束与校准，从而提高稳定性和安全性。"
+                        },
                         "possible_experiment": "选择一个强基线，逐步加入互补模块并做消融实验。",
                         "risk": "模块叠加可能增加复杂度，收益未必线性增长。",
                     },
@@ -853,20 +900,16 @@ def normalize_directions_payload(payload: Dict[str, Any], papers: List[Dict[str,
     return {"directions": output}
 
 
-def build_research_directions(client: SimpleLLMClient | None, papers: List[Dict[str, Any]], innovations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-    if not papers:
-        return {"directions": []}
-    if client is None:
-        return fallback_research_directions(papers, innovations)
-
-    items = [paper_compact_item(paper, innovations) for paper in papers]
-    messages = [
+def build_research_directions_prompt(items: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    return [
         {
             "role": "system",
             "content": (
-                "你是科研选题顾问。请把当天论文自动划分成若干研究方向，"
-                "并在每个方向内进行二次创新路线开发。请用中文，避免空泛，"
-                "每条路线都要包含想法、为什么有潜力、可做实验和风险。"
+                "你不是在总结论文，而是在做二次选题设计。禁止输出泛泛方向，"
+                "如“医学AI可解释性”“图像分割优化”。每个方向必须至少由 2 篇论文的机制互补产生；"
+                "必须明确指出 A 论文解决什么、B 论文补足什么；必须给出一个可以投稿的新问题定义或新系统设定；"
+                "必须给出最小可行实验，而不是笼统说“做消融”。如果只是简单拼接模块，必须判为低价值路线。"
+                "每条路线还必须从理论/数学角度给出创新理由。"
             ),
         },
         {
@@ -874,12 +917,33 @@ def build_research_directions(client: SimpleLLMClient | None, papers: List[Dict[
             "content": (
                 "下面是当天论文和单篇创新点。请完成：\n"
                 "1. 自动划分 2-8 个研究方向；论文少时可以少于 2 个。\n"
-                "2. 每篇论文归入最相关的方向，必要时可少量交叉，但不要过度重复。\n"
-                "3. 每个方向给出共同创新、未解决问题和 2-4 条二次创新路线。\n\n"
+                "2. 每个方向必须是跨论文机制互补，不要只按疾病、任务或模型大类粗分。\n"
+                "3. 每篇论文归入最相关的方向，必要时可少量交叉，但不要过度重复。\n"
+                "4. 每个方向给出共同创新、未解决问题和 2-4 条二次创新路线。\n"
+                "5. 每条路线必须包含 new_problem_definition，说明它对应的新任务、新评测或新系统设定。\n"
+                "6. 每条路线必须包含 source_mechanisms，逐条写清楚来自哪些论文的哪些机制互补；"
+                "至少体现“A 论文解决什么，B 论文补足什么”。\n"
+                "7. 每条路线必须包含 theoretical_rationale，并严格写满：\n"
+                "   - math_object：核心数学对象，例如优化目标、约束、概率分布、图结构、风险函数、信息增益、不确定性度量、因果干预、几何先验或对比学习目标；\n"
+                "   - source_decomposition：现有论文分别处理了数学问题的哪一部分；\n"
+                "   - new_formulation：二次创新如何形成新的联合目标函数、约束项、风险分解、证据融合公式、主动采样准则、图推理机制或理论假设；\n"
+                "   - formula_sketch：至少给出一个可写进论文方法部分的公式草图或伪公式，并定义主要变量；\n"
+                "   - why_it_may_work：说明该数学设计为什么可能带来性能、稳定性、可解释性、泛化性或安全性的提升。\n"
+                "8. 禁止只写“从理论上更合理”“具有数学可解释性”“可以提升泛化能力”“结合不确定性和知识图谱”等没有公式或变量定义的空话。\n\n"
                 + json.dumps(items, ensure_ascii=False, indent=2)
             ),
         },
     ]
+
+
+def build_research_directions(client: SimpleLLMClient | None, papers: List[Dict[str, Any]], innovations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    if not papers:
+        return {"directions": []}
+    if client is None:
+        return fallback_research_directions(papers, innovations)
+
+    items = [paper_compact_item(paper, innovations) for paper in papers]
+    messages = build_research_directions_prompt(items)
     try:
         parsed = call_structured(client, messages, "research_directions", DIRECTIONS_SCHEMA, 5000)
         if parsed and isinstance(parsed.get("directions"), list):
@@ -1079,12 +1143,37 @@ def render_research_directions_markdown(
             lines.append(f"#### 路线 {route_idx}：{route_name}")
             idea = clean_text(route.get("idea"), 360)
             why = clean_text(route.get("why_promising"), 300)
+            problem = clean_text(route.get("new_problem_definition"), 360)
+            mechanisms = [clean_text(x, 260) for x in route.get("source_mechanisms") or [] if clean_text(x)]
+            theory = route.get("theoretical_rationale") if isinstance(route.get("theoretical_rationale"), dict) else {}
+            math_object = clean_text(theory.get("math_object"), 300)
+            source_decomposition = clean_text(theory.get("source_decomposition"), 360)
+            new_formulation = clean_text(theory.get("new_formulation"), 420)
+            formula_sketch = clean_text(theory.get("formula_sketch"), 520)
+            why_theory = clean_text(theory.get("why_it_may_work"), 360)
             experiment = clean_text(route.get("possible_experiment"), 320)
             risk = clean_text(route.get("risk"), 260)
             if idea:
                 lines.append(f"- 核心想法：{idea}")
+            if problem:
+                lines.append(f"- 新问题定义：{problem}")
+            if mechanisms:
+                lines.append("- 机制来源：")
+                lines.extend([f"  - {item}" for item in mechanisms])
             if why:
                 lines.append(f"- 为什么值得做：{why}")
+            if any([math_object, source_decomposition, new_formulation, formula_sketch, why_theory]):
+                lines.append("- 理论/数学创新理由：")
+                if math_object:
+                    lines.append(f"  - 数学对象：{math_object}")
+                if source_decomposition:
+                    lines.append(f"  - 来源分解：{source_decomposition}")
+                if new_formulation:
+                    lines.append(f"  - 新建模方式：{new_formulation}")
+                if formula_sketch:
+                    lines.append(f"  - 公式草图：{formula_sketch}")
+                if why_theory:
+                    lines.append(f"  - 为什么可能有效：{why_theory}")
             if experiment:
                 lines.append(f"- 可验证实验：{experiment}")
             if risk:
