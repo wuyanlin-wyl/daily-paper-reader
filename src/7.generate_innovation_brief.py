@@ -79,7 +79,7 @@ def day_dir_for(docs_dir: str, date_str: str) -> str:
 
 
 def resolve_latest_date_token(docs_dir: str) -> str:
-    candidates: List[tuple[str, str]] = []
+    candidates: List[tuple[str, int, str]] = []
     if not os.path.isdir(docs_dir):
         return TODAY_STR
 
@@ -92,7 +92,7 @@ def resolve_latest_date_token(docs_dir: str) -> str:
             readme_path = os.path.join(top_path, "README.md")
             if os.path.exists(meta_path) or os.path.exists(readme_path):
                 _, end = name.split("-", 1)
-                candidates.append((end, name))
+                candidates.append((end, 0, name))
             continue
         if not re.match(r"^\d{6}$", name):
             continue
@@ -104,12 +104,12 @@ def resolve_latest_date_token(docs_dir: str) -> str:
             meta_path = os.path.join(day_path, "papers.meta.json")
             readme_path = os.path.join(day_path, "README.md")
             if os.path.exists(meta_path) or os.path.exists(readme_path):
-                candidates.append((token, token))
+                candidates.append((token, 1, token))
 
     if not candidates:
         return TODAY_STR
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    return candidates[0][1]
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
 
 
 def read_json(path: str, default: Any) -> Any:
