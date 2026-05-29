@@ -751,6 +751,14 @@ def paper_compact_item(paper: Dict[str, Any], innovations: Dict[str, Dict[str, A
 
 
 def fallback_research_directions(papers: List[Dict[str, Any]], innovations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "directions": [],
+        "generation_warning": (
+            "未生成研究方向与二次创新路线：该步骤需要 LLM 完成跨论文机制互补和数学建模推理。"
+            "请配置 BLT_API_KEY / SUMMARY_API_KEY 后重新运行，不要使用 --no-llm。"
+        ),
+    }
+
     if not papers:
         return {"directions": []}
 
@@ -870,17 +878,78 @@ def normalize_direction_name(name: Any) -> str:
     return text or "未命名方向"
 
 
+FALLBACK_ROUTE_NAMES = {"统一评测与误差分解", "方法组合与轻量增强"}
+
+
+def looks_like_formula(text: Any) -> bool:
+    value = clean_text(text)
+    if len(value) < 20:
+        return False
+    formula_markers = ["=", "∑", "Σ", "E[", "argmin", "argmax", "max_", "min_", "lambda", "λ", "P(", "R(", "L_"]
+    return any(marker in value for marker in formula_markers)
+
+
+def is_generic_source_mechanism(text: Any) -> bool:
+    value = clean_text(text)
+    generic_patterns = [
+        r"^[AB]\s*类论文",
+        r"^[AB]\s*论文\s*(解决|补足|提供)",
+        r"候选模型",
+        r"评测协议",
+        r"校准指标",
+        r"失败类型",
+        r"核心预测、检索或生成问题",
+    ]
+    return any(re.search(pattern, value) for pattern in generic_patterns)
+
+
+def route_quality_issues(route: Dict[str, Any]) -> List[str]:
+    issues: List[str] = []
+    route_name = clean_text(route.get("route_name"))
+    if route_name in FALLBACK_ROUTE_NAMES:
+        issues.append("route_name matches fallback template")
+
+    mechanisms = [clean_text(x) for x in route.get("source_mechanisms") or [] if clean_text(x)]
+    if len(mechanisms) < 2:
+        issues.append("source_mechanisms has fewer than two items")
+    elif all(is_generic_source_mechanism(item) for item in mechanisms):
+        issues.append("source_mechanisms are generic placeholders")
+
+    theory = route.get("theoretical_rationale") if isinstance(route.get("theoretical_rationale"), dict) else {}
+    required_theory = [
+        "math_object",
+        "source_decomposition",
+        "new_formulation",
+        "formula_sketch",
+        "why_it_may_work",
+    ]
+    missing = [key for key in required_theory if not clean_text(theory.get(key))]
+    if missing:
+        issues.append("theoretical_rationale missing fields: " + ",".join(missing))
+    if not looks_like_formula(theory.get("formula_sketch")):
+        issues.append("formula_sketch does not look like a formula")
+
+    if not clean_text(route.get("new_problem_definition")):
+        issues.append("missing new_problem_definition")
+    if not clean_text(route.get("possible_experiment")):
+        issues.append("missing possible_experiment")
+
+    return issues
+
+
 def normalize_directions_payload(payload: Dict[str, Any], papers: List[Dict[str, Any]]) -> Dict[str, Any]:
     valid_ids = {str(p.get("paper_id") or "").strip() for p in papers if str(p.get("paper_id") or "").strip()}
     output: List[Dict[str, Any]] = []
     seen_sets: List[set[str]] = []
+    rejected: List[str] = []
 
     for raw in payload.get("directions") or []:
         if not isinstance(raw, dict):
             continue
         paper_ids = [normalize_paper_id(x) for x in raw.get("paper_ids") or []]
         paper_ids = [pid for pid in paper_ids if pid in valid_ids]
-        if not paper_ids:
+        if len(set(paper_ids)) < 2:
+            rejected.append(f"{clean_text(raw.get('name'), 80) or 'unnamed'}: fewer than two papers")
             continue
         current = set(paper_ids)
         duplicate = False
@@ -890,14 +959,34 @@ def normalize_directions_payload(payload: Dict[str, Any], papers: List[Dict[str,
                 duplicate = True
                 break
         if duplicate:
+            rejected.append(f"{clean_text(raw.get('name'), 80) or 'unnamed'}: duplicate direction")
+            continue
+        routes = []
+        for route in raw.get("innovation_routes") or []:
+            if not isinstance(route, dict):
+                continue
+            issues = route_quality_issues(route)
+            if issues:
+                rejected.append(
+                    f"{clean_text(raw.get('name'), 80) or 'unnamed'} / "
+                    f"{clean_text(route.get('route_name'), 80) or 'unnamed route'}: {'; '.join(issues)}"
+                )
+                continue
+            routes.append(route)
+        if not routes:
+            rejected.append(f"{clean_text(raw.get('name'), 80) or 'unnamed'}: no high-quality routes")
             continue
         seen_sets.append(current)
         item = dict(raw)
         item["name"] = normalize_direction_name(item.get("name"))
         item["paper_ids"] = paper_ids
+        item["innovation_routes"] = routes
         output.append(item)
 
-    return {"directions": output}
+    result: Dict[str, Any] = {"directions": output}
+    if rejected:
+        result["quality_warnings"] = rejected[:20]
+    return result
 
 
 def build_research_directions_prompt(items: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -945,13 +1034,21 @@ def build_research_directions(client: SimpleLLMClient | None, papers: List[Dict[
     items = [paper_compact_item(paper, innovations) for paper in papers]
     messages = build_research_directions_prompt(items)
     try:
-        parsed = call_structured(client, messages, "research_directions", DIRECTIONS_SCHEMA, 5000)
+        parsed = call_structured(client, messages, "research_directions", DIRECTIONS_SCHEMA, 12000)
         if parsed and isinstance(parsed.get("directions"), list):
             cleaned = normalize_directions_payload(parsed, papers)
             if cleaned.get("directions"):
                 return cleaned
+            warning = "LLM 已返回研究方向，但全部被质量门控过滤；请检查模型输出是否仍为泛泛方向、单论文方向或缺少公式草图。"
+            if cleaned.get("quality_warnings"):
+                warning += " 过滤原因：" + " | ".join(cleaned["quality_warnings"][:8])
+            return {"directions": [], "generation_warning": warning, "quality_warnings": cleaned.get("quality_warnings", [])}
     except Exception as exc:
         log(f"[WARN] LLM research directions failed: {exc}")
+        return {
+            "directions": [],
+            "generation_warning": f"LLM 研究方向生成失败：{exc}",
+        }
     return fallback_research_directions(papers, innovations)
 
 
@@ -1076,6 +1173,31 @@ def render_research_directions_markdown(
     if not papers:
         lines.extend(["## 今日方向总览", "今日无新推荐，暂未生成研究方向。", ""])
         return "\n".join(lines).rstrip() + "\n"
+
+    warning = clean_text(directions_payload.get("generation_warning"), 1000)
+    quality_warnings = [
+        clean_text(item, 400)
+        for item in directions_payload.get("quality_warnings") or []
+        if clean_text(item)
+    ]
+    if not directions:
+        lines.extend(["## 今日方向总览", ""])
+        if warning:
+            lines.append(warning)
+        else:
+            lines.append("未生成合格的研究方向与二次创新路线。")
+        if quality_warnings:
+            lines.extend(["", "### 质量门控提示", ""])
+            lines.extend([f"- {item}" for item in quality_warnings[:10]])
+        lines.append("")
+        return "\n".join(lines).rstrip() + "\n"
+
+    if warning:
+        lines.extend(["## 生成提示", "", warning, ""])
+    if quality_warnings:
+        lines.extend(["## 质量门控提示", ""])
+        lines.extend([f"- {item}" for item in quality_warnings[:10]])
+        lines.append("")
 
     lines.extend(["## 今日方向总览", "", "| 方向 | 论文数 | 代表论文 |", "|---|---:|---|"])
     for direction in directions:
