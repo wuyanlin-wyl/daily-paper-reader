@@ -5,6 +5,9 @@
 - 精读区：6
 - 速读区：11
 
+- [今日创新点总结](innovation-brief.md)
+- [研究方向与二次创新路线](research-directions.md)
+
 ## 今日简报（AI）
 1) 今日17篇推荐中，6篇精读聚焦医学多源RAG的源依赖漏洞与脑信号问答能力，速读涵盖半监督3D分割过自信问题及多尺度医学图像模型。
 2) 最值得关注：Same Question, Different Source审计揭示医疗RAG中答案因数据源不同而矛盾；Brain-IT-VQA首次用脑信号直接回答视觉问答任务。
