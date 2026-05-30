@@ -1,0 +1,670 @@
+Title: Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation?
+
+URL Source: https://arxiv.org/pdf/2605.25561v1
+
+Published Time: Tue, 26 May 2026 01:57:04 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 
+
+Jun Li 1 Ziwei Qin 1
+
+## Abstract 
+
+Semi-supervised learning has become a dominant paradigm for reducing annotation costs. How-ever, we argue that the current progress is clouded by a twofold overconfidence problem. Algorith-mically, mainstream pseudo-labeling frameworks often conflate prediction confidence with uncer-tainty, leading to severe confirmation bias. Strate-gically, since multiple benchmark datasets lack dedicated validation sets, some studies use the test set for validation as well, leading to inflated per-formance estimates. Subsequent methods, com-pelled to employ the same strategy to surpass reported SOTA, trigger an arms race of overfit-ting. This raises concerns that the impressive numerical gains in the community may reflect overfitting rather than genuine progress. Thus, we propose a tri-space calibrated segmentation frame-work founded on a principled dual-axis reliability assessment engine. It explicitly decouples confi-dence from uncertainty and uses this signal to de-tect and correct confirmation bias across feature, probability, and image spaces in a collaborative manner. Across three benchmark datasets, TCSeg consistently delivers strong performance under existing evaluation protocols. More importantly, we advocate that the community report final-checkpoint results under multiple-run protocols, thereby establishing more rigorous benchmarks with a more realistic perspective. Code will be available: github.com/DirkLiii/TCSeg .
+
+## 1. Introduction 
+
+Volumetric segmentation is pivotal for quantitative medical image analysis, underpinning tasks ranging from surgical 
+
+> 1
+
+Institute of Systems Science and Technology, School of Elec-trical Engineering, Southwest Jiaotong University, China. Corre-spondence to: Jun Li <dirk.li@outlook.com >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). Seg vs.GT  confidence   
+
+> map pseudo -label
+> (prior)
+> pseudo -label
+> (TCSeg )
+> U
+> C
+> U
+> C
+> raw
+> distribution calibrated
+> distribution
+> Multi -run
+> best & last
+> Single -run
+> best
+
+Figure 1. Illustration of overconfidence. Left: miscalibrated pseudo labels induce confirmation bias. Right: single-run best-checkpoint reporting can overstate progress. 
+
+planning to postoperative assessment (Li et al., 2025a; Wang et al., 2021). While supervised deep learning has achieved parity with human experts (Long et al., 2015), its deploy-ment is severely bottlenecked by the scarcity of annotations. Given the cost and expertise required for labeling, semi-supervised learning (SSL) has become a common route by exploiting large collections of unlabeled scans alongside sparse supervision (Luo et al., 2021b; Yu et al., 2019). Most modern SSL pipelines adopt a self-training framework, using consistency regularization or pseudo-labeling to get supervision from unlabeled samples (Thompson et al., 2022; Han et al., 2022; Qiu et al., 2023; Luo et al., 2021a; Yu et al., 2019; Qiao et al., 2022). These methods often hinge on a fundamental, yet often unverified, shortcut: model’s predictive confidence is a reliable proxy for the correctness of its pseudo-labels. However, deep networks are often poorly calibrated (Guo et al., 2017) and can assign high probabilities to incorrect predictions. When confidence is used as a gatekeeper for pseudo supervision, miscalibration can become a structural failure mode: errors made early are selected, reinforced, and gradually entrenched—a typical form of confirmation bias. A common remedy is to inject uncertainty estimation into SSL, e.g., via Monte Carlo dropout or predictive entropy. Yet many such strategies implicitly compress uncertainty into a single scalar derived from the predictive distribution, 1
+
+> arXiv:2605.25561v1 [cs.CV] 25 May 2026 Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation?
+
+and thereby blur a crucial distinction. Confidence is a point estimate of preference, uncertainty reflects the strength and consistency of evidence supporting that preference. A voxel can be high-confidence yet high-uncertainty—a scenario typical of confidently wrong predictions caused by overfit-ting to spurious features (Li et al., 2023). By failing to dis-tinguish between these states, many methods inadvertently sanction unreliable pseudo-labels, confusing low-entropy predictions with genuine epistemic reliability. As shown in Fig. 1, we first argue that overconfidence is rooted in the conflation of confidence and uncertainty. The softmax score mainly provides a single-model confidence estimate and is often sensitive to data-dependent ambigu-ity, such as noisy or ambiguous boundaries. However, it does not reliably capture the model’s lack of knowledge. In contrast, epistemic uncertainty is more naturally reflected by disagreement across views, branches, or representations. Thus, we adopt a dual-axis reliability view with two com-plementary signals: (i) confidence (the consensus of mean predictions) and (ii) uncertainty (the divergence of cross-view evidence). This decoupling allows us to identify and isolate the most damaging subset of pseudo-labels: those that are deceptively confident but structurally unstable. Be-sides, we highlight a second, community-level source of optimism. As several widely used benchmark datasets lack dedicated validation sets, some studies use test sets instead, which can overstate performance. As such numbers become the reference for SOTA, later work is pushed toward the same protocol to stay comparable, turning evaluation into a test-overfitting race rather than a measure of real progress. Thus, we propose the Tri-space Calibrated Segmentation (TCSeg) framework, which is organized around a shared reliability engine that explicitly decouples confidence from uncertainty and uses this signal to correct confirmation bias across spaces. Unlike heuristic add-ons, TCSeg orches-trates a collaborative correction mechanism. In probability space, we enforce confidence-band regularization to bound the variance of multi-branch predictions. In feature space, we project voxels onto class-wise prototypes, filtering out predictions that are statistically confident but semantically disjoint from the class manifold. In image space, we de-ploy a reliability-driven perturbation module that targets cognitive blind spots, forcing the model to learn features in regions identified as high-uncertainty. Finally, to reduce evaluation optimism, we report median and extrema across multiple runs for both best and final checkpoints. This pro-tocol helps separate genuine gains from lucky runs or overly aggressive model selection. The main contributions are: 1) A dual-axis reliability-decoupling framework that con-ceptually and quantitatively disentangles confidence from uncertainty, clarifying and mitigating overconfidence and confirmation bias inherent in pseudo-labeling. 2) A tri-space calibration method that unifies feature align-ment, predictive consensus, and structural perturbation via a unified reliability engine, ensuring pseudo-labels are both semantically consistent and structurally robust. 3) We advocate a more rigorous evaluation protocol using multi-run results for both best and final checkpoints, chal-lenging the prevalence of optimistic, single-run reporting. 
+
+## 2. Related Work 
+
+2.1. Semi-Supervised Medical Image Segmentation 
+
+The central challenge in SSL is the extraction of high-fidelity supervisory signals from unlabeled data (Jing & Tian, 2020). Prior approaches diverge in deriving these signals, broadly bifurcating into consistency regularization (Luo et al., 2021a; Yu et al., 2019; Qiao et al., 2022) and pseudo-labeling (Thompson et al., 2022; Han et al., 2022; Qiu et al., 2023) paradigms. Consistency regularization posits that the model should yield invariant predictions under perturbations, pseudo-labeling operates on a self-training basis, where the model iteratively generates explicit labels for unlabeled data. These ideas are often combined in teacher-student pipelines, which introduces a well-known vulnerability: when the teacher is essentially a smoothed stu-dent, their predictions can become highly correlated, reduc-ing the diversity of supervision and making the framework susceptible to self-reinforcing errors. 
+
+2.2. Reliability Estimation in SSL 
+
+Two main strategies dominate reliability estimation in SSL. Monte Carlo dropout approximates Bayesian uncertainty through repeated stochastic passes (Gal & Ghahramani, 2016; Yu et al., 2019; Sedai et al., 2019), but this becomes prohibitively expensive for 3D volumes. Ensemble methods, using multi-head architectures or co-training, measure pre-dictive disagreement more efficiently (Guo et al., 2017; Li et al., 2020; Luo et al., 2021b), yet still collapse reliability into a single scalar from probability distributions. In a word, most methods threshold consistency, entropy, variance, or evidential scores, treating reliability as one-dimensional. For instance, DCNet (Chen et al., 2023) attempts to de-couple unlabeled regions through dynamic thresholding and directional consistency optimization. However, their reliability modeling still fundamentally relies on a single confidence-consistency abstraction derived from output dis-tributions. This may assign high confidence to incorrect predictions (Guo et al., 2017)—a miscalibration problem where confident does not mean correct. Thus, this work aims to address these limitations by explicitly treating confi-dence and uncertainty as separate reliability axes rather than conflated scalars, and further modeling reliability jointly across probability, feature, and image spaces. 2Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 𝑫 𝒍 
+
+𝑫 𝒖 
+
+Decoder 1
+
+Decoder  2
+
+𝑭 𝜽 
+
+𝒑 𝒔 
+
+> 𝟏
+
+𝒛 𝟏 
+
+𝒑 𝒔 
+
+> 𝟐
+
+𝒛 𝟐 
+
+EMA Decoder 1’ 
+
+EMA Decoder 2’ 
+
+𝑭 𝜽’ 
+
+𝒑 𝒕 
+
+> 𝟏
+
+𝒛 𝟏’ 
+
+𝒑 𝒕 
+
+> 𝟐
+
+𝒛 𝟐’ 
+
+𝑼 𝑣 ≤ 𝝉 
+
+𝓜 𝑼 −
+
+𝑪 𝑣 ≤ 𝝉 𝒎𝒂𝒙 
+
+𝓜 𝒑𝒐𝒔 
+
+𝑪 𝑣 ≤ 𝝉 𝒎𝒊𝒏 
+
+𝓜 𝒏𝒆𝒈 
+
+Probability 
+
+Space 
+
+𝓛 𝑝𝑠𝑒 
+
+𝓛 𝒔𝒖𝒑 
+
+Softmax 
+
+Output 
+
+𝒑 (v) 
+
+Prototype 
+
+Similarity 
+
+𝒒 (v) 
+
+Feature 
+
+Space  𝓛 𝒄𝒂𝒍 
+
+∪
+
+𝓜 𝑪 − 𝓜 𝐶 +𝑈 +
+
+𝒙 𝒍 
+
+## , 𝒚 𝒍  𝒙 𝒍 
+
+𝑴 𝒑𝒆𝒓 
+
+𝒙 𝒎𝒊𝒙 
+
+Image Space 
+
+𝑫 𝑩 
+
+LCC 
+
+CutMix  𝑭 𝜽 
+
+𝓛 𝒎𝒊𝒙 
+
+Shared 
+
+Encoder 
+
+EMA 
+
+Encoder 
+
+1
+
+𝑀 ෍ 𝑝 𝑚  𝐶 𝑣 
+
+𝒎𝒂𝒙 
+
+Confidence Score 
+
+> 𝝉 
+
+𝑈 𝑝𝑟𝑜  
+
+> 𝑠
+
+(𝑣 )
+
+𝒒 𝟏 𝒒 𝟐 
+
+-
+
+𝒒 𝟏’ 𝒒 𝟐’ 
+
+-
+
+𝑈 𝒇𝒆𝒂  
+
+> 𝑠
+
+(𝑣 )
+
+𝑈 𝒇𝒆𝒂  
+
+> 𝒕
+
+(𝑣 )
+
+𝑈 𝑝𝑟𝑜  
+
+> 𝒕
+
+(𝑣 )
+
+Uncertainty 
+
+Score 
+
+𝒑 𝟏’ 𝒑 𝟐’ 
+
+-
+
+𝒑 𝟏 𝒑 𝟐 
+
+-
+
+𝝁 𝒌 
+
+> The Dual -axis Reliability Estimation
+> The Tri -space Calibration
+
+Figure 2. Overview of our proposed TCSeg framework. 
+
+## 3. Method 
+
+3.1. The Trap of Overconfidence 
+
+Let Dl = {(xli, y li)}Nl 
+
+> i=1
+
+and Du = {xuj }Nu 
+
+> j=1
+
+denote the labeled and unlabeled sets in the training set. The general segmentation loss can be denoted as: 
+
+Ltotal = Lsup (Dl; xli, y li)+ Lunsup (Dl+u; xli, y li, x ui ). (1) Because the loss imposed on unlabeled data is not fully reliable and requires calibration, SSL methods often em-ploy a confidence threshold τ on the prediction ˜y =
+
+argmax (p(˜ v)) to gate Lunsup :
+
+Lunsup = 1(R(˜ v) > τ ) · Lce (p(v), ˜y), (2) 
+
+R(v) ≈ C(v) := max  
+
+> k
+
+p(y = k|v), (3) where p(v) is the predictions, 1 denotes the indicator, which takes the value of 1 when the condition is satisfied and 0 otherwise. A core premise of this paradigm is that confi-dence mask serves as a faithful proxy for correctness, which equates to assuming that the posterior probability is per-fectly calibrated: 
+
+P(˜ y = y∗ | max( p(˜ v)) = c) = c, ∀c ∈ [0 , 1] , (4) where y∗ is the unseen label. Since Lce minimizes the KL divergence between predictions and sharp pseudo-labels, it pushes the predictive distribution p(y|v) toward a simplex vertex, collapsing into a Dirac delta distribution: 
+
+lim  
+
+> t→∞
+
+p(y|v; θt) → δ(y − ˜y), (5) where δ is the Kronecker delta. This leads to calibra-tion collapse: the model becomes confidently wrong (max( p(v)) → 1 even ˜y̸ = y∗), creating a confirmation bias loop that cannot be detected by confidence alone. 
+
+3.2. The Dual-axis Reliability Estimation 
+
+We assign each voxel a reliability vector R(v) =
+
+⟨C(v), U (v)⟩ to distinguish confidence from uncertainty, 
+
+U (v) is a tuple comprising probability-space and feature-space disagreement U (v) = ⟨Upro (v), U f ea (v)⟩.3Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 
+
+3.2.1. C ONFIDENCE SCORE 
+
+The confidence score is defined as the consensus prefer-ence across multiple prediction views, two student decoders and their teacher counterparts. Let Ps = {p1
+
+> s
+
+, p 2
+
+> s
+
+} and 
+
+Pt = {p1 
+
+> t
+
+, p 2 
+
+> t
+
+} denote the probabilities from the two student decoders and teacher decoders, respectively. The confidence is denoted as the maximum of the ensemble average: 
+
+C(v) = max 
+
+> k
+
+1
+
+M
+
+> M
+
+X
+
+> m=1
+
+pm(k|v)
+
+!
+
+, pm ∈ Ps ∪ Pt, (6) where m represents the m-th prediction view. 3.2.2. U NCERTAINTY SCORE 
+
+The uncertainty score captures evidence disagreement from two complementary sources, probability-space divergence between the heterogeneous decoders ( Upro ), and feature-space structural deviation ( Uf ea ): 
+
+U rpro (v) = ∥p1 
+
+> r
+
+(v) − p2 
+
+> r
+
+(v)∥1, r ∈ { s, t }. (7) 
+
+U rf ea (v) = ∥q1 
+
+> r
+
+(v) − q2 
+
+> r
+
+(v)∥1, r ∈ { s, t }, (8) where q(v) is a prototype-aligned similarity prediction: 
+
+q(v) = cos( zv , μ ) = z⊤ 
+
+> v
+
+μ
+
+∥zv ∥2 ∥μ∥2
+
+. (9) where zv is the feature embedding of voxel v, and μ denotes the class prototype computed from high-confidence voxels. For class k, we form a prototype by averaging embeddings within the predicted class and passing the confidence filter: 
+
+μk =
+
+P 
+
+> v∈Vk
+
+1(C(v) ≥ τ ) · zv
+
+P 
+
+> v∈Vk
+
+1(C(v) ≥ τ ) + ϵ , (10) where Vk = {v : arg max k p(v) = k}, ϵ is a small constant. 
+
+3.3. The Tri-space Calibration 
+
+Our tri-space calibration uses the decoupled scores C(v)
+
+and U (v) to define voxel-wise reliability. Thresholding the two axes partitions unlabeled voxels into four groups: only the C+U − set (high-confidence and low-uncertainty) is used for pseudo supervision, while the other regimes should be handled explicitly to prevent confirmation bias. Thus, we enforce calibration across three complementary spaces. 3.3.1. P ROBABILITY SPACE 
+
+We employ a collaborative reliability consensus strategy to delineate reliable pseudo-labels. We first enforce cross-view consistency to get low-uncertainty predictions: 
+
+MU − = 1
+
+  ^
+
+> r∈{ s,t }
+
+U rpro ≤ τ
+
+ ∧
+
+ ^
+
+> r∈{ s,t }
+
+U rf ea ≤ τ
+
+
+
+,
+
+(11) where τ is a consistency tolerance. The upper and lower confidence bounds τmax and τmin are then used to identify high-confidence positive and negative supervision signals: 
+
+Mpos C+U − (v) = 1(C(v) ≥ τmax ) · M U − (v), (12) 
+
+Mneg C+U − (v) = 1(C(v) ≤ τmin ) · M U − (v). (13) The probability-space calibration loss is formulated as: 
+
+Lpse = 1
+
+|M pos C+U − |
+
+X
+
+> v∈D u
+
+Mpos C+U − (v) · L ce (p(v), ˜y(v)) + 1
+
+|M neg C+U − |
+
+X
+
+> v∈D u
+
+Mneg C+U − (v) · L ce (1 − p(v), 1 − ˜y(v)) .
+
+(14) 3.3.2. F EATURE SPACE 
+
+To rectify structural outliers, we enforce agreement between probability outputs p(v) and prototype-based semantic affin-ity q(v). This pulls the latent representations of same-class voxels toward their centroid, ensuring that high confidence is supported by semantic density, filtering predictions that are numerically confident but representationally atypical. The feature calibration loss Lcal thus can be denoted as: 
+
+Lcal = 1
+
+|D l+u|
+
+X
+
+> v∈D l+u
+
+ X
+
+> g∈{ p,q }
+
+g1 
+
+> s
+
+(v) − g2 
+
+> s
+
+(v) 2
+
++
+
+> 2
+
+X
+
+> i=1
+
+pis(v) − qis(v) 2
+
+
+
+.
+
+(15) 3.3.3. I MAGE SPACE 
+
+Static consistency fails to address cognitive blind spots, particularly in regions characterized by low confidence yet low uncertainty, as well as in over-confident regions. Thus, we propose a dynamic structural perturbation module to focus augmentation on cognitive blind spots. A perturbation target mask Mper is first constructed: 
+
+Mper = PLCC 
+
+ DB (MC− ∪ M C+U + ). (16) where DB denotes binary dilation and PLCC projects onto the largest connected component. We then apply a targeted CutMix by randomly replacing unreliable regions, encour-aging the network to relearn robust boundary features under strong perturbations: 
+
+xmix = (1 − M per ) ⊙ xl + Mper ⊙ xu, (17) 
+
+˜ymix = (1 − M per ) ⊙ yl + Mper ⊙ ˜yut , (18) 4Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 
+
+where ⊙ denotes element-wise multiplication. The mixed sample is then fed into the model, and the prediction is supervised by the mixed pseudo-label: 
+
+Lmix = Lce (ps(vmix ), ˜ymix ). (19) 
+
+3.4. Reliability-driven Overall Optimization 
+
+To disrupt the feedback loop where a model reinforces its own erroneous predictions, we integrate the proposed relia-bility estimation and tri-space calibration into a reciprocal two-branch learning scheme, where the two decoders alter-nately serve as supervisors and learners. For labeled sets, both branches are supervised independently: 
+
+Lsup = X
+
+> b∈{ 1,2}
+
+
+
+Ldice (˜ yb, y l) + Lce (pb(v), y l)
+
+
+
+. (20) For unlabeled sets, branch b is guided by its peer branch ¯b,and Lpse is redefined as: 
+
+Lpse = 1
+
+|M pos C+U − |
+
+X
+
+> v∈D u
+
+Mpos C+U − (v) · L ce (pb(v), ˜y¯b(v)) + 1
+
+|M neg C+U − |
+
+X
+
+> v∈D u
+
+Mneg C+U − (v) · L ce (1 − pb(v), 1 − ˜y¯b(v)) .
+
+(21) Similarly, Lmix can be reformulated as: 
+
+Lmix = Lce (pbs(vmix ), ˜y¯bmix ). (22) Thus, the overall loss can be defined as: 
+
+Ltotal = Lsup + Lpse + Lcal + Lmix (23) 
+
+## 4. Experiments 
+
+4.1. Datasets and Backbone Network 
+
+We evaluate on three public datasets: Left Atrium (LA) (Xiong et al., 2021), Pancreas-CT (NIH) (Roth et al., 2015), and BraTS2019 (Menze et al., 2014). All models are im-plemented using SGD for 20k iterations (lr = 0 .01 ) with batch size 4 (2 labeled + 2 unlabeled). Further specifics and implementation details are provided in the Appendix A and 
+
+Appendix B . Our model is built on a standard VNet-style backbone, which is consistent with the backbone family used by most prior semi-supervised 3D medical image seg-mentation methods. It adopts a shared five-stage encoder with hierarchical downsampling and multi-scale skip con-nections, followed by two parallel decoders. Both decoders share the same encoder and standard decoding structure, while using different upsampling operators to produce com-plementary outputs and decoder features. 
+
+4.2. Evaluation Protocol 
+
+The semi-supervised medical image segmentation literature exhibits considerable inconsistency in checkpoint selection strategies. Reported performance can vary substantially with the checkpointing rule: some works report best (the peak score observed during training), while others report last (the final checkpoint). We argue that while the best checkpoint represents a model’s theoretical peak, the last checkpoint better reflects its convergence stability and de-ployment viability in real-world scenarios where test labels are unavailable. To address the concerns regarding result overconfidence, we establish a rigorous benchmarking pro-tocol designed to disentangle genuine performance gains from stochastic luck. Specifically, each setting is run five times with different random seeds, and we report both best and last. We summarize the distribution across runs using the median to reflect typical behavior, and also report the maximum to facilitate comparison with prior single-run, best-checkpoint style reporting. This combination exposes instability, reduces sensitivity to randomness, and discour-ages conclusions driven by a fortunate checkpoint or seed. We evaluate using standard segmentation metrics, DSC, ASD, and 95HD, specifics are provided in the Appendix C .
+
+4.3. Comparison with SOTA Methods 
+
+Table 1 benchmarks the proposed TCSeg against recent state-of-the-art methods on the LA, Pancreas-CT, and BraTS2019 datasets. To ensure a transparent comparison, we explic-itly categorize results based on the evaluation protocol (last vs. best). Under the rigorous last protocol—which reflects genuine convergence stability without oracle checkpoint selection—our framework demonstrates a substantial per-formance margin. For instance, on the challenging 10% labeled Pancreas-CT task, our median DSC of 81.08% sur-passes the nearest competitor (TraCoCo) by approximately 1.8%. It shows that TCSeg consistently maintains stable convergence across repeated runs, indicating the proposed tri-space reliability calibration effectively mitigates confir-mation bias accumulation during training. The performance gaps under the optimistic best-checkpoint protocol appear numerically compressed because many recent methods al-ready rely on best-checkpoint selection, which elevates the reported peak performance. As a result, the remaining im-provement margin becomes relatively limited on mature public benchmarks. In this setting, even modest absolute gains are meaningful. Crucially, our median performance consistently rivals or exceeds the maximum scores reported by competitive methods like CC-Net and VerSemi. This highlights the observed gains are not due to a single fa-vorable initialization but reflect a stable and reproducible improvement, thus indicating that the intrinsic robustness of our approach against initialization noise. 5Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 
+
+Table 1. Reported results of different methods (DSC %). Please refer to Appendix D for more results. Method Protocol LA Pancreas-CT BraTS2019 †
+
+10% / 90% 20% / 80% 10% / 90% 20% / 80% 10% / 90% 20% / 80% CauSSL (Miao et al., 2023) last / / 72.89 80.92 83.54 /TAC (Chen et al., 2022) last 84.73 87.75 / / / /DTC (Luo et al., 2021a) last 87.51 89.42 / 78.27 / /CDS (Hu et al., 2025) last 87.21 90.33 / / / 86.12 ARCO-SG (You et al., 2023) last 89.90 / / / / /MCF (Wang et al., 2023) last / 88.71 / 75.00 / /BSNet (He et al., 2024) last / 90.43 / / / /DBiSL (Li, 2026) last 88.78 90.54 / 81.09 85.09 /SFR (Li et al., 2025b) last / 91.00 / / / 86.09 AUA (Wu et al., 2024) last / 91.08 / 79.81 / /TraCoCo (Liu et al., 2025) last 89.29 90.94 79.22 81.80 85.71 86.69 
+
+Our median last 90.28 90.83 81.08 83.44 85.27 86.47 Our maximum last 90.39 91.36 81.20 84.14 86.52 86.68 UG-MCL (Zhang et al., 2023) best / 90.16 / / 82.82 83.61 CPCL (Xu et al., 2022) / / / / / 83.36 /SC-SSL (Miao et al., 2024) best / / 70.09 80.76 / /SGTC (Yan et al., 2025) best 84.70 / / / / /AUSS (Adiga et al., 2024) best 86.58 88.60 / / / /CPL (Lv et al., 2026) best 87.01 / / / / /CRDS (Aralikatti et al., 2023) / 88.51 / / / / /AC-MT (Xu et al., 2023) best 89.12 90.31 / / 83.77 84.63 URPC (Luo et al., 2022) best / / 74.89 80.31 84.16 85.49 BaPC (Wang et al., 2024) best 88.55 89.71 68.64 76.36 / /MRPL (Su et al., 2024) best 89.86 91.02 75.93 81.53 84.29 85.47 BOA-Net (Li et al., 2024) / 88.91 91.38 76.06 80.80 85.43 85.88 MC-Net+ (Wu et al., 2022) best 88.96 91.07 74.01 80.59 / /VerSemi (Zeng et al., 2025) best 89.01 90.89 78.62 83.55 / /Co-BioNet (Peiris et al., 2023) best 89.20 91.26 77.89 82.22 / /ICSSL (Huang et al., 2024) best 89.25 / / 81.17 / /BCP (Bai et al., 2023) best 89.62 / / 82.91 / /TraCoCo (Liu et al., 2025) best 89.86 91.51 / 83.36 85.71 86.69 
+
+W2SPC (Yang et al., 2025) / 90.23 91.05 / / / /OTCMC (Guo et al., 2025) / 90.26 90.86 / / / /A&D (Wang & Li, 2023) best 90.31 / / / / /CC-Net (Wang et al., 2025) best 90.82 91.60 81.93 83.89 / /Our median best 90.73 91.44 82.22 83.94 85.27 86.47 Our maximum best 90.85 91.62 82.52 84.14 86.52 86.68  
+
+> †
+
+BraTS2019 provides a validation set, thus the results under the two protocols coincide. 
+
+4.4. Ablation Studies on Dual-axis Assessment 
+
+To validate the necessity of disentangling confidence and uncertainty, we conduct an ablation study on the proposed dual-axis reliability assessment in Table 2. Removing either the uncertainty branch (w/o U (v)) or the confidence branch (w/o C(v)) consistently degrades performance across all datasets. Although the numerical gaps appear moderate on mature public benchmarks, both single-axis variants still retain partial reliability cues and therefore remain stronger than other naive pseudo-label selection methods (Table 1). In contrast, the proposed dual-axis strategy consistently achieves the best performance, improving the mean DSC to 86.23%. These results suggest that confidence and uncer-tainty provide complementary reliability signals, and jointly modeling both leads to more robust pseudo-label selection and optimization stability. 
+
+4.5. Ablation Studies on Three Spaces 
+
+Another ablation study is reported in Table 3 to assess the contribution of each calibration space. When all three com-ponents are enabled, the model attains the highest mean DSC of 86.23%. Removing the probability-space calibra-tion (w/o prob.) leads to a moderate drop to 85.13%, indi-cating that confidence-band filtering and probability-space consensus help stabilize pseudo-label selection. Excluding the image-space structural perturbation (w/o img.) further reduces the mean DSC to 84.00% and consistently affects all datasets, suggesting that reliability-guided perturbations improve structural robustness across varying anatomical dis-tributions and decision boundaries. Removing feature-space 6Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? baseline  w/o  feature  w/o  image  w/o  probability  ours  label                
+
+> P:63.95% S:60.56% P:81.43% S:82.81% P:79.19% S:90.54% P:88.24% S:92.52% P:89.72% S:94.48%
+> P:61.20% S:78.19% P:69.92% S:88.38% P:85.72% S:87.89% P:84.60% S:88.05% P:87.45% S:90.07%
+> P:66.04% S:68.05% P:81.45% S:81.26% P:70.76% S:72.05% P:79.00% S:82.83% P:83.73% S:89.50%
+> P:Patient S:Slice
+> P:Patient S:Slice
+> P:Patient S:Slice
+
+Figure 3. Visualization of the segmentation results of different methods. None of the results were post-processed. 
+
+prototypes (w/o feat.) produces the most severe degrada-tion on Pancreas-CT, where the performance drops from 81.08%/83.44% to 59.28%/69.23%. This suggests that feature-space prototype alignment is particularly important for low-contrast and boundary-ambiguous anatomical struc-tures such as the pancreas. This observation should not be interpreted as implying a universally fixed importance rank-ing among the three spaces. In contrast, image-space pertur-bation exhibits more consistent benefits across all datasets, while the relative contribution of each component appears to depend on dataset characteristics such as local contrast, boundary ambiguity, and anatomical variability. Overall, the probability-, feature-, and image-space calibrations act as complementary mechanisms that jointly contribute to robust semi-supervised segmentation performance. 
+
+4.6. Confidence Analysis on Unlabeled Samples 
+
+Fig. 4 summarizes how the proposed tri-space calibration affects the reliability of pseudo labels on unlabeled train-ing volumes. We extract the segmentation masks predicted for all unlabeled training data (i.e., the pseudo-labels used during training), and compute the Positive Predictive Value (PPV), Negative Predictive Value (NPV), and Recall based on the resulting 3D segmentation volumes. For all six dataset and labeling configurations, the arrows consistently move towards the upper-right region and are accompanied by larger markers, indicating that our method achieves higher or comparable PPV together with uniformly im-proved NPV and substantially increased recall. The gains are particularly pronounced for the abdominal tasks (Pan-6 and Pan-12), where recall rises from roughly 0.56–0.64 to above 0.86 while NPV remains extremely high, suggesting that many previously missed foreground voxels—often as-sociated with over-confident background predictions near ambiguous boundaries—are now correctly recovered with-out sacrificing the reliability of negative predictions. For the LA and BraTS settings, PPV, NPV, and recall all improve simultaneously. Taken together, these shifts show that the proposed reliability-driven calibration does not simply in-flate confidence, but instead yields pseudo labels that are both more complete and better aligned with the true error statistics on unlabeled data, thereby alleviating the over-confidence behavior observed in standard semi-supervised baselines. 7Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 
+
+Figure 4. PPV–NPV analysis of pseudo labels on the unlabeled training set. Each pair of hollow (baseline) and filled (ours) circles corresponds to one dataset and labeled ratio. The horizontal and vertical axes report the positive predictive value and negative pre-dictive value, respectively, while the marker size encodes recall. Arrows indicate the shift from the baseline model to the proposed method under the same setting. PPV and NPV are computed as 
+
+PPV = TP TP+FP and NPV = TN TN+FN , respectively. 
+
+Table 2. Ablation studies on Dual-axis Assessment (DSC:%). Method LA Pancreas-CT BraTS2019 Mean 10% 20% 10% 20% 10% 20% w/o U (v) 90.12 90.72 80.42 82.00 84.94 85.88 85.68 w/o C(v) 88.88 90.76 78.82 81.93 84.59 86.22 85.20 Dual-axis 90.28 90.83 81.08 83.44 85.27 86.47 86.23 
+
+4.7. Why Need Multi-run and Different Protocols 
+
+SSL conclusions can hinge on two largely orthogonal choices: the random seed and the checkpointing rule. Even within the same dataset and label budget, the best checkpoint can look deceptively stable while the last checkpoint—which matches a straightforward train-and-deploy workflow—exhibits a noticeably larger spread. Such gaps indicate that a method can appear strong after favorable checkpoint selection yet deliver a noticeably weaker final model, overstating the reliability one would expect in prac-tice. To reflect this reality, we adopt a multi-run protocol and report both best and last with the median and maximum across runs: the median captures the typical behavior one should expect, while the maximum retains an upper-bound reference, together reducing the chance that comparisons are driven by outliers or checkpoint cherry-picking. Fig. 5 indicated that our method keeps best and last closely aligned across seeds, with a pronounced discrepancy appearing only once, suggesting a more stable optimization. 
+
+Figure 5. Run-to-run performance under different checkpointing strategies on LA and Pancreas-CT (BraTS2019 provides a valida-tion split, thus the best and last results are treated as equivalent). The first row shows the performance of the two protocols across five repeated experiments, while the second row displays the distri-bution of segmentation results obtained by both protocols. Under the last-checkpoint protocol, the five-run mean ±std results are: LA 89.86 ±0.12 (10%) / 90.90 ±0.09 (20%), and Pancreas-CT 80.86 ±0.28 (10%) / 83.31 ±0.37 (20%). 
+
+Table 3. Ablation studies on three spaces (DSC:%). Method LA Pancreas-CT BraTS2019 Mean 10% 20% 10% 20% 10% 20% Only sup 76.18 82.36 55.72 65.60 76.29 80.01 72.69 w/o prob. 89.84 90.27 78.65 80.59 85.63 85.80 85.13 w/o img. 87.68 90.62 75.48 81.35 84.07 84.81 84.00 w/o feat. 89.61 90.80 59.28 69.23 85.57 86.06 80.09 Ours 90.28 90.83 81.08 83.44 85.27 86.47 86.23 
+
+4.8. Parameter Sensitivity Analysis 
+
+We assess sensitivity to two key hyperparameters by vary-ing the confidence band ( τmin ,τmax ) for pseudo-label se-lection and the tolerance ( τ ) used in consistency regular-ization (Fig. 6). Across all settings, the radar curves are tightly clustered and largely overlap. Adjusting the toler-ance from 0.01 to 0.10 and shifting the confidence bounds from [0 .1, 0.85] to either [0 .05 , 0.95] or [0 .2, 0.75] changes DSC only marginally, without a consistent trend. These results suggest that the tri-space calibration is stable over a reasonable parameter range, and the gains are not driven by a carefully tuned setting. 
+
+4.9. Computational Efficiency Analysis 
+
+Table 4 summarizes the computational costs of represen-tative SSL methods on BraTS2019. Our method remains lightweight, with 12.34M parameters, which is compara-ble to MRPL (12.35M) and notably fewer than CauSSL (23.60M). The training cost is also moderate (0.421 s/iter), well within the range of common SSL pipelines and far below heavier designs such as CC-Net (2.934 s/iter). For 8Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? LA 10%     
+
+> LA 20% Pan 10%
+> Pan 20%
+> Bra 10% Bra 20%
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> Confidence Bounds [0.1,0.85]
+> [0.05,0.95]
+> [0.2,0.75]
+> LA 10%
+> LA 20% Pan 10%
+> Pan 20%
+> Bra 10% Bra 20%
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> Consistency Tolerance 0.05
+> 0.01
+> 0.1
+
+Figure 6. Sensitivity analysis with respect to confidence bounds and consistency tolerance. The radius encodes the DSC, and each ray corresponds to one dataset–labeling pair. 
+
+Table 4. Computational costs of different methods on BraTS2019 dataset (Mem: GPU memory usage during training). All results were obtained using the NVIDIA RTX 4080 GPU. Method Params (M) Train (s/iter) Test (s/case) Mem (GB) DTC (Luo et al., 2021a) 9.45 0.645 1.02 4.62 CauSSL (Miao et al., 2023) 23.60 0.442 1.75 8.43 MRPL (Su et al., 2024) 12.35 0.334 1.67 10.40 CC-Net (Wang et al., 2025) 14.79 2.934 3.03 13.10 Ours 12.34 0.421 1.66 10.83 
+
+completeness, the test-time latency is measured with the full implementation. In fact, all auxiliary modules can be discarded and only the backbone path is retained in deploy-ment, so the actual test-time efficiency can be made fully identical to the backbone. Overall, these results indicate that the performance gains are achieved without introduc-ing excessive computational overhead, while preserving deployment-friendly inference efficiency. 
+
+4.10. Limitations and Future Works 
+
+our reliability analysis is currently limited to semi-supervised 3D medical image segmentation benchmarks and should not be interpreted as establishing universal un-certainty calibration or out-of-distribution robustness. In fact, benchmark improvements do not guarantee safe per-formance under distribution shift (e.g., new scanners, proto-cols, or modalities). Moreover, stability on public datasets should not be conflated with clinical readiness, and prema-ture deployment without prospective validation remains a risk. Future work should prioritize multi-site evaluation and calibration assessment under deployment-like conditions. Another limitation is that our framework currently relies on fixed thresholds, and developing more robust adaptive parameter selection strategies may further improve model robustness and reliability. Finally, many prior SSL methods are reported under inconsistent postprocessing, checkpoint-selection, and evaluation protocols. To address this issue, we are currently conducting a benchmark study aimed at systematically re-implementing and re-evaluating more than 25 SSL methods under a unified multi-run protocol, and we plan to report these rigorous standardized comparisons in future works. 
+
+## 5. Conclusion 
+
+This paper asks a practical question that is often overlooked in semi-supervised 3D medical image segmentation: are we overconfident not only in our models, but also in the re-sults we report? On the modeling side, many SSL pipelines implicitly equate a high softmax score with pseudo-label reliability, which can turn miscalibration into a confirmation-bias loop—confident mistakes are recycled as supervision and become increasingly difficult to correct. On the report-ing side, the community has largely converged to single-run, best-checkpoint reporting, frequently selected by monitor-ing the test set. While this practice can showcase a method’s peak performance, it may also exaggerate real-world utility, where deployment typically relies on the final model ob-tained from a straightforward training run. To address both, we propose a reliability-driven framework that decouples confidence from uncertainty and applies a tri-space calibra-tion mechanism to suppress confidently wrong supervision. Experiments on LA, Pancreas-CT, and BraTS2019 show consistent gains under both best- and last-checkpoint proto-cols, and multi-run reporting (median and extrema) provides a more informative view of robustness. We hope this per-spective encourages reliability-aware semi-supervision and evaluation practices that better reflect deployment. 
+
+## Acknowledgements 
+
+This work was supported by the National Natural Science Foundation of China under Grant 62401481, Natural Sci-ence Foundation of Sichuan Province under Grant 2025ZNS-FSC1450, Fundamental Research Funds for the Central Uni-versities under Grant 2682026ZTPY027, China Postdoctoral Science Foundation under Grant 2024M752683. 
+
+## Impact Statement 
+
+This paper aims to improve the reliability of semi-supervised 3D medical image segmentation. Beyond proposing a train-ing framework that reduces confirmation bias in pseudo labeling, another central contribution is a more rigorous evaluation protocol that better match how segmentation sys-tems are used in practice. In much of the recent literature, performance is often summarized by the single best check-point from a single run—frequently selected with direct feedback from the test set. While such numbers can be informative as an upper bound, they may paint an overly optimistic picture of deployment behavior, where clinicians typically rely on a final trained model and expect consis-tent performance across runs, scanners, and patient cohorts. 9Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 
+
+By reporting both last- and best-checkpoint results over re-peated runs, and summarizing variability rather than only peaks, our study encourages a shift toward transparency and robustness as first-class objectives. We believe this change is particularly relevant for clinical practice, where unsta-ble or selectively reported gains can lead to inappropriate expectations and hinder safe application. 
+
+## References 
+
+Adiga, S., Dolz, J., and Lombaert, H. Anatomically-aware uncertainty for semi-supervised image segmen-tation. Medical Image Analysis , 91:103011, 2024. Aralikatti, R. C., Pawan, S., and Rajan, J. A dual-stage semi-supervised pre-training approach for medical image segmentation. IEEE Transactions on Artificial Intelli-gence , 5(2):556–565, 2023. Bai, Y., Chen, D., Li, Q., Shen, W., and Wang, Y. Bidi-rectional copy-paste for semi-supervised medical image segmentation. In Proceedings of the IEEE/CVF con-ference on computer vision and pattern recognition , pp. 11514–11524, 2023. Chen, F., Fei, J., Chen, Y., and Huang, C. Decoupled consistency for semi-supervised medical image segmen-tation. In International conference on medical image computing and computer-assisted intervention , pp. 551– 561. Springer, 2023. Chen, J., Zhang, J., Debattista, K., and Han, J. Semi-supervised unpaired medical image segmentation through task-affinity consistency. IEEE Transactions on Medical Imaging , 42(3):594–605, 2022. Gal, Y. and Ghahramani, Z. Dropout as a bayesian approx-imation: Representing model uncertainty in deep learn-ing. In international conference on machine learning , pp. 1050–1059. PMLR, 2016. Guo, C., Pleiss, G., Sun, Y., and Weinberger, K. Q. On calibration of modern neural networks. In International conference on machine learning , pp. 1321–1330. PMLR, 2017. Guo, X., Yu, L., Shi, J., Wang, H., Zhao, J., Zhang, R., Li, H., and Lei, N. Optimal transport and central mo-ment consistency regularization for semi-supervised med-ical image segmentation. IEEE Transactions on Medical Imaging , 2025. Han, K., Liu, L., Song, Y., Liu, Y., Qiu, C., Tang, Y., Teng, Q., and Liu, Z. An effective semi-supervised approach for liver ct image segmentation. IEEE Journal of Biomedical and Health Informatics , 26(8):3999–4007, 2022. doi: 10.1109/JBHI.2022.3167384. He, A., Li, T., Yan, J., Wang, K., and Fu, H. Bilateral super-vision network for semi-supervised medical image seg-mentation. IEEE Transactions on Medical Imaging , 43 (5):1715–1726, 2024. doi: 10.1109/TMI.2023.3347689. Hu, G., Zhao, F., and Houssein, E. H. Competitive dual-students using bi-level contrastive learning for semi-supervised medical image segmentation. Engineering Applications of Artificial Intelligence , 144:110082, 2025. Huang, W., Zhang, L., Wang, Z., and Wang, L. Explor-ing inherent consistency for semi-supervised anatomical structure segmentation in medical imaging. IEEE Trans-actions on Medical Imaging , 43(11):3731–3741, 2024. doi: 10.1109/TMI.2024.3400840. Jing, L. and Tian, Y. Self-supervised visual feature learning with deep neural networks: A survey. IEEE transactions on pattern analysis and machine intelligence , 43(11): 4037–4058, 2020. Li, C., Zhang, J., Niu, D., Zhao, X., Yang, B., and Zhang, C. Boundary-aware uncertainty suppression for semi-supervised medical image segmentation. IEEE Trans-actions on Artificial Intelligence , 5(8):4074–4086, 2024. doi: 10.1109/TAI.2024.3359576. Li, J. Fully differentiable bidirectional dual-task synergistic learning for semi-supervised 3d medical image segmen-tation. Expert Systems with Applications , 313:131439, 2026. doi: https://doi.org/10.1016/j.eswa.2026.131439. Li, J., Zhu, H., Chen, T., and Qian, X. Generalizable pan-creas segmentation via a dual self-supervised learning framework. IEEE Journal of Biomedical and Health In-formatics , 27(10):4780–4791, 2023. doi: 10.1109/JBHI. 2023.3294278. Li, J., Zhang, Y., Shi, H., Li, M., Li, Q., and Qian, X. A dual-task synergy-driven generalization framework for pancreatic cancer segmentation in ct scans. IEEE Trans-actions on Medical Imaging , 44(9):3783–3794, 2025a. doi: 10.1109/TMI.2025.3566376. Li, S., Qi, L., Yu, Q., Huo, J., Shi, Y., and Gao, Y. Stitch-ing, fine-tuning, and re-training: A sam-enabled frame-work for semi-supervised 3d medical image segmenta-tion. IEEE Transactions on Medical Imaging , 44(10): 3909–3923, 2025b. doi: 10.1109/TMI.2025.3532084. Li, X., Yu, L., Chen, H., Fu, C.-W., Xing, L., and Heng, P.-A. Transformation-consistent self-ensembling model for semisupervised medical image segmentation. IEEE transactions on neural networks and learning systems , 32 (2):523–534, 2020. 10 Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 
+
+Liu, Y., Tian, Y., Wang, C., Chen, Y., Liu, F., Belagiannis, V., and Carneiro, G. Translation consistent semi-supervised segmentation for 3d medical images. IEEE Transactions on Medical Imaging , 44(2):952–968, 2025. doi: 10.1109/ TMI.2024.3468896. Long, J., Shelhamer, E., and Darrell, T. Fully convolutional networks for semantic segmentation. In Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 3431–3440, 2015. Luo, X., Chen, J., Song, T., and Wang, G. Semi-supervised medical image segmentation through dual-task consis-tency. In Proceedings of the AAAI conference on artificial intelligence , volume 35, pp. 8801–8809, 2021a. Luo, X., Liao, W., Chen, J., Song, T., Chen, Y., Zhang, S., Chen, N., Wang, G., and Zhang, S. Efficient semi-supervised gross target volume of nasopharyngeal car-cinoma segmentation via uncertainty rectified pyramid consistency. In Medical Image Computing and Computer Assisted Intervention–MICCAI 2021: 24th International Conference, Strasbourg, France, September 27–October 1, 2021, Proceedings, Part II 24 , pp. 318–329. Springer, 2021b. Luo, X., Wang, G., Liao, W., Chen, J., Song, T., Chen, Y., Zhang, S., Metaxas, D. N., and Zhang, S. Semi-supervised medical image segmentation via uncertainty rectified pyramid consistency. Medical Image Analysis ,80:102517, 2022. Lv, Z., Wu, Z., and Zhu, J. Clustering-guided contrastive prototype learning: Towards semi-supervised medical image segmentation. Pattern Recognition , 171:112321, 2026. ISSN 0031-3203. doi: https://doi.org/10.1016/j. patcog.2025.112321. Menze, B. H., Jakab, A., Bauer, S., Kalpathy-Cramer, J., Farahani, K., Kirby, J., Burren, Y., Porz, N., Slotboom, J., Wiest, R., et al. The multimodal brain tumor image segmentation benchmark (brats). IEEE transactions on medical imaging , 34(10):1993–2024, 2014. Miao, J., Chen, C., Liu, F., Wei, H., and Heng, P.-A. Caussl: Causality-inspired semi-supervised learning for medical image segmentation. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 21426– 21437, 2023. Miao, J., Zhou, S.-P., Zhou, G.-Q., Wang, K.-N., Yang, M., Zhou, S., and Chen, Y. Sc-ssl: Self-correcting col-laborative and contrastive co-training model for semi-supervised medical image segmentation. IEEE Transac-tions on Medical Imaging , 43(4):1347–1364, 2024. doi: 10.1109/TMI.2023.3336534. Peiris, H., Hayat, M., Chen, Z., Egan, G., and Harandi, M. Uncertainty-guided dual-views for semi-supervised volumetric medical image segmentation. Nature Machine Intelligence , 5(7):724–738, 2023. Qiao, P., Li, H., Song, G., Han, H., Gao, Z., Tian, Y., Liang, Y., Li, X., Zhou, S. K., and Chen, J. Semi-supervised ct lesion segmentation using uncertainty-based data pairing and swapmix. IEEE Transactions on Medical Imaging ,42(5):1546–1562, 2022. Qiu, L., Cheng, J., Gao, H., Xiong, W., and Ren, H. Fed-erated semi-supervised learning for medical image seg-mentation via pseudo-label denoising. IEEE journal of biomedical and health informatics , 27(10):4672–4683, 2023. Roth, H. R., Lu, L., Farag, A., Shin, H.-C., Liu, J., Turkbey, E. B., and Summers, R. M. Deeporgan: Multi-level deep convolutional networks for automated pancreas segmen-tation. In International conference on medical image computing and computer-assisted intervention , pp. 556– 564. Springer, 2015. Sedai, S., Antony, B., Rai, R., Jones, K., Ishikawa, H., Schuman, J., Gadi, W., and Garnavi, R. Uncertainty guided semi-supervised segmentation of retinal layers in oct images. In International conference on medical image computing and computer-assisted intervention , pp. 282–290. Springer, 2019. Shi, Y., Zhang, J., Ling, T., Lu, J., Zheng, Y., Yu, Q., Qi, L., and Gao, Y. Inconsistency-aware uncertainty estimation for semi-supervised medical image segmentation. IEEE transactions on medical imaging , 41(3):608–620, 2021. Su, J., Luo, Z., Lian, S., Lin, D., and Li, S. Mutual learning with reliable pseudo label for semi-supervised medical image segmentation. Medical Image Analysis , 94:103111, 2024. Thompson, B. H., Di Caterina, G., and Voisey, J. P. Pseudo-label refinement using superpixels for semi-supervised brain tumour segmentation. In 2022 IEEE 19th Interna-tional Symposium on Biomedical Imaging (ISBI) , pp. 1–5, 2022. doi: 10.1109/ISBI52829.2022.9761681. Wang, H. and Li, X. Towards generic semi-supervised framework for volumetric medical image segmentation. 
+
+Advances in Neural Information Processing Systems , 36: 1833–1848, 2023. Wang, J., Ruan, D., Li, Y., Wang, Z., Wu, Y., Tan, T., Yang, G., and Jiang, M. Data augmentation strategies for semi-supervised medical image segmentation. Pattern Recognition , 159:111116, 2025. 11 Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 
+
+Wang, S., Li, C., Wang, R., Liu, Z., Wang, M., Tan, H., Wu, Y., Liu, X., Sun, H., Yang, R., et al. Annotation-efficient deep learning for automatic medical image segmentation. 
+
+Nature communications , 12(1):5915, 2021. Wang, Y., Xiao, B., Bi, X., Li, W., and Gao, X. Mcf: Mu-tual correction framework for semi-supervised medical image segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pp. 15651–15660, 2023. Wang, Y., Xiao, B., Bi, X., Li, W., and Gao, X. Boundary-aware prototype in semi-supervised medical image seg-mentation. IEEE Transactions on Image Processing ,2024. Wu, H., Li, X., and Cheng, K.-T. Exploring feature rep-resentation learning for semi-supervised medical image segmentation. IEEE Transactions on Neural Networks and Learning Systems , 35(11):16589–16601, 2024. doi: 10.1109/TNNLS.2023.3296652. Wu, Y., Ge, Z., Zhang, D., Xu, M., Zhang, L., Xia, Y., and Cai, J. Mutual consistency learning for semi-supervised medical image segmentation. Medical Image Analysis ,81:102530, 2022. Xiong, Z., Xia, Q., Hu, Z., Huang, N., Bian, C., Zheng, Y., Vesal, S., Ravikumar, N., Maier, A., Yang, X., Heng, P.-A., Ni, D., Li, C., Tong, Q., Si, W., Puybareau, E., Khoudli, Y., G ´eraud, T., Chen, C., Bai, W., Rueckert, D., Xu, L., Zhuang, X., Luo, X., Jia, S., Sermesant, M., Liu, Y., Wang, K., Borra, D., Masci, A., Corsi, C., de Vente, C., Veta, M., Karim, R., Preetha, C. J., Engelhardt, S., Qiao, M., Wang, Y., Tao, Q., Nu ˜nez-Garcia, M., Camara, O., Savioli, N., Lamata, P., and Zhao, J. A global bench-mark of algorithms for segmenting the left atrium from late gadolinium-enhanced cardiac magnetic resonance imaging. Medical Image Analysis , 67:101832, 2021. doi: https://doi.org/10.1016/j.media.2020.101832. Xu, Z., Wang, Y., Lu, D., Yu, L., Yan, J., Luo, J., Ma, K., Zheng, Y., and Tong, R. K.-y. All-around real label super-vision: Cyclic prototype consistency learning for semi-supervised medical image segmentation. IEEE Journal of Biomedical and Health Informatics , 26(7):3174–3184, 2022. doi: 10.1109/JBHI.2022.3162043. Xu, Z., Wang, Y., Lu, D., Luo, X., Yan, J., Zheng, Y., and Tong, R. K.-y. Ambiguity-selective consistency regular-ization for mean-teacher semi-supervised medical image segmentation. Medical Image Analysis , 88:102880, 2023. Yan, K., Cai, Q., Zhang, F., Cao, Z., and Liu, Z. Sgtc: Semantic-guided triplet co-training for sparsely anno-tated semi-supervised medical image segmentation. In 
+
+Proceedings of the AAAI Conference on Artificial Intelli-gence , volume 39, pp. 9112–9120, 2025. Yang, Y., Sun, G., Zhang, T., Wang, R., and Su, J. Semi-supervised medical image segmentation via weak-to-strong perturbation consistency and edge-aware con-trastive representation. Medical Image Analysis , 101: 103450, 2025. You, C., Dai, W., Min, Y., Liu, F., Clifton, D., Zhou, S. K., Staib, L., and Duncan, J. Rethinking semi-supervised medical image segmentation: A variance-reduction per-spective. Advances in neural information processing systems , 36:9984–10021, 2023. Yu, L., Wang, S., Li, X., Fu, C.-W., and Heng, P.-A. Uncertainty-aware self-ensembling model for semi-supervised 3d left atrium segmentation. In Medical image computing and computer assisted intervention–MICCAI 2019: 22nd international conference, Shenzhen, China, October 13–17, 2019, proceedings, part II 22 , pp. 605– 613. Springer, 2019. Zeng, Q., Xie, Y., Lu, Z., Lu, M., Wu, Y., and Xia, Y. Segment together: A versatile paradigm for semi-supervised medical image segmentation. IEEE Transac-tions on Medical Imaging , 44(7):2948–2959, 2025. doi: 10.1109/TMI.2025.3556310. Zhang, Y., Jiao, R., Liao, Q., Li, D., and Zhang, J. Uncertainty-guided mutual consistency learning for semi-supervised medical image segmentation. Artificial Intelli-gence in Medicine , 138:102476, 2023. 12 Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 
+
+## A. Data Preprocessing. 
+
+The LA benchmark contains 100 gadolinium-enhanced cardiac MRI volumes, acquired with an isotropic spacing of (0.625 × 0.625 × 0.625) mm. The Pancreas-CT dataset provides 82 contrast-enhanced abdominal CT scans with a fixed in-plane size of (512 × 512) and slice thickness between 1.5 and 2.5 mm. BraTS2019 includes multi-parametric brain MRI from 335 glioma subjects, where each case offers four sequences together with voxel-wise tumor annotations. For BraTS, we follow the protocol adopted by recent semi-supervised studies and report whole-tumor (WT) segmentation using the FLAIR modality; we use 250/25/60 volumes for training/validation/testing. To reduce the influence of anisotropic spacing on 3D convolutions, all scans are resampled to an isotropic resolution of (1.0 × 1.0 × 1.0) mm, and we keep the same preprocessing pipeline and data partitioning (including labeled/unlabeled splits) as the canonical settings in prior works. 
+
+## B. Implementation Details. 
+
+All experiments are conducted in PyTorch on the NVIDIA 4080 GPU. The framework is trained with an SGD optimizer for 20,000 iterations at a learning rate of 0.01, and a batch size of four—comprising two labeled and two unlabeled images. To avoid memory overflow, we adopt a sliding window approach rather than feeding the entire 3D volume directly. Specifically, sub-volumes of 112 × 112 × 80 (LA cases, the strides are set to 18 × 18 × 4) and 96 × 96 × 96 (Pancreas-NIH and BraTS2019 cases, the strides are set to 16 × 16 × 16) were randomly cropped as training inputs. During testing, windows of the same size were employed to perform sliding inference across the 3D volumes, and the results from each window were subsequently aggregated to obtain the final segmentation. 
+
+## C. Evaluation Metrics 
+
+We report three commonly used metrics: the Dice similarity coefficient (DSC), the 95th-percentile Hausdorff distance (95HD), and the average surface distance (ASD). DSC measures volumetric agreement between the prediction and the reference by comparing their overlap. ASD summarizes the mean discrepancy between the two surfaces, while 95HD reflects near-worst-case boundary errors, which reduces sensitivity to a few extreme outliers compared with the maximum Hausdorff distance. Better segmentation corresponds to higher DSC and lower ASD/95HD. 
+
+## D. Detailed Results of SOTA Methods                                                                                                                     
+
+> Table 5. Comparisons with other semi-supervised methods on BraTS2019 dataset. Method Protocol Scans Metrics Labeled / Unlabeled DSC (%) ↑ASD (mm) ↓95HD (mm) ↓
+> UG-MCL (Zhang et al., 2023) last / best 25 / 225 82.82 2.30 11.29 CPCL (Xu et al., 2022) last / best 25 / 225 83.36 1.99 11.74 CauSSL (Miao et al., 2023) last / best 25 / 225 83.54 1.98 12.53 AC-MT (Xu et al., 2023) last / best 25 / 225 83.77 1.93 11.37 URPC (Luo et al., 2022) last / best 25 / 225 84.16 2.63 11.01 MRPL (Su et al., 2024) last / best 25 / 225 84.29 2.55 9.57 DBiSL (Li, 2026) last / best 25 / 225 85.09 1.89 8.12 BoANet (Li et al., 2024) last / best 25 / 225 85.43 2.15 8.69 TraCoCo (Liu et al., 2025) last / best 25 / 225 85.71 2.27 9.20 Our median last / best 25 / 225 85.27 3.02 11.67 Our maximum last / best 25 / 225 86.52 3.59 11.48 UG-MCL (Zhang et al., 2023) last / best 50 / 200 83.61 2.26 11.44 AC-MT (Xu et al., 2023) last / best 50 / 200 84.63 2.11 9.50 MRPL (Su et al., 2024) last / best 50 / 200 85.47 2.00 7.76 URPC (Luo et al., 2022) last / best 50 / 200 85.49 2.04 8.47 BoANet (Li et al., 2024) last / best 50 / 200 85.88 1.92 8.26 SFR (Li et al., 2025b) last / best 50 / 200 86.09 2.47 8.51 CDS (Hu et al., 2025) last / best 50 / 200 86.12 1.83 7.78 TraCoCo (Liu et al., 2025) last / best 50 / 200 86.69 1.93 8.04 Our median last / best 50 / 200 86.47 2.44 9.30 Our maximum last / best 50 / 200 86.68 2.00 7.11
+> Note: BraTS2019 provides a validation set, thus the results under the two protocols coincide.
+
+13 Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 
+
+Table 6. Comparisons with other semi-supervised methods on LA dataset. Method Protocol Scans Metrics Labeled / Unlabeled DSC (%) ↑ ASD (mm) ↓ 95HD (mm) ↓
+
+TAC (Chen et al., 2022) last 8 / 72 84.73 2.72 11.45 CDS (Hu et al., 2025) last 8 / 72 87.21 2.97 11.02 DTC (Luo et al., 2021a) last 8 / 72 87.51 2.36 8.23 DBiSL (Li, 2026) last 8 / 72 88.78 / /TraCoCo (Liu et al., 2025) last 8 / 72 89.29 2.28 6.92 ARCO-SG (You et al., 2023) last 8 / 72 89.90 1.47 /Our median last 8 / 72 90.28 1.77 6.49 Our maximum last 8 / 72 90.39 1.88 6.40 SGTC (Yan et al., 2025) best 8 / 72 84.70 4.26 17.44 AUSS (Adiga et al., 2024) best 8 / 72 86.58 / 11.82 CPL (Lv et al., 2026) best 8 / 72 87.01 2.97 9.05 CRDS (Aralikatti et al., 2023) / 8 / 72 88.51 2.13 6.86 BOA-Net (Li et al., 2024) / 8 / 72 88.91 2.11 7.73 MC-Net+ (Wu et al., 2022) best 8 / 72 88.96 1.86 7.93 VerSemi (Zeng et al., 2025) best 8 / 72 89.01 2.57 9.03 AC-MT (Xu et al., 2023) best 8 / 72 89.12 2.19 11.05 Co-BioNet (Peiris et al., 2023) best 8 / 72 89.20 1.90 6.44 ICSSL (Huang et al., 2024) best 8 / 72 89.25 1.86 6.96 BCP (Bai et al., 2023) best 8 / 72 89.62 1.76 6.81 TraCoCo (Liu et al., 2025) best 8 / 72 89.86 2.01 6.81 MRPL (Su et al., 2024) best 8 / 72 89.86 1.85 /w2SPC (Yang et al., 2025) / 8 / 72 90.23 1.95 7.16 OTCMC (Guo et al., 2025) / 8 / 72 90.26 1.65 5.96 A&D (Wang & Li, 2023) best 8 / 72 90.31 1.64 5.55 CC-Net (Wang et al., 2025) best 8 / 72 90.82 1.72 7.50 Our median best 8 / 72 90.73 1.77 5.87 Our maximum best 8 / 72 90.85 1.80 5.45 TAC (Chen et al., 2022) last 16 / 64 87.75 2.04 9.45 MCF (Wang et al., 2023) last 16 / 64 88.71 1.90 6.32 DTC (Luo et al., 2021a) last 16 / 64 89.42 2.10 7.32 CDS (Hu et al., 2025) last 16 / 64 90.33 1.91 6.16 BSNet (He et al., 2024) last 16 / 64 90.43 1.63 6.21 DBiSL (Li, 2026) last 16 / 64 90.54 1.80 6.05 TraCoCo (Liu et al., 2025) last 16 / 64 90.94 1.79 5.49 SFR (Li et al., 2025b) last 16 / 64 91.00 1.61 6.13 AUA (Wu et al., 2024) last 16 / 64 91.08 1.80 5.60 Our median last 16 / 64 90.83 1.63 6.03 Our maximum last 16 / 64 91.36 1.86 6.16 AUSS (Adiga et al., 2024) best 16 / 64 88.60 / 7.61 BaPC (Wang et al., 2024) best 16 / 64 89.71 1.85 6.08 UG-MCL (Zhang et al., 2023) best 16 / 64 90.16 1.98 6.50 AC-MT (Xu et al., 2023) best 16 / 64 90.31 1.76 6.21 OTCMC (Guo et al., 2025) / 16 / 64 90.86 1.60 6.27 VerSemi (Zeng et al., 2025) best 16 / 64 90.89 1.72 5.38 MRPL (Su et al., 2024) best 16 / 64 91.02 1.66 5.78 w2SPC (Yang et al., 2025) / 16 / 64 91.05 1.67 5.94 MC-Net+ (Wu et al., 2022) best 16 / 64 91.07 1.67 5.84 Co-BioNet (Peiris et al., 2023) best 16 / 64 91.26 1.64 5.17 BoA-Net (Li et al., 2024) / 16 / 64 91.38 1.54 5.09 TraCoCo (Liu et al., 2025) best 16 / 64 91.51 1.79 5.63 CC-Net (Wang et al., 2025) best 16 / 64 91.60 1.54 5.27 Our median best 16 / 64 91.44 1.64 5.42 Our maximum best 16 / 64 91.62 1.62 5.44 
+
+14 Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation? 
+
+Table 7. Comparisons with other semi-supervised methods on Pancreas-NIH dataset. Method Protocol Scans used Metrics Labeled / Unlabeled DSC (%) ↑ ASD (mm) ↓ 95HD (mm) ↓
+
+CauSSL (Miao et al., 2023) last 6 / 56 72.89 4.37 14.19 TraCoCo (Liu et al., 2025) last 6 / 56 79.22 2.57 8.46 Our median last 6 / 56 81.08 3.55 9.33 Our maximum last 6 / 56 81.20 4.48 16.11 BaPC (Wang et al., 2024) best 6 / 56 68.64 3.59 16.37 SC-SSL (Miao et al., 2024) best 6 / 56 70.09 1.97 12.88 MC-Net+ (Wu et al., 2022) best 6 / 56 74.01 3.34 12.59 URPC (Luo et al., 2022) best 6 / 56 74.89 3.74 11.30 MRPL (Su et al., 2024) best 6 / 56 75.93 1.54 9.07 BoA-Net (Li et al., 2024) / 6 / 56 76.06 3.62 11.23 Co-BioNet (Peiris et al., 2023) best 6 / 56 77.89 1.39 8.81 VerSemi (Zeng et al., 2025) best 6 / 56 78.62 2.28 7.99 CC-Net (Wang et al., 2025) best 6 / 56 81.93 1.98 7.79 Our median best 6 / 56 82.22 2.50 8.16 Our maximum best 6 / 56 82.52 1.89 5.50 MCF (Wang et al., 2023) last 12 / 50 75.00 3.27 11.59 DTC (Luo et al., 2021a) last 12 / 50 78.27 2.25 8.36 AUA (Wu et al., 2024) last 12 / 48 79.81 1.64 5.90 CauSSL (Miao et al., 2023) last 12 / 50 80.92 1.53 8.11 DBiSL (Li, 2026) last 12 / 50 81.09 1.71 6.90 TraCoCo (Liu et al., 2025) last 12 / 50 81.80 1.49 5.70 Our median last 12 / 50 83.44 1.61 4.90 Our maximum last 12 / 50 84.14 2.14 5.62 BaPC (Wang et al., 2024) best 12 / 50 76.36 2.83 10.59 CoraNet (Shi et al., 2021) best 12 / 50 79.67 1.89 7.59 URPC (Luo et al., 2022) best 12 / 50 80.31 2.10 6.58 MC-Net+ (Wu et al., 2022) best 12 / 50 80.59 1.74 6.47 SC-SSL (Miao et al., 2024) best 12 / 50 80.76 1.73 6.79 BoA-Net (Li et al., 2024) / 12 / 50 80.80 1.65 6.01 ICSSL (Huang et al., 2024) best 12 / 50 81.17 1.46 6.17 MRPL (Su et al., 2024) best 12 / 50 81.53 1.33 6.81 Co-BioNet (Peiris et al., 2023) best 12 / 50 82.22 1.16 7.71 BCP (Bai et al., 2023) best 12 / 50 82.91 2.25 6.43 TraCoCo (Liu et al., 2025) best 12 / 50 83.36 1.74 7.34 VerSemi (Zeng et al., 2025) best 12 / 50 83.55 1.35 5.02 CC-Net (Wang et al., 2025) best 12 / 50 83.89 1.81 5.24 Our median best 12 / 50 83.94 2.26 6.25 Our maximum best 12 / 50 84.14 2.14 5.62 
+
+15

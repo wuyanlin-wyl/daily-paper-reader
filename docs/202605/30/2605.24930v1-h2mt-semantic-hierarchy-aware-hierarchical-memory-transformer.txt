@@ -1,0 +1,783 @@
+Title: H^2MT: Semantic Hierarchy-Aware Hierarchical Memory Transformer
+
+URL Source: https://arxiv.org/pdf/2605.24930v1
+
+Published Time: Tue, 26 May 2026 01:09:00 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# H2MT: Semantic Hierarchy-Aware Hierarchical Memory Transformer 
+
+## Maryam Haghifam 
+
+University of California, Los Angeles USA maryamhgf@cs.ucla.edu 
+
+## Zifan He 
+
+University of California, Los Angeles USA zifanhe@cs.ucla.edu 
+
+## Jason Cong 
+
+University of California, Los Angeles USA cong@cs.ucla.edu 
+
+## Yizhou Sun 
+
+University of California, Los Angeles USA yzsun@cs.ucla.edu 
+
+## Abstract 
+
+Transformer-based LLMs achieve strong results on many language tasks; however, long inputs remain challenging because context windows are finite and prefill latency and memory grow rapidly with prompt length. Flat token-stream processing and chunk-based retrieval can therefore spend substantial computation and con-text budget on text unrelated to the query. Offline-indexed RAG additionally introduces external storage and index management overhead, and typically appends retrieved evidence as raw text, increasing prefill cost and latency. H 2MT makes long-context infer-ence structure-aware: it builds a semantic hierarchy offline, com-putes a memory embedding for each node via bottom-up post-order aggregation, and routes queries coarse-to-fine at inference to prune irrelevant branches early. On LongBench QA (NarrativeQA, Hot-potQA, QASPER) and structured technical-document QA, H 2MT achieves favorable quality–efficiency trade-offs: it substantially re-duces TTFT and often peak GPU memory relative to memory-token baselines, while trading some lexical accuracy against text-retrieval baselines for lower total generation time and no raw-text concate-nation at inference. 
+
+## Keywords 
+
+long-context inference, memory tokens, hierarchical routing, effi-cient LLM inference 
+
+## 1 Introduction 
+
+Natural language processing applications increasingly rely on large language models to process long documents, often structured (e.g., scientific papers or technical manuals), for downstream tasks such as question answering. Since the introduction of the Transformer [ 17 ], self-attention has served as the core primitive behind most modern LLMs. However, dense self-attention scales quadratically with sequence length, making long inputs expensive in both com-pute and memory on common hardware. Consequently, deployed models typically expose finite context windows, which further con-strains long-document processing [10, 22]. A large body of work addresses these bottlenecks by modifying attention or introducing auxiliary mechanisms to extend the effec-tive context, including sparse attention patterns [ 1 , 5 , 23 ], low-rank or linearized attention approximations [ 6, 18 , 25 ], segment-level re-currence [ 3 , 7 ], and external memory mechanisms for long-context efficiency, such as kNN retrieval over cached representations [ 21 ]. While these approaches reduce long-context overhead, they of-ten require non-trivial architectural modifications or heavyweight auxiliary systems, which can alter model behavior and introduce additional hyperparameters and failure modes. Moreover, even with such mechanisms, LLMs can struggle to reliably use evidence that is far from the query [14]. Beyond efficiency concerns, many long-context methods treat documents as flat token sequences. This is a mismatch for real-world artifacts, where the document’s semantic structure (sections, subsections, and scoped definitions) provides a strong inductive bias for locating and composing evidence. Ignoring this structure can spread computation across distant and irrelevant content, par-ticularly in technical documents with localized terminology and hierarchical dependencies. Memory-token approaches (e.g., ICAE, HMT, R 3Mem) compress long contexts into latent memory repre-sentations, but they typically operate over linear segment streams rather than explicitly leveraging document hierarchy for coarse-to-fine routing and controllable evidence granularity at inference [9, 12, 19]. We propose H 2MT, a hierarchy-aware memory framework that preserves a document’s semantic hierarchy and shifts long-range context conditioning from token-level attention to conditioned memory composition. H 2MT constructs a semantic hierarchy over the context using available document metadata (e.g., a table of con-tents for manuals) or by segmenting text into coherent units. It then computes a single memory embedding per node, a fixed-size latent representation that distills the node’s local content and descendant information via bottom-up aggregation. At inference time, H 2MT performs coarse-to-fine routing from the root, prunes low-scoring subtrees early, and conditions generation only on selected node memories. The design adds only lightweight pooling and projection layers on top of a frozen backbone, yielding a parameter-efficient mechanism for long, structured documents. Our contributions are as follows. (1) We introduce H 2MT, a plug-in hierarchy-aware memory interface that represents a long docu-ment as a rooted semantic tree and conditions a frozen backbone on a small set of selected node memories rather than raw long context, without modifying the backbone attention blocks. (2) We develop an offline hierarchical memory construction procedure that com-putes a fixed-size memory embedding for every node via bottom-up post-order aggregation, enabling reusable cached node memories across queries. (3) We propose an inference-time coarse-to-fine 
+
+> arXiv:2605.24930v1 [cs.CL] 24 May 2026 Maryam Haghifam, Zifan He, Jason Cong, and Yizhou Sun
+
+Figure 1: Overview of H2MT (H 2MT). (1) Semantic hierarchy generation (offline): convert each document into a rooted tree of semantically coherent units. (2) Hierarchical memory token construction (offline): compute leaf memories using learnable write/read embeddings, then propagate information bottom-up by aggregating children memories to form intermediate-node memories. (3) Hierarchical memory-aware inference (online): embed the query, perform top-down routing with per-parent pruning to select relevant nodes, and condition the backbone on the retrieved memory tokens to generate the answer. 
+
+routing algorithm that traverses the tree from the root, scores child nodes via lightweight cross-attention against a query summary, and prunes low-scoring subtrees early, providing explicit control over context budget and prefill cost. (4) We evaluate H 2MT on LongBench QA (NarrativeQA, HotpotQA, QASPER) and structured technical-document QA settings, demonstrating improved quality– efficiency trade-offs versus prompt compression, memory-token methods, and RAG baselines. 
+
+## 2 Related Work 
+
+Prior work on long-context inference and retrieval for language models spans (i) structure-aware architectures that encode docu-ment hierarchy, (ii) memory-augmented and other context-efficient mechanisms that reduce the overhead of conditioning on long his-tories, and (iii) retrieval-based methods that reorganize external corpora, sometimes hierarchically, to surface relevant evidence under tight context budgets. 
+
+Structure-aware long-document models. The Hierarchical Docu-ment Transformer (HDT) [ 11 ] injects document structure into the attention pattern via auxiliary anchor tokens (e.g., [SENT], [SEC], [DOC]) and a sample-dependent, multi-level sparse attention kernel, complemented by hierarchical positional encodings. HDT enables structured communication among siblings and parent–child nodes within a document tree while maintaining sparsity. More broadly, structure-aware designs impose document hierarchy through mod-ified attention masks or positional schemes, shaping how infor-mation flows across sections and paragraphs. These methods are effective, but they typically require modifying the backbone’s at-tention pattern or positional encoding scheme, whereas we target a plug-in interface on top of a frozen backbone. 
+
+Memory-augmented recurrence and external memory. The Hierar-chical Memory Transformer (HMT) [ 12 ] provides a model-agnostic memory interface that compresses each processed segment into memory embeddings and retrieves relevant memories during subse-quent processing. HMT organizes memories into multiple tiers and implements sequence-recurrent processing, reporting improved long-context inference quality and reduced inference-time memory in long-context settings. External memory can also be implemented as retrieval over cached representations: Memorizing Transformers [21 ] augment attention with kNN lookup over a key–value store of past activations to extend effective context beyond the raw token window. 
+
+Context-efficient Transformers and learned context compression for LLMs. A primary bottleneck in Transformers is the quadratic cost of self-attention, motivating sparse attention for long inputs. H2MT 
+
+Table 1: Notation summary.                                                            
+
+> Symbol Description
+> T=(𝑉 , 𝐸, 𝑟 )Semantic hierarchy tree with nodes 𝑉 , edges 𝐸 , and root 𝑟 .
+> 𝑝 (·) ,𝐶 (𝑣 ),𝑐 𝑣 Parent map; children set; 𝑐 𝑣 =|𝐶 (𝑣 ) | .
+> T𝑣 Subtree rooted at 𝑣 .
+> 𝑥 𝑣 ,𝑛 𝑣 Local text at node 𝑣 ; token count.
+> 𝑑 Backbone hidden dimension.
+> 𝑒 write , 𝑒 read Learnable write/read embeddings.
+> 𝑚 𝑣 Node memory embedding (one vector per node).
+> 𝑀 ch
+> 𝑣 ,˜𝑚 𝑣 Child-memory stack; ˜𝑚 𝑣 =Agg (·) over child (and optional parent) tokens.
+> q,𝑞 ,𝑛 𝑞 Question text; query vector; tokens used to form 𝑞 .
+> 𝑠 (𝑢 |𝑞 )Routing score between query 𝑞 and node 𝑢 .
+> 𝑊 𝑞 ,𝑊 𝑘 ,𝑑 ℎProjections and head dim in the routing score.
+> 𝑘 ,Sℓ,𝑆 (𝑝 )Per-parent top-𝑘 ; candidates at depth ℓ; selected children.
+> 𝑅 ,𝑀 ret Retrieved nodes; stacked retrieved memories.
+
+Sliding-window attention limits long-range interactions, and exten-sions such as Longformer [ 2] add global interactions to enlarge the effective receptive field. Related methods approximate attention to reduce cost (e.g., Performer [ 6]) or introduce recurrence (e.g., Transformer-XL [ 7], RMT [ 3 ]). A complementary direction trains explicit compressors that map long prefixes to shorter represen-tations for a frozen backbone. ICAE [ 9 ] learns synthetic tokens that encode long histories, and R 3Mem [ 19 ] uses reversible com-pression to balance retention and retrieval. Prompt compression methods such as LongLLMLingua [ 13 ] reduce prompt length by rewriting or dropping less salient spans. These approaches improve long-context efficiency, but they typically operate over linear to-ken or segment streams rather than leveraging native document hierarchy (e.g., sections and subsections) for coarse-to-fine routing and controllable evidence granularity. 
+
+Hierarchical retrieval for retrieval-augmented generation. RAP-TOR [ 16 ] builds a multi-level index over a corpus using iterative clustering and LLM-based abstraction, enabling retrieval at multiple granularities rather than flat top-𝑘 chunk selection. At inference time, it can retrieve nodes from different levels under a token bud-get, mixing higher-level abstractions with lower-level details. This hierarchy is induced over an external corpus, whereas our focus is exploiting a document’s internal semantic structure and routing over cached node memories during inference. 
+
+## 3 Methodology 
+
+H2MT consists of three stages: (i) constructing the semantic hierar-chy tree of the context (Section 3.1), (ii) constructing hierarchical memory tokens for all nodes in the tree, including intermediate nodes (Section 3.2), and (iii) hierarchical memory-aware inference (Section 3.3). The design targets long-context settings while keeping the backbone architecture unchanged. 
+
+## 3.1 Semantic Hierarchy Tree Construction 
+
+We represent the semantic structure of the context as a rooted tree 
+
+T = (𝑉 , 𝐸, 𝑟 ), where 𝑉 is the node set, 𝐸 is the edge set, and 𝑟 is the root. Each node 𝑣 ∈ 𝑉 is a semantically coherent unit (e.g., section, subsection, paragraph), and edges encode containment relations between parts of the context. Let 𝑝 : 𝑉 \ { 𝑟 } → 𝑉 denote the parent map and 𝐶 (𝑣 ) ≜ {𝑢 ∈ 𝑉 : 𝑝 (𝑢 ) = 𝑣 } the set of children of 𝑣 . We write T𝑣 for the subtree rooted at 𝑣 . Each node 𝑣 is associated with local text 𝑥 𝑣 , which fits within the backbone context window. If a 
+
+Figure 2: Technical document example. 
+
+unit exceeds the backbone context window, we recursively split it into paragraphs and then into fixed-length chunks. For structured documents (e.g., manuals), we construct T from available metadata such as the table of contents, mapping headings to internal nodes and scoped paragraphs to leaves, an example of a document with such a structure has bee shown in 2. For unstructured datasets, we build T via heuristic segmentation (e.g., paragraph boundaries) and further split long paragraphs into chunks of at most a configurable number of tokens. We interpret edges as context scope: the parent provides definitional or notational context for its descendants, and it groups them under a single semantic unit. 
+
+## 3.2 Hierarchical Memory Token Construction 
+
+We describe memory-token construction for leaf and intermediate nodes, and then formalize how the hierarchy is used to propagate information bottom-up. We use a post-order traversal so that all descendants of an intermediate node are processed before the node itself. This stage is performed offline; all node memories {𝑚 𝑣 }𝑣 ∈𝑉 
+
+are cached and reused across queries. 
+
+3.2.1 Memory Tokens of the Leaves. We construct a single memory embedding for each node 𝑣 , denoted 𝑚 𝑣 ∈ R𝑑 . For a leaf node, 𝑚 𝑣 
+
+is produced by augmenting the backbone input with two learnable memory embeddings: a single write embedding and a single read embedding. Let 𝑥 𝑣 be the local text at node 𝑣 , tokenized into 𝑛 𝑣 tokens and embedded as 𝐸 𝑣 ∈ R𝑛 𝑣 ×𝑑 . We introduce two learnable vectors that are shared across all nodes 𝑒 write ∈ R𝑑 and 𝑒 read ∈ R𝑑 . These vectors are directly inserted into the input embedding sequence. We form the augmented embeddings 
+
+˜𝐸 𝑣 = [ 𝑒 write ; 𝐸 𝑣 ; 𝑒 read ] ∈ R(𝑛 𝑣 +2) × 𝑑 .
+
+We run the 𝐿 -layer causal Transformer backbone on ˜𝐸 𝑣 . Under the causal attention mask, the final position corresponding to 𝑒 read can attend to all preceding, and therefore acts as a learned readout slot that compresses the leaf content. 
+
+3.2.2 Memory Tokens of the Intermediate Nodes. For an internal node 𝑣 , 𝑚 𝑣 should reflect both its local text 𝑥 𝑣 and the information contained in its descendants. Naively concatenating raw descendant text to 𝑥 𝑣 can exceed the backbone context window. Instead, we propagate compressed information upward using the descendant node memories. Maryam Haghifam, Zifan He, Jason Cong, and Yizhou Sun 
+
+Let 𝑣 ∈ 𝑉 be an internal node and let 𝐶 (𝑣 ) denote its set of children. Since each child 𝑢 ∈ 𝐶 (𝑣 ) stores one memory embedding 
+
+𝑚 𝑢 , we stack these embeddings 
+
+stack  {𝑎 𝑖 }𝑛 𝑖 =1
+
+ ≜  𝑎 ⊤ 
+
+> 1
+
+; . . . ; 𝑎 ⊤
+
+> 𝑛
+
+ ∈ R𝑛 ×𝑑 ,
+
+(i.e., row-wise concatenation of vectors in document order for each parent; ties follow the original segmentation order). 
+
+𝑀 ch  
+
+> 𝑣
+
+≜ stack  {𝑚 𝑢 : 𝑢 ∈ 𝐶 (𝑣 )}  ∈ R𝑐 𝑣 ×𝑑 .𝑐 𝑣 ≜ |𝐶 (𝑣 )| .
+
+We instantiate Agg with lightweight policies that summarize children memories into a single vector. We consider: (i) mean pool-ing, (ii) self-attention over children tokens, (iii) parent-conditioned cross-attention using a parent query, (iv) GAT-style weighting be-tween parent and child tokens, and (v) parent-token self-attention by prepending a parent token to the children set. Full definitions are deferred to Appendix B. For aggregation variants that include a parent token, we prepend the parent token to the children sequence (i.e., parent first, then children in left-to-right order). 
+
+˜𝑚 𝑣 ≜ Agg 
+
+
+
+𝑀 ch 
+
+> 𝑣
+
+
+
+∈ R𝑑 .
+
+Given ˜𝑚 𝑣 , we generate the node memory 𝑚 𝑣 by conditioning the backbone on both ˜𝑚 𝑣 and the node text 𝑥 𝑣 .Let 𝐸 𝑣 ∈ R𝑛 𝑣 ×𝑑 denote the token embeddings of 𝑥 𝑣 . We form 
+
+˜𝐸 𝑣 = [ 𝑒 write ; ˜𝑚 𝑣 ; 𝐸 𝑣 ; 𝑒 read ] ∈ R(𝑛 𝑣 +3) × 𝑑 ,
+
+run the backbone on ˜𝐸 𝑣 , and set 𝑚 𝑣 to the final-layer hidden state at the 𝑒 read position. If 𝑥 𝑣 is empty, we bypass the backbone pass and set 𝑚 𝑣 ≜ ˜𝑚 𝑣 .
+
+## 3.3 Hierarchical Memory-Aware Inference 
+
+Given a query q about a long context and a precomputed semantic hierarchy T = (𝑉 , 𝐸, 𝑟 ), inference performs coarse-to-fine localiza-tion over the tree using the node memories {𝑚 𝑣 ∈ R𝑑 : 𝑣 ∈ 𝑉 }.The goal is to retrieve the set of relevant subtrees by using the bottom-up memories computed offline and to speed up inference. The intuition aligns with a common pattern in human recall: when people are asked a question about previously memorized material, they typically form a high-level outline first, use it to localize the relevant part of their memory, and only then retrieve the fine-grained details within that region. Without this coarse-to-fine localization, accessing specific details is often slower and more error-prone. 
+
+Query embedding. We convert the user question q into a query vector 𝑞 ∈ R𝑑 by running the backbone on a truncated prefix of the question augmented with the same write/read embeddings used for memory construction. Let 𝐸 𝑞 = Embed (q) ∈ R𝑇 ×𝑑 denote the token embeddings of the full question, and let 𝑛 𝑞 ≤ 𝑇 be the number of tokens used (we set 𝑛 𝑞 = ⌊𝑇 /2⌋). We form 
+
+˜𝐸 𝑞 = [ 𝑒 write ; 𝐸 𝑞 [1: 𝑛 𝑞 ] ; 𝑒 read ],
+
+run the backbone on ˜𝐸 𝑞 , and set 𝑞 to the final-layer hidden state at the 𝑒 read position. 
+
+Top-down routing with per-parent pruning. Inference pro-ceeds level by level from the root. We define levels by depth from the root, with depth (𝑟 ) = 0 and depth (𝑣 ) = depth (𝑝 (𝑣 )) + 1. At a parent node 𝑝 , we score each child 𝑢 ∈ 𝐶 (𝑝 ) using the child mem-ory 𝑚 𝑢 and the query vector 𝑞 . With one embedding per node, we use a scaled dot-product routing score (attention-style): 
+
+𝑠 (𝑢 | 𝑞 ) = (𝑊 𝑞 𝑞 )⊤ (𝑊 𝑘 𝑚 𝑢 )√𝑑 ℎ
+
+,
+
+where 𝑊 𝑞 and 𝑊 𝑘 are learnable projections. This score is used for ranking and top-𝑘 selection; when training with probabilistic su-pervision we apply a softmax with temperature 𝜏 as in the training objectives. Our objective is coarse-to-fine localization across depths: we start at root and iteratively score children to identify relevant nodes at increasing depth. By pruning low-scoring branches early, we avoid carrying irrelevant content. We maintain a candidate set of nodes at each depth. Let S0 ≜ {𝑟 },and for each parent 𝑝 define 
+
+𝑆 (𝑝 ) ≜ TopK 𝑢 ∈𝐶 (𝑝 ) 𝑠 (𝑢 | 𝑞 ),
+
+which returns the top 𝑘 children of 𝑝 . The candidate set for the next depth is 
+
+Sℓ+1 ≜
+
+Ø 
+
+> 𝑝 ∈ S ℓ
+
+𝑆 (𝑝 ).
+
+This per-parent top-𝑘 rule prevents early collapse to a single branch and supports balanced exploration of multiple relevant subtrees. The traversal stops when reaching leaves, a maximum depth, or a memory budget. 
+
+Output generation. We collect retrieved nodes across depths into 𝑅 ≜ Ðℓ Sℓ ⊆ 𝑉 and stack their memories into a short memory context 
+
+𝑀 ret ≜ stack  {𝑚 𝑣 : 𝑣 ∈ 𝑅 }.
+
+Concretely, we prepend 𝑀 ret to the embedded question tokens and run the backbone for answer generation. Overall, this approach reuses memories while pruning irrelevant parts of the T .
+
+## 3.4 Training Objectives 
+
+We optimize H2MT with objectives that (i) learn bottom-up memory construction on corpora and (ii) fine-tune answer generation jointly with top-down routing and pruning. Throughout, each node 𝑣 stores a single memory embedding 𝑚 𝑣 ∈ R𝑑 .
+
+Corpus training (hierarchical memory construction). For each node 𝑣 with local text 𝑥 𝑣 = (𝑥 𝑣, 1, . . . , 𝑥 𝑣,𝑛 𝑣 ) and memory em-bedding 𝑚 𝑣 , we implement conditioning on 𝑚 𝑣 by inserting 𝑚 𝑣 
+
+as an embedding prefix token before the embeddings of 𝑥 𝑣 (analo-gous to the inference-time prefix). We train memory-conditioned modeling using token-level cross-entropy: 
+
+LLM (𝑣 ) = − 1
+
+𝑛 𝑣 𝑛 𝑣 ∑︁ 
+
+> 𝑡 =1
+
+log 𝑝 𝜃 
+
+ 𝑥 𝑣,𝑡 | 𝑥 𝑣, <𝑡 , 𝑚 𝑣 
+
+ .
+
+This objective is applied to leaves and internal nodes; for internal nodes, 𝑚 𝑣 is constructed from child memories via the bottom-up procedure in Section 3.2. 
+
+Memory reconstruction (optional). To encourage 𝑚 𝑣 to pre-serve information about 𝑥 𝑣 , we optionally add a reconstruction loss that decodes 𝑥 𝑣 from 𝑚 𝑣 under a reconstruction prompt and is token-level cross-entropy. H2MT 
+
+QA fine-tuning (generation). Given a question q, retrieved memory context 𝑀 ret , and answer tokens 𝑎 = (𝑎 1, . . . , 𝑎 𝐴 ), we minimize: 
+
+Lgen = − 1
+
+𝐴 
+
+> 𝐴
+
+∑︁ 
+
+> 𝑡 =1
+
+log 𝑝 𝜃 (𝑎 𝑡 | q, 𝑀 ret , 𝑎 <𝑡 ) .
+
+Routing supervision. We derive gold routing labels by mapping annotated evidence (or matched supporting spans) to leaf nodes and propagating them to ancestors, yielding a gold child (or gold set) per routed parent. At each routed parent 𝑝 , let 𝐶 (𝑝 ) be its children and let 𝑠 𝑝 (𝑢 ) denote the routing score for child 𝑢 ∈ 𝐶 (𝑝 ). For gold-path supervision with a single gold child 𝑔 (𝑝 ) at each parent, we use a per-level cross-entropy: 
+
+Lroute = −∑︁  
+
+> 𝑝 ∈ P
+
+log exp  𝑠 𝑝 (𝑔 (𝑝 ))/ 𝜏 Í𝑢 ∈𝐶 (𝑝 ) exp  𝑠 𝑝 (𝑢 )/ 𝜏  ,
+
+where P is the set of routed parents along the supervised path and 
+
+𝜏 is a temperature. 
+
+Selection supervision (top-𝑘 pruning). When pruning selects a set of children (top-𝑘 ) rather than a single branch, we supervise the selection using a gold set G( 𝑝 ) ⊆ 𝐶 (𝑝 ). Let 
+
+𝜋 𝑝 (𝑢 ) ≜ exp (𝑠 𝑝 (𝑢 )/ 𝜏 )
+
+Í𝑢 ′ ∈𝐶 (𝑝 ) exp (𝑠 𝑝 (𝑢 ′)/ 𝜏 ) .
+
+We maximize the probability mass assigned to the gold set: 
+
+Lsel = −∑︁  
+
+> 𝑝 ∈ P
+
+log ∑︁   
+
+> 𝑢 ∈ G ( 𝑝 )
+
+𝜋 𝑝 (𝑢 ).
+
+Overall objective. During corpus training: 
+
+Lcorpus =∑︁  
+
+> 𝑣 ∈𝑉
+
+
+
+LLM (𝑣 ) + 𝜆 ae LAE (𝑣 )
+
+
+
+,
+
+where LAE is the optional reconstruction loss. During QA fine-tuning: 
+
+LQA = Lgen + 𝜆 𝑟 Lroute + 𝜆 𝑠 Lsel + 𝜆 ae ∑︁  
+
+> 𝑣 ∈ V enc
+
+LAE (𝑣 ),
+
+where Venc ⊆ 𝑉 denotes the set of nodes whose memories are trained with reconstruction (e.g., leaves only or all nodes), and 
+
+𝜆 𝑟 , 𝜆 𝑠 , 𝜆 ae are scalar weights. 
+
+## 4 Experiments 4.1 Setup 
+
+Datasets We evaluate on five long-context QA datasets. Three are benchmarks from LongBench (QASPER, HotpotQA, NarrativeQA), and two are technical-document QA sets (OpenROAD and a VLSI circuit layout verification manual which is related to one of the leading electronic design automation vendors). QASPER uses the full text of a research paper as the context, with questions targeting paper-specific details such as methods and ex-perimental settings. HotpotQA is multi-document QA, where each example provides multiple documents and the answer require evi-dence across them. NarrativeQA is single-document QA grounded in long narratives (stories or scripts), requiring reasoning about characters, plot, etc. OpenROAD and the VLSI circuit layout verification manual eval-uate the same capability in structured technical manuals. For Open-ROAD, we use ORD-QA, a documentation QA benchmark intro-duced by Pu et al . [15] , consisting of question–document–answer triplets grounded in the OpenROAD documentation, which is open-source EDA tool. The other manual is a private QA set constructed from a a set of VLSI circuit layout verification manuals from a major electronic design automation company; we treat the manual text as the corpus and derive question–answer pairs using our internal generation pipeline. We describe the QA construction and quality control procedure in the appendix. 
+
+Preprocessing We construct a semantic hierarchy out of each long context. The construction is domain-specific: for technical documentation (OpenROAD, VLSI layout verification manual), the hierarchy follows the table of contents and based on this metadata we can find the relation between different parts of the context and generate the semnatic hierarchy. For NarrativeQA, each book or script is organized as document to chapter or scene to paragraph leaves (with an optional configurable minimum paragraph counts in each node); for HotpotQA, each Wikipedia title is a root node and its sentences are depth-1 leaves. For QASPER, the hierarchy follows paper to section to paragraph leaves. Table 5 summarizes node statistics of the semantic hierarchy for each dataset. 
+
+Baselines We compare H 2MT against both model-side long-context methods and prompt-compression baselines. HMT [ 12 ]leverages memory-augmented segment-level recurrence to orga-nize the memory hierarchy by preserving tokens from early input segments, passing memory embeddings along the sequence, and recalling relevant information from history.. ICAE [ 9] trains an in-context autoencoder that compresses a long context into a small set of latent memory slots that the backbone conditions on for genera-tion. MemoryLLM [ 20 ] augments the model with a fixed-size latent memory pool and supports memory-only conditioning; we also report its retrieval-assisted variant (e.g., BM25-filtered memories). UltraGist is represented by the Activation Beacon line [ 24 ], which compresses long-context computation via compact “beacon” repre-sentations that the model conditions on downstream. For input-side compression, LongLLMLingua [ 13 ] and AutoCompressors [ 4] re-duce the effective prompt length by selecting or rewriting salient content, while leaving the backbone architecture unchanged. 
+
+## 4.2 Evaluation 
+
+Quality. For NarrativeQA, HotpotQA, QASPER, and OpenROAD, we report ROUGE-L (Table 2). We additionally report F1 on Narra-tiveQA, QASPER, and HotpotQA to enable comparison with prompt-compression and memory baselines that are commonly reported for the LLaMA-2-7B backbone (Table 6). In this table, LongLLMLin-gua performs prompt compression without introducing dedicated memory-slot tokens. ICAE uses a fixed memory budget of 𝑘 = 128 
+
+memory slots (memory tokens). AutoCompressor represents each 2,048-token segment using 𝜅 = 50 learned summary vectors (soft-prompt summary tokens). UltraGist uses learned UltraGist tokens (<ug> ) with a variable count per segment. 6 shows that H2MT is competitive with strong compression and memory baselines, and it improves over prompt compression methods (AutoCompressors, Maryam Haghifam, Zifan He, Jason Cong, and Yizhou Sun 
+
+Table 2: Rouge-L score (%, higher is better) on HotpotQA, NarrativeQA, QASPER, and OpenROAD. Best per backbone and dataset 
+
+is in bold. Avg is the unweighted mean over the four datasets; best Avg per backbone is in bold. 
+
+Model Method HotpotQA NarrativeQA QASPER OpenROAD Avg Qwen2.5-14B Backbone 19.00 9.96 10.13 27.37 16.62 HMT 42.40 29.17 29.70 32.00 33.32 H2MT 30.37 41.67 38.80 32.60 35.86 
+
+Qwen2.5-7B Backbone 19.60 9.46 12.08 27.44 17.15 HMT 30.06 14.42 14.51 26.09 21.27 H2MT 28.89 29.26 34.15 30.65 30.74 
+
+Qwen3-4B Backbone 18.21 12.15 10.92 25.13 12.63 HMT 28.21 10.01 15.74 33.41 18.88 H2MT 30.37 45.00 31.29 32.95 34.90 
+
+Llama3.1-8B Backbone 19.99 22.84 17.99 27.30 22.03 HMT 30.54 21.02 27.00 29.40 26.99 H2MT 25.37 42.83 28.72 28.80 31.43 
+
+SmolLM-135M Backbone 3.76 1.04 11.54 18.47 8.70 HMT 27.44 16.44 20.30 22.76 21.74 H2MT 23.80 28.57 27.30 24.40 26.02 
+
+Table 3: Average TTFT (ms, lower is better) on HotpotQA, NarrativeQA, QASPER, and OpenROAD. Avg is the unweighted mean over the four datasets; best (lowest) Avg per backbone is in bold. 
+
+Model Method HotpotQA NarrativeQA QASPER OpenROAD Avg Qwen2.5-14B HMT 1959.66 3537.69 3841.90 2250.71 2897.49 H2MT 345.11 643.57 364.88 522.13 468.92 
+
+Qwen2.5-7B HMT 893.38 3056.91 3056.91 18588.63 6398.96 H2MT 204.00 361.38 233.20 308.98 276.89 
+
+Qwen3-4B HMT 614.77 2405.94 1696.10 16888.34 5401.29 H2MT 225.94 355.12 306.99 321.18 302.31 
+
+Llama3.1-8B HMT 992.73 3714.65 2400.30 1512.08 2154.94 H2MT 498.46 364.12 267.93 348.56 369.77 
+
+Mistral-7B HMT 966.38 3078.94 2202.60 26196.64 8111.14 H2MT 253.31 718.30 328.62 295.17 398.85 
+
+SmolLM-135M HMT 259.75 816.82 666.50 566.93 577.50 H2MT 221.70 1127.05 289.00 271.87 477.41 
+
+Table 4: Average peak GPU memory (GB, lower is better) during inference. Avg is the unweighted mean over the four datasets; best (lowest) Avg per backbone is in bold. Peak memory is measured over the full run and may not correlate with TTFT. 
+
+Model Method HotpotQA NarrativeQA QASPER OpenROAD Avg Qwen2.5-14B HMT 57.09 57.12 54.21 58.99 56.85 H2MT 55.68 31.81 28.27 55.85 42.90 
+
+Qwen2.5-7B HMT 30.24 30.31 28.52 32.77 30.46 H2MT 28.91 16.86 17.46 29.43 23.17 
+
+Qwen3-4B HMT 12.86 13.23 15.24 18.31 14.91 H2MT 15.40 15.42 10.46 17.10 14.60 
+
+Llama3.1-8B HMT 31.45 31.52 29.54 32.15 31.17 H2MT 30.41 18.14 18.24 30.53 24.33 
+
+Mistral-7B HMT 28.71 28.74 27.73 31.18 29.09 H2MT 27.43 15.01 30.37 27.92 25.18 
+
+SmolLM-135M HMT 0.95 0.97 0.53 0.96 0.85 H2MT 0.66 0.58 0.71 0.66 0.65 
+
+Table 5: Distribution of nodes in the semantic hierarchies.                     
+
+> Dataset Total Leaf Interm. Avg. Len.
+> OpenROAD 447 269 (60.2%) 178 (39.8%) 5,374 HotpotQA 336,174 269,596 (80.2%) 66,578 (19.8%) 9,151 NarrativeQA 809,278 800,236 (98.9%) 9,042 (1.1%) 18,409 QASPER 9,146 7,344 (80.3%) 1,802 (19.7%) 3,619
+
+LongLLMLingua) across the reported datasets. This setting is useful to position H 2MT relative to widely used compression baselines on standard LLM backbones. For further results on VLSI layout verification manual, please see A. 
+
+Prefill Latency (TTFT) 3 shows that H2MT reduces TTFT com-pared to HMT across backbones and datasets. The reductions are often one to two orders of magnitude in the most expensive long-context settings. These gains align with the design goal: H2MT avoids token-level processing of large irrelevant regions by routing over cached node memories and pruning subtrees early. 
+
+Peak GPU Memory Peak GPU memory. We report peak GPU memory (GB), defined as the maximum GPU memory during in-ference. This measurement includes model weights, activations, the KV cache, temporary buffers, and any other tensors allocated during inference. Peak memory captures the worst-case footprint, so it directly answers whether a configuration fits on a given GPU. Under identical decoding settings, H 2MT reduces peak memory on H2MT 
+
+Table 6: Performance (F1) on NarrativeQA (NQA), QASPER, and HotpotQA for Llama-2-7B. Best per column is in bold. 
+
+Method NQA QASPER HotpotQA Llama-2-7B 18.7 19.2 25.4 AutoCompressors 3.3 7.8 9.6 LongLLMLingua 13.1 21.1 20.5 ICAE 10.1 19.5 23.7 MemoryLLM-16k 20.64 19.57 34.03 MemoryLLM-all-BM25 15.60 20.30 32.27 UltraGist † 22.3 37.1 43.3 
+
+H2MT (ours) 24.90 36.67 23.80  
+
+> †Reported from the UltraGist checkpoint. It represents longer inputs within a 4K window using a learned compression module with variable compression ratio, which can retain more task-relevant evidence in the fixed budget; the compression module is additionally trained with a pretrain+finetune recipe, improving the fidelity of the compressed context for QA.
+
+long-document benchmarks by replacing a long raw-context prefill or too many irreverent memory tokens with a small set of routed hierarchical memory tokens. We also observe occasional increases caused by sensitivity to routing depth especially when the depth is high or the 𝐾 is high. 
+
+TTFT vs. peak GPU memory. TTFT and peak GPU memory capture different bottlenecks and do not necessarily move together. TTFT is dominated by prefill latency up to the first generated to-ken, while peak memory reflects the maximum footprint over the entire run, often dominated by KV-cache growth during decoding or by temporary buffers. As a result, reducing TTFT by shortening the effective prefill can still increase peak memory when routing retrieves more nodes (larger 𝐾 ) or when deeper traversal increases the number of memory tokens inserted. 
+
+Effect of top-k selection on efficiency From Figure 3a and 3b, we observe a clear monotone trend: increasing 𝑘 consistently in-creases TTFT, reflecting higher prefill-side compute because more routed node memories are incorporated before decoding. In con-trast, peak GPU memory remains essentially flat across the sweep, with only a negligible upward drift. This pattern matches our GPU-side observation that the overall peak footprint is dominated by the backbone (weights and decoding-time KV cache), while the additional routed memories mainly affect prefill latency and con-tribute only a small incremental KV/activation overhead. Overall, 𝑘 
+
+controls a latency–coverage trade-off: larger 𝑘 expands the routing frontier and improves coverage at the cost of higher TTFT, while peak memory is nearly unchanged in this regime. 
+
+Effect of 𝑘 and intermediate-node aggregation on qual-ity. Figure 4 analyzes how the per-parent routing budget 𝑘 inter-acts with intermediate-node aggregation. We observe a sweet spot: increasing 𝑘 from small values improves ROUGE-L by covering more relevant branches, while overly large 𝑘 admits weakly related nodes that dilute the selected context and reduce answer focus. Aggregation reduces this sensitivity by making each internal node a compact, query-aligned summary of its children during offline construction (we use cross-attention aggregation). Without aggre-gation, internal nodes are less informative and routing becomes noisier, so the retrieved set accumulates more redundant or irrele-vant content as 𝑘 grows. Overall, moderate 𝑘 performs best, and 4 6 8 10 12 14 16 18 20 22 24 26 28 30 32  
+
+> Routing K (k)
+> 500
+> 550
+> 600
+> 650
+> 700
+> 750
+> 800
+> Avg Time to First Token (ms)
+> 499.53
+> 510.42
+> 541.47
+> 552.99
+> 579.24 576.42
+> 629.13
+> 653.47
+> 640.78
+> 668.65
+> 708.53
+> 727.17
+> 746.81
+> 794.70
+> 827.74
+
+(a) TTFT (ms) vs. routing 𝑘 .4 6 8 10 12 14 16 18 20 22 24 26 28 30 32 
+
+> Routing K (k)
+> 31.170
+> 31.175
+> 31.180
+> 31.185
+> 31.190
+> 31.195
+> 31.200
+> Avg Peak GPU Memory (GB)
+> 31.170
+> 31.171
+> 31.173
+> 31.175
+> 31.176
+> 31.178
+> 31.182
+> 31.184
+> 31.186
+> 31.188
+> 31.190
+> 31.192
+> 31.193
+> 31.196
+> 31.200
+
+(b) Peak GPU memory (GB) vs. routing 𝑘 .
+
+Figure 3: Effect of routing 𝑘 on latency and memory (Qwen2.5-14B-Instruct, NarrativeQA). 
+
+aggregation helps control distractors when widening the routing budget. 
+
+## 4.3 GMM-induced hierarchy for HotpotQA 
+
+HotpotQA does not provide an intrinsic document hierarchy and because of this we see low performance, so we induce a seman-tic tree by clustering chunk-level memory representations. Our construction borrows the bottom-up, recursive hierarchy-building principle from RAPTOR, however, with memory tokens not by raw texts. We first split each context document into chunks and encode each chunk using our MemoryCell, producing a memory represen-tation for every chunk. We then fit a Gaussian Mixture Model over these chunk memories to obtain clusters, and create a parent node per cluster by aggregating the memories of its assigned children. We repeat this procedure on the newly created parent memories to build higher levels of the tree until the process stops due to insuffi-cient compression or reaching a maximum depth. This produces a hierarchy over the HotpotQA context, which we use at inference time for top-down routing and memory selection. The table 7 highlights a quality–efficiency trade-off between H2MT (GMM) and SBERT+RAPTOR. The ROUGE gap is consis-tent with the fact that our method is lossy by design : H 2MT com-presses raw text into memory representations and further aggre-gates them during clustering and parent construction, which can discard token-level evidence that overlap-based metrics reward. In contrast, SBERT+RAPTOR is not lossy in the same sense at answer Maryam Haghifam, Zifan He, Jason Cong, and Yizhou Sun 
+
+Table 7: HotpotQA results with Qwen3-4B-Instruct. H 2MT uses a GMM-induced hierarchy. Tree-build time is an offline per-document indexing cost. ROUGE-L is in %.               
+
+> Method ROUGE-L (%) Tree build ms/doc TTFT (ms) Total gen. time (ms) Peak GPU mem (GB)
+> H2MT (GMM) 46.64 688.94 219.72 1661.15 15.79 SBERT+RAPTOR 56.39 26777.76 82.71 11864.20 16.08
+
+time because it retrieves and supplies textual chunks to the gener-ator, preserving surface-form details. By adopting this hierarchy construction approach, our performance on unstructured corpora such as HotpotQA improves from 30.37% to 46.64% ROUGE-L. 
+
+## 4.4 Retrieval-Augmented Generation Baseline 
+
+Since our setting requires query-conditioned selection from a static long document, we additionally compare against retrieval-augmented generation (RAG) baselines. We consider RAPTOR [ 16 ], which builds a hierarchical index by recursively embedding and cluster-ing text chunks, and generating abstractive summaries for clusters using an LLM. At inference time, RAPTOR retrieves nodes from multiple abstraction levels and concatenates their raw texts (inter-nal summaries and, when selected, leaf-level chunks) as context for the generator. Empirically, SBERT+RAPTOR is a strong accuracy baseline (Ta-ble 7). It is also important to note that RAPTOR conditions the generator on the explicit text of retrieved nodes (including internal summaries and leaf chunks), whereas H 2MT routes over fixed-size learned memory tokens and never concatenates raw retrieved spans at inference. This difference makes H 2MT intentionally lossy : com-pressing each node into a bounded representation (and applying hard top-𝑘 selection) can discard fine-grained evidence needed for multi-hop reasoning, and any hierarchy construction errors (e.g., imperfect GMM clustering or parent assignment) are difficult to recover from at inference because the model attends to compressed memories rather than token-level text. In contrast, RAPTOR pre-serves more explicit evidence through retrieved text and summaries, which can improve overlap-based accuracy metrics, but typically increases both offline index construction cost and online genera-tion time due to longer effective context and additional decoding (Table 7). 
+
+## 4.5 LVS Results 
+
+Dataset. LVS contains 76 technical manuals. Each manual has, on average, 506K characters and a clear document structure driven by a table of contents (ToC) and nested sections. We build a global hierarchy with a virtual root, manuals as level-1 nodes, and section nodes organized under their corresponding manual roots. Since LVS is not publicly available and is highly technical, general-purpose models often exhibit substantial domain mismatch. We therefore complement the QA-based evaluation (ROUGE-L reported for one manual in the appendix) with an intrinsic language modeling mea-sure. 
+
+Perplexity evaluation. To quantify modeling quality on LVS, we compute test perplexity (PPL) on held-out text. We compare HMT 
+
+Method Test PPL Relative vs. HMT HMT 11.93 1.00 ×
+
+H2MT 2.62 0.22 × (78.1% lower; 4.56 × lower) 
+
+Table 8: Perplexity on the LVS test set. Relative values are normalized to HMT.             
+
+> Method Tree Build Time (s) Cache (MB) Dim Embedder H2MT 977.97 63.06 2560 Qwen3-4B RAPTOR 5382.67 56.96 768 MPNet (multi-qa)
+
+Table 9: Offline index construction on 30 LVS manuals. We re-port embedding dimension (Dim) and the embedding source model (Embedder). 2 4 6  
+
+> k
+> 0.275
+> 0.280
+> 0.285
+> 0.290
+> ROUGE-L  0.286
+> 0.288
+> 0.285
+> 0.279 0.280
+> 0.276
+> Aggregation No-aggregation
+
+Figure 4: ROUGE-L (%) as a function of top-𝑘 on OpenRoad. The curve highlights accuracy sensitivity to 𝑘 under the same backbone (LLaMA-3.1-8B) on the OpenROAD dataset. 
+
+against H2MT under the same tokenizer and evaluation script. Ta-ble 8 shows that H2MT yields substantially lower PPL, indicating a better fit to the technical distribution. 
+
+## 5 Conclusion 
+
+We presented H 2MT, a plug-in hierarchy-aware memory frame-work for long-document question answering that preserves docu-ment structure while keeping the backbone architecture unchanged. H2MT constructs a semantic hierarchy tree offline, builds a single cached memory embedding per node via bottom-up aggregation, and performs online coarse-to-fine routing with per-parent prun-ing to select a small set of relevant node memories for generation. Across LongBench QA and structured technical-document settings (OpenROAD), our results show that H 2MT can improve generation quality while substantially reducing time-to-first-token and often peak GPU memory compared to strong long-context baselines. 
+
+Limitations. A key limitation is that H 2MT relies on a meaning-ful document hierarchy. For corpora with weak or noisy structure (like HotpotQA), hierarchy induction is currently heuristic rather than fully automatic, and errors in the induced tree can propagate to memory construction and routing decisions. In addition, com-pressing an entire subtree into a single memory vector at each internal node can attenuate fine-grained signals: relevant evidence H2MT 
+
+may be present in a descendant, yet its contribution can be diluted at higher levels, causing the corresponding branch to be pruned during top-down routing. 
+
+Future Work. Future work includes improving automatic hier-archy induction for weakly structured corpora, incorporating richer structures beyond trees (e.g., graphs capturing cross-references and shared entities), and learning routing and aggregation policies that better preserve rare but critical evidence while optimizing accu-racy–latency–memory trade-offs. 
+
+## References 
+
+[1] Iz Beltagy, Matthew E. Peters, and Arman Cohan. 2020. Longformer: The Long-Document Transformer. arXiv preprint arXiv:2004.05150 (2020). https://arxiv. org/abs/2004.05150 [2] Iz Beltagy, Matthew E. Peters, and Arman Cohan. 2020. Longformer: The Long-Document Transformer. arXiv preprint arXiv:2004.05150 (2020). https://arxiv. org/abs/2004.05150 [3] Aydar Bulatov, Yuri Kuratov, and Mikhail S. Burtsev. 2022. Recurrent Memory Transformer. arXiv preprint arXiv:2207.06881 (2022). https://arxiv.org/abs/2207. 06881 [4] Alexis Chevalier, Alexander Wettig, Anirudh Ajith, and Danqi Chen. 2023. Adapt-ing Language Models to Compress Contexts. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing . Association for Computa-tional Linguistics, Singapore, 3829–3846. doi:10.18653/v1/2023.emnlp-main.232 [5] Rewon Child, Scott Gray, Alec Radford, and Ilya Sutskever. 2019. Generating Long Sequences with Sparse Transformers. arXiv preprint arXiv:1904.10509 (2019). https://arxiv.org/abs/1904.10509 [6] Krzysztof Choromanski, Valerii Likhosherstov, David Dohan, Xingyou Song, An-dreea Gane, Tamas Sarlos, Peter Hawkins, Jared Davis, Afroz Mohiuddin, Lukasz Kaiser, David Belanger, Lucy Colwell, and Adrian Weller. 2021. Rethinking At-tention with Performers. In International Conference on Learning Representations .https://arxiv.org/abs/2009.14794 [7] Zihang Dai, Zhilin Yang, Yiming Yang, Jaime Carbonell, Quoc V. Le, and Ruslan Salakhutdinov. 2019. Transformer-XL: Attentive Language Models Beyond a Fixed-Length Context. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics . https://aclanthology.org/P19-1285/ [8] DeepSeek-AI. 2025. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning. arXiv preprint arXiv:2501.12948 (2025). https: //arxiv.org/abs/2501.12948 [9] Tao Ge, Hu Jing, Lei Wang, Xun Wang, Si-Qing Chen, and Furu Wei. 2024. In-context Autoencoder for Context Compression in a Large Language Model. In The Twelfth International Conference on Learning Representations . https: //openreview.net/forum?id=uREj4ZuGJE [10] Anthony Grattafiori et al . 2024. The Llama 3 Herd of Models. (2024). arXiv:2407.21783 [cs.LG] https://arxiv.org/abs/2407.21783 [11] Haoyu He, Markus Flicke, Jan Buchmann, Iryna Gurevych, and Andreas Geiger. 2024. HDT: Hierarchical Document Transformer. In Proceedings of the Conference on Language Modeling (COLM) . https://openreview.net/pdf?id=dkpeWQRmlc Published as a conference paper at COLM 2024. [12] Zifan He, Yingqi Cao, Zongyue Qin, Neha Prakriya, Yizhou Sun, and Jason Cong. 2025. HMT: Hierarchical Memory Transformer for Efficient Long Context Language Processing. In Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) . Association for Computational Linguistics, Albuquerque, New Mexico, 8068–8089. doi:10.18653/v1/2025.naacl-long.410 [13] Huiqiang Jiang, Qianhui Wu, Xufang Luo, Dongsheng Li, Chin-Yew Lin, Yuqing Yang, and Lili Qiu. 2024. LongLLMLingua: Accelerating and Enhancing LLMs in Long Context Scenarios via Prompt Compression. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) . Association for Computational Linguistics, Bangkok, Thailand, 1658– 1677. doi:10.18653/v1/2024.acl-long.91 [14] Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 2024. Lost in the Middle: How Language Models Use Long Contexts. Transactions of the Association for Computational Linguistics 
+
+12 (2024), 157–173. doi:10.1162/tacl_a_00638 [15] Yuan Pu, Zhuolun He, Tairu Qiu, Haoyuan Wu, and Bei Yu. 2024. Customized Re-trieval Augmented Generation and Benchmarking for EDA Tool Documentation QA. arXiv:2407.15353 [cs.CL] https://arxiv.org/abs/2407.15353 v2. [16] Parth Sarthi, Salman Abdullah, Aditi Tuli, Shubh Khanna, Anna Goldie, and Christopher D. Manning. 2024. RAPTOR: Recursive Abstractive Processing for Tree-Organized Retrieval. In The Twelfth International Conference on Learning Representations, ICLR 2024, Vienna, Austria, May 7–11, 2024 . OpenReview.net. https://openreview.net/forum?id=GN921JHCRw [17] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention Is All You Need. In Advances in Neural Information Processing Systems , Vol. 30. 5998– 6008. https://arxiv.org/abs/1706.03762 [18] Sinong Wang, Belinda Z. Li, Madian Khabsa, Han Fang, and Hao Ma. 2020. Lin-former: Self-Attention with Linear Complexity. arXiv preprint arXiv:2006.04768 
+
+(2020). https://arxiv.org/abs/2006.04768 [19] Xiaoqiang Wang, Suyuchen Wang, Yun Zhu, and Bang Liu. 2025. R3Mem: Bridging Memory Retention and Retrieval via Reversible Compression. In 
+
+Findings of the Association for Computational Linguistics: ACL 2025 , Wanxi-ang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar (Eds.). Association for Computational Linguistics, Vienna, Austria, 4541–4557. doi:10.18653/v1/2025.findings-acl.235 [20] Yu Wang, Yifan Gao, Xiusi Chen, Haoming Jiang, Shiyang Li, Jingfeng Yang, Qingyu Yin, Zheng Li, Xian Li, Bing Yin, Jingbo Shang, and Julian Mcauley. 2024. MEMORYLLM: Towards Self-Updatable Large Language Models. In Proceedings of the 41st International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 235) , Ruslan Salakhutdinov, Zico Kolter, Katherine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix Berkenkamp (Eds.). PMLR, 50453–50466. https://proceedings.mlr.press/v235/wang24s.html [21] Yuhuai Wu, Markus N. Rabe, DeLesley Hutchins, and Christian Szegedy. 2022. Memorizing Transformers. arXiv preprint arXiv:2203.08913 (2022). https://arxiv. org/abs/2203.08913 [22] An Yang et al . 2024. Qwen2 Technical Report. (2024). arXiv:2407.10671 [cs.CL] https://arxiv.org/abs/2407.10671 [23] Manzil Zaheer, Guru Guruganesh, Joshua Ainslie, Chris Alberti, Santiago On-tanon, Philip Pham, Anirudh Ravula, Qifan Wang, Li Yang, and Amr Ahmed. 2020. Big Bird: Transformers for Longer Sequences. In Advances in Neural Information Processing Systems . https://arxiv.org/abs/2007.14062 [24] Peitian Zhang, Zheng Liu, Shitao Xiao, Ninglu Shao, Qiwei Ye, and Zhicheng Dou. 2024. Long Context Compression with Activation Beacon. arXiv preprint arXiv:2401.03462 (2024). https://arxiv.org/abs/2401.03462 [25] Lin Zheng, Chong Wang, and Lingpeng Kong. 2022. Linear Complexity Random-ized Self-attention Mechanism. In Proceedings of the 39th International Conference on Machine Learning (Proceedings of Machine Learning Research, Vol. 162) , Ka-malika Chaudhuri, Stefanie Jegelka, Le Song, Csaba Szepesvari, Gang Niu, and Sivan Sabato (Eds.). PMLR, 27011–27041. https://proceedings.mlr.press/v162/ zheng22b.html Maryam Haghifam, Zifan He, Jason Cong, and Yizhou Sun 
+
+Table 10: ROUGE-L (%) on the LVS dataset (backbone: Qwen-2.5-14B-Instruct). 
+
+Baseline HMT H2MT 39.0 54.5 60.1 
+
+## A LVS dataset and QA construction 
+
+LVS is a set of VLSI circuit layout verification manuals from a major electronic design automation company. We derive the LVS-QA set directly from the product manual’s HTML corpus. Each HTML file is typed as rich or light using simple structural cues. We mark a file as 
+
+rich if it contains <pre> or <code> blocks, tables with header rows, “Warning/Note/Caution” callouts, option matrices, or numbered constraint lists; otherwise it is labeled light . We reconstruct the document hierarchy from the manual’s table of contents (TOC) and define a file’s related context as its immediate children in this tree. We instruct an open-source generator (DeepSeek-R1 [ 8]) to pro-duce one to 𝑁 question–answer pairs answerable from the file context. To match file type, we restrict question categories: 
+
+• Rich: definition, usage, syntax, parameter, warning, con-straint, list_children, where_to_find_child, code_example. 
+
+• Light: definition, scope, usage, list_children, syntax. By construction, each QA item is grounded in the union of a node and its immediately related files in the TOC hierarchy. 
+
+## B Intermediate-node aggregation policies 
+
+This appendix provides full definitions of the aggregation function 
+
+Agg used in Section 3.2.2. 
+
+Children memory stack. Let 𝑣 ∈ 𝑉 be an internal node and 𝐶 (𝑣 )
+
+its set of children, with 𝑐 𝑣 ≜ |𝐶 (𝑣 )| . Each child 𝑢 ∈ 𝐶 (𝑣 ) stores one memory embedding 𝑚 𝑢 ∈ R𝑑 . We stack children memories row-wise: 
+
+𝑀 ch  
+
+> 𝑣
+
+≜ stack  {𝑚 𝑢 : 𝑢 ∈ 𝐶 (𝑣 )}  ∈ R𝑐 𝑣 ×𝑑 .
+
+We then compress 𝑀 ch  
+
+> 𝑣
+
+into a single vector 
+
+˜𝑚 𝑣 ≜ Agg 
+
+
+
+𝑀 ch 
+
+> 𝑣
+
+
+
+∈ R𝑑 .
+
+Aggregation modes. Let 𝑀 ∈ R𝑐 𝑣 ×𝑑 denote the stacked children memory matrix, and 𝑀 𝑖 ∈ R𝑑 its 𝑖 -th row. Projection matrices map 
+
+𝑑 →𝑑 ℎ (head dimension). 
+
+(1) Mean aggregation 
+
+Agg mean (𝑀 ) = 1
+
+𝑐 𝑣 𝑐 𝑣 ∑︁ 
+
+> 𝑖 =1
+
+𝑀 𝑖 .
+
+(2) Self-attention aggregation 
+
+𝑄 = 𝑀𝑊 𝑄 , 𝐾 = 𝑀𝑊 𝐾 ,𝐴 = softmax 
+
+ 𝑄𝐾 ⊤
+
+√𝑑 ℎ
+
+
+
+∈ R𝑐 𝑣 ×𝑐 𝑣 ,𝑤 𝑖 =
+
+> 𝑐 𝑣
+
+∑︁ 
+
+> 𝑗 =1
+
+𝐴 𝑗𝑖 , ˆ𝑤 = 𝑤 
+
+Í𝑐 𝑣  
+
+> 𝑖 =1
+
+𝑤 𝑖 
+
+,
+
+Agg attn (𝑀 ) =
+
+> 𝑐 𝑣
+
+∑︁ 
+
+> 𝑖 =1
+
+ˆ𝑤 𝑖 𝑀 𝑖 .
+
+Query-conditioned (cross-attention) aggregation. Let 𝑞 ∈ R𝐾 ×𝑑 
+
+denote parent query tokens used only for aggregation. 
+
+𝑄 = 𝑞𝑊 𝑄 , 𝐾 key = 𝑀𝑊 𝐾 ,𝑆 = softmax 𝑄𝐾 ⊤
+
+> key
+
+√𝑑 ℎ
+
+!
+
+∈ R𝐾 ×𝑐 𝑣 ,𝑤 = 1
+
+𝐾 
+
+> 𝐾
+
+∑︁ 
+
+> 𝑘 =1
+
+𝑆 𝑘, : ∈ R𝑐 𝑣 ,
+
+Agg 𝑞 -attn (𝑀, 𝑞 ) =
+
+> 𝑐 𝑣
+
+∑︁ 
+
+> 𝑖 =1
+
+𝑤 𝑖 𝑀 𝑖, :.
+
+(1) 
+
+(4) GAT-style aggregation Let 𝑞 ∈ R𝐾 ×𝑑 be parent query to-kens and ¯𝑞 ≜ 1
+
+> 𝐾
+
+Í𝐾 𝑘 =1 𝑞 𝑘 ∈ R𝑑 .
+
+𝑘 𝑖 = 𝑊 child 𝑀 𝑖 , 𝑝 = 𝑊 parent ¯𝑞, 𝑒 𝑖 = LeakyReLU 
+
+
+
+𝑎 ⊤ 
+
+> 𝑝
+
+𝑝 + 𝑎 ⊤ 
+
+> 𝑐
+
+𝑘 𝑖 
+
+
+
+, 𝛼 𝑖 = exp (𝑒 𝑖 /𝜏 )
+
+Í𝑐 𝑣  
+
+> 𝑗 =1
+
+exp (𝑒 𝑗 /𝜏 ) ,
+
+Agg GAT (𝑀, 𝑞 ) =
+
+> 𝑐 𝑣
+
+∑︁ 
+
+> 𝑖 =1
+
+𝛼 𝑖 (𝑊 𝑉 𝑀 𝑖 ).
+
+(5) Parent-token self-attention aggregation Let 𝑚 par ∈ R𝑑 
+
+be a learned parent token and ˜𝑀 = stack ({ 𝑚 par } ∪ { 𝑀 𝑖 }𝑐 𝑣 
+
+> 𝑖 =1
+
+) ∈ 
+
+R(1+𝑐 𝑣 ) × 𝑑 . We apply one self-attention layer and take the output at the parent position: 
+
+˜𝑄 = ˜𝑀𝑊 𝑄 , ˜𝐾 = ˜𝑀𝑊 𝐾 , ˜𝑉 = ˜𝑀𝑊 𝑉 ,
+
+˜𝐴 = softmax 
+
+ ˜𝑄 ˜𝐾 ⊤
+
+√𝑑 ℎ
+
+
+
+∈ R(1+𝑐 𝑣 ) × ( 1+𝑐 𝑣 ) , ˜𝑂 = ˜𝐴 ˜𝑉 , 
+
+Agg par -attn (𝑀 ) = ˜𝑂 1,: ∈ R𝑑 ,
+
+where index 1 denotes the prepended parent position. 
+
+## C Complexity Analysis 
+
+We decompose inference into (i) offline memory construction on a static corpus and (ii) online query-time routing and answer genera-tion. 
+
+Offline memory construction (amortized). Each node 𝑣 ∈ 𝑉 stores a single memory embedding 𝑚 𝑣 ∈ R𝑑 computed bottom-up. This stage runs once per corpus and is amortized across all queries on the same document. 
+
+Online routing cost. At a routed parent 𝑝 , we score each child 
+
+𝑢 ∈ 𝐶 (𝑝 ) by 𝑠 (𝑢 | 𝑞 ) = (𝑊 𝑞 𝑞 )⊤ (𝑊 𝑘 𝑚 𝑢 )/ √𝑑 ℎ . Let 𝑐 𝑝 ≜ |𝐶 (𝑝 )| . Com-puting scores for all children costs 𝑂 (𝑐 𝑝 𝑑 ℎ ) dot-product operations. With candidate sets 𝑆 0 = {𝑟 } and 𝑆 ℓ+1 = Ð𝑝 ∈𝑆 ℓ 𝑆 (𝑝 ) where 𝑆 (𝑝 )
+
+returns the top-𝑘 children of 𝑝 , the total routing cost over visited depths is 
+
+𝑇 route = 𝑂 ©«∑︁ ℓ∑︁ 𝑝 ∈𝑆 ℓ
+
+𝑐 𝑝 𝑑 ℎ ª®¬
+
+.
+
+Under bounded branching 𝑐 𝑝 ≤ 𝑐 max and depth cap 𝐿 max , and using 
+
+|𝑆 ℓ+1 | ≤ 𝑘 |𝑆 ℓ |, we obtain the upper bound 
+
+𝑇 route = 𝑂 𝑐 max 𝑑 ℎ𝐿 max −1∑︁ 
+
+> ℓ=0
+
+|𝑆 ℓ |
+
+!
+
+= 𝑂 
+
+
+
+𝑐 max 𝑑 ℎ
+
+𝑘 𝐿 max − 1
+
+𝑘 − 1
+
+
+
+.H2MT 
+
+Table 11: ROUGE-L (%) on OpenROAD by model and pooling policy.               
+
+> Model Pooling policy OpenROAD Qwen2.5-14B
+> Graph-Attention Pooling 32.6
+> Cross-Attention Pooling 29.2 Mean Pooling 30.1 Self-Attention Weight Pooling 28.5
+> LlaMA3.1-8B
+> Graph-Attention Pooling 28.8 Cross-Attention Pooling 29.0
+> Mean Pooling 27.2 Self-Attention Weight Pooling 27.9
+> SmolLM-135M
+> Graph-Attention Pooling 24.4
+> Cross-Attention Pooling 23.0 Mean Pooling 22.9 Self-Attention Weight Pooling 23.4
+
+Table 12: Hierarchical Memory Construction, Perplexity (PPL) on OpenROAD Corpus           
+
+> Pooling policy Qwen2.5-14B LlaMA3.1-8B
+> Graph-Attention Pooling (additive) 2.350 2.308
+> Cross-Attention Pooling 2.871 3.158 Mean Pooling (baseline) 2.815 2.647 Self-Attention Weight Pooling 3.150 3.553
+
+In practice, traversal stops earlier due to reaching leaves, which caps the number of expanded parents and thus the number of scored children. 
+
+Online generation (prefill) cost and the source of speedup. We collect selected nodes into a retrieval set 𝑅 ⊆ 𝑉 and stack their memories as 𝑀 ret ≜ stack {𝑚 𝑣 : 𝑣 ∈ 𝑅 }. Since each node contributes one embedding, the effective retrieved context length is |𝑅 |. Let 𝑛 𝑞 
+
+denote the question length in tokens and let 𝑛 ret ≜ |𝑅 |. Standard full-attention Transformer prefill per layer scales as 𝑂 (𝑛 2𝑑 ) for sequence length 𝑛 , so conditioning on (𝑀 ret , 𝑞 ) costs 
+
+𝑇 prefill = 𝑂  𝐿 LM (𝑛 𝑞 + 𝑛 ret )2𝑑  ,
+
+where 𝐿 LM is the backbone depth. In contrast, a flat long-context baseline that pre-fills on the entire document of length 𝑁 incurs 
+
+𝑂 (𝐿 LM (𝑛 𝑞 +𝑁 )2𝑑 ). Therefore, the dominant speedup in TTFT comes from reducing the prefill sequence length from 𝑁 to 𝑛 ret , while paying an additional routing overhead 𝑇 route that depends on the explored portion of the hierarchy rather than the raw document length. 
+
+## D Ablation Study: Aggregation Policies 
+
+We compare four aggregation mechanisms that aggregate child memories into a parent memory in 11. 
+
+Complexity and Trade-offs. Cross-Attention scales linearly with the number of children per parent. Graph-Attention is also lin-ear and adds small per-child overhead for the additive logits. Self-Attention is quadratic in the number of children due to pairwise comparisons. In practice, the aggeragations that are considering the summarization vector of the parent improves robustness under noisy or imbalanced children. However, the query-free but can un-derperform when the task demands strict adherence to the parent content. 
+
+## E Implementation Notes 
+
+paragraphTraining-time relaxation of top-𝑘 pruning. Although in-ference uses a hard per-parent TopK operator, we do not backprop-agate through the discrete selection. Instead, during QA fine-tuning we form a differentiable distribution 𝜋 𝑝 (𝑢 ) over 𝑢 ∈ 𝐶 (𝑝 ) by soft-maxing the routing scores, and optimize routing and selection using 
+
+𝐿 route and 𝐿 sel . This provides gradients to the routing projections (and upstream memory construction) while preserving hard top-𝑘 
+
+traversal at test time. 
+
+Trainable components. We keep the backbone weights 𝜃 frozen and update the LM only via LoRA adapters; in addition, we train the lightweight H 2MT modules {𝑒 write , 𝑒 read ,𝑊 𝑞 ,𝑊 𝑘 } (and the pa-rameters of Agg when applicable).
