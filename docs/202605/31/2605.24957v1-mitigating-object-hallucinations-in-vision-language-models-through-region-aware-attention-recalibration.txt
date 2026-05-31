@@ -1,0 +1,501 @@
+Title: Mitigating Object Hallucinations in Vision-Language Models through Region-Aware Attention Recalibration
+
+URL Source: https://arxiv.org/pdf/2605.24957v1
+
+Published Time: Tue, 26 May 2026 01:27:29 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# Mitigating Object Hallucinations in Vision-Language Models through Region-Aware Attention Recalibration 
+
+## Yuanzhi Xu 
+
+Qilu University of Technology (Shandong Academy of Sciences) Jinan, China 10431250244@stu.qlu.edu.cn 
+
+## Qian Gao ∗
+
+Qilu University of Technology (Shandong Academy of Sciences) Jinan, China gq@qlu.edu.cn 
+
+## Jun Fan 
+
+China Telecom Digital Intelligence Technology Co, Ltd Jinan, China fanjun.sd@chinatelecom.cn 
+
+## Guohui Ding 
+
+Shenyang Aerospace University Shenyang, China dingguohui@sau.edu.cn 
+
+## Zhenyu Yang 
+
+Qilu University of Technology (Shandong Academy of Sciences) Jinan, China yzy@qlu.edu.cn 
+
+## Sixue Lin 
+
+Qilu Institute of Technology Jinan, China linsixue0121@163.com 
+
+## Yuteng Xiao 
+
+Qilu University of Technology (Shandong Academy of Sciences) Jinan, China yutengxiao@qlu.edu.cn 
+
+## Abstract 
+
+The generation of factually incorrect objects, commonly known as object hallucination, remains a persistent challenge in Large Vision-Language Models (LVLMs). Current approaches to address this issue - ranging from expensive data-driven fine-tuning and high-latency contrastive decoding to rigid attention head truncation -frequently compromise either computational efficiency or the con-tinuity of the model’s feature space. To overcome these limitations, we introduce a novel, training-free inference strategy that operates as a region-aware adaptive weighting mechanism to dynamically correct semantic drift without relying on abrupt heuristic trunca-tions. By computing an outlier-resistant statistical midpoint across various attention heads, we establish a stable anchor for reliable visual representations. We then utilize the inter-head disagreement mapped across regions to dynamically determine intervention bud-gets, gently suppressing hallucination-inducing attention paths through a continuous penalty modulation. This recalibration pro-cess effectively rectifies visual-semantic misalignments while fully preserving generative fluency and language priors. Comprehensive evaluations on standard multimodal benchmarks, including CHAIR, POPE, and MME, reveal that our strategy substantially curtails both instance- and sentence-level hallucinations. The results demon-strate state-of-the-art performance against contemporary baselines, confirming our method’s efficiency and algorithmic robustness. Our code will be public. 
+
+## 1 Introduction 
+
+Recent advancements in Large Language Models (LLMs) [ 36 ] have revolutionized natural language processing. By integrating power-ful LLM backbones with vision encoders, Large Vision-Language Models (LVLMs) [ 4, 19 , 20 , 48 ] map visual inputs into the textual 
+
+> ∗Corresponding author.
+
+embedding space, demonstrating unprecedented capabilities in com-plex multimodal tasks such as image captioning and visual question answering. Despite these capabilities, LVLMs persistently suffer from object hallucinations [ 14 , 21 , 29 ]. Models often generate plausible yet factually incorrect descriptions, inventing objects non-existent in the visual context. This flaw reveals a fundamental misalignment: rather than grounding generation in actual visual inputs, the model overly relies on the statistical biases and unimodal language priors inherited from the LLM [ 5, 15 , 24 , 34 ]. This critically limits the reliable deployment of LVLMs in high-stakes scenarios such as autonomous driving and medical diagnosis, as well as in precision-driven applications like personalized recommendation systems. Previous efforts to mitigate object hallucinations fall into two broad categories: training-based and inference-only approaches. Training-based methods, such as fine-tuning on highly curated datasets or employing Reinforcement Learning from Human Feed-back (RLHF) [ 18 , 42 , 44 , 46 ], effectively align model behavior but incur prohibitive computational costs and demand extensive human annotation. To bypass the retraining overhead, inference-only strategies have been widely investigated. Contrastive decoding methods [ 6, 13 , 27 ]construct positive and negative visual inputs and penalize halluci-natory tokens during generation. While effective, they necessitate multiple forward passes, which increases inference latency, and may inadvertently penalize beneficial language priors. More recently, attention-based interventions [ 11 , 12 , 30 , 32 ] have modulated the internal mechanisms of LVLMs. However, early interventions often utilize hard-truncation or uniform head-level additions. Although recent studies explore dynamic and soft recalibrations [ 23 , 33 , 43 ], 
+
+> arXiv:2605.24957v1 [cs.AI] 24 May 2026
+
+Yuanzhi Xu, Qian Gao, Jun Fan, Guohui Ding, Zhenyu Yang, Sixue Lin, and Yuteng Xiao Median Consensus (C) 
+
+> Devil Head (A)
+> Robust Consensus
+> Multi -Head Self -Attention (Vision Tokens)
+> Spatial Dynamic Budget
+> Soft Devil Head
+> Mask
+
++            
+
+> Corrected (A')
+> Please describe this image in detail .
+> The image features a dining table with
+> a carrot and a spoon placed on it. The
+> carrot is cut in half ,revealing its inner
+> texture . The spoon is positioned next
+> to the carrot, creating a visually
+> interesting composition. The table
+> appears to be a part of a kitchen
+> setting, with a bowl placed nearby .
+> The image features a table with two
+> carrots, one of which is a large carrot
+> and the other a smaller one. The large
+> carrot is placed at the bottom, while
+> the smaller one is at the top. The
+> table is covered with a green surface,
+> and a spoon is placed on the table next
+> to the carrots. The spoon is positioned
+> on the table, and the carrots are
+> placed on the table as well.
+
+Figure 1: Performance and pipeline of our proposed SADI. (Left) Performance comparison on hallucination mitigation. (Right) Illustration of the SADI mechanism. By leveraging robust median consensus and spatial variance-guided soft masking, SADI achieves a smooth, continuous recalibration of attention weights during a single forward pass, avoiding the severe latency and feature disruption of previous inference-time interventions. 
+
+they frequently rely on computationally intensive causal frame-works, probabilistic triggers, or mean-based aggregations that re-main sensitive to activation outliers. Consequently, a trade-off per-sists between computational efficiency and the preservation of feature space continuity. In this paper, we analyze the internal attention dynamics of LVLMs during the visual information enrichment stage to address the limitations of current inference-time interventions. We pro-pose that mitigating hallucinations is more optimally formulated as a continuous recalibration process rather than a rigid trunca-tion of attention weights. While specific attention heads—identified as “devils” [ 12 ]—disproportionately contribute to object halluci-nation by attending to irrelevant patches, a broader set of heads within the same layer typically maintains reliable visual grounding. The generative capability of LVLMs relies on a balance: language priors provide syntactic fluency, while multi-head self-attention encodes the visual-semantic space. Applying binary masking to eliminate anomalous heads introduces discontinuities within this feature manifold. Such operations indiscriminately discard contex-tual priors and disrupt the collaborative information aggregation inherent to the multi-head self-attention mechanism [ 37 ], which can degrade generation fluency and descriptive detail. Building upon these insights, we introduce Spatial-Aware Dy-namic Intervention (SADI), a lightweight, training-free inference approach designed to seamlessly mitigate object hallucinations in LVLMs. As depicted in Figure 1, departing from conventional rigid or head-homogeneous intervention strategies, SADI operates directly during the forward pass without introducing any addi-tional decoding latency. Specifically, SADI first establishes a robust median consensus among the diverse attention heads to anchor reliable visual representations, effectively resisting the extreme outlier activations that easily corrupt standard mean-based con-sensus maps. Guided by the spatial variance across these heads, our method dynamically allocates an intervention budget tailored to each generated token. Instead of applying binary masking or uniform head-wide additions, SADI applies a soft mask to gently suppress the anomalous, spatially-inconsistent attention distribu-tions. This adaptive mechanism effectively rectifies visual-semantic misalignments by enhancing the model’s focus on fine-grained vi-sual details while maintaining the continuity of the model’s feature space and beneficial language priors, thereby successfully overcom-ing the persistent dilemma between hallucination suppression and the retention of generative richness. Our main contributions are summarized as follows: 
+
+• We propose Spatial-Aware Dynamic Intervention (SADI), a training-free inference method that adaptively corrects visual-semantic misalignments. By replacing hard-truncation with a median consensus mechanism and spatial variance-guided soft masking, SADI suppresses anomalous attention distributions based on fine-grained spatial contexts. 
+
+• We formulate inference-side attention modulation as a con-tinuous recalibration process. This approach maintains fea-ture space continuity and generation fluency without in-troducing additional decoding latency or training require-ments. Extensive experiments across comprehensive benchmarks (POPE, MME, and CHAIR) validate the algorithmic robustness and broad applicability of our approach. On mainstream LVLMs (including Mitigating Object Hallucinations in Vision-Language Models through Region-Aware Attention Recalibration 
+
+LLaVA-1.5, Shikra, and MiniGPT-4), SADI consistently achieves state-of-the-art hallucination mitigation without requiring any ex-ternal models. Notably, on the CHAIR benchmark using LLaVA-1.5-7B, SADI reduces sentence-level hallucination ( 𝐶 𝑆 ) by 32.6 points (from 53.0 to 20.4) and instance-level hallucination ( 𝐶 𝐼 ) from 15.6 to 4.9, while maintaining strong description richness (an F1 score of 76.4). 
+
+## 2 Related Work 2.1 Conventional Hallucination Mitigation in LVLMs 
+
+Building upon the success of robust open-source Large Language Models [ 7, 36 ], modern Large Vision-Language Models (LVLMs) [4 , 19 , 20 , 48 ] demonstrate remarkable capabilities but persistently suffer from object hallucinations [ 21 , 29 ]. To align LVLM outputs with faithful visual grounding, conventional methodologies pre-dominantly fall into the following paradigms: (1) Training-Based Alignment. Advanced techniques such as Reinforcement Learning from Human Feedback (RLHF) [ 39 , 44 ], ro-bust instruction tuning [ 18 , 24 ], and Direct Preference Optimization (DPO) variants [ 42 , 46 ] explicitly reshape the model’s behavioral distribution during the training phase. However, effectively pre-venting hallucinations not only necessitates robust early detection mechanisms and fine-grained benchmarking [ 10 ], but also exposes the prohibitive computational costs and the demand for large-scale, high-quality annotated datasets inherent to training, posing signifi-cant challenges for rapid model iteration. (2) Inference-Time Contrastive Decoding. To bypass the pro-hibitive retraining overhead, training-free decoding strategies have been widely explored. Contrastive decoding methods [ 6 , 13 , 27 , 28 ]attempt to mitigate hallucinations by contrasting output logits be-tween standard and corrupted visual inputs. Other techniques lever-age mixture-of-experts [ 16 ] or image-grounded guidance [ 41 , 45 ]to steer the generation trajectory at the autoregressive decoding stage. (3) Limitations of Conventional Paradigms. A prominent limitation shared by both training and contrastive approaches is that they largely treat the LVLM generation process as a black box. They primarily focus on manipulating input conditions or evaluating final output logits, without actively addressing the in-termediate generation dynamics. Specifically, contrastive decoding typically necessitates multiple forward passes for a single gener-ated token, severely exacerbating inference latency. Furthermore, indiscriminate logit penalization occasionally over-corrects and destroys contextually appropriate language priors. This highlights the pressing need for white-box intervention mechanisms that can dynamically correct errors from within the internal generation pipeline. 
+
+## 2.2 Internal Representation and Attention Modulation 
+
+To overcome the black-box limitations, the paradigm most closely related to our work involves probing and intervening directly within the internal activations and attention mechanisms [ 37 ] of LVLMs. The evolution of this field follows a clear trajectory from passive observation to active, fine-grained intervention. Initially, diagnostic frameworks such as Patchscopes [ 9], Hal-Loc [ 26 ], and investigations into the “hidden life of tokens” [ 15 ]successfully localized the origins of visual-semantic misalignment within specific hidden layers. Translating these diagnostic insights into active interventions, subsequent methods explored broad at-tention modulation. Early approaches introduced broad penalties for over-trusting certain attention patterns (e.g., OPERA [ 11 ]) or explicitly forced higher attention to visual tokens (e.g., PAI [22]). To achieve more granular control, recent advancements have targeted specific architectural components. Studies on “Devils in middle layers” [ 12 ] amplify attention scores via head-averaged ac-tivation shifts, while image-guided head suppression (SPIN) [ 30 ]explicitly identifies and masks specific hallucination-inducing atten-tion heads. Concurrently, methods like activation steering [ 3 , 32 ], null subspace projection [ 40 ], and variational bottlenecks [ 2 ] apply targeted shifts to guide hidden states. Despite these progressive refinements, a critical bottleneck per-sists. Early attention-head modulation predominantly relies on rigid hard-masking (e.g., binary truncation [ 30 ]) or head-insensitive global additions (e.g., [ 12 ]), operations that forcefully disrupt the continuity of the feature manifold. Very recently, dynamic and soft intervention strategies have emerged [ 23 , 33 , 43 ] to address these limitations. For instance, recent studies explore activation steering in pure LLMs (also coincidentally abbreviated as SADI) [38 ], attention causal decoding [ 35 ], and global-local attention as-semblies [ 1] in LVLMs. However, unlike Wang et al. [ 38 ], who rely on contrastive pairs for text-semantic scaling, our proposed SADI (Spatial-Aware Dynamic Intervention) specifically utilizes multi-head median consensus to resolve visual-semantic drift. Fur-thermore, these advanced methods frequently depend on computa-tionally heavy causal or probabilistic frameworks [ 25 , 31 ], complex external modules, or vulnerable mean-based statistical aggregations that are easily skewed by extreme outliers. In contrast, our proposed SADI diverges from both abrupt trun-cations and computationally expensive dynamic frameworks. By establishing a training-free Robust Median Consensus and employ-ing a spatial-variance-guided soft mask, SADI achieves a smooth and continuous recalibration of attention weights strictly within a single forward pass. This elegantly preserves the integrity of fea-ture distributions while maintaining the native inference speed of the model—thereby directly overcoming the high latency of con-trastive decoding and the vulnerability of conventional mean-based attention aggregations. 
+
+## 3 Method 
+
+In this section, we present Spatial-Aware Dynamic Intervention (SADI), a training-free and plug-and-play inference strategy de-signed to mitigate object hallucinations in LVLMs. SADI operates directly within the middle-to-deep transformer layers during the autoregressive decoding phase, where high-level visual semantics and language priors heavily interact (the empirical analysis of layer-wise sensitivity is detailed in Section 4). As illustrated in Figure 2, the core pipeline consists of three sequential steps: establishing a robust visual anchor via median consensus (Sec 3.2), evaluating Yuanzhi Xu, Qian Gao, Jun Fan, Guohui Ding, Zhenyu Yang, Sixue Lin, and Yuteng Xiao Input Image 
+
+> Reliable Head
+> Hallucination Head
+> Fragmented Attention Collapse
+> Spatial Variance Map
+> Robust Median Consensus
+> Consistent Semantic Attention
+> Attention routing diverges toward
+> irrelevant regions
+> Stable Visual Grounding
+
+Figure 2: Visualization of attention dynamics and the internal mechanism of SADI. While Reliable Heads exhibit consistent semantic attention grounded on the salient object, the Hallucination Head suffers from fragmented attention collapse, where attention routing severely diverges toward irrelevant background regions (Semantic Drift). To correct this, SADI extracts a Robust Median Consensus to establish stable visual grounding, and utilizes a Spatial Variance Map to dynamically guide the soft intervention budget exactly where head disagreement is highest. 
+
+spatial hallucination risk to allocate a dynamic intervention budget (Sec 3.3), and executing a smooth, continuous recalibration using an adaptive soft mask (Sec 3.4). 
+
+## 3.1 Preliminaries: Semantic Drift 
+
+In Large Vision-Language Models, the visual information enrich-ment stage relies heavily on the Multi-Head Self-Attention (MHSA) mechanism [ 37 ] to map visual patches to semantic tokens. For-mally, during the generation of a new token, let 𝐸 ℎ ∈ R1×𝑀 denote the pre-softmax attention logits of the ℎ-th head, representing the raw attention scores from the current query token to the 𝑀 visual key tokens. Ideally, the diverse heads within a layer collaborate to ground textual concepts to the correct visual regions, forming consistent semantic attention. However, relying solely on this native, uncalibrated attention routing during complex multimodal reasoning is highly problem-atic. Our internal observations (as illustrated in Figure 2) reveal two critical pain points that precipitate and exacerbate object hal-lucinations: 
+
+First , the inherent attention mechanism is susceptible to severe Semantic Drift. While a majority of the heads maintain accurate visual grounding (Reliable Heads), a subset of anomalous heads suffers from a fragmented attention collapse [ 12 ]. Formally, by monitoring the Kullback-Leibler (KL) divergence between a specific head’s attention distribution and the robust layer-wise consensus, we observe that these drifting heads abruptly diverge from salient objects, erroneously assigning high activation weights to irrelevant background noise or hallucinated concepts. 
+
+Second , existing mechanistic interpretability interventions em-ploy aggressive hard-truncation that impairs the model’s feature space. To address the aforementioned anomalous heads, recent studies frequently rely on rigid strategies (e.g., applying a binary mask of 0 or −∞ to specific attention paths). While this heuristic removal forcibly halts the semantic drift, it abruptly destroys the continuity of the feature manifold and permanently discards the beneficial contextual and language priors embedded within those heads. These twin challenges tightly motivate our core design: rather than passively trusting the flawed native attention or destructively eliminating attention paths, we reframe hallucination mitigation as a continuous, spatial-aware recalibration process directly on the pre-softmax logits. 
+
+## 3.2 Robust Median Consensus 
+
+To smoothly correct the semantic drift, the first prerequisite is to establish a trustworthy visual anchor—a consensus of what the model should be attending to. Intuitively, one might aggregate the attention logits across all 𝐻 heads using a mean operation: 
+
+𝜇 = 1
+
+> 𝐻
+
+Í𝐻 ℎ=1 |𝐸 ℎ |. However, the mean is highly susceptible to ex-treme outliers. A single head experiencing severe semantic drift can disproportionately skew the mean, thereby corrupting the con-sensus map. Mitigating Object Hallucinations in Vision-Language Models through Region-Aware Attention Recalibration 
+
+To circumvent this vulnerability, SADI introduces a Robust Me-dian Consensus. By leveraging the statistical robustness of the median, we can effectively filter out the anomalous spikes caused by drifting heads while preserving the foundational agreement among the reliable heads. Let E = {| 𝐸 1 |, |𝐸 2 |, . . . , |𝐸 𝐻 |} be the set of absolute pre-softmax attention logits across all heads. We compute the median over the absolute magnitudes, as extreme values in either direction (positive for strong activation, negative for strong suppression) both indicate high-confidence attention routing prior to softmax stabilization. The robust consensus matrix 𝐶 ∈ R1×𝑀 is formulated as: 
+
+𝐶 = Median (E) (1) This median aggregation acts as a natural, unparameterized spatial filter. As visually demonstrated in Figure 2, the consensus matrix 
+
+𝐶 cleanly isolates the salient visual regions, effectively suppress-ing the erratic background activations and providing stable visual grounding for subsequent dynamic interventions. 
+
+## 3.3 Spatial Dynamic Budget 
+
+Having established the robust median consensus 𝐶 , the next chal-lenge is determining the magnitude of intervention required. Pre-vious attention manipulation methods [ 12 ] apply homogeneous penalties across all visual tokens, ignoring the structural complex-ity of the image. We hypothesize that the risk of semantic drift is inherently spatial: regions with high inter-head disagreement are highly susceptible to hallucinations, whereas regions where heads naturally agree require minimal intervention. To quantify this spatial disagreement, we compute the standard deviation map 
+
+𝑆 ∈ R1×𝑀 across the 𝐻 attention heads: 
+
+𝑆 =
+
+vut 1
+
+𝐻 
+
+> 𝐻
+
+∑︁ 
+
+> ℎ=1
+
+(| 𝐸 ℎ | − 𝜇 )2 (2) The standard deviation 𝑆 serves as a fine-grained indicator of spatial variance (as shown in the Spatial Variance Map in Figure 2). To translate this variance into an adaptive intervention budget 𝛼 , we perform spatial min-max normalization on 𝑆 , yielding ˜𝑆 :
+
+˜𝑆 = 𝑆 − 𝑆 min 
+
+𝑆 max − 𝑆 min + 𝜖 (3) where 𝑆 min and 𝑆 max are the minimum and maximum standard deviations along the spatial dimension, and 𝜖 is a small constant to prevent division by zero. The spatial dynamic budget 𝛼 ∈ R1×𝑀 is then dynamically allocated as follows: 
+
+𝛼 = 𝛼 min + ( 𝛼 max − 𝛼 min ) ⊙ ˜𝑆 (4) where ⊙ denotes element-wise multiplication, and 𝛼 min , 𝛼 max are hyperparameters defining the lower and upper bounds of the inter-vention budget. This spatial-aware mechanism ensures that SADI proactively assigns a higher recalibration budget to highly disputed, hallucination-prone regions, while conservatively preserving the native representations in safe, highly-consensual regions. 
+
+## 3.4 Adaptive Soft Masking 
+
+With the stable consensus anchor and the spatial dynamic budget established, we introduce the core mechanism of SADI. Instead of applying rigid binary masking [ 30 ] to suppress anomalous heads, we propose an Adaptive Soft Mask to gently and continuously rectify visual-semantic misalignments. For each individual head 
+
+ℎ, we calculate its absolute deviation from the robust consensus: 
+
+𝐷 ℎ = |𝐸 ℎ | − 𝐶 . Rather than using a hard threshold to determine whether a head is anomalous, we construct a continuous soft mask 
+
+𝑀 ℎ ∈ R1×𝑀 by normalizing this deviation with the inter-head standard deviation 𝑆 :
+
+𝑀 ℎ = Clamp 
+
+ 𝐷 ℎ
+
+𝑆 + 𝜖 , 0.0, 1.0
+
+
+
+(5) This formulation is mathematically elegant: when a head’s devia-tion 𝐷 ℎ approaches or exceeds 1𝜎 (indicating severe fragmented attention collapse), the mask 𝑀 ℎ smoothly saturates to 1.0, trigger-ing full intervention. Conversely, when the deviation is negligible, 
+
+𝑀 ℎ approaches 0.0, leaving the original attention weights com-pletely undisturbed. Finally, we perform the smooth recalibration on the original pre-softmax logits 𝐸 ℎ :
+
+ˆ𝐸 ℎ = 𝐸 ℎ + 𝛼 ⊙ 𝐶 ⊙ 𝑀 ℎ (6) The recalibrated logits ˆ𝐸 ℎ are subsequently passed through the standard softmax function to yield valid attention probabilities. Crucially, due to the competitive nature of the softmax operation, selectively amplifying the logits of the consensus regions intrinsi-cally forces the probabilities of the drifted background regions to be exponentially suppressed. This additive-only design is deliberate: directly subtracting values from non-consensus regions risks de-structive feature truncation and disrupts the semantic continuity of the language model. By leveraging the softmax denominator, SADI achieves effective background suppression while strictly preserving the integrity of the original feature manifold. Notably, since SADI strictly relies on highly-parallelized basic tensor operations (e.g., median, standard deviation, and element-wise addition), it operates within a single forward pass, completely avoiding the destructive effects of heuristic hard-truncation and bypassing the severe inference latency associated with contrastive decoding methods [13]. 
+
+## 4 Experimental Results 4.1 Experimental Setup 
+
+Models. To evaluate the effectiveness and generalizability of our proposed method, we conduct comprehensive experiments on three representative Large Vision-Language Models (LVLMs): LLaVA-1.5, Shikra, and MiniGPT-4. Most evaluated models are based on the 7B parameter scale to ensure a fair comparison across different architec-tures, with additional verification on the 13B scale to demonstrate scalability. 
+
+Baselines. We compare our proposed SADI with standard de-coding strategies and recent state-of-the-art inference-time hallu-cination mitigation methods. These include: (1) Standard Decod-ing: Greedy decoding and Beam search decoding ( 𝑁 𝑏𝑒𝑎𝑚 = 5); (2) Contrastive & Hybrid Decoding: VCD [ 13 ] and PAI [ 22 ]; and (3) Attention-Guided Interventions: OPERA [ 11 ] (at decoding stage) and Devils [ 12 ] (at internal representation stage). For fairness, all baseline methods are implemented using their official default con-figurations. Yuanzhi Xu, Qian Gao, Jun Fan, Guohui Ding, Zhenyu Yang, Sixue Lin, and Yuteng Xiao 
+
+Table 1: Comparison of CHAIR hallucination and F1 scores across three LVLMs with max new tokens set to 512. Δ%: relative improvement over second-best ( 𝐶 𝑆 , 𝐶 𝐼 ); for 𝐹 1, relative decrease from the best method. † denotes greedy decoding.                                                                                                                                    
+
+> LLaVA-1.5-7B LLaVA-1.5-13B Shikra-7B MiniGPT-4-7B Method 𝐶 𝑆 ↓𝐶 𝐼 ↓𝐹 1↑𝐶 𝑆 ↓𝐶 𝐼 ↓𝐹 1↑𝐶 𝑆 ↓𝐶 𝐼 ↓𝐹 1↑𝐶 𝑆 ↓𝐶 𝐼 ↓𝐹 1↑
+> Greedy 53.0 15.6 76.7 49.8 14.6 78.2 57.6 15.7 75.3 31.8 12.0 71.1
+> Beam Search 55.6 15.4 77.5 50.4 13.8 79.0 59.0 16.3 74.6 29.2 9.9 71.2
+> OPERA [11] 45.6 13.1 79.1 42.6 13.2 77.8 41.4 13.7 73.5 25.4 9.6 71.2
+> †VCD [13] 58.6 18.2 72.8 53.6 15.3 75.8 56.4 15.5 75.2 41.4 14.1 68.2
+> †PAI [22] 24.2 7.1 75.2 33.0 9.2 77.8 38.6 10.1 76.2 23.2 8.2 71.4
+> †Devils [12] 25.0 6.7 76.1 25.8 8.8 77.3 23.8 9.4 72.7 21.4 8.0 70.8
+> †SADI (Ours) 20.4 4.9 76.4 21.2 5.9 77.5 20.0 5.9 74.8 19.2 5.7 70.4
+> Δ%+15.7 +26.9 -3.4 +17.8 +33.0 -1.9 +16.0 +37.2 -1.8 +10.3 +28.8 -1.4
+
+Benchmarks and Metrics. We evaluate SADI across three diverse benchmarks to comprehensively assess both hallucination mitiga-tion and general multimodal capabilities: 
+
+• CHAIR: The Caption Hallucination Assessment with Im-age Relevance [ 29 ] evaluates object hallucinations in open-ended image captioning. Following previous works, we randomly select 500 images from the MSCOCO 2014 valida-tion set [ 17 ]. CHAIR comprises two metrics: sentence-level (𝐶 𝑆 ) and instance-level ( 𝐶 𝐼 ), calculated as: 
+
+𝐶 𝑆 = 𝑁 hal_cap 
+
+𝑁 all_cap 
+
+, 𝐶 𝐼 = 𝑀 hal_obj 
+
+𝑀 all_obj 
+
+(7) where 𝑁 hal_cap and 𝑁 all_cap denote the number of captions with hallucinated objects and all captions, while 𝑀 hal_obj 
+
+and 𝑀 all_obj represent the counts of hallucinated objects and all mentioned objects, respectively. Lower values in-dicate fewer hallucinations. We additionally report the F1 score to monitor the accuracy and richness of the generated descriptions. 
+
+• POPE: The Polling-based Object Probing Evaluation [ 14 ]presents a streamlined Visual Question Answering (VQA) approach to assess hallucination via binary questions (e.g., “Is there a [object] in the image?”). It encompasses three sampling settings: Random (objects absent are chosen ran-domly), Popular (missing objects from a high-frequency pool), and Adversarial (co-occurring objects not present are prioritized). We report the Average F1-score across all settings to evaluate the model’s resilience against statistical biases. 
+
+• MME: An extensive benchmark tailored to assess LVLMs across multiple dimensions [ 8 ], comprising ten perception-related subtasks and four cognition-focused ones. We utilize the MME Full Set to ensure that our intervention does not inadvertently degrade the model’s general capabilities. 
+
+Implementation Details. SADI is a training-free and plug-and-play strategy. Based on our mechanistic analysis of the cross-modal fusion zone (detailed in Sec. 4.3), we restrict our intervention to the intermediate layers where visual-semantic mapping is most active. While SADI operates effectively with a unified set of default configuration parameters, the specific intervention layer ranges and the bounds for the dynamic spatial budget can be empirically fine-tuned to maximize performance for distinct LVLM architectures. SADI is implemented utilizing greedy decoding as the base strategy, requiring only a single forward pass without the computational overhead of contrastive decoding methods. 
+
+## 4.2 Main Results 
+
+Results on CHAIR. As presented in Table 1, SADI significantly surpasses all baselines in reducing both sentence-level ( 𝐶 𝑆 ) and instance-level ( 𝐶 𝐼 ) hallucinations. Specifically, on LLaVA-1.5-7B, SADI drastically reduces 𝐶 𝑆 to 20.4 and 𝐶 𝐼 to 4.9. Mechanistically, contrastive approaches like VCD inadvertently exacerbate 𝐶 𝑆 to 58.6 because their global noise-injection corrupts fine-grained visual cues and delicate prompt-following priors, leading to fragmented text. Furthermore, compared to recent internal interventions like PAI and Devils, SADI achieves deeper suppression while uniquely preserving description richness (F1 score of 76.4). This is because Devils applies a rigid, head-homogeneous attention shift based on vulnerable mean aggregations, which indiscriminately distorts the native distributions of reliable heads. In contrast, SADI utilizes ro-bust median consensus and spatial-aware soft masking to surgically target only anomalous semantic drift without disrupting the overall feature context. 
+
+Results on POPE. Table 2 summarizes the POPE results under random, popular, and adversarial settings. A universal performance 
+
+Table 2: POPE evaluation results on three subsets. Average F1-score is the primary metric. Δ%: relative improvement over the second-best method.                             
+
+> Method LLaVA-1.5 Shikra MiniGPT-4
+> Regular 79.65 79.80 69.50
+> OPERA [11] 85.60 82.70 73.30
+> VCD [13] 84.52 81.85 72.85
+> PAI [22] 83.28 80.95 71.20
+> Devils [12] 86.12 83.45 74.60
+> SADI (Ours) 86.73 84.15 75.50
+> Δ%+0.7 +0.8 +1.2 Mitigating Object Hallucinations in Vision-Language Models through Region-Aware Attention Recalibration
+
+degradation across LVLMs from the random to adversarial setting verifies that models frequently fall into the trap of statistical co-occurrence priors (e.g., hallucinating a “mouse” simply because a “keyboard” is present). Under these rigorous settings, SADI achieves a state-of-the-art Average F1-score of 86.73 on LLaVA-1.5. While OPERA (85.60) attempts to penalize over-confident n-gram pat-terns during late-stage decoding as a symptom suppressor, SADI intervenes precisely at the internal cross-modal fusion zone. By dy-namically forcing attention routing to align with the robust visual anchor, SADI breaks the over-reliance on ungrounded language guessing and effectively anchors the question-answering process in explicit visual verification. 
+
+Results on MME. Results on the MME Full Set (Figure 3) confirm that our hallucination mitigation does not compromise general capabilities. SADI yields a consistent performance boost in fine-grained perception tasks like Existence , Count , and Position . This occurs because SADI’s spatial variance map inherently acts as a high-frequency filter, forcing the model to allocate precise atten-tion to physical object boundaries rather than diffused background noise. Crucially, SADI largely maintains the model’s native cogni-tive competencies (e.g., Code Reasoning ). Unlike previous heuristic interventions that rely on destructive hard-truncation—which per-manently severs attention pathways and shatters the feature space required for complex deduction—SADI employs a smooth, additive-only recalibration. This implicitly compresses anomalous drift by amplifying consensus regions prior to normalization, keeping the fundamental reasoning manifold completely intact. 
+
+## 4.3 Ablations and Analysis 
+
+Layer Sensitivity Analysis: Locating the Semantic Drift. To maxi-mize the efficiency of SADI and maintain the structural integrity of the model’s beneficial language priors, it is crucial to determine the optimal layers for intervention. We divide the 32 transformer layers of LLaVA-1.5 into three distinct functional stages—Early (layers 0-4), Middle (layers 5-18), and Deep (layers 19-31)—and systematically evaluate the hallucination metrics on the CHAIR benchmark when applying SADI exclusively to each stage. As detailed in Table 3, the mitigation effect exhibits a strong, layer-dependent sensitiv-ity. Intervening in the extreme deep layers (19-32) yields marginal improvements ( 𝐶 𝑆 drops slightly from 53.0 to 51.6). This suggests that deep layers are heavily dominated by the LLM’s inherent au-toregressive decoding constraints, making them highly resistant to visual recalibration. Conversely, applying SADI to the early layers (0-4) reduces hallucinations but noticeably degrades text richness (F1 drops to 75.2), as high-level visual semantics have not yet fully crystallized. The most significant performance gain occurs con-sistently in the intermediate transition layers (5-18). By targeting this zone, SADI achieves a drastic reduction in both 𝐶 𝑆 (20.4) and 
+
+𝐶 𝐼 (4.9) while preserving a high F1 score (76.4). This phenomenon corroborates our core hypothesis: layers 5 through 18 represent the critical “cross-modal fusion zone” where semantic drift originates. Strategically confining SADI to this zone effectively neutralizes hallucinations at their source. Furthermore, our extended empirical observations confirm that this optimal intervention zone exhibits strong structural consistency across different architectures (e.g., Shikra and MiniGPT-4) and scales. While the absolute layer indices shift proportionally in deeper models (e.g., approximately layers 8-24 for the 40-layer 13B models), the fundamental paradigm—that the intermediate layers act as the primary crucible for visual-semantic alignment—remains universally consistent. 
+
+Table 3: CHAIR hallucination evaluation and F1 scores across four strategically divided layer intervals (Early: 0-4, Middle: 5-18, Deep: 19-32) on LLaVA-1.5-7B under 512 maximum gen-eration tokens.                   
+
+> Intervened Layers 𝐶 𝑆 ↓𝐶 𝐼 ↓F1 ↑
+> None 53.0 15.6 76.7
+> Layers 19-31 51.6 13.8 76.1
+> Layers 0-4 24.6 9.0 75.2
+> Layers 5-18 20.4 4.9 76.4
+
+Adaptive Soft Masking vs. Static Mean Addition. To validate the advanced design of SADI, we specifically compare it with the inter-vention mechanism proposed in Devils [ 12 ]. As formulated in their methodology, the Devils approach attempts to find a “faithful di-rection” by averaging the absolute attention scores across all heads (a mean-based consensus) and adding it homogeneously across all attention heads for each visual token with a fixed hyperparameter 
+
+𝛼 . However, this strategy suffers from two critical flaws: (1) the mean operation is highly susceptible to extreme outliers (severe se-mantic drift in anomalous heads), and (2) indiscriminately applying the same head-averaged boost to all heads can distort the native attention distributions of reliable heads. In contrast, SADI resolves these bottlenecks through an elegant upgrade. By substituting the vulnerable mean with a Robust Median Consensus, SADI effectively isolates extreme outliers. Furthermore, instead of a global static addition, SADI deploys a Spatial-Aware Dynamic Budget combined with an Adaptive Soft Mask. This ensures that the recalibration is only applied to highly disputed spatial regions and strictly targets the specific heads that deviate from the consensus. As reflected in the CHAIR results (Table 1, reducing 𝐶 𝑆 from 25.0 in Devils to 20.4 in SADI), this fine-grained, adaptive recalibration significantly outperforms rigid, mean-based global addition while preserving high descriptive richness. 
+
+Robustness to Generation Length. In long-form open-ended gener-ation, LVLMs are highly prone to a “snowballing” effect [ 47 ]: as the generated text lengthens, the model increasingly attends to its own prior textual outputs rather than the visual input, causing initial minor semantic drifts to compound into severe object hallucina-tions. To evaluate SADI’s robustness against this phenomenon, we assess the hallucination metrics on the CHAIR benchmark across varying maximum generation lengths ( {64 , 128 , 256 }). As detailed in Table 4, standard decoding strategies suffer from drastic perfor-mance degradation as generation length increases. For instance, the sentence-level hallucination ( 𝐶 𝑆 ) of Greedy decoding surges from 23 .8 at 64 tokens to 53 .0 at 256 tokens. In stark contrast, SADI consistently achieves the lowest 𝐶 𝑆 and 𝐶 𝐼 across all length set-tings. More importantly, SADI demonstrates exceptional stability: even when the maximum token limit is extended to 256, its 𝐶 𝑆 
+
+remains tightly controlled at 20 .8. While achieving this profound Yuanzhi Xu, Qian Gao, Jun Fan, Guohui Ding, Zhenyu Yang, Sixue Lin, and Yuteng Xiao Exist 
+
+> Count
+> Pos
+> Color
+> Posters
+> Celeb
+> Scene
+> Landmark
+> Artwork
+> OCR
+> ComSense
+> NumCalc
+> TextTrans
+> Code
+> Evaluation Category
+> 0
+> 25
+> 50
+> 75
+> 100
+> 125
+> 150
+> 175
+> 200
+> MME Score
+> Regular
+> SADI (Ours)
+
+Figure 3: Comprehensive evaluation on the MME Full Set. We compare our proposed SADI against the regular baseline across 
+
+14 sub-tasks. SADI achieves a consistent performance boost in perception-based categories (e.g., Existence , Count , and Position )and Common Sense while firmly preserving the model’s native cognitive competencies like Code Reasoning .0.4 0.5 0.6 0.7 0.75 0.8 
+
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> 40
+> 45
+> Hallucination Metrics
+
+Fixed min = 0.3       
+
+> CS
+> CI
+> F1
+> 0.0 0.1 0.2 0.25 0.3 0.4 0.5
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> 40
+> 45
+> Hallucination Metrics
+
+Fixed max = 0.8 
+
+> CS
+> CI
+> F1
+> 50
+> 55
+> 60
+> 65
+> 70
+> 75
+> 80
+> F1 Score
+> 50
+> 55
+> 60
+> 65
+> 70
+> 75
+> 80
+> F1 Score
+
+Figure 4: Hyperparameter sensitivity analysis. (Left) Varying the upper bound 𝛼 𝑚𝑎𝑥 with a fixed 𝛼 𝑚𝑖𝑛 = 0.3. (Right) Varying the lower bound 𝛼 𝑚𝑖𝑛 with a fixed 𝛼 𝑚𝑎𝑥 = 0.8.
+
+hallucination suppression necessitates a slight trade-off in descrip-tive richness (yielding an 𝐹 1 of 76 .7, perfectly matching the Greedy baseline) compared to methods like OPERA ( 𝐹 1 of 79 .1), OPERA suffers from a massively inflated hallucination rate ( 𝐶 𝑆 of 45 .6, more than double that of SADI). This explicit trade-off strongly validates that SADI prioritizes faithful visual grounding over unconstrained linguistic extrapolation, effectively preventing the accumulation of semantic drift over long generation trajectories. 
+
+Inference Efficiency Analysis. A core advantage of SADI is its abil-ity to mitigate object hallucinations without incurring prohibitive inference latency. To validate its practical deployment efficiency, we evaluate the decoding time of SADI against the vanilla LLaVA-1.5 and other representative inference-time mitigation baselines (VCD, OPERA, and Devils). The evaluations are conducted on a single NVIDIA H800 GPU, recording the time required to generate se-quences of 20, 50, and 80 tokens. As detailed in Table 5, contrastive decoding methods like VCD require multiple forward passes for a single token, resulting in a significant computational bottleneck (exhibiting over a 2.1× slowdown). Similarly, OPERA’s heavy re-liance on complex beam-search and retrospection strategies incurs a severe latency penalty, slowing down the inference by up to 4.0×.In contrast, SADI operates directly on the pre-softmax logits using highly parallelized basic tensor operations (e.g., median and stan-dard deviation) strictly within a single forward pass. Consequently, SADI maintains a decoding speed nearly identical to the vanilla LLaVA-1.5 model, introducing a negligible computational overhead of approximately 1.08 ×. While Devils exhibits a marginally lower latency ( 1.04 ×), it suffers from inferior hallucination mitigation per-formance and disruption of feature continuity compared to SADI. Mitigating Object Hallucinations in Vision-Language Models through Region-Aware Attention Recalibration [Greedy] : The image features a brown and white dog                
+
+> running through a grassy yard, chasing a frisbee in
+> its mouth. The dog is in the middle of the scene, with
+> the frisbee positioned slightly to the left of it. The
+> yard is fenced in, providing a safe environment for
+> the dog to play. In the background, there is a person
+> standing near the fence, possibly watching the dog
+> play or waiting for their turn to throw the frisbee.
+> The scene captures the excitement and energy of
+> the dog enjoying its time outdoors.
+> [Greedy]:The image features a brown dog
+> sitting on the back of a brown car, possibly a
+> convertible. The dog appears to be enjoying
+> the ride and is comfortably sitting on the
+> car's trunk. The car is parked in a parking lot,
+> and the dog seems to be the only occupant of
+> the vehicle.
+> Please describe this image in detail.
+> [Greedy] : The image captures a soccer player in
+> action on a field, kicking a soccer ball with his foot.
+> The player is wearing a white shirt and black shorts,
+> and he is focused on the game. The soccer ball is
+> located in the lower part of the image, with the
+> player's foot making contact with it. In the
+> background, there is a person standing near the
+> edge of the field, possibly watching the game or
+> waiting for their turn to play. The scene is set in a
+> grassy field, providing a suitable environment for
+> the soccer game.
+> [Ours] : The image features a brown and white dog
+> running through a grassy yard, chasing a blue frisbee.
+> The dog is in the process of catching the frisbee,
+> which is flying through the air. The dog is positioned
+> in the grass, with the frisbee close to it. In the
+> background, there is a white -sided building wall
+> partially obscured by a green bush.
+> Please describe this image in detail. Please describe this image in detail.
+> [Ours]:The image features a brown dog
+> sitting on the trunk of a car, possibly a
+> convertible or a sports car. The dog is
+> wearing a red bandana and appears to be
+> enjoying its time on the car. The car is
+> parked in a parking lot, and there is a potted
+> plant nearby, adding a touch of greenery to
+> the scene.
+> [Ours] : The image shows a soccer player in action,
+> kicking a soccer ball on a field. The player is wearing
+> a white shirt and black shorts, and he is about to
+> kick the ball. The soccer ball is below the player.
+> The player is also wearing a white shirt with the
+> number 23 on it.
+
+Figure 5: Performance of SADI on hallucination mitigation in LLaVA-1.5. Red text highlights hallucinations from the baseline, while green text denotes corrected factual descriptions. Table 4: CHAIR evaluation on LLaVA-1.5-7B across different max new tokens {64 , 128 , 256 }. †: greedy decoding. 
+
+max 64 max 128 max 256 Method 𝐶 𝑆 ↓ 𝐶 𝐼 ↓ 𝐹 1 ↑ 𝐶 𝑆 ↓ 𝐶 𝐼 ↓ 𝐹 1 ↑ 𝐶 𝑆 ↓ 𝐶 𝐼 ↓ 𝐹 1 ↑
+
+Greedy 23.8 8.0 74.7 52.4 15.5 76.7 53.0 15.6 76.7 
+
+Beam 17.6 6.0 75.1 54.4 14.8 77.6 55.6 15.4 77.5 
+
+OPERA 19.0 6.3 74.4 44.2 12.9 78.8 45.6 13.1 79.1 
+
+† VCD 26.0 9.3 73.3 56.8 16.9 74.5 58.6 18.2 72.8 
+
+† PAI 19.8 6.2 74.0 24.2 7.3 75.2 24.2 7.2 75.2 
+
+† Devils 18.2 5.4 73.9 24.8 7.1 76.0 25.0 7.1 76.1 
+
+† SADI (Ours) 15.4 4.7 74.1 20.4 5.4 76.5 20.8 5.3 76.7 
+
+These efficiency results firmly establish SADI as a highly scalable and pragmatic solution for real-time LVLM applications. 
+
+Hyperparameter Sensitivity Analysis. To evaluate the robustness of our dynamic intervention budget, we conducted a sensitivity analysis on the essential hyperparameters 𝛼 𝑚𝑖𝑛 and 𝛼 𝑚𝑎𝑥 (Equa-tion 4). As shown in Figure 4, varying these bounds reveals a clear performance trade-off. While escalating intervention strength con-tinuously suppresses hallucinations (both 𝐶 𝑆 and 𝐶 𝐼 decrease), ex-ceeding a specific threshold triggers an over-correction cliff, in-discriminately suppressing beneficial semantic priors and severely degrading description richness ( 𝐹 1 score drops significantly). Con-sequently, empirically anchoring the parameters strictly at the edge 
+
+Table 5: Inference time comparison (ms) among five decoding methods on an NVIDIA H800 GPU across three generation length settings (20/50/80 tokens). Relative slowdown over the LLaVA-v1.5 baseline is shown in parentheses. 
+
+Method 20-Token Len 50-Token Len 80-Token Len 
+
+LLaVA-v1.5 405 ( ↑ × 1.0) 935 ( ↑ × 1.0) 1440 ( ↑ × 1.0)
+
+OPERA [11] 1372 ( ↑ × 3.4) 3294 ( ↑ × 3.5) 5717 ( ↑ × 4.0)
+
+VCD [13] 989 ( ↑ × 2.4) 2032 ( ↑ × 2.2) 3078 ( ↑ × 2.1)
+
+Devils [12] 422 ( ↑ × 1.04 ) 972 ( ↑ × 1.04 ) 1498 ( ↑ × 1.04 )
+
+SADI (Ours) 438 ( ↑ × 1.08 ) 1009 ( ↑ × 1.08 ) 1555 ( ↑ × 1.08 )
+
+of this cliff (e.g., 𝛼 𝑚𝑖𝑛 ≈ 0.25 , 𝛼 𝑚𝑎𝑥 ≈ 0.80 ) yields the absolute op-timal trade-off, achieving profound hallucination reduction while fully preserving natural language fluency. SADI demonstrates ro-bust performance within this broad optimal region, avoiding the necessity for brittle, case-by-case hyperparameter tuning. 
+
+Qualitative Case Analysis. To visually verify how SADI trans-lates into explicit output calibration, we provide side-by-side case studies across prominent visual scenarios in Figure 5. The baseline model (Greedy decoding) heavily exhibits semantic drift, projecting unimodal language priors to fabricate missing entities (e.g., invent-ing “a person near the fence” on both the lawn and soccer field) or over-interpreting static scenes into phantom actions (e.g., claiming a parked car is “enjoying the ride”). Conversely, SADI cleanly damp-ens these hallucination trajectories by enforcing robust median Yuanzhi Xu, Qian Gao, Jun Fan, Guohui Ding, Zhenyu Yang, Sixue Lin, and Yuteng Xiao 
+
+grounding, ensuring actions are bound tightly to physical states (e.g., “about to kick the ball”). Crucially, as highlighted in green, SADI meticulously captures fine-grained, localized visual details overlooked by the baseline—such as the dog’s “red bandana” and the jersey “number 23”—empirically substantiating our claims of re-fining semantic alignment without sacrificing descriptive richness. 
+
+The Danger of Explicit Subtraction. SADI employs an additive-only recalibration on pre-softmax logits. To validate this, we test an “Add-Subtract” variant that explicitly penalizes anomalous back-ground regions ( −𝛽 ⊙ BackgroundMask ⊙ 𝑀 ℎ ). As Table 6 shows, explicit subtraction counter-intuitively exacerbates hallucinations. As the penalty 𝛽 increases, 𝐶 𝑆 surges from 20.4 to 41.4. This backfire occurs due to destructive feature truncation . Un-salient background tokens provide essential contextual grounding; forcefully erasing them deprives the model of spatial awareness, forcing it to fall back on its unimodal language priors. Consequently, it generates highly fluent (evidenced by rising F1 scores) but visually ungrounded text. SADI avoids this by leveraging the zero-sum competition of the Soft-max function: amplifying consensus regions implicitly compresses anomalous probabilities while perfectly preserving the continuous visual-semantic manifold. 
+
+Table 6: Ablation on intervention mechanisms (Additive vs. Add-Subtract) on LLaVA-1.5. 
+
+Intervention Type 𝐶 𝑆 ↓ 𝐶 𝐼 ↓ F1 ↑
+
+Greedy 53.0 15.6 76.7 
+
+Add-Subtract ( 𝛽 = 0.5) 31.6 7.2 77.8 
+
+Add-Subtract ( 𝛽 = 1.0) 36.2 9.5 78.2 
+
+Add-Subtract ( 𝛽 = 2.0) 41.4 10.9 78.4 
+
+Additive-Only (SADI) 20.4 4.9 76.4 
+
+## 5 Conclusion 
+
+In this paper, we introduced Spatial-Aware Dynamic Intervention (SADI), a lightweight, training-free, and plug-and-play inference strategy to alleviate object hallucinations in Large Vision-Language Models (LVLMs). We identified that during the cross-modal fusion stage, existing inference-time interventions predominantly rely on destructive hard-truncation or rigid masking, which inadver-tently disrupts the continuity of the internal feature manifold and impairs the collaborative reasoning of multi-head self-attention. To overcome this, SADI reframes hallucination mitigation as a smooth, continuous recalibration process. By establishing a robust median consensus among attention heads and deploying a spatial variance-guided dynamic budget, our method applies an adaptive soft mask to gently suppress anomalous semantic drift. Extensive experiments demonstrate that SADI effectively grounds the model’s generation in visual realities, significantly reducing both sentence-and instance-level hallucinations on the CHAIR and POPE bench-marks, while effectively maintaining the model’s native general capabilities on MME. Notably, SADI achieves these state-of-the-art results within a single forward pass, completely avoiding the severe decoding latency associated with contrastive generation methods. 
+
+## 6 Future Work 
+
+Building upon the remarkable efficacy of SADI, several promising avenues remain for future exploration to further elevate LVLM capa-bilities. First, while our robust median consensus effectively anchors salient objects, future work will explore dynamic clustering-based consensus mechanisms to intelligently preserve minority attention heads that correctly capture secondary details in highly complex, multi-object scenes, thereby preventing potential over-correction. Second, we aim to develop an auto-adaptive framework that dynam-ically computes the optimal intervention layers and spatial budget boundaries on the fly, enabling truly zero-shot, hyperparameter-free deployment across diverse LVLM architectures. Finally, we plan to leverage SADI’s continuous spatial variance signals as dense re-wards within rigorous alignment training paradigms (e.g., RLHF or DPO), seamlessly bridging our inference-time intervention with fundamental parametric refinement. 
+
+## References                                  
+
+> [1] Wenbin An, Feng Tian, Sicong Leng, Jiahao Nie, Haonan Lin, QianYing Wang, Ping Chen, Xiaoqin Zhang, and Shijian Lu. 2025. Mitigating object hallucinations in large vision-language models with assembly of global and local attention. In
+> Proceedings of the Computer Vision and Pattern Recognition Conference . 29915– 29926. [2] Jiaqi Bai, Hongcheng Guo, Zhongyuan Peng, Jian Yang, Zhoujun Li, Mohan Li, and Zhihong Tian. 2025. Mitigating hallucinations in large vision-language models by adaptively constraining information flow. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. 23442–23450. [3] Junzhe Chen, Tianshu Zhang, Shiyu Huang, Yuwei Niu, Linfeng Zhang, Lijie Wen, and Xuming Hu. 2025. Ict: Image-object cross-level trusted intervention for mitigating object hallucination in large vision-language models. In Proceedings of the Computer Vision and Pattern Recognition Conference . Computer Vision Foundation / IEEE, 4209–4221. [4] Keqin Chen, Zhao Zhang, Weili Zeng, Richong Zhang, Feng Zhu, and Rui Zhao. 2023. Shikra: Unleashing multimodal llm’s referential dialogue magic. arXiv preprint arXiv:2306.15195 (2023). [5] Xuweiyi Chen, Ziqiao Ma, Xuejun Zhang, Sihan Xu, Jianing Yang, David F Fouhey, Joyce Chai, and Shengyi Qian. 2024. Multi-object hallucination in vision language models. Advances in Neural Information Processing Systems 37 (2024), 44393–44418. [6] Zhaorun Chen, Zhuokai Zhao, Hongyin Luo, Huaxiu Yao, Bo Li, and Jiawei Zhou. 2024. Halc: Object hallucination reduction via adaptive focal-contrast decoding.
+> arXiv preprint arXiv:2403.00425 (2024). [7] Wei-Lin Chiang, Zhuohan Li, Ziqing Lin, Ying Sheng, Zhanghao Wu, Hao Zhang, Lianmin Zheng, Siyuan Zhuang, Yonghao Zhuang, Joseph E Gonzalez, et al .2023. Vicuna: An open-source chatbot impressing gpt-4 with 90%* chatgpt quality. See https://vicuna. lmsys. org (accessed 14 April 2023) 2, 3 (2023), 6. [8] Chaoyou Fu, Peixian Chen, Yunhang Shen, Yulei Qin, Mengdan Zhang, Xu Lin, Zhenyu Qiu, Wei Lin, Jinrui Yang, Xiawu Zheng, Ke Li, Xing Sun, and Rongrong Ji. 2023. MME: A Comprehensive Evaluation Benchmark for Multimodal Large Language Models. CoRR abs/2306.13394 (2023). arXiv:2306.13394 doi:10.48550/ ARXIV.2306.13394 [9] Asma Ghandeharioun, Avi Caciularu, Adam Pearce, Lucas Dixon, and Mor Geva. 2024. Patchscopes: A unifying framework for inspecting hidden representations of language models. arXiv preprint arXiv:2401.06102 (2024). [10] Anisha Gunjal, Jihan Yin, and Erhan Bas. 2024. Detecting and preventing hallu-cinations in large vision language models. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 38. 18135–18143. [11] Qidong Huang, Xiaoyi Dong, Pan Zhang, Bin Wang, Conghui He, Jiaqi Wang, Dahua Lin, Weiming Zhang, and Nenghai Yu. 2024. OPERA: Alleviating Hal-lucination in Multi-Modal Large Language Models via Over-Trust Penalty and Retrospection-Allocation. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2024, Seattle, WA, USA, June 16-22, 2024 . IEEE, 13418–13427. doi:10.1109/CVPR52733.2024.01274 [12] Zhangqi Jiang, Junkai Chen, Beier Zhu, Tingjin Luo, Yankun Shen, and Xu Yang. 2025. Devils in middle layers of large vision-language models: Interpreting, detecting and mitigating object hallucinations via attention lens. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition . 25004– 25014. [13] Sicong Leng, Hang Zhang, Guanzheng Chen, Xin Li, Shijian Lu, Chunyan Miao, and Lidong Bing. 2024. Mitigating object hallucinations in large vision-language models through visual contrastive decoding. In Proceedings of the IEEE/CVF
+
+Mitigating Object Hallucinations in Vision-Language Models through Region-Aware Attention Recalibration 
+
+Conference on Computer Vision and Pattern Recognition . 13872–13882. [14] Yifan Li, Yifan Du, Kun Zhou, Jinpeng Wang, Xin Zhao, and Ji-Rong Wen. 2023. Evaluating object hallucination in large vision-language models. In Proceedings of the 2023 conference on empirical methods in natural language processing . 292–305. [15] Zhuowei Li, Haizhou Shi, Yunhe Gao, Di Liu, Zhenting Wang, Yuxiao Chen, Ting Liu, Long Zhao, Hao Wang, and Dimitris N Metaxas. 2025. The hidden life of tokens: Reducing hallucination of large vision-language models via visual information steering. arXiv preprint arXiv:2502.03628 (2025). [16] Tian Liang, Yuetian Du, Jing Huang, Ming Kong, Luyuan Chen, Yadong Li, Siye Chen, and Qiang Zhu. 2025. Mole: Decoding by mixture of layer experts alleviates hallucination in large vision-language models. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. 18684–18692. [17] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence Zitnick. 2014. Microsoft coco: Common objects in context. In European conference on computer vision . Springer, 740–755. [18] Fuxiao Liu, Kevin Lin, Linjie Li, Jianfeng Wang, Yaser Yacoob, and Lijuan Wang. 2024. Mitigating hallucination in large multi-modal models via robust instruction tuning. In International Conference on Learning Representations , Vol. 2024. 57689– 57733. [19] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. 2024. Improved baselines with visual instruction tuning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition . 26296–26306. [20] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. 2023. Visual in-struction tuning. In Proceedings of the 37th International Conference on Neural Information Processing Systems (New Orleans, LA, USA) (NIPS ’23) . Curran Asso-ciates Inc., Red Hook, NY, USA, Article 1516, 25 pages. [21] Hanchao Liu, Wenyuan Xue, Yifei Chen, Dapeng Chen, Xiutian Zhao, Ke Wang, Liping Hou, Rongjun Li, and Wei Peng. 2024. A survey on hallucination in large vision-language models. arXiv preprint arXiv:2402.00253 (2024). [22] Shi Liu, Kecheng Zheng, and Wei Chen. 2024. Paying more attention to im-age: A training-free method for alleviating hallucination in lvlms. In European Conference on Computer Vision . Springer, 125–140. [23] Guangtao Lyu, Qi Liu, Chenghao Xu, Jiexi Yan, Muli Yang, Xueting Li, Fen Fang, and Cheng Deng. 2026. Revealing and Enhancing Core Visual Regions: Harnessing Internal Attention Dynamics for Hallucination Mitigation in LVLMs. arXiv:2602.15556 [cs.CV] https://arxiv.org/abs/2602.15556 [24] Xinyu Lyu, Beitao Chen, Lianli Gao, Jingkuan Song, and Heng T Shen. 2024. Alleviating hallucinations in large vision-language models through hallucination-induced optimization. Advances in Neural Information Processing Systems 37 (2024), 122811–122832. [25] Erik Nielsen, Elia Cunegatti, Marcus Vukojevic, and Giovanni Iacca. 2026. Hal-lucination as an Anomaly: Dynamic Intervention via Probabilistic Circuits. arXiv:2605.05953 [cs.CL] https://arxiv.org/abs/2605.05953 [26] Eunkyu Park, Minyeong Kim, and Gunhee Kim. 2025. Halloc: Token-level localization of hallucinations for vision language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition . 29893–29903. [27] Woohyeon Park, Woojin Kim, Jaeik Kim, and Jaeyoung Do. 2025. Second: Mit-igating perceptual hallucination in vision-language models via selective and contrastive decoding. arXiv preprint arXiv:2506.08391 (2025). [28] Yeji Park, Deokyeong Lee, Junsuk Choe, and Buru Chang. 2025. Convis: Con-trastive decoding with hallucination visualization for mitigating hallucinations in multimodal large language models. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. 6434–6442. [29] Anna Rohrbach, Lisa Anne Hendricks, Kaylee Burns, Trevor Darrell, and Kate Saenko. 2018. Object hallucination in image captioning. In Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing . 4035–4045. [30] Sreetama Sarkar, Yue Che, Alex Gavin, Peter Anthony Beerel, and Souvik Kundu. 2025. Mitigating hallucinations in vision-language models through image-guided head suppression. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing . 12492–12511. [31] Adi Simhi, Jonathan Herzig, Idan Szpektor, and Yonatan Belinkov. 2024. Con-structing Benchmarks and Interventions for Combating Hallucinations in LLMs. arXiv:2404.09971 [cs.CL] https://arxiv.org/abs/2404.09971 [32] Jingran Su, Jingfan Chen, Hongxin Li, Yuntao Chen, Li Qing, and Zhaoxiang Zhang. 2025. Activation steering decoding: Mitigating hallucination in large vision-language models through bidirectional hidden state intervention. In Pro-ceedings of the 63rd Annual Meeting of the Association for Computational Linguis-tics (Volume 1: Long Papers) . 12964–12974. [33] Han Sun, Qin Li, Peixin Wang, and Min Zhang. 2026. Mitigating Object Hallucina-tions in LVLMs via Attention Imbalance Rectification. arXiv:2603.24058 [cs.CV] https://arxiv.org/abs/2603.24058 [34] Xiaoxi Sun, Jianxin Liang, Yueqian Wang, Huishuai Zhang, and Dongyan Zhao. 2025. Understanding visual detail hallucinations of large vision-language models. In Proceedings of the Thirty-Fourth International Joint Conference on Artificial Intelligence . 1900–1908. [35] Feilong Tang, Chengzhi Liu, Zhongxing Xu, Ming Hu, Zile Huang, Haochen Xue, Ziyang Chen, Zelin Peng, Zhiwei Yang, Sijin Zhou, et al . 2025. Seeing far and clearly: Mitigating hallucinations in mllms with attention causal decoding. In 
+
+Proceedings of the Computer Vision and Pattern Recognition Conference . 26147– 26159. [36] Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timothée Lacroix, Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal Azhar, et al . 2023. Llama: Open and efficient foundation language models. arXiv 2023. arXiv preprint arXiv:2302.13971 10 (2023). [37] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. Advances in neural information processing systems 30 (2017). [38] Weixuan Wang, Jingyuan Yang, and Wei Peng. 2025. Semantics-adaptive ac-tivation intervention for llms via dynamic steering vectors. In International Conference on Learning Representations , Vol. 2025. 79334–79351. [39] Wenyi Xiao, Ziwei Huang, Leilei Gan, Wanggui He, Haoyuan Li, Zhelun Yu, Fangxun Shu, Hao Jiang, and Linchao Zhu. 2025. Detecting and mitigating hallucination in large vision language models via fine-grained ai feedback. In 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. 25543–25551. [40] Le Yang, Ziwei Zheng, Boxu Chen, Zhengyu Zhao, Chenhao Lin, and Chao Shen. 2025. Nullu: Mitigating object hallucinations in large vision-language models via halluspace projection. URL https://arxiv. org/abs/2412.13817 (2025). [41] Tianyun Yang, Ziniu Li, Juan Cao, and Chang Xu. 2025. Understanding and mitigating hallucination in large vision-language models via modular attribu-tion and intervention. In The Thirteenth International Conference on Learning Representations .[42] Zhihe Yang, Xufang Luo, Dongqi Han, Yunjian Xu, and Dongsheng Li. 2025. Mitigating hallucinations in large vision-language models via dpo: On-policy data hold the key. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition . 10610–10620. [43] Liu Yu, Zhonghao Chen, Ping Kuang, Zhikun Feng, Fan Zhou, Lan Wang, and Gillian Dobbie. 2026. Causally-Grounded Dual-Path Attention Intervention for Object Hallucination Mitigation in LVLMs. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 40. 36021–36029. [44] Tianyu Yu, Yuan Yao, Haoye Zhang, Taiwen He, Yifeng Han, Ganqu Cui, Jinyi Hu, Zhiyuan Liu, Hai-Tao Zheng, Maosong Sun, et al . 2024. Rlhf-v: Towards trustworthy mllms via behavior alignment from fine-grained correctional human feedback. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition . 13807–13816. [45] Linxi Zhao, Yihe Deng, Weitong Zhang, and Quanquan Gu. 2024. Mitigating ob-ject hallucination in large vision-language models via image-grounded guidance. 
+
+arXiv preprint arXiv:2402.08680 (2024). [46] Zhiyuan Zhao, Bin Wang, Linke Ouyang, Xiaoyi Dong, Jiaqi Wang, and Conghui He. 2023. Beyond Hallucinations: Enhancing LVLMs through Hallucination-Aware Direct Preference Optimization. CoRR abs/2311.16839 (2023). arXiv:2311.16839 doi:10.48550/ARXIV.2311.16839 [47] Weihong Zhong, Xiaocheng Feng, Liang Zhao, Qiming Li, Lei Huang, Yuxuan Gu, Weitao Ma, Yuan Xu, and Bing Qin. 2024. Investigating and mitigating the multimodal hallucination snowballing in large vision-language models. In 
+
+Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) . 11991–12011. [48] Deyao Zhu, Xiaoqian Shen, Xiang Li, Mohamed Elhoseiny, et al . 2024. Minigpt-4: Enhancing vision-language understanding with advanced large language models. In International Conference on Learning Representations , Vol. 2024. Open-Review.net, 18378–18394.

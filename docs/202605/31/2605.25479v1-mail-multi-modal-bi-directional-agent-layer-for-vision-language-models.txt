@@ -1,0 +1,661 @@
+Title: MAIL++: Multi-Modal Bi-directional Agent Layer for Vision-Language Models
+
+URL Source: https://arxiv.org/pdf/2605.25479v1
+
+Published Time: Tue, 26 May 2026 01:50:59 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+> 1
+
+# MAIL++: Multi-Modal Bi-directional Agent Layer for Vision-Language Models 
+
+Kaixiang Chen, Pengfei Fang ∗, and Hui Xue ∗, Member, IEEE 
+
+Abstract —Adapting large vision–language models (VLMs) such as CLIP to downstream tasks remains non-trivial, as full-model fine-tuning is computationally prohibitive and prone to severe overfitting in low-data regimes. Parameter-efficient fine-tuning (PEFT) methods alleviate these challenges by introducing lightweight prompt- or adapter-based modules, yielding superior performance. Among them, cross-modal coupling strategies have demonstrated particular effectiveness by explicitly enhancing inter-modal interactions. However, existing coupling mechanisms are predominantly rely on external auxiliary modules, resulting in indirect and coarse-grained interactions that remain structurally decoupled from the original VLM, which fundamentally limit their representational expressiveness. In this paper, we propose Multi-Modal Interactive Agent Layer (MAIL), a new PEFT paradigm that embeds cross-modal coupling directly within 
+
+the VLM’s intrinsic computation modules. Specifically, MAIL freezes the backbone and inserts lightweight agent layers after core computational modules (e.g., LayerNorm) to approximate the parameter updates that full fine-tuning would induce. To couple the visual and textual streams at the level of these computation modules, we introduce a bottleneck-based text-to-image bridge that couples the optimization of paired agent layers across modalities, effectively coordinating the adaptation of corresponding computation modules. Building on MAIL, we further present MAIL++, which enables bi-directional cross-modal exchange via a meta agent layer together with a meta-text bridge and a meta-image bridge. At inference time, all agent layers are re-parameterized into the frozen backbone, preserving the original computational efficiency. Extensive experiments on few-shot image classification and few-shot universal cross-domain retrieval benchmarks show that MAIL and MAIL++ consistently outperforms state-of-the-art PEFT methods. 
+
+Index Terms —Vision-Language Models, Parameter-Efficient Fine-Tuning, Cross-Modal Coupling. 
+
+I. I NTRODUCTION 
+
+# FOUNDATION vision-language models (VLMs) have emerged as a paradigm-shifting approach in visual rep-resentation learning, marking a critical step toward more general-purpose learning systems [1]. Among them, CLIP [2] serves as a representative VLM, featuring an image encoder and a text encoder trained with a contrastive objective to align images and texts at scale using millions of paired samples. In contrast to conventional ImageNet-era architectures [3]– [5], which typically rely on task-specific fine-tuning with large training dataset for downstream adaptation, VLMs like 
+
+K. Chen, P. Fang and H. Xue are with the School of Computer Science and Engineering, Southeast University, Nanjing 210096, China and Key Laboratory of New Generation Artificial Intelligence Technology and Its Interdisciplinary Applications (Southeast University), Ministry of Education, China (E-mail: kxchen, fangpengfei, hxue@seu.edu.cn). 
+
+> ∗
+
+Co-corresponding author 
+
+CLIP exhibit strong zero-shot generalization capability. This property has catalyzed their deployment across a broad spec-trum of downstream applications, including medical image analysis [6]–[8], cross-modal and cross-domain retrieval [9]– [11], and human activity recognition [12]–[14]. While it is also reasonable to further fine-tune VLMs on downstream tasks using task-specific data for better performance, fine-tuning such large-scale pretrained models remains non-trivial, owing to two key challenges: (i) the prohibitive computational cost associated with full-model optimization, and (ii) the pronounced risk of overfitting, which is particularly severe in data-scarce regimes commonly encountered in practice. These challenges have spurred the development of parameter-efficient fine-tuning (PEFT) methods for few-shot VLM adaptation [15]. A particularly active line of research is prompt-based tuning [16]–[21]. CoOp [16] pioneers con-tinuous prompt learning [22] by representing prompt to-kens as learnable vectors and injecting them into the text encoder, yet it often overfits to seen classes in low-data regimes. To improve generalization, CoCoOp [17] introduces a meta-network that produces instance-conditioned prompts, enhancing transfer to unseen classes. Subsequent methods, such as KgCoOp [18] and PromptSRC [19], further mitigate overfitting by incorporating knowledge-guided regularization. More recently, MaPLe [20] and MMRL [21] extend prompt tuning to both the image and text encoders and explicitly couple the learned prompts across modalities, yielding stronger and more consistent gains on both seen and unseen cate-gories ( Fig. 1-a ). Complementary to prompt tuning, adapter-based PEFT methods [23]–[25] inject lightweight modules to refine intermediate representations without modifying the input space. Notably, coupling adapters across modalities ( e.g ., MMA; Fig. 1-b ) consistently outperforms their modality-isolated counterparts, further substantiating the critical role of cross-modal interaction in effective VLM adaptation. We categorize these approaches ( i.e. , MaPLe, MMRL and MMA) as modality-coupled methods (MCMs), and refer to their counterparts that adapt each modality independently as modality-independent methods (MIMs). Explicit cross-modal coupling endows MCMs with two primary advantages. First ,since the objective of vision–language training is to establish robust inter-modal alignment, explicitly modeling cross-modal interactions reinforces this alignment and promotes effec-tive knowledge transfer to target domains. Second , modal-ity coupling serves as an implicit regularization mechanism. By enforcing coordinated updates across modalities, MCMs encourage the learning of coherent and mutually consistent representations, thereby mitigating overfitting and improving   
+
+> arXiv:2605.25479v1 [cs.CV] 25 May 2026 2Trainable Component Coupled Component Reparameterization Target Layer Pair
+> LN MHSA LN MLP LN MHSA LN MLP
+> Down Up Down Up Proj Proj
+
+(b) MMA (c) Ours 
+
+> Coupled Agent Layer
+
+(a) MaPLe /MMRL  
+
+> LN MHSA LN MLP LN MHSA LN MLP
+> Prompts Prompts
+> Coupled Prompt Coupled Adapter
+> LN MHSA LN MLP AL LN MHSA MLP
+> LN AL
+
+Fig. 1. Modality-coupled methods in fine-tuning VLMs: (a) MaPLe and MMRL achieve cross-modal coupling by establishing interconnections between the prompts. (b) MMA designs a unified feature-projection layer within the adapter that is shared by both modalities. (c) In contrast, MAIL achieves cross-modal coupling while preserving inference efficiency by introducing linked trainable agent layers (AL) to align internal parameter updates of the intrinsic computational modules between the visual and textual streams within the backbone. 
+
+generalization. Despite these benefits, it is important to note that the coupling mechanisms employed in existing MCMs are predominantly realized through external auxiliary components ,such as input-level prompts or adapter layers, rather than being embedded in the intrinsic computational modules of the original VLM. While such externally mediated coupling strategies are lightweight and empirically effective, the corre-sponding coupling signals must propagate through multiple layers before influencing the deep semantic representations of the intrinsic computational modules. Consequently, the induced cross-modal interactions tend to be coarse-grained and indirect, remaining structurally decoupled from the original VLM, which fundamentally limit the its capacity for fine-grained cross-modal alignment. To bridge this gap, we propose Multi-Modal Interactive Agent Layer (MAIL), a MCM designed to embed cross-modal coupling directly within the VLM’s intrinsic computation mod-ules, as illustrated in Fig. 1-c . Concretely, for each selected pair of corresponding computation modules in the image and text encoders, MAIL designates them as a target module pair and freezes their parameters. For each target module, a lightweight agent layer is appended to functionally approx-imate the localized parameter updates of the target module that full fine-tuning would induce. Each agent layer consists of a scaling component and a shifting component [26], which are jointly optimized to capture fine-grained adjustments of the target module. To couple the visual and textual streams at the level of computation modules, we introduce a bridge function that links the agent layers across modalities, effectively coor-dinating the adaptation of corresponding computation module. In our previous work [27], the bridge function was instan-tiated as a unidirectional text-to-image information flow, as shown in Fig. 2-a . This manually imposed inductive bias restricted cross-modal information propagation to a single direction, causing the optimization process to be dominated by the text modality and resulting in an imbalance between the two modalities. To overcome this limitation, we further propose MAIL++, which establishes a bidirectional cross-Input Features -Text Input Features -Image Output Features -Text Output Features -Image    
+
+> Input Features -Text Output Features -Text
+> Input Features -Image Output Features -Image Scaling Vector Shifting Vector
+> (a) MAIL (b) MAIL++
+> Meta Scaling Vector Text Image Bridge Function Meta Text Bridge Function Meta Image Bridge Function
+
+Fig. 2. Illustration of the coupling mechanisms in the agent layer. (a) The scaling vector from the text-side agent layer propagates to the vision side via a text-to-image bridge function. (b) A meta scaling vector is incorporated into both sides via meta-to-image and meta-to-text bridge functions, establishing a bidirectional information flow. 
+
+modal interaction mechanism that enables mutual information exchange and joint optimization between the two encoders. As illustrated in Fig. 2-b , rather than symmetrically introducing an additional image-to-text bridge, MAIL++ incorporates a meta-scaling vector, together with a meta-text bridge and a meta-image bridge, to dynamically regulate the magnitude and direction of cross-modal information flow. This design removes the hand-crafted directional bias and allows the model to adaptively learn balanced and coherent representations across modalities. During inference, the agent layers are seamlessly reparam-eterized into their corresponding frozen layers, ensuring that the overall computational complexity remains unchanged. To summarize, our main contributions are outlined as follows: 1) We introduce MAIL, a novel modality-coupling mech-anism (MCM) that, for the first time, explicitly inte-3
+
+grates such mechanisms within the internal modules of the backbone to directly synchronize parameter updates across image and text modalities. 2) We further propose MAIL++, an enhanced version of MAIL, which facilitates a more balanced information flow and mutual optimization between the modalities. 3) Extensive experiments on eleven few-shot classification datasets and three FS-UCDR benchmarks (first intro-duced in our previous work [27]) demonstrate that MAIL++ achieves state-of-the-art performance while maintaining superior parameter efficiency and inference efficiency, under the strict constraint that no LLMs or distillation techniques from larger backbones are employed .II. R ELATED WORK 
+
+A. Vision-Language Models 
+
+Recent progress in vision–language models (VLMs) has substantially advanced unified representation learning across visual and textual modalities. CLIP [2] established the foundation for large-scale contrastive pre-training, yielding strong zero-shot generalization across open-vocabulary tasks. ViLT [28] introduced a streamlined fully Transformer-based architecture that eliminates convolutions for efficient cross-modal processing, whereas ALBEF [29] coupled contrastive objectives with a cross-modal fusion encoder to enhance retrieval and captioning performance. VLMo [30] unified uni-modal and multimodal encoders through an optimal-transport-based mixture-of-experts design, while BLIP [31] leveraged bootstrapped captioning signals to improve pre-training effi-ciency and sample coverage. The recent LLaVA family [32] further integrates visual encoders with large language models (LLMs), enabling instruction-following multimodal reasoning. 
+
+B. Parameter Efficient Fine-Tuning for VLMs 
+
+Although current vision–language models (VLMs) yield highly transferable and semantically rich representations, ef-fectively adapting them to downstream tasks without degrading their inherent representational priors remains an open chal-lenge. To address this issue, parameter-efficient fine-tuning (PEFT) [26], [33]–[35] has emerged as a principled and effec-tive adaptation paradigm for large-scale VLMs. Existing PEFT approaches for VLMs can be broadly categorized into two representative families: prompt- and adapter-based methods. 
+
+Prompt-based methods. These approaches introduce a small number of learnable prompt tokens during adaptation while keeping the backbone frozen. CoOp [16] pioneers continu-ous prompt learning by optimizing soft prompt embeddings appended to the text encoder. Building upon this formula-tion, CoCoOp [17] incorporates a meta-network to generate instance-adaptive prompts, thereby improving generalization to unseen categories. From a complementary perspective, PromptSRC [19] and KgCoOp [18] mitigate overfitting by enforcing knowledge-guided regularization, encouraging the learned prompts to align with handcrafted textual templates and enhancing robustness. More recent approaches, such as MaPLe [20] and MMRL [21], further extend this line by inserting prompts into both the visual and textual encoders and explicitly coupling them across modalities, demonstrating consistent performance gains across seen and unseen classes. 
+
+Adapter-based methods. In contrast, adapter-based ap-proaches introduce lightweight trainable modules within the network while keeping the pretrained CLIP parameters frozen. These adapters take various forms, including bottleneck ar-chitectures [25], [36], residual layers [24], residual prototype branches [37], [38], and feature-memory mechanisms [23], [39]. CLIP-Adapter [24] augments CLIP’s dual-encoder ar-chitecture with lightweight two-layer MLP adapters, enabling task-driven recalibration of intermediate representations under cross-entropy supervision. Tip-Adapter [23] and CaFo [39] further reduce adaptation overhead by caching training features and performing similarity-based retrieval at inference time. Meanwhile, APE [37] and TaskRes [38] preserve the pre-trained classifier and introduce lightweight residual branches to achieve task-specific adaptation while maintaining CLIP’s inherent priors. Despite their effectiveness, the majority of adapter-based approaches adapt the visual and textual encoders in a modality-isolated manner, which inherently limits cross-modal alignment. To alleviate this limitation, MMA [25] introduces a shared projection space to couple adapters across modalities, enabling cross-modal gradient propagation and fostering more coherent vision–language representations. III. P RELIMINARY 
+
+A. Revisiting CLIP 
+
+CLIP [2] is a pretrained vision-language model (VLM) con-sisting of two encoders: a text encoder, denoted by T (·), and an image encoder (ViT [4] as default), denoted by V(·). Both encoders comprise L transformer [40] blocks, represented as 
+
+{T i}Li=1 and {V i}Li=1 , respectively. For classification inference with C classes, CLIP inserts all class names into a pre-defined text template, e.g., “ a photo of a <category >”, generating 
+
+C inputs {ti}Ci=1 for the text encoder T (·). For a certain input 
+
+ty , its output T (ty ) is: 
+
+W0 = TextEmbed( ty )
+
+Wi = Ti(Wi−1), i = 1 , 2, ..., L 
+
+T (ty ) = TextProj ◦ LN( wNt 
+
+> L
+
+),
+
+(1) where W0 = [ w00 , w 10 , ..., w Nt 
+
+> 0
+
+]⊤ ∈ RNt×dt is the word em-bedding, with Nt and dt indicate text embedding length and dimension, ◦ represents the composition of functions. 
+
+TextProj is a linear layer ( dt → dt). Similarly, for the image 
+
+I, its representation V(I) is calculated as: 
+
+P0 = PatchEmbed( I)[ci, Pi] = Vi([ ci−1, Pi−1]) , i = 1 , 2, ..., L 
+
+V(I) = ImageProj ◦ LN( cL),
+
+(2) where P0 ∈ RNv ×dv is the image embedding, with Nv and 
+
+dv indicate embedding length and dimension, and c0 ∈ Rdv
+
+is the initial CLS Token. ImageProj is also a linear layer (dv → dt). With V(I) available, the text features of the text templates with class labels are matched using the formula 
+
+p(y|I) = exp( sim (T (ty ),V(I)))    
+
+> PCi=1 exp( sim (T(ti),V(I)))
+
+, where y ∈ { 1, 2, ..., C }, and 
+
+sim (., . ) refers to cosine similarity. 4Agent Layers Agent Layers Agent Layers Agent Layer Agent Layer Agent Layers Agent Layers Agent Layers Agent Layer Agent Layer     
+
+> “A photo of a cat” “A photo of a cat” “A photo of a cat” ……Common Embedding Space
+> Re-parameteriza �on Scaling Vector Shi �ing Vector
+> Image Encoder Layer Patch Embedding Encoder Layer Encoder Layer Encoder Layer LN Image Proj Text Embedding Text Encoder Layer Encoder Layer Encoder Layer Encoder Layer LN Text Proj
+> 111111111111111
+> Meta Scaling Vector
+> MLP MHSA LN-1 LN-2
+> MLP MHSA LN-1 LN-2
+> Forward w/ AL Forward w/o AL
+> Fig. 3. The proposed Multi-Modal Interactive Agent Layer++ (MAIL++) for the transformer-based CLIP models. During training, we only fine-tune the agent layers, which are inserted into both encoders. The image agent layers interact with the text agent layers through a trainable bottleneck-based bridge function, fostering mutual synergy between the two modalities.
+
+IV. M ULTI -M ODAL INTERACTIVE AGENT LAYER 
+
+Modality-coupled methods (MCMs), such as MaPLe [20] and MMA [25], enhance cross-modal alignment by strength-ening the interactions between the image and text encoders during training, thereby improving downstream performance. However, the coupling mechanisms employed in existing MCMs are predominantly realized through external compo-nents, rather than being integrated into the intrinsic archi-tecture. Consequently, the induced cross-modal interactions remain relatively coarse and indirect, which may constrain the model’s ability to capture fine-grained alignment. To solve this problem, we propose the Multi-Mod al Interactive Agent Layer (MAIL), a lightweight MCM that aligns parameter updates of the intrinsic architecture within the backbone across modalities while preserving the inference efficiency. MAIL incorporates agent layers to capture localized parameter updates, while the bridge functions further refine and align these updates across encoders. Based on MAIL, we further propose MAIL++, as illustrated in Fig. 3 . MAIL++ establishes a bidirectional information flow between the two encoders, enabling mutual interaction and joint optimization. 
+
+A. Agent Layer 
+
+The agent layer (AL) is designed to approximately capture the updates of specific computation modules within the en-coders. It consists of a scaling vector a, initialized as an all-one vector, and a shifting vector b, initialized as an all-zero 
+
+vector [26]. The agent layer can be appended after various positions: 
+
+AL ◦ OP( x) = OP( x) · Λ( a) + b, (3) where OP is a specific computation module, Λ( a) represents the diagonal matrix with the vector a as its diagonal elements, 
+
+· denotes the matrix multiplication. In a transformer block, the agent layer can be positioned after the LayerNorm (LN) layer ( Position-1 ) to capture updates related to the parameters of LN. Similarly, it can be placed after the multi-head self-attention (MHSA) layer ( Position-2 ) to monitor updates to the output weight matrix W O , or after the MLP layer ( Position-3) to track changes in the second linear layer, W 2
+
+> mlp
+
+. Beyond the confines of transformer blocks, the agent layer can also be appended after the final LN layer ( Position-4 ) and the last projection layer Wproj (Position-5 ), effectively capturing the relevant updates. In summary, the agent layer is specifically designed to track updates for five positions from two types 
+
+of layers: the LN layer and the linear layer. For illustrative purposes, we will focus on the text encoder ( i.e. , a, b ∈ Rdt )to demonstrate how updates occur in the LN and linear layers. 
+
+LN Layer: The LN operation is formulated as: 
+
+LN( x) = x − μσ ⊙ γ + β, (4) where x ∈ RNt×dt denotes the input to the LN layer, μ, σ ∈
+
+RNt , γ, β ∈ Rdt . The agent layer, appended after the LN layer, can be formulated as: 
+
+AL ◦ LN( x) = x − μσ ⊙ γ ⊙ a
+
+| {z } 
+
+> γ
+
++ β ⊙ a + b
+
+| {z }
+
+> β
+
+, (5) where underline indicates the trainable component, and ⊙
+
+represents the Hadamard product. As shown in Eq. (5), the update of the agent layer can approximately correspond to the updates of γ and β in the LN layer. 
+
+Linear Layer: The linear layer is formulated as: 
+
+LiL( x) = x · W ⊤ + bias, (6) where x ∈ RNt×da represents the input, with da can either equal to dt or the intermediate dimension ( 4 · dt) of the MLP layer within the transformer block. W ∈ Rdt×da denotes the weight matrix, and bias ∈ Rdt represents the bias. The agent layer, appended after the linear layer, is expressed as: 
+
+AL ◦ LiL( x) = x · (Λ( a) · W )
+
+| {z } 
+
+> W
+> ⊤
+
++ bias ⊙ a + b
+
+| {z }
+
+> bias
+
+. (7) Due to the left multiplication by Λ( a) applied to W , the updates of W are row-wise. During inference, based on Eq. (5) and Eq. (7), the agent layers can be seamlessly integrated into the original foundation model, eliminating additional inference latency. 5
+
+Algorithm 1 Pseudocode of MAIL++ in a PyTorch-like style.          
+
+> # x: input feature ; y: output feature # flag: indicates where the input feature x from. # imageAgent: the agent layer for the image encoder # textAgent: the agent layer for the text encoder # W text, W visual: text and image bridge functions # m a: the meta scaling layer if flag==’’text’’: a = textAgent.a + m a @ W text.down @ W text.up y = x * a + textAgent.b else: a = imageAgent.a + m a @ W visual.down @ W visual .up y = x * a + visionAgent.b
+
+B. Agent Layer Coupling 
+
+We define the text agent layer as AL text = {at, b t ∈ Rdt },and the image agent layer at the same location in the image encoder as AL image = {av , b v ∈ Rdv } or AL image = {av , b v ∈
+
+Rdt } (when the agent layer is appended after the final projec-tion layer, i.e. , position-5). These agent layers can be trained independently, and we term such a design as independent vision-language updating (IVLU). To enhance the synergy between the vision and language agent layers, we introduce a multi-modal agent layer coupling approach. Specifically, the scaling vector av in the vision agent layer is integrated with 
+
+at via a bottleneck-based language-to-vision projection, acting as a bridge function that facilitates gradient exchange and promotes aligned updates across the modalities: 
+
+¯av = av + Wup · Wdown · at, (8) where Wup ∈ Rdv ×r or Wup ∈ Rdt×r and Wdown ∈ Rr×dt , with 
+
+r representing the rank of the bridge function. Following the initialization method in LoRA [34], Wdown is initialized with random Gaussian values, i.e., Wdown ∼ N (0 , σ 2 
+
+> t
+
+), with σt =
+
+> 1√dt
+
+, while Wup is initialized to zeros. We term this design the Multi-Mod al Interactive Agent Layer (MAIL), where av
+
+is replaced by ¯av in the image agent layer. 
+
+C. Bi-directional Agent Layer Coupling 
+
+In Eq. (8), cross-modal interaction is realized through a single text-to-image bridge, resulting in a one-way dependency between the two encoders. Under this design, gradients orig-inating from the textual branch are propagated to the visual branch, whereas the reverse direction is not explicitly modeled, leading to asymmetric update dynamics during optimization. To overcome this asymmetry, MAIL++ introduces a bidirec-tional bridging architecture that enables reciprocal information exchange between the visual and textual streams. As illustrated in Fig. 2-b , this is achieved by incorporating a meta-scaling vector alongside modality-specific meta-text and meta-image bridges, which jointly regulate the magnitude and direction of cross-modal interactions: 
+
+ˆav = av + W vup · W vdown · am, (9a) 
+
+ˆat = at + W tup · W tdown · am, (9b) where am ∈ Rdm denotes the meta-scaling vector with dm
+
+denotes the dimension of the meta scaling layer. W vup ∈ Rdv ×r
+
+or W vup ∈ Rdt×r , W vdown ∈ Rr×dm , W tup ∈ Rdt×r , and 
+
+W tdown ∈ Rr×dm , with r representing the rank of the bridge function. ˆav and ˆat will replace in av in the image agent layer and at in the text agent layer, respectively. This formulation allows the coupling strength to be adaptively learned from data, facilitating more balanced optimization across modalities. 
+
+Alg. 1 provides the pseudo-code for MAIL++ in a PyTorch-like style. With just a few lines, MAIL++ can significantly boost performance in a plug-and-play manner. 
+
+D. Training Losses 
+
+Given a mini-batch of size B, we adopt an image–text matching objective formulated as a cross-entropy loss: 
+
+Lce = 1
+
+B
+
+> B
+
+X
+
+> j=1
+
+−yj log exp( sim (T a(tyj ), Va(Ij ))) 
+
+PCi=1 exp( sim (T a(ti), Va(Ij ))) ,
+
+(10) where Ij denotes the j-th image in the batch and yj is its corresponding class label. Here, T a(·) and Va(·) denote the text and image encoders augmented with agent layers, respectively, and sim (·, ·) represents cosine similarity. To preserve the generalization capability of pretrained CLIP representations, we further introduce a regularization objective that explicitly constrains the agent-updated features to remain close to the frozen CLIP features: 
+
+Lvreg = 1 − 1
+
+B
+
+> B
+
+X
+
+> j=1
+
+sim (Va(Ij ), V(Ij )) , (11a) 
+
+Ltreg = 1 − 1
+
+C
+
+> C
+
+X
+
+> i=1
+
+sim (T a(ti), T (ti)) , (11b) where V(·) and T (·) denote the frozen image and text encoders of CLIP, respectively. The final loss function is 
+
+L = Lce + λ · (Lvreg + Ltreg ) (12) where λ is a trade-off hyper-parameter. V. E XPERIMENTS 
+
+In this section, we evaluate the effectiveness of our proposed methods across two categories of few-shot tasks. The first category focuses on classification, including ❶ Base-to-Novel evaluation, ❷ Cross-Dataset evaluation, and ❸ Domain Gen-eralization evaluation. The second category pertains to few-shot retrieval, encompassing ❶ FS-UCDR, ❷ FS-U C CDR, and ❸ FS-U D CDR, which assess the model’s cross-domain retrieval ability across unssen domains and classes. 
+
+A. Few-Shot Classification Tasks and Datasets 1) Base-to-Novel Evaluation : Under this evaluation pro-tocol, the categories of each dataset are evenly divided into 
+
+base and novel sets. Model adaptation is performed solely on the base classes, and performance is evaluated on both base and novel categories, enabling an assessment of both transfer to seen classes and the preservation of the inher-ent generalization and zero-shot discrimination capabilities of pretrained vision–language models on unseen classes. We 6
+
+TABLE I BASE -TO -N OVEL (16-SHOT ) EVALUATION RESULTS (%) ACROSS 11 DATASETS . F OR A FAIR COMPARISON , METHODS THAT UTILIZE LLM S OR ARE DISTILLED FROM LARGER CLIP BACKBONES ARE EXCLUDED . T HE BEST PERFORMANCE UNDER FS-UCDR IS MARKED AS BOLD AND THE SECOND BEST PERFORMANCE IS MARKED AS UNDERLINE , WHILE SCORES FROM OUR METHODS ARE HIGHLIGHTED WITH A LIGHT PURPLE BACKGROUND .
+
+Methods Average ImageNet Caltech101 OxfordPets Base Novel HM Base Novel HM Base Novel HM Base Novel HM CLIP [ICML’21] 69 .34 74 .22 71 .70 72 .43 68 .14 70 .22 96 .84 94 .00 95 .40 91 .17 97 .26 94 .12 
+
+CoOp [IJCV’22] 82 .69 63 .22 71 .66 76 .47 67 .88 71 .92 98 .00 89 .81 93 .73 93 .67 95 .29 94 .47 
+
+CoOpOp [CVPR’22] 80 .47 71 .69 75 .83 75 .98 70 .43 73 .10 97 .96 93 .81 95 .84 95 .20 97 .69 96 .43 
+
+KgCoOp [CVPR’23] 80 .73 73 .60 77 .00 75 .83 69 .96 72 .78 97 .72 94 .39 96 .03 94 .65 97 .76 96 .18 
+
+MaPLe [CVPR’23] 82 .28 75 .14 78 .55 76 .66 70 .54 73 .47 97 .74 94 .36 96 .02 95 .43 97 .76 96 .58 
+
+PromptSRC [ICCV’23] 84 .26 76 .10 79 .97 77 .60 70 .73 74 .01 98 .10 94 .03 96 .02 95 .33 97 .30 96 .30 
+
+TCP [CVPR’24] 84 .13 75 .36 79 .51 77 .27 69 .87 73 .38 98 .23 94 .67 96 .42 94 .67 97 .20 95 .92 
+
+MMA [CVPR’24] 83 .20 76 .80 79 .87 77 .31 71 .00 74 .02 98 .40 94 .00 96 .15 95 .40 98 .07 96 .72 
+
+DeKg [ICLR’25] 84 .96 76 .38 80 .44 77 .40 69 .20 73 .07 98 .64 95 .20 96 .89 94 .47 97 .76 96 .09 
+
+MMRL [CVPR’25] 85 .68 77 .16 81 .20 77 .90 71 .30 74 .45 98.97 94 .50 96 .68 95 .90 97 .60 96 .74 
+
+BIP-D [TPAMI’25] 85.95 75 .79 80 .55 78.27 69 .90 73 .85 98 .77 94 .47 96 .57 95 .30 97 .37 96 .32 
+
+FCPrompt-G [TPAMI’25] 85 .28 75 .72 80 .22 77 .33 71 .11 74 .09 98 .41 94 .07 96 .19 96 .40 97 .89 97.14 MAIL [Ours, NeurIPS’25] 85 .19 77 .39 81 .10 77 .92 71 .22 74 .42 98 .34 95 .36 96 .83 95 .50 97 .97 96 .72 
+
+MAIL++ [Ours] 85 .69 78.73 82.06 78 .10 71.87 74.86 98 .80 95.53 97.14 96.10 98.20 97.14 Methods StanfordCars Flowers102 Food101 FGVCAircraft Base Novel HM Base Novel HM Base Novel HM Base Novel HM CLIP [ICML’21] 63 .37 74 .89 68 .65 72 .08 77 .80 74 .83 90 .10 91 .22 90 .66 27 .19 36 .29 31 .09 
+
+CoOp [IJCV’22] 78 .12 60 .40 68 .13 97 .60 59 .67 74 .06 88 .33 82 .26 85 .19 40 .44 22 .30 28 .75 
+
+CoOpOp [CVPR’22] 70 .49 73 .59 72 .01 94 .87 71 .75 81 .71 90 .70 91 .29 90 .99 33 .41 23 .71 27 .74 
+
+KgCoOp [CVPR’22] 71 .76 75 .04 73 .36 95 .00 74 .73 83 .65 90 .50 91 .70 91 .09 36 .21 33 .55 34 .83 
+
+MaPLe [CVPR’23] 72 .94 74 .00 73 .47 95 .92 72 .46 82 .56 90 .71 92 .05 91 .38 37 .44 35 .61 36 .50 
+
+PromptSRC [ICCV’23] 78 .27 74 .97 76 .58 98 .07 76 .50 85 .95 90 .67 91 .53 91 .10 42 .73 37.87 40 .15 
+
+MMA [CVPR’24] 78 .50 73 .10 75 .70 97 .77 75 .93 85 .48 90 .13 91 .30 90 .71 40 .57 36 .33 38 .33 
+
+TCP [CVPR’24] 80 .80 74 .13 77 .32 97 .73 75 .57 85 .23 90 .57 91 .37 90 .97 41 .97 34 .43 37 .83 
+
+DeKg [ICLR’25] 81 .18 74 .75 77 .83 98 .58 75 .18 85 .30 90 .73 91 .55 91 .14 45 .20 35 .09 39 .51 
+
+MMRL [CVPR’25] 81 .30 75.07 78 .06 98.97 77 .27 86 .78 90 .57 91 .50 91 .03 46 .30 37 .03 41 .15 
+
+BIP-D [TPAMI’25] 83.27 73 .00 77 .80 98 .30 75 .90 85 .66 90 .73 91 .23 90 .98 48 .83 35 .90 41 .38 
+
+FCPrompt-G [TPAMI’25] 80 .87 73 .03 76 .75 98 .32 74 .82 84 .98 90 .76 92.19 91 .47 43 .68 36 .97 40 .05 
+
+MAIL [Ours, NeurIPS’25] 82 .27 72 .03 76 .81 98 .20 75 .27 85 .22 90 .54 91 .77 91 .15 47 .80 36 .27 41 .24 
+
+MAIL++ [Ours] 82 .50 74 .47 78.28 98 .23 77.97 86.94 91.10 91 .97 91.53 48.87 37 .40 42.37 Methods SUN397 DTD EuroSAT UCF101 Base Novel HM Base Novel HM Base Novel HM Base Novel HM CLIP [ICML’21] 69 .36 75 .35 72 .23 53 .24 59 .90 56 .37 56 .48 64 .05 60 .03 70 .53 77 .50 73 .85 
+
+CoOp [IJCV’22] 80 .60 65 .89 72 .51 79 .44 41 .18 54 .24 92 .19 54 .74 68 .69 84 .69 56 .05 67 .46 
+
+CoOpOp [CVPR’22] 79 .74 76 .86 78 .27 77 .01 56 .00 64 .85 87 .49 60 .04 71 .21 82 .33 73 .45 77 .64 
+
+KgCoOp [CVPR’22] 80 .29 76 .53 78 .36 77 .55 54 .99 64 .35 85 .64 64 .34 73 .48 82 .89 76 .67 79 .65 
+
+MaPLe [CVPR’23] 80 .82 78 .70 79 .75 80 .36 59 .18 68 .16 94 .07 73 .23 82 .35 83 .00 78 .66 80 .77 
+
+PromptSRC [ICCV’23] 82 .67 78 .47 80 .52 83 .37 62 .97 71 .75 92 .90 73 .90 82 .32 87 .10 78 .80 82 .74 
+
+MMA [CVPR’24] 82 .27 78 .57 80 .38 83 .20 65 .63 73 .38 85 .46 82 .34 83 .87 86 .23 80 .03 82 .20 
+
+TCP [CVPR’24] 82 .63 78 .20 80 .35 82 .77 58 .07 68 .25 91 .63 74 .73 82 .32 87 .13 80 .77 83 .83 
+
+DeKg [ICLR’25] 82 .52 78 .30 80 .35 83 .80 59 .66 69 .70 94 .02 81 .69 87 .42 88 .06 81 .77 84.80 
+
+MMRL [CVPR’25] 83.20 79 .30 81 .20 85.67 65 .00 73 .82 95 .60 80 .17 87 .21 88.10 80 .07 83 .89 
+
+BIP-D [TPAMI’25] 83 .07 79 .13 81 .05 85 .43 58 .77 69 .63 95.70 78 .00 85 .95 87 .77 80 .00 83 .70 
+
+FCPrompt-G [TPAMI’25] 82 .93 79 .06 80 .95 84 .61 60 .31 70 .42 96 .80 75 .21 84 .65 87 .99 78 .28 82 .85 
+
+MAIL [Ours, NeurIPS’25] 82 .50 78 .70 80 .56 83 .15 67 .39 74 .45 93 .50 85 .11 89 .11 87 .34 80 .22 83 .63 
+
+MAIL++ [Ours] 82 .73 79.83 81.25 83 .13 67.93 74.77 95 .17 89.00 91.98 87 .90 81.87 84 .78 
+
+conduct experiments under this setting on eleven representative image classification benchmarks, including ImageNet [41], Caltech101 [42], OxfordPets [43], StanfordCars [44], Flow-ers102 [45], Food101 [46], FGVCAircraft [47], SUN397 [48], UCF101 [49], DTD [50], and EuroSAT [51]. More details of the datasets can be found in the Supplementary Material .
+
+2) Cross-Dataset Evaluation : This evaluation protocol measures the model’s ability to generalize across previously unseen datasets. Following the CoCoOp protocol [17], the model is trained on all 1,000 ImageNet categories with only a few samples per class and is then directly evaluated on the same target datasets used in the Base-to-Novel setting, without any further adaptation, to assess cross-dataset transferability. 
+
+3) Domain Generalization Evaluation : Analogous to the cross-dataset setting, the model is trained on ImageNet and evaluated on four domain-shifted variants—ImageNetV2 [52], ImageNet-Sketch [53], ImageNet-A [54], and ImageNet-R [55], enabling a complementary assessment. 
+
+B. Few-Shot Retrieval Tasks 1) FS-UCDR : The few-shot universal cross-domain re-trieval (FS-UCDR) protocol was first introduced in our prior work [27]. Under this setting, the shared label space is in-stantiated with only a few samples per class from each source domain, and the model is trained on sparsely supervised multi-domain data and subsequently evaluated on cross-domain retrieval setting, where the gallery is drawn from the real domain and query samples originate from previously unseen domains and unseen classes. By default, the gallery classes are identical to those of the query set, which we denote as the UnseenGallery . In more realistic scenarios, the gallery may further include additional classes—such as those observed during training—referred to as the MixedGallery .
+
+2) FS-U DCDR : Under the few-shot universal domain cross-domain retrieval (FS-U D CDR), the queried categories have been encountered during training, yet the query samples arise from novel, unseen domains. This protocol evaluates 7
+
+TABLE II COMPARISON OF MAIL WITH PREVIOUS STATE -OF -THE -ART METHODS ON CROSS -DATASET EVALUATION .Source Target ImageNet Average Caltech101 OxfordPets StanfordCars Flowers101 Food101 FGVCAircraft SUN397 DTD EuroSAT UCF101 CoOp [IJCV’22] 71 .51 63 .88 93 .70 89 .14 64 .51 68 .71 85 .30 18 .47 64 .15 41 .92 46 .39 66 .55                                                                                                                                   
+
+> CoOpOp [CVPR’22] 71 .02 65 .74 94 .43 90 .14 65 .32 71 .88 86 .06 22 .94 67 .36 45 .73 45 .37 68 .21
+> MaPLe [CVPR’23] 70 .72 66 .30 93 .53 90 .49 65 .57 72 .23 86 .20 24 .74 67 .01 46 .49 48 .06 68 .69
+> PromptSRC [ICCV’23] 71 .27 65 .81 93 .60 90 .25 65 .70 70 .25 86 .15 23 .90 67 .10 46.87 45 .50 68 .75
+> MMA [CVPR’24] 71 .00 66 .61 93 .80 90 .30 66 .13 72 .07 86 .12 25 .33 68.17 46 .57 49 .24 68 .32
+> TCP [CVPR’24] 71 .40 66 .29 93 .97 91 .25 64 .69 71 .21 86 .69 23 .45 67 .15 44 .35 51 .45 68 .73
+> DeKg [ICLR’25] 72.33 66 .64 94.73 90 .02 65 .49 72 .39 86 .59 25 .05 67 .19 44 .47 51 .37 68 .78
+> MMRL [CVPR’25] 72 .03 67 .25 94 .67 91.43 66 .10 72 .77 86 .40 26 .30 67 .57 45 .90 53 .10 68 .27
+> BIP-D [TPAMI’25] 70 .83 66 .57 93 .93 90 .13 65 .53 71 .43 86 .27 26 .47 67 .23 46 .00 48 .90 69.83 MAIL [Ours, NeurIPS’25] 72 .10 67 .02 94.73 91 .37 66 .63 71 .47 86 .33 25 .27 67 .30 45 .47 52 .80 68 .87
+> MAIL++ [Ours] 72 .03 67.98 94 .60 91 .20 66.70 72.87 86.63 26.87 67 .87 46 .37 57.53 69 .17
+
+TABLE III COMPARISON OF MAIL++ WITH PREVIOUS STATE -OF -THE -ART METHODS ON DOMAIN GENERALIZATION . R ESULTS OF DEKG ARE DERIVED FROM THE OPEN REVIEW COMMENT SECTION .Source Target ImageNet Avg. -V2 -S -A -R CLIP 66 .73 57 .17 60 .83 46 .15 47 .77 73 .96                                                                   
+
+> CoOp 71 .51 59 .27 64 .20 47 .99 49 .71 75 .21
+> CoOpOp 71 .02 59 .91 64 .07 48 .75 50 .63 76 .18
+> MaPLe 70 .72 60 .28 64 .07 49 .15 50 .90 76 .98
+> PromptSRC 71 .27 60 .65 64 .35 49 .55 50 .90 77 .80
+> MMA 71 .00 60 .47 64 .33 49 .13 51.12 77 .32
+> TCP 71 .20 60 .51 64 .60 49 .50 51 .20 76 .73
+> DeKg 72.33 59 .89 64 .31 48 .38 50 .51 76 .37
+> MMRL 72 .03 60 .66 64 .47 49 .17 51 .20 77 .80
+> BIP-D 70 .80 60 .50 64 .40 50 .00 50 .30 77 .30
+> MAIL 72 .10 60 .68 64 .50 49 .67 50 .70 77 .80
+> MAIL++ 72 .03 61.26 65.03 50.40 51 .10 78.50
+
+robustness to domain shift under controlled semantic novelty. 
+
+3) FS-U CCDR : Under the few-shot universal class cross-domain retrieval (FS-U C CDR), the model is exposed to the domains during training but must retrieve semantically aligned samples for classes absent from the training set. This evalua-tion stresses the preservation of semantic generalization. We conduct experiments on three datasets: DomainNet [56], Sketchy [57], [58], and TU-Berlin [59], [60]. DomainNet is used for the FS-UCDR and FS-U D CDR evaluations, while Sketchy and TU-Berlin are adopted for FS-U C CDR. More details are provided in the Supplementary Material .
+
+C. Implementation Details 1) Implementation Details for Classification Tasks: Follow-ing prior work [16], [17], [20], [25], we adopt CLIP with a ViT-B/16 [4] backbone for all experiments, where the text and visual embedding dimensions are set to dt = 512 and dv = 768 ,respectively. For MAIL++, the dimension of the meta-scaling vector am is set to 512. The configuration for λ is provided in the Supplementary Material . Hand-crafted text prompts from prior methods [2], [16], [23] are utilized. A 16-shot training strategy is employed, where 16 samples per class are randomly selected. For Base-to-Novel Evaluation , we use a batch size of 64 for larger datasets (ImageNet and SUN397), 3 for the smallest dataset EuroSAT, and 4 for all remaining datasets. The model is trained for 5 epochs on ImageNet and 10 epochs on the other datasets. We adopt the AdamW optimizer for all experiments, except on EuroSAT, where SGD yields better performance. The initial learning rate is set to 1.5 × 10 −5 for all datasets. The rank ( r) of the bridge function is set to 96 for EuroSAT and 32 for the remaining datasets. For Cross-Dataset evaluation and Domain Generalization tasks, We train the model on ImageNet for 1 epoch, while all other training settings remain the same as those used for ImageNet in the Base-to-Novel evaluation. The average accuracy is reported over three independent runs with random seeds set to 0, 1, and 2. All experiments are conducted on two 4090D GPUs 
+
+2) Implementation Details for Retrieval Tasks: For UCDR tasks, the ViT-B/32 backbone [4] is employed following prior CLIP-based studies [9], with dt = 512 and dv = 768 . In MAIL++, the bridge function rank r is set to 16 and the meta-scaling vector am dimension is set to 512. λ is set to 0, i.e. ,the regularization term is not applied. The text prompt is fixed as “ a photo of a <category >”. The triplet-hard loss [27], which is generally used for retrieval tasks, is also adopted. All experiments adhere to a 2-shot protocol, providing 2×NS
+
+samples per category, where NS is the number of source domains ( NS = 5 for DomainNet, NS = 2 for Sketchy and TU-Berlin). Training spans 1 epoch for DomainNet and 20 epochs for Sketchy and TU-Berlin, with early stopping after 2 epochs. To accommodate multiple source domains in FS-UCDR and the utilization of triple-hard loss [27], each batch is organized as B = NS × Cb × kb, where Cb = 3 denotes the number of classes sampled per domain, and kb = 4 the number of images per class; repeated samples occur if kb > k ,with k being the shot number. Optimization employs AdamW with an initial learning rate of 2 × 10 −4 and a cosine decay schedule. All experiments are conducted on a single 4090D GPU with mixed-precision training. 
+
+D. Comparision Results under Classification Tasks 1) Base-to-Novel Evaluation: We evaluate MAIL and MAIL++ against a comprehensive set of competitive baselines, including the zero-shot CLIP model and representative state-of-the-art prompt-learning approaches, namely CoOp [16], CoCoOp [17], KgCoOp [18], MaPLe [20], PromptSRC [19], 8
+
+TABLE IV FS-UCDR (2-SHOT ) EVALUATION RESULTS (%) ON DOMAIN NET . * DENOTES THE RESULTS ARE OBTAINED USING THE FULL TRAINING DATA , I.E., THE 
+
+UCDR RESULTS .                                                                                                                                                                                                                                                                                                                                  
+
+> Methods
+> Sketch Quickdraw Painting
+> UnseenGallery MixedGallery UnseenGallery MixedGallery UnseenGallery MixedGallery
+> mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200
+> ProS* [CVPR’24] 64 .67 60 .01 58 .43 54 .63 28 .42 25 .44 23 .18 21 .27 75 .16 69 .55 71 .20 66 .12
+> CLIP [ICML’21] 42 .20 35 .28 36 .62 29 .79 7.44 5.61 6.00 3.17 61 .68 55 .07 56 .53 50 .14
+> BitFit [ACL’22] 62 .68 57 .71 55 .84 51 .52 24 .88 21 .99 19 .22 16 .93 73 .40 67 .39 68 .46 62 .93
+> VPT-D [ECCV’22] 57 .47 52 .58 50 .34 45 .92 24 .26 21 .68 18 .45 16 .77 72 .05 65 .88 67 .25 61 .42
+> AFormer [NeurIPS’22] 59 .64 53 .73 52 .91 47 .77 23 .11 19 .86 18 .11 15 .71 71 .08 64 .59 66 .14 60 .17
+> IVLP [CVPR’23] 56 .25 51 .48 49 .37 45 .06 21 .07 18 .97 15 .67 14 .13 71 .47 65 .51 66 .40 60 .86
+> IVLA [CVPR’24] 60 .01 54 .16 53 .27 48 .19 23 .96 20 .72 18 .74 16 .38 71 .02 64 .60 66 .10 60 .18
+> MaPLe [CVPR’23] 62 .50 57 .49 55 .69 51 .67 27 .57 24 .93 21 .58 19 .75 75 .02 69 .41 70 .61 65 .38
+> MMA [CVPR’24] 63 .86 58 .84 56 .74 52 .33 27 .37 24 .28 21 .84 19 .56 74 .08 68 .36 69 .24 63 .92
+> MAIL [Ours, NeurIPS’25] 65 .76 61 .57 59 .05 55 .25 29 .41 26 .95 22 .83 21 .26 76 .05 70 .85 71 .12 66 .44
+> MAIL++ [Ours] 68.04 63.87 60.90 57.34 30.70 28.50 24.03 22.74 76.55 71.53 71.71 67.24 Methods
+> Infograph Clipart Average
+> UnseenGallery MixedGallery UnseenGallery MixedGallery UnseenGallery MixedGallery
+> mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200
+> ProS* [CVPR’24] 57 .98 54 .42 52 .19 49 .56 76 .48 71 .86 72 .28 68 .15 60 .52 56 .26 55 .46 51 .95
+> CLIP [ICML’21] 50 .08 44 .74 43 .75 38 .91 60 .37 51 .30 56 .08 46 .91 44 .35 38 .40 39 .80 33 .78
+> BitFit [ACL’22] 58 .84 55 .14 52 .32 48 .86 75 .81 70 .27 71 .04 65 .85 59 .12 54 .50 53 .38 49 .22
+> VPT-D [ECCV’22] 56 .28 52 .18 49 .61 45 .92 72 .96 67 .82 68 .02 63 .04 56 .60 52 .20 50 .73 46 .61
+> AFormer [NeurIPS’22] 59 .55 55 .00 53 .17 49 .27 73 .19 66 .28 68 .66 62 .10 57 .27 51 .89 51 .79 47 .00
+> IVLP [CVPR’23] 58 .20 54 .07 51 .60 47 .89 72 .28 66 .98 67 .64 62 .47 55 .85 51 .42 50 .13 46 .08
+> IVLA [CVPR’24] 57 .39 53 .36 50 .86 47 .22 73 .31 66 .40 68 .75 62 .21 57 .13 51 .84 51 .54 46 .68
+> MaPLe [CVPR’23] 59 .45 56 .14 53 .05 49 .95 76 .92 72 .28 71 .98 67 .62 60 .29 56 .05 54 .58 50 .87
+> MMA [CVPR’24] 59 .33 55 .01 53 .11 49 .23 76 .95 71 .62 72 .10 67 .09 60 .31 55 .62 54 .60 50 .42
+> MAIL [Ours, NeurIPS’25] 60 .11 57 .40 53 .34 50 .95 78 .94 74 .80 73 .91 70 .14 62 .05 58 .31 56 .05 52 .80
+> MAIL++ [Ours] 61.38 58.76 54.69 52.53 79.47 75.48 74.33 70.81 63.23 59.63 57.13 54.13
+
+TCP [61], DeKg [62], BIP-D [63], and FCPrompt-G [64], as well as the multimodal adapter-based method MMA [25]. To ensure a fair and controlled comparison, we deliberately exclude methods that rely on large language models (LLMs) to introduce strong prompt priors [36], [65] or employ distillation strategies that exploit the full unlabeled target dataset [66], as these settings introduce additional supervision beyond the standard few-shot protocol. Tab. I provides detailed results for Base and Novel classes across 11 datasets, along with the balanced harmonic mean (HM) of their accuracies, yielding several key insights: ❶ MAIL++ achieves a new SOTA per-formance. MAIL and MAIL++ consistently achieve superior or highly competitive HM performance across most datasets, indicating a better balance between base and novel classes. Specifically, MAIL++ yields improvements of 1.57%, 0.86% on Novel and HM metrics respectively, over the previous best model MMRL. ❷ Strong advantages on fine-grained and low-data datasets. MAIL and MAIL++ show particularly strong performance on fine-grained and data-sensitive datasets, such as OxfordPets, StanfordCars, FGVCAircraft, and Flowers102. On these datasets, existing prompt-based methods often exhibit large performance variance, whereas MAIL maintains stable and competitive results, highlighting its ability to capture discriminative local semantics under few-shot settings. ❸
+
+MAIL++ brings consistent gains over MAIL, especially on novel classes. Compared to MAIL, MAIL++ yields consistent improvements in Novel accuracy and HM across nearly all benchmarks. This consistent trend highlights the critical role of bidirectional information flow between accross the modalities. 
+
+2) Cross-Dataset Evaluation: The quantitative results in 
+
+Tab. II indicate that the proposed methods generalize well to unseen target datasets. In particular, MAIL++ achieves an average accuracy of 67.98%, improving upon previously re-ported state-of-the-art results, including MMRL (67.25%) and Dekg (66.64%). Although MAIL and MAIL++ do not attain the best performance on ImageNet, the performance gap with Dekg is marginal (only 0.23%), which is considered acceptable given the overall improvements across diverse datasets. 
+
+3) Domain Generalization Evaluation: As summarized in 
+
+Tab. III , MAIL and MAIL++ achieve state-of-the-art perfor-mance on the majority of evaluated datasets. In particular, MAIL++ attains an average accuracy of 61.26%, exceeding the previous best-performing method MMRL by 1.60%. 
+
+E. Comparison Results under Retrieval Tasks 1) Comparison Results under FS-UCDR and FS-U D CDR: 
+
+We primarily compare our MAIL and MAIL++ with the following categories: ❶ adapter-based methods, including AdaptFormer (vision-only adapter) [67], IVLA (modality-independent adapter) [25], and MMA [25]; ❷ prompt-based methods, including VPT-D (vision-only prompt) [68], IVLP (modality-independent prompt) [20], and MaPLe [20]; ❸
+
+other methods, including the zero-shot CLIP [2], BitFit [35], and the full-shot UCDR method, ProS [9]. The results are summarized in Tab. IV and Tab. V. We identify several key observations: ❶ Our methods consistently outperforms existing baselines. Under both settings, MAIL++ achieves clear performance advantages over ProS, despite requiring only about 1/140 of the training data used by ProS, indicating markedly superior data efficiency and generalization capability in data-scarce UCDR scenarios. ❷ Modality-coupled methods consistently outperform modality independent methods. For instance, under FS-UCDR’s UnseenGallery scenario, MaPLe and MMA achieve average mAP 200 improvements of 4.44% and 3.22% over IVLP and IVLA, respectively. This empha-sizes the importance of collaboration and information sharing 9
+
+TABLE V FS-U D CDR (2-SHOT ) EVALUATION RESULTS (%) ON DOMAIN NET .
+
+Methods Sketch Quickdraw Painting Infograph Clipart Average 
+
+mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200 mAP 200 Prec 200 
+
+ProS* [CVPR’24] 73 .85 49 .11 28 .89 11 .86 72 .27 46 .15 60 .56 39 .62 81 .05 52 .98 63 .32 39 .94 
+
+CLIP [ICML’21] 47 .60 28 .71 8.67 4.50 55 .69 31 .70 47 .56 29 .36 55 .81 31 .10 43 .07 25 .07 
+
+BitFit [ACL’22] 70 .20 45 .00 22 .75 9.52 68 .54 41 .66 59 .77 38 .51 75 .17 47 .09 59 .29 36 .36 
+
+VPT-D [ECCV’22] 65 .63 42 .96 22 .33 10 .01 66 .66 41 .13 57 .63 37 .20 73 .64 46 .46 57 .18 35 .55 
+
+AFormer [NeurIPS’22] 66 .28 39 .91 20 .66 7.88 64 .77 37 .21 59 .55 36 .70 70 .51 52 .16 56 .35 34 .77 
+
+IVLP [CVPR’23] 64 .54 42 .17 21 .31 9.51 66 .55 40 .58 59 .26 37 .64 72 .31 44 .80 56 .79 34 .94 
+
+IVLA [CVPR’24] 66 .58 40 .18 21 .44 8.20 64 .84 37 .31 58 .42 37 .58 70 .66 42 .29 56 .39 33 .11 
+
+MaPLe [CVPR’23] 71 .18 46 .65 26 .48 11 .28 70 .72 44 .64 60 .24 39 .40 77 .47 49 .15 61 .22 38 .22 
+
+MMA [CVPR’24] 71 .14 45 .54 24 .03 10 .17 68 .66 41 .53 59 .52 36 .74 75 .92 46 .38 59 .86 36 .07 
+
+MAIL [Ours, NeurIPS’25] 73 .61 49 .20 26 .91 11 .60 72 .53 45 .93 62 .69 41 .35 79 .81 52 .21 63 .11 40 .06 
+
+MAIL++ [Ours] 74.96 49.89 28.10 11.64 73.08 46.29 63.81 41.68 80.25 52.44 64.04 40.39 
+
+TABLE VI FS-U C CDR (2-SHOT ) EVALUATION RESULTS (%) ON SKETCHY AND 
+
+TU-B ERLIN .
+
+Methods Sketchy TU-Berlin 
+
+mAP 200 Prec 200 mAP all Prec 100 
+
+ProS* [CVPR’24] 69 .91 65 .45 66 .75 74 .42 
+
+CLIP [ICML’21] 35 .82 33 .08 31 .45 46 .12 
+
+BitFit [ACL’22] 67 .71 64 .01 65 .51 73 .68 
+
+VPT-D [ECCV’22] 65 .19 61 .16 62 .12 70 .89 
+
+AFormer [NeurIPS’21] 56 .87 52 .31 58 .95 70 .14 
+
+IVLP [CVPR’23] 60 .27 55 .75 59 .13 68 .58 
+
+IVLA [CVPR’24] 56 .77 52 .71 59 .13 70 .42 
+
+MaPLe [CVPR’23] 71 .86 68 .14 65 .90 73 .73 
+
+MMA [CVPR’24] 61 .59 57 .14 63 .70 72 .69 
+
+MAIL [Ours, NeurIPS’25] 73 .46 69 .73 67 .97 75 .10 
+
+MAIL++ [Ours] 74.07 70.15 68.78 75.56 
+
+TABLE VII ABLATION ON DIFFERENT INFORMATION FLOW DIRECTIONS .AL Position Direction Base Novel HM Only Text None 78 .88 76 .18 77 .51 
+
+Only Image None 77 .12 76 .47 76 .79 
+
+Image & Text None 80 .20 77 .30 78 .72 
+
+Image & Text T ⇒ I 84 .61 77 .64 80 .98 
+
+Image & Text I ⇒ T 84 .67 77 .22 80 .77 
+
+Image & Text T ⇔ I 85.69 78.73 82.06 
+
+between modalities in low-data settings. ❸ The vision-only methods perform similarly to, or even slightly outperform, the modality-independent methods. As seen in the table, Adapt-Former [67] achieves results comparable to IVLA, while VPT-Deep achieves an average mAP improvement of 0.5%-1.6% over IVLP. Therefore, we conclude that the benefit of simply fine-tuning the text side for retrieval is limited. 
+
+2) Comparison Results under FS-U C CDR: Tab. VI com-pares the FS-U C CDR performance of our MAIL and MAIL++ with other baselines. The results demonstrate that MAIL++ consistently achieves the best performance among all methods, indicating its effectiveness in enhancing CLIP’s capability to handle semantic shifts under limited-data scenarios. 
+
+F. Ablation Studies 
+
+In this section, we systematically investigate the effective-ness of the proposed modules in MAIL++ through compre-hensive ablation studies. Unless otherwise specified, all exper-iments are conducted under the Base-to-Novel classification setting, and the results are averaged over all eleven datasets. 
+
+1) Variants on Different Information Flow Directions : We first evaluate the performance of different possible inflomation 75 77 79 81 83 85 87 1 2 3 4 5 6 7 8 9 10 11 12 Accuracy (% ）          
+
+> 75 76 77 78 79 80 81 12345678910 11 12 k ~ 12 – Base 1 ~ k - Base k ~ 12 - Novel 1 ~ k - Novel k ~ 12 - HM 1 ~ k - HM k-th Encoder Layer （MAIL++ ）k-th Encoder Layer (IVLU)
+
+Fig. 4. Ablation studies on insertion strategies across Transformer blocks. 
+
+flow direction design choices in MAIL++. As shown in 
+
+Tab. VII , the agent layer (AL) setting consistently outperforms unimodal variants, highlighting the necessity of integrating agent layers into both encoders. Enabling directional cross-modal information flow further improves performance, while the bidirectional design (T ⇔ I) achieves the best results on both Base and Novel sets, leading to the highest HM. These results indicate that mutual information exchange between modalities is critical for achieving robust performance. 
+
+2) Variants of Adding AL and MAIL++ Across the Transformer Blocks : As shown in Fig. 4, we systemati-cally vary the depth-wise deployment of both bridged agent layers (MAIL++) and naive agent layers (IVLU) across the Transformer blocks. Specifically, agent layers are inserted either progressively from the first block up to the k-th block (k = 1 , 2, . . . , 12 ), or from the k-th block to the final block. As illustrated, the performance peaks when ALs and MAIL++ are applied to all transformer blocks. 
+
+3) Variants of Adding MAIL++ Within the Transformer Blocks : As shown in Fig. 5 (a), the bar plot reports the HM accuracy obtained by inserting MAIL++ module at an individual position within the Transformer blocks, while the curve illustrates the results of cumulative insertion from shal-low to deep layers. When deployed in isolation, MAIL++ achieves the most pronounced improvement when inserted at the MHSA layer. Moreover, the cumulative strategy leads to a monotonic increase in HM performance, indicating that progressively enriching cross-modal interactions across layers provides complementary benefits. 
+
+4) Dimension of the Meta Scaling Vector : As illustrated in Fig. 5 (b), the Base accuracy exhibits a monotonic im-10 78 79 80 81 82 83 84 85 86 16 32 64 128 256 512 768 1024                
+
+> Accuracy (%)
+> 76 78 80 82 84 86 24816 32 64 96 128 192 256
+> Accuracy (%)
+> (c) Rank (Average) Base Novel HM 82 84 86 88 90 92 94 96 24816 32 64 96 128 192 256
+> Accuracy (%)
+> (d) Rank (EuroSAT) Base HM Novel
+> 77.51 80.32 80.97 80.52 80.43 77.12 76.50 77.51 80.32 81.47 81.82 81.92 82.01 82.06 76 77 78 79 80 81 82 83
+> None LN-1 MHSA LN-2 MLP Last-LN Last-MLP
+> Accuracy (%)
+> Base HM Novel (a) Position (b) Dimension Base Novel HM Separate HM Cascade HM Base Novel HM Base Novel HM
+
+Fig. 5. Ablation studies on insertion strategies within Transformer blocks, the dimension of the meta-scaling vector, and the rank of the bridge function. 80.20 84.63 84.44 85.75 85.76 77.30 75.41 74.62 78.36 78.42 78.72 79.75 79.22 81.89 81.93 74 76 78 80 82 84 86 0-0 0-Uniform 0-Gaussian Uniform-0 Gaussian-0 Accuracy (%)   
+
+> Base Novel HM
+
+Fig. 6. Ablation studies on the initialization methods of the bridge function. TABLE VIII ABLATION STUDIES ON BRIDGE FUNCTION APPLIED TO THE SHIFTING VECTOR .Setup Params. Base Novel HM 
+
+w Bridge Function 7.54 M 85 .65 77 .56 81 .41 
+
+w/o Bridge Function 3.83 M 85.69 78.73 82.06 
+
+provement as the dimensionality increases, whereas the Novel accuracy peaks at a moderate dimension and deteriorates when the dimension becomes larger. As a result, the HM score achieves its maximum at a dimension of 512 on average, reflecting the optimal balance between preserving base-class knowledge and generalizing to novel classes. 
+
+5) Rank of the Bridge Function : As shown in Fig. 5 
+
+(c,d), Base accuracy consistently increases with larger ranks, whereas Novel accuracy reaches its peak at a moderate rank and degrades thereafter. Consequently, the HM score attains its optimum at rank 32 on Average and rank 96 on EuroSAT, achieving the best trade-off between base-class retention and novel-class generalization. 
+
+6) Initialization Method of the Bridge Function : Fig. 6 
+
+presents an ablation study on the initialization strategies of the bridge function. The notation “A–B” denotes the initialization schemes applied to the first and second projection matrices of the bridge function, respectively. We consider three initializa-tion strategies: all-zero initialization, uniform distribution, and Gaussian distribution. As shown, Uniform–0 and Gaussian–0 consistently achieves higher HM performance. 
+
+G. Discussion 1) Should the Shifting Vectors in the Agent Layers Be Connected Across Modalitie? We apply the bridge function 
+
+only to the modality-specific scaling vectors a. To validate this design choice, we conduct ablation studies by selectively 
+
+TABLE IX ALL METHODS ARE EVALUATED ON A SINGLE NVIDIA RTX 4090D GPU  
+
+> ON THE
+
+IMAGE NET DATASET . E ACH MODEL IS INITIALLY REPRODUCED FROM PUBLICLY AVAILABLE IMPLEMENTATIONS WITH THE DEFAULT SETTINGS REPORTED IN THE CORRESPONDING PAPERS (M APL E: BATCH SIZE 4; MMA: 128; MMRL: 32). F OR FAIR COMPARISON , WE RE -IMPLEMENT ALL METHODS WITH A UNIFIED BATCH SIZE OF 64. DURING INFERENCE , FPS AND TEST TIME ARE MEASURED USING A BATCH SIZE OF 100. Methods Params. Train Time Train Time Test Time FPS HM (M) (ms / image) (s / all) (s / all) - (%) Original Training Settings. MaPLe (4) 3.55 46 .11 1844 .34 40 .25 621 .12 73 .47 
+
+MMA (128) 0.68 1.40 112 .19 43 .08 580 .32 74 .02 
+
+MMRL (32) 4.99 6.59 262 .19 42 .06 594 .39 74 .45 
+
+Unified Training Setting with a Batch Size of 64. MaPLe 3.55 4.54 181 .39 40 .25 621 .12 73 .27 
+
+MMA 0.68 3.90 156 .05 43 .08 580 .32 74 .23 
+
+MMRL 4.99 4.74 189 .55 42 .06 594 .39 74 .35 
+
+MAIL 0.64 6.23 250 .63 38 .89 642 .84 74 .42 
+
+MAIL++ 3.83 6.37 255 .60 38 .89 642 .84 74 .86 
+
+MAIL++ Linear 32 .79 6.43 257 .33 38 .89 642 .84 74 .10 
+
+introducing the bridge function to the shifting vectors b. As shown in Tab. VIII , extending the bridge function to b yields no performance improvement while doubling the number of trainable parameters. 
+
+2) Computation Cost: We compare our methods with other Modality-Couled Methods, including MaPLe, MMA and MMRL. Tab. IX reports a comparison of computational efficiency and performance under both the original training settings and a unified training batch size of 64 on ImageNet dataset. Under the original settings, different methods adopt substantially different batch sizes, leading to incomparable training time statistics. Under the unified setting, we identify several key observations: ❶ MAIL achieves the best parameter efficiency and MAIL++ attains the best HM score with only a marginal increase in training time compared to MAIL. ❷
+
+Replacing the bottleneck-based bridge function in MAIL++ with a simple linear layer (MAIL++ Linear) results in a noticeable increase in parameter count and training cost, while yielding inferior HM performance. This observation suggests that the bottleneck design of the bridge function plays a crucial role, and that naively increasing model complexity does not necessarily lead to better generalization. ❸ While MAIL and its variants incurs higher computational costs during training, thanks to the re-parameteriazation technique, they achieve the best inference efficiency. 
+
+3) Norm of the agent layer: Fig. 7 visualizes the scaled norms of the visual and textual modulation terms, 11 10 18 26 34 42 1 2 3 4 5 6 7 8 9 10 11 12             
+
+> 10 18 26 34 42 50 12345678910 11 12 Visual Textual MHSA MLP [LAYER] [LAYER] Scaled L-2 Norm  Scaled L-2 Norm
+
+Fig. 7. Visualization of the norms of agent layers inserted after the MHSA and MLP modules across different encoder layers. 
+
+i.e., ∥ 100 √dv
+
+W vup · W vdown · am∥ and ∥ 100 √dt
+
+W tup · W tdown · am∥
+
+after training in the agent layers append after the MHSA and MLP modules across different encoder layers on the ImageNet dataset. As we can see, The model exhibits an initial pre-dominance of textual modulation, with the contribution of the visual branch progressively increasing as more discriminative visual representations are formed. This behavior is consistent with the observation that lower layers of the visual encoder encode broadly generalizable features [25] and are therefore less amenable to task-specific adaptation. VI. C ONCLUSION 
+
+In this work, we proposed MAIL, a modality-coupled parameter-efficient mechanism that embeds cross-modal in-teraction directly into the intrinsic computational modules of the CLIP backbone. By coupling localized parameter updates across the visual and textual streams, MAIL enables fine-grained and structured cross-modal alignment. We further introduced MAIL++, which removes manually imposed di-rectional bias and facilitates balanced bidirectional interac-tion between modalities. Extensive experiments on few-shot classification and universal cross-domain retrieval benchmarks demonstrate that the proposed approach consistently outper-forms existing PEFT methods while preserving the original inference efficiency of CLIP. REFERENCES [1] R. Bommasani, “On the opportunities and risks of foundation models,” 
+
+arXiv:2108.07258 , 2021. [2] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark et al. , “Learning transferable visual models from natural language supervision,” in Proc. Int. Conf. Mach. Learn , 2021, pp. 8748–8763. [3] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image recognition,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. ,2016, pp. 770–778. [4] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai, T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly, J. Uszkoreit, and N. Houlsby, “An image is worth 16x16 words: Transformers for image recognition at scale,” in Proc. Int. Conf. Learn. Representations , 2021. [5] Q. He, “A unified metric architecture for ai infrastructure: Across-layer taxonomy integrating performance, efficiency, and cost,” 
+
+arXiv:2511.21772 , 2025. [6] X. Yu, Z. Wu, L. Zhang, J. Zhang, Y. Lyu, and D. Zhu, “Cp-clip: Core-periphery feature alignment clip for zero-shot medical image analysis,” in Proc. Int. Conf. Med. Image Comput. Comput.-Assist. Interv. , 2024, pp. 88–97. [7] J. Liu, T. Hu, H. Xiong, J. Du, Y. Feng, J. Wu, J. Zhou, and Z. Liu, “Vpl: Visual proxy learning framework for zero-shot medical image diagnosis,” in Findings of ACL: EMNLP 2024 , 2024, pp. 9978–9992. [8] Z. Wang, Z. Wu, D. Agarwal, and J. Sun, “Medclip: Contrastive learning from unpaired medical images and text,” in Proc. Conf. Empir. Methods Nat. Lang. Process. , vol. 2022, 2022, pp. 3876–3887. [9] K. Fang, J. Song, L. Gao, P. Zeng, Z.-Q. Cheng, X. Li, and H. T. Shen, “Pros: Prompting-to-simulate generalized knowledge for universal cross-domain retrieval,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2024, pp. 17 292–17 301. [10] K. Chen, P. Fang, and H. Xue, “Depro: Domain ensemble using decoupled prompts for universal cross-domain retrieval,” in Proc. Int. ACM SIGIR Conf. Res. Dev. Inf. Retr. , 2025, pp. 958–967. [11] D. Csizmadia, A. Codreanu, V. Sim, V. Prabhu, M. Lu, K. Zhu, S. O’Brien, and V. Sharma, “Distill clip (dclip): Enhancing image-text retrieval via cross-modal transformer distillation,” arXiv:2505.21549 ,2025. [12] Y. Yu, C. Cao, Y. Zhang, Q. Lv, L. Min, and Y. Zhang, “Building a multi-modal spatiotemporal expert for zero-shot action recognition with clip,” in Proc. AAAI Conf. Artif. Intell. , vol. 39, no. 9, 2025, pp. 9689– 9697. [13] M. Kim, D. Han, T. Kim, and B. Han, “Leveraging temporal contextu-alization for video action recognition,” in Proc. Eur. Conf. Comput. Vis. ,2024, pp. 74–91. [14] Z. Weng, X. Yang, A. Li, Z. Wu, and Y.-G. Jiang, “Open-vclip: Transforming clip to an open-vocabulary video model via interpolated weight optimization,” in Proc. Int. Conf. Mach. Learn , 2023, pp. 36 978– 36 989. [15] N. Houlsby, A. Giurgiu, S. Jastrzebski, B. Morrone, Q. De Laroussilhe, A. Gesmundo, M. Attariyan, and S. Gelly, “Parameter-efficient transfer learning for nlp,” in Proc. Int. Conf. Mach. Learn , 2019, pp. 2790–2799. [16] K. Zhou, J. Yang, C. C. Loy, and Z. Liu, “Learning to prompt for vision-language models,” Int. J. Comput. Vis. , vol. 130, no. 9, pp. 2337–2348, 2022. [17] ——, “Conditional prompt learning for vision-language models,” in 
+
+Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2022, pp. 16 816–16 825. [18] H. Yao, R. Zhang, and C. Xu, “Visual-language prompt tuning with knowledge-guided context optimization,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2023, pp. 6757–6767. [19] M. U. Khattak, S. T. Wasim, M. Naseer, S. Khan, M.-H. Yang, and F. S. Khan, “Self-regulating prompts: Foundational model adaptation without forgetting,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. , 2023, pp. 15 190–15 200. [20] M. U. Khattak, H. Rasheed, M. Maaz, S. Khan, and F. S. Khan, “Maple: Multi-modal prompt learning,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2023, pp. 19 113–19 122. [21] Y. Guo and X. Gu, “Mmrl: Multi-modal representation learning for vision-language models,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2025, pp. 25 015–25 025. [22] B. Lester, R. Al-Rfou, and N. Constant, “The power of scale for parameter-efficient prompt tuning,” arXiv:2104.08691 , 2021. [23] R. Zhang, W. Zhang, R. Fang, P. Gao, K. Li, J. Dai, Y. Qiao, and H. Li, “Tip-adapter: Training-free adaption of clip for few-shot classification,” in Proc. Eur. Conf. Comput. Vis. , 2022, pp. 493–510. [24] P. Gao, S. Geng, R. Zhang, T. Ma, R. Fang, Y. Zhang, H. Li, and Y. Qiao, “Clip-adapter: Better vision-language models with feature adapters,” Int. J. Comput. Vis. , vol. 132, no. 2, pp. 581–595, 2024. [25] L. Yang, R.-Y. Zhang, Y. Wang, and X. Xie, “Mma: Multi-modal adapter for vision-language models,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2024, pp. 23 826–23 837. [26] D. Lian, D. Zhou, J. Feng, and X. Wang, “Scaling & shifting your features: A new baseline for efficient model tuning,” in Adv. Neural Inf. Process. Syst. , vol. 35, 2022, pp. 109–123. [27] K. Chen, P. Fang, and H. Xue, “Multi-modal interactive agent layer for few-shot universal cross-domain retrieval and beyond,” in Adv. Neural Inf. Process. Syst. , vol. 38, 2025. [28] W. Kim, B. Son, and I. Kim, “Vilt: Vision-and-language transformer without convolution or region supervision,” in Proc. Int. Conf. Mach. Learn , 2021, pp. 5583–5594. [29] J. Li, R. Selvaraju, A. Gotmare, S. Joty, C. Xiong, and S. C. H. Hoi, “Align before fuse: Vision and language representation learning with momentum distillation,” Adv. Neural Inf. Process. Syst. , vol. 34, pp. 9694–9705, 2021. [30] H. Bao, W. Wang, L. Dong, Q. Liu, O. K. Mohammed, K. Aggarwal, S. Som, S. Piao, and F. Wei, “Vlmo: Unified vision-language pre-12 
+
+training with mixture-of-modality-experts,” Adv. Neural Inf. Process. Syst. , vol. 35, pp. 32 897–32 912, 2022. [31] J. Li, D. Li, C. Xiong, and S. Hoi, “Blip: Bootstrapping language-image pre-training for unified vision-language understanding and generation,” in Proc. Int. Conf. Mach. Learn , 2022, pp. 12 888–12 900. [32] H. Liu, C. Li, Q. Wu, and Y. J. Lee, “Visual instruction tuning,” Adv. Neural Inf. Process. Syst. , vol. 36, pp. 34 892–34 916, 2023. [33] N. Houlsby, A. Giurgiu, S. Jastrzebski, B. Morrone, Q. De Laroussilhe, A. Gesmundo, M. Attariyan, and S. Gelly, “Parameter-efficient transfer learning for nlp,” in Proc. Int. Conf. Mach. Learn , 2019, pp. 2790–2799. [34] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, and W. Chen, “Lora: Low-rank adaptation of large language models,” in Proc. Int. Conf. Learn. Representations , 2022. [35] E. B. Zaken, Y. Goldberg, and S. Ravfogel, “Bitfit: Simple parameter-efficient fine-tuning for transformer-based masked language-models,” in 
+
+Proc. Annu. Meet. Assoc. Comput. Linguist. , 2022, pp. 1–9. [36] L. Yang, R.-Y. Zhang, Q. Chen, and X. Xie, “Learning with enriched inductive biases for vision-language models,” Int. J. Comput. Vis. , vol. 133, no. 6, pp. 3746–3761, 2025. [37] X. Zhu, R. Zhang, B. He, A. Zhou, D. Wang, B. Zhao, and P. Gao, “Not all features matter: Enhancing few-shot CLIP with adaptive prior refinement,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. , 2023, pp. 2605– 2615. [38] T. Yu, Z. Lu, X. Jin, Z. Chen, and X. Wang, “Task residual for tuning vision-language models,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2023, pp. 10 899–10 909. [39] R. Zhang, X. Hu, B. Li, S. Huang, H. Deng, Y. Qiao, P. Gao, and H. Li, “Prompt, generate, then cache: Cascade of foundation models makes strong few-shot learners,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2023, pp. 15 211–15 222. [40] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, L. Kaiser, and I. Polosukhin, “Attention is all you need,” in Adv. Neural Inf. Process. Syst. , vol. 30, 2017, pp. 5998–6008. [41] J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, and L. Fei-Fei, “Imagenet: A large-scale hierarchical image database,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2009, pp. 248–255. [42] L. Fei-Fei, R. Fergus, and P. Perona, “Learning generative visual models from few training examples: An incremental bayesian approach tested on 101 object categories,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. Workshop , 2004, pp. 178–178. [43] O. M. Parkhi, A. Vedaldi, A. Zisserman, and C. Jawahar, “Cats and dogs,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2012, pp. 3498–3505. [44] J. Krause, M. Stark, J. Deng, and L. Fei-Fei, “3d object representations for fine-grained categorization,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. Workshops , 2013, pp. 554–561. [45] M.-E. Nilsback and A. Zisserman, “Automated flower classification over a large number of classes,” in Proc. Indian Conf. Comput. Vis. Graph. Image Process. , 2008, pp. 722–729. [46] L. Bossard, M. Guillaumin, and L. Van Gool, “Food-101–mining discriminative components with random forests,” in Proc. Eur. Conf. Comput. Vis. , 2014, pp. 446–461. [47] S. Maji, E. Rahtu, J. Kannala, M. Blaschko, and A. Vedaldi, “Fine-grained visual classification of aircraft,” arXiv:1306.5151 , 2013. [48] J. Xiao, J. Hays, K. A. Ehinger, A. Oliva, and A. Torralba, “Sun database: Large-scale scene recognition from abbey to zoo,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2010, pp. 3485–3492. [49] K. Soomro, A. R. Zamir, and M. Shah, “A dataset of 101 human action classes from videos in the wild,” Center for Research in Computer Vision , vol. 2, no. 11, pp. 1–7, 2012. [50] M. Cimpoi, S. Maji, I. Kokkinos, S. Mohamed, and A. Vedaldi, “Describing textures in the wild,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2014, pp. 3606–3613. [51] P. Helber, B. Bischke, A. Dengel, and D. Borth, “Eurosat: A novel dataset and deep learning benchmark for land use and land cover classification,” IEEE J. Sel. Top. Appl. Earth Obs. Remote Sens. , vol. 12, no. 7, pp. 2217–2226, 2019. [52] B. Recht, R. Roelofs, L. Schmidt, and V. Shankar, “Do imagenet classifiers generalize to imagenet?” in Proc. Int. Conf. Mach. Learn ,2019, pp. 5389–5400. [53] H. Wang, S. Ge, Z. Lipton, and E. P. Xing, “Learning robust global representations by penalizing local predictive power,” Adv. Neural Inf. Process. Syst. , vol. 32, pp. 10 506–10 518, 2019. [54] D. Hendrycks, K. Zhao, S. Basart, J. Steinhardt, and D. Song, “Natural adversarial examples,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2021, pp. 15 262–15 271. [55] D. Hendrycks, S. Basart, N. Mu, S. Kadavath, F. Wang, E. Dorundo, R. Desai, T. Zhu, S. Parajuli, M. Guo et al. , “The many faces of robustness: A critical analysis of out-of-distribution generalization,” in 
+
+Proc. IEEE/CVF Int. Conf. Comput. Vis. , 2021, pp. 8340–8349. [56] X. Peng, Q. Bai, X. Xia, Z. Huang, K. Saenko, and B. Wang, “Moment matching for multi-source domain adaptation,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. , 2019, pp. 1406–1415. [57] P. Sangkloy, N. Burnell, C. Ham, and J. Hays, “The sketchy database: learning to retrieve badly drawn bunnies,” ACM Trans. Graph. , vol. 35, no. 4, pp. 1–12, 2016. [58] L. Liu, F. Shen, Y. Shen, X. Liu, and L. Shao, “Deep sketch hashing: Fast free-hand sketch-based image retrieval,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2017, pp. 2862–2871. [59] M. Eitz, J. Hays, and M. Alexa, “How do humans sketch objects?” ACM Trans. Graph. , vol. 31, no. 4, pp. 1–10, 2012. [60] H. Zhang, S. Liu, C. Zhang, W. Ren, R. Wang, and X. Cao, “Sketchnet: Sketch classification with web images,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2016, pp. 1105–1113. [61] H. Yao, R. Zhang, and C. Xu, “Tcp: Textual-based class-aware prompt tuning for visual-language model,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2024, pp. 23 438–23 448. [62] Y. Li, M. Cheng, X. Han, and W. Song, “Divergence-enhanced knowledge-guided context optimization for visual-language prompt tun-ing,” in Proc. Int. Conf. Learn. Representations , 2025. [63] H. Yao, R. Zhang, H. Lyu, Y. Zhang, and C. Xu, “Bi-modality individual-aware prompt tuning for visual-language model,” IEEE Trans. Pattern Anal. Mach. Intell. , vol. 47, no. 8, pp. 6352–6368, 2025. [64] L. Liu, N. Wang, C. Chen, D. Liu, X. Yang, X. Gao, and T. Liu, “Frequency-based comprehensive prompt learning for vision-language models,” IEEE Trans. Pattern Anal. Mach. Intell. , vol. 47, no. 12, pp. 11 974–11 989, 2025. [65] H. Zheng, S. Yang, Z. He, J. Yang, and Z. Huang, “Hierarchical cross-modal prompt learning for vision-language models,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. , 2025, pp. 1891–1901. [66] Z. Li, X. Li, X. Fu, X. Zhang, W. Wang, S. Chen, and J. Yang, “Promptkd: Unsupervised prompt distillation for vision-language mod-els,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. , 2024, pp. 26 617–26 626. [67] S. Chen, C. Ge, Z. Tong, J. Wang, Y. Song, J. Wang, and P. Luo, “Adapt-former: Adapting vision transformers for scalable visual recognition,” in 
+
+Adv. Neural Inf. Process. Syst. , vol. 35, 2022, pp. 16 664–16 678. [68] M. Jia, L. Tang, B.-C. Chen, C. Cardie, S. Belongie, B. Hariharan, and S.-N. Lim, “Visual prompt tuning,” in Proc. Eur. Conf. Comput. Vis. ,2022, pp. 709–727. 
+
+Kaixiang Chen received the BSc degree from Zhejiang University of Technology, Hangzhou, China, in 2021, the MEng degree from the Nanjing University of Aeronautics and Astronautics, Nanjing, China, in 2024. He is cur-rently working toward the PhD degree with the School of Computer Science and Engineering, Southeast University, Nanjing, China. His research interest includes computer vision and multimedia analysis. 
+
+Pengfei Fang is a Professor at the School of Com-puter Science and Engineering, Southeast University (SEU), China. Before joining SEU, he was a post-doctoral fellow at Monash University in 2022. He received the Ph.D. de-gree from the Australian National University and DATA61-CSIRO in 2022, and the M.E. degree from the Australian National University in 2017. His research interests include computer vision and machine learning. 
+
+Hui Xue (Member, IEEE) is currently a professor of School of Computer Science and Engineering at Southeast University, China. She received the B.Sc. degree in Math-ematics from Nanjing Normal University in 2002. In 2005, she received the M.Sc. degree in Mathematics from Nanjing University of Aeronautics & Astronautics (NUAA). And she also received the Ph.D. degree in Computer Applica-tion Technology at NUAA in 2008. Her research interests include pattern recognition and machine learning.

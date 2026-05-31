@@ -6,75 +6,75 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-30
-- 运行时间：2026-05-30 20:28:24 UTC
+- 最新运行日期：2026-05-31
+- 运行时间：2026-05-31 20:10:29 UTC
 - 运行状态：成功
 - 本次总论文数：17
 - 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-今日共收录17篇论文，精选6篇精读，聚焦医疗多源RAG的来源依赖问题与脑信号驱动的视觉问答。
+今日精读6篇，聚焦医学影像弱监督校准与血管分割两大方向，速读11篇覆盖多模态与视觉语言模型。
 
-最值得看的两大方向：①医疗多源RAG中同一问题因来源不同导致答案差异，需警惕可靠性；②从脑信号直接生成视觉问答，为脑机接口应用提供新思路。
+最值得关注：医学影像中基于噪声标签校准的视觉语言模型弱监督方法（9.0分），以及基于Murray定律的通用血管树分割与拓扑估计（9.0分）。
 
-建议普通读者重点关注医疗AI中数据来源差异对模型输出的影响，以及脑信号与视觉理解的交叉领域，这两处创新点有望提升辅助诊断的鲁棒性。
-- 详情：[/202605/30/README](/202605/30/README)
+建议优先精读这两篇高分论文，其对医学AI的实用性与理论创新兼具，后续可关注多模态代理层的扩展工作。
+- 详情：[/202605/31/README](/202605/31/README)
 
 ### 精读区论文标签
-1. [Same Question, Different Source, Different Answer: Auditing Source-Dependence in Medical Multi-Source RAG](/202605/30/2605.29084v1-same-question-different-source-different-answer-auditing-source-dependence-in-medical-multi-source-rag)  
+1. [From Theory to Decision Rule: Calibrating the Noisy-Label Crossover for Vision-Language Model Weak Supervision Across Three Medical-Imaging Benchmarks](/202605/31/2605.24771v1-from-theory-to-decision-rule-calibrating-the-noisy-label-crossover-for-vision-language-model-weak-supervision-across-three-medical-imaging-benchmarks)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：医疗多源RAG中的源依赖性审计
-2. [Brain-IT-VQA: From Brain Signals to Answers](/202605/30/2605.29588v1-brain-it-vqa-from-brain-signals-to-answers)  
+   evidence：医学影像基准上VLM弱监督的校准
+2. [MARVEL: Universal Murray's Law-informed Vessel Tree Segmentation and Topology Estimation](/202605/31/2605.25363v1-marvel-universal-murrays-law-informed-vessel-tree-segmentation-and-topology-estimation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：基于fMRI的医学图像视觉问答
-3. [CCS: Clinical Consensus Selection for Radiology Report Generation](/202605/30/2605.30131v1-ccs-clinical-consensus-selection-for-radiology-report-generation)  
+   evidence：基于生物物理先验的血管医学图像分割
+3. [CNNs, Transformers, Hybrid, and Vision Language Models for Skin Cancer Detection](/202605/31/2605.26294v1-cnns-transformers-hybrid-and-vision-language-models-for-skin-cancer-detection)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：放射学报告生成的临床共识选择
-4. [GRASP: Plan-Guided Graph Retrieval with Adaptive Fusion and Reranking on Semi-Structured Knowledge Bases](/202605/30/2605.30237v1-grasp-plan-guided-graph-retrieval-with-adaptive-fusion-and-reranking-on-semi-structured-knowledge-bases)  
+   evidence：用于皮肤癌检测的视觉语言模型
+4. [Toward Semantic-Agnostic and Shape-Aware Vision-Language Segmentation Models](/202605/31/2605.28348v1-toward-semantic-agnostic-and-shape-aware-vision-language-segmentation-models)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：面向精准医学的检索增强生成
-5. [Human-in-the-Loop Multi-Agent Ventilator Decision Support with Contextual Bandit Preference Learning](/202605/30/2605.23320v1-human-in-the-loop-multi-agent-ventilator-decision-support-with-contextual-bandit-preference-learning)  
+   evidence：语义无关形状感知的视觉语言分割
+5. [SliceWorld: A Predictive and Controllable World-State Model for CT Report Generation](/202605/31/2605.24371v1-sliceworld-a-predictive-and-controllable-world-state-model-for-ct-report-generation)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：用于医疗呼吸机决策支持的多智能体框架
-6. [Multimodal Distribution Matching for Vision-Language Dataset Distillation](/202605/30/2605.23482v1-multimodal-distribution-matching-for-vision-language-dataset-distillation)  
+   evidence：CT报告生成的世界状态模型，用于医学图像分析的大视觉语言模型
+6. [Correcting Visual Blur Induced by Attention Distraction to Reduce Hallucinations: Algorithm and Theory](/202605/31/2605.24602v1-correcting-visual-blur-induced-by-attention-distraction-to-reduce-hallucinations-algorithm-and-theory)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：基于分布匹配的视觉-语言数据集蒸馏
+   evidence：通过注意力分散机制解决多模态大模型中的幻觉问题
 
 ### 速读区论文标签
-1. [Are We Overconfident in Models and Results for Semi-Supervised 3D Medical Image Segmentation?](/202605/30/2605.25561v1-are-we-overconfident-in-models-and-results-for-semi-supervised-3d-medical-image-segmentation)  
+1. [MAIL++: Multi-Modal Bi-directional Agent Layer for Vision-Language Models](/202605/31/2605.25479v1-mail-multi-modal-bi-directional-agent-layer-for-vision-language-models)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：半监督3D医学图像分割
-2. [A multifractal-based masked auto-encoder: an application to medical images](/202605/30/2605.26287v1-a-multifractal-based-masked-auto-encoder-an-application-to-medical-images)  
+   evidence：视觉语言模型的多模态交互智能体层
+2. [A Multimodal Framework for Dementia Detection via Linguistic and Acoustic Representation Learning](/202605/31/2605.25540v1-a-multimodal-framework-for-dementia-detection-via-linguistic-and-acoustic-representation-learning)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：医学图像的多分形掩码
-3. [CSV-ViT: A Vision Transformer with the Variable-sized Cortical Supervertices for Detection of Alzheimer's Disease Pathologies](/202605/30/2605.26514v1-csv-vit-a-vision-transformer-with-the-variable-sized-cortical-supervertices-for-detection-of-alzheimers-disease-pathologies)  
+   evidence：多模态语言和声学框架用于痴呆检测
+3. [Leveraging Visual Signals for Robust Token-Level Uncertainty in Vision-Language Generation](/202605/31/2605.27136v1-leveraging-visual-signals-for-robust-token-level-uncertainty-in-vision-language-generation)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：用于阿尔茨海默病MRI检测的视觉Transformer
-4. [Measuring Prediction Uncertainty in Neural Cellular Automata](/202605/30/2605.26726v1-measuring-prediction-uncertainty-in-neural-cellular-automata)  
+   evidence：利用视觉信号进行大视觉语言模型的不确定性量化，与视觉语言模型进展相关
+4. [SafeRx-Agent: A Knowledge-Grounded Multi-Agent Framework for Safe and Explainable Medication Recommendation](/202605/31/2605.29146v1-saferx-agent-a-knowledge-grounded-multi-agent-framework-for-safe-and-explainable-medication-recommendation)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：基于神经细胞自动机的医学图像分割不确定性估计
-5. [Self-Supervised Contrastive Learning for Cardiac MR Sequence Classification](/202605/30/2605.24789v1-self-supervised-contrastive-learning-for-cardiac-mr-sequence-classification)  
+   evidence：医学智能体用于药物推荐
+5. [CRISP -- Clustering-Based Redundancy-Reduced Instance Sampling for Pathology Case Representation and Retrieval](/202605/31/2605.24253v1-crisp----clustering-based-redundancy-reduced-instance-sampling-for-pathology-case-representation-and-retrieval)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：应用自监督对比学习将ViT适应于心脏MR图像分类
-6. [VesselSim: learning 3D blood vessel segmentation without expert annotations](/202605/30/2605.26277v2-vesselsim-learning-3d-blood-vessel-segmentation-without-expert-annotations)  
+   evidence：通过聚类和蒸馏的病理病例表示
+6. [Mitigating Object Hallucinations in Vision-Language Models through Region-Aware Attention Recalibration](/202605/31/2605.24957v1-mitigating-object-hallucinations-in-vision-language-models-through-region-aware-attention-recalibration)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：创新的合成数据方法用于血管分割
-7. [DV-SFT: Direct Vision Supervision for Fine-Grained Visual Understanding](/202605/30/2605.26656v1-dv-sft-direct-vision-supervision-for-fine-grained-visual-understanding)  
+   evidence：无需训练的注意力校准减少VLM幻觉
+7. [RAG-Match: Retrieval-Augmented Knowledge Injection and Hierarchical Reasoning for Calibrated Semantic Relevance](/202605/31/2605.25486v1-rag-match-retrieval-augmented-knowledge-injection-and-hierarchical-reasoning-for-calibrated-semantic-relevance)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：多模态大模型中视觉 token 的显式监督
-8. [AsymVLM: Asymmetric Token Pruning for Efficient Vision-Language Model Inference](/202605/30/2605.29535v1-asymvlm-asymmetric-token-pruning-for-efficient-vision-language-model-inference)  
+   evidence：RAG框架用于语义相关性，可应用于医学分析
+8. [Towards Anatomically Plausible Human Image Generation via Synthetic Localized Preferences](/202605/31/2605.25759v1-towards-anatomically-plausible-human-image-generation-via-synthetic-localized-preferences)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：通过非对称令牌剪枝实现高效VLM推理
-9. [H$^{2}$MT: Semantic Hierarchy-Aware Hierarchical Memory Transformer](/202605/30/2605.24930v1-h2mt-semantic-hierarchy-aware-hierarchical-memory-transformer)  
+   evidence：使用偏好对齐生成解剖学合理的图像
+9. [Radiuma: A Unified Zero-Code Executable Graphical Workflow Generator for Reproducible and Shareable Medical Image Analysis and Machine Learning](/202605/31/2605.24201v1-radiuma-a-unified-zero-code-executable-graphical-workflow-generator-for-reproducible-and-shareable-medical-image-analysis-and-machine-learning)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：基于语义层次的层次内存Transformer用于RAG
-10. [Privacy-Preserving Local Language Models for Longitudinal Data Retrieval in Chronic Dermatologic Disease: Implementation in Pemphigus Patients](/202605/30/2605.25020v1-privacy-preserving-local-language-models-for-longitudinal-data-retrieval-in-chronic-dermatologic-disease-implementation-in-pemphigus-patients)  
+   evidence：医学图像分割和机器学习平台
+10. [Structure-Aware RAG: Structured Retrieval Augmented Generation from Noisy Data for Conversational Agents](/202605/31/2605.24366v1-structure-aware-rag-structured-retrieval-augmented-generation-from-noisy-data-for-conversational-agents)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：本地语言模型用于皮肤病学纵向临床数据检索
-11. [D3S2: Diffusion-Guided Dataset Distillation for Semantic Segmentation](/202605/30/2605.25022v1-d3s2-diffusion-guided-dataset-distillation-for-semantic-segmentation)  
+   evidence：利用表格的结构感知RAG减少噪声，适用于医学数据
+11. [Language Bias in LVLMs: From In-Depth Analysis to Simple and Effective Mitigation](/202605/31/2605.25036v1-language-bias-in-lvlms-from-in-depth-analysis-to-simple-and-effective-mitigation)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：扩散引导语义分割数据集蒸馏
+   evidence：大视觉语言模型中语言偏差的分析与缓解，与VLM进展相关
 
 
 <div class="dpr-home-promo-card">
