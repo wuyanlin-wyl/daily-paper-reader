@@ -889,6 +889,15 @@ def looks_like_formula(text: Any) -> bool:
     return any(marker in value for marker in formula_markers)
 
 
+def is_predominantly_chinese(text: Any, min_chinese_chars: int = 4) -> bool:
+    value = clean_text(text)
+    chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", value))
+    english_words = len(re.findall(r"[A-Za-z]{3,}", value))
+    if chinese_chars < min_chinese_chars:
+        return False
+    return chinese_chars >= english_words * 2
+
+
 def is_generic_source_mechanism(text: Any) -> bool:
     value = clean_text(text)
     generic_patterns = [
@@ -914,6 +923,8 @@ def route_quality_issues(route: Dict[str, Any]) -> List[str]:
         issues.append("source_mechanisms has fewer than two items")
     elif all(is_generic_source_mechanism(item) for item in mechanisms):
         issues.append("source_mechanisms are generic placeholders")
+    elif any(not is_predominantly_chinese(item) for item in mechanisms):
+        issues.append("source_mechanisms contain non-Chinese explanations")
 
     theory = route.get("theoretical_rationale") if isinstance(route.get("theoretical_rationale"), dict) else {}
     required_theory = [
@@ -934,6 +945,20 @@ def route_quality_issues(route: Dict[str, Any]) -> List[str]:
     if not clean_text(route.get("possible_experiment")):
         issues.append("missing possible_experiment")
 
+    chinese_fields = [
+        "idea",
+        "why_promising",
+        "new_problem_definition",
+        "possible_experiment",
+        "risk",
+    ]
+    for field in chinese_fields:
+        if not is_predominantly_chinese(route.get(field)):
+            issues.append(f"{field} is not predominantly Chinese")
+    for field in ["math_object", "source_decomposition", "new_formulation", "why_it_may_work"]:
+        if not is_predominantly_chinese(theory.get(field)):
+            issues.append(f"theoretical_rationale.{field} is not predominantly Chinese")
+
     return issues
 
 
@@ -950,6 +975,20 @@ def normalize_directions_payload(payload: Dict[str, Any], papers: List[Dict[str,
         paper_ids = [pid for pid in paper_ids if pid in valid_ids]
         if len(set(paper_ids)) < 2:
             rejected.append(f"{clean_text(raw.get('name'), 80) or 'unnamed'}: fewer than two papers")
+            continue
+        if not is_predominantly_chinese(raw.get("name")):
+            rejected.append(f"{clean_text(raw.get('name'), 80) or 'unnamed'}: direction name is not predominantly Chinese")
+            continue
+        if not is_predominantly_chinese(raw.get("summary")):
+            rejected.append(f"{clean_text(raw.get('name'), 80) or 'unnamed'}: direction summary is not predominantly Chinese")
+            continue
+        shared = [clean_text(x) for x in raw.get("shared_innovations") or [] if clean_text(x)]
+        if any(not is_predominantly_chinese(item) for item in shared):
+            rejected.append(f"{clean_text(raw.get('name'), 80) or 'unnamed'}: shared innovations contain non-Chinese explanations")
+            continue
+        gaps = [clean_text(x) for x in raw.get("open_gaps") or [] if clean_text(x)]
+        if any(not is_predominantly_chinese(item) for item in gaps):
+            rejected.append(f"{clean_text(raw.get('name'), 80) or 'unnamed'}: open gaps contain non-Chinese explanations")
             continue
         current = set(paper_ids)
         duplicate = False
@@ -999,6 +1038,8 @@ def build_research_directions_prompt(items: List[Dict[str, Any]]) -> List[Dict[s
                 "必须明确指出 A 论文解决什么、B 论文补足什么；必须给出一个可以投稿的新问题定义或新系统设定；"
                 "必须给出最小可行实验，而不是笼统说“做消融”。如果只是简单拼接模块，必须判为低价值路线。"
                 "每条路线还必须从理论/数学角度给出创新理由。"
+                "除论文标题、模型名、公式、变量、英文缩写和标准数据集名外，所有解释性文字必须使用中文。"
+                "方向名称、方向摘要、共同创新点、未解决问题以及路线中的每个说明字段都必须写成中文。"
             ),
         },
         {
@@ -1019,6 +1060,8 @@ def build_research_directions_prompt(items: List[Dict[str, Any]]) -> List[Dict[s
                 "   - formula_sketch：至少给出一个可写进论文方法部分的公式草图或伪公式，并定义主要变量；\n"
                 "   - why_it_may_work：说明该数学设计为什么可能带来性能、稳定性、可解释性、泛化性或安全性的提升。\n"
                 "8. 禁止只写“从理论上更合理”“具有数学可解释性”“可以提升泛化能力”“结合不确定性和知识图谱”等没有公式或变量定义的空话。\n\n"
+                "9. 除论文标题、模型名、公式、变量、英文缩写和标准数据集名外，所有输出必须使用中文。"
+                "不要输出英文方向名称、英文摘要或英文说明段落。\n\n"
                 + json.dumps(items, ensure_ascii=False, indent=2)
             ),
         },
