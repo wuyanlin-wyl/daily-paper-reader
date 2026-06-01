@@ -20,8 +20,17 @@ CONFIG_FILE = os.path.join(ROOT_DIR, "config.yaml")
 TODAY_STR = str(os.getenv("DPR_RUN_DATE") or "").strip() or datetime.now(timezone.utc).strftime("%Y%m%d")
 RANGE_DATE_RE = re.compile(r"^(\d{8})-(\d{8})$")
 
-BLT_API_KEY = os.getenv("BLT_API_KEY")
-BLT_MODEL = os.getenv("BLT_SUMMARY_MODEL") or os.getenv("SUMMARY_MODEL") or "gemini-3-flash-preview"
+LLM_API_KEY_SOURCE = next(
+    (name for name in ("BLT_API_KEY", "DEEPSEEK_API_KEY", "SUMMARY_API_KEY") if os.getenv(name)),
+    "",
+)
+BLT_API_KEY = os.getenv(LLM_API_KEY_SOURCE) if LLM_API_KEY_SOURCE else ""
+BLT_MODEL = (
+    os.getenv("BLT_SUMMARY_MODEL")
+    or os.getenv("SUMMARY_MODEL")
+    or os.getenv("DEEPSEEK_MODEL")
+    or "gemini-3-flash-preview"
+)
 DEFAULT_BASE_URL = "https://api.bltcy.ai/v1"
 
 
@@ -150,6 +159,7 @@ class SimpleLLMClient:
             os.getenv("BLT_PRIMARY_BASE_URL"),
             os.getenv("BLT_API_BASE"),
             os.getenv("SUMMARY_BASE_URL"),
+            os.getenv("DEEPSEEK_BASE_URL"),
             DEFAULT_BASE_URL,
         ]
         output: List[str] = []
@@ -1621,6 +1631,7 @@ def main() -> None:
 
     client = None
     if not args.no_llm and BLT_API_KEY:
+        log(f"[INFO] LLM enabled via {LLM_API_KEY_SOURCE}, model={BLT_MODEL}")
         client = SimpleLLMClient(api_key=BLT_API_KEY, model=BLT_MODEL)
     elif not args.no_llm:
         log("[WARN] 未配置 BLT_API_KEY，使用基础版创新点总结。")
