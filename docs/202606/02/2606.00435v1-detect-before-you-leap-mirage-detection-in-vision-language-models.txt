@@ -1,0 +1,1311 @@
+Title: Detect Before You Leap: Mirage Detection in Vision-Language Models
+
+URL Source: https://arxiv.org/pdf/2606.00435v1
+
+Published Time: Tue, 02 Jun 2026 00:33:10 GMT
+
+Number of Pages: 47
+
+Markdown Content:
+# Detect Before You Leap: Mirage Detection in Vision–Language Models 
+
+Sayeed Shafayet Chowdhury *
+
+Indiana University Indianapolis 
+
+saychow@iu.edu 
+
+Md. Shaown Miah Bangladesh University of Engineering and Technology 
+
+1918018@bme.buet.ac.bd 
+
+Abstract 
+
+Vision–language models (VLMs) can produce confident visual answers even when the required visual evidence is missing, blank, or unrelated to the question. This failure mode, recently described as mirage 
+
+Asadi et al. (2026), is especially concerning in medical and document VQA, where a plausible but visually ungrounded answer may be mistaken for image-based evidence. We study the complementary problem of pre-release mirage detection : given an image–question pair, determine whether the VLM should answer or abstain before generation. To that end, we propose a novel model-agnostic Text-Conditioned Layer-wise Internal Alignment (TC-LIA) method that probes patch-token representations across the layers of a CLIP ViT-H/14 vision encoder. The key idea is to project layer-wise image patch tokens into the final CLIP embedding space and measure their similarity with the question embedding, thereby tracking whether question-relevant visual evidence emerges across vision layers. TC-LIA summarizes this alignment trajectory using final image–text cosine similarity, late-layer top-k patch–text alignment, early-to-late gain, and layer-wise slope. These features are combined with pixel-statistic based blank/noise detection, zero-shot domain routing, and structured VLM self-assessment in an ensemble. Across five VQA domains with related, unrelated-real, and blank/noise inputs, and across twelve VLM backbones, Qwen2.5-VL-32B achieves the highest three-class detection accuracy of 94.7% with a 3.0% mirage rate, while Qwen2.5-VL-72B achieves 94.6% accuracy with a lower 2.8% mirage rate. Baseline mirage rates span 21.7–66.6%. 
+
+# 1 Introduction 
+
+Multimodal models are increasingly used to answer questions about images, radiographs, pathology slides, documents, and scene photographs. Their deployment implicitly assumes that when an image is supplied with a question, the resulting answer is grounded in that image. Recent work on mirage reasoning challenges this assumption: VLMs can generate detailed visual descriptions and confident diagnoses even when images are absent, blank, or irrelevant Asadi et al. (2026). Such failures are particularly dangerous in high-stakes settings, where a system may transform a missing or mismatched input into a fluent but unsupported answer. The central limitation of a purely generative VLM interface is the absence of an explicit pre-release test of visual answerability. A VLM may answer a question about an aortic aneurysm from a natural image, a blank image, or an unrelated document because its language prior is strong enough to produce a plausible response. Therefore, answer accuracy alone is insufficient: a safe system must also detect when it should not answer. We frame this as runtime mirage detection . Given an image x and question q, the detector predicts whether the pair is R ELATED , U NRELATED -R EAL , or B LANK /N OISE . If the pair is related, the VLM is 
+
+> *lead contributor, Chowdhury also served as the faculty advisor for this work.
+
+1
+
+> arXiv:2606.00435v1 [cs.CV] 29 May 2026
+
+allowed to answer; otherwise, the system abstains with a refusal such as “I cannot answer based on the given image.” This setting differs from ordinary hallucination detection - instead of checking whether a completed answer is false, we decide whether the visual input is appropriate a priori. To that end, we propose TC-LIA, a Text-Conditioned Layer-wise Internal Alignment method built on CLIP-style image–text representations and ViT patch tokens Radford et al. (2021); Dosovitskiy et al. (2021). Rather than relying only on final global CLIP cosine similarity, TC-LIA examines how the question-conditioned patch evidence evolves across vision-encoder layers. For each layer, patch tokens are projected into the CLIP embedding space and compared with the question embedding. We summarize late-layer top-k patch alignment, early-to-late alignment gain, and layer-wise slope. The motivation is that related image–question pairs should develop localized and increasingly specific patch–text alignment in later layers, whereas unrelated or blank inputs should show weaker, flatter, or unstable alignment curves. Our full system combines five stages: (1) pixel-statistic blank/noise detection, (2) zero-shot domain routing using CLIP prompt groups, (3) TC-LIA features, (4) structured VLM self-assessment, and (5) feature-level fusion using a boosting ensemble. We evaluate the proposed framework across medical, natural-image, document, and infographic VQA settings, as well as across multiple VLM families. In addition to the main results, we provide systematic diagnostic analyses in the appendix, including comparisons with final CLIP similarity, decoder-side RAPT attention ratios Liu et al. (2026), GradCAM-style saliency, and prompting-based self-assessment. These analyses clarify the limitations of simpler relevance signals and motivate the need for layer-wise text-conditioned alignment combined with ensemble fusion. 
+
+Scope and distinctions. Our work differs from generic hallucination detection. First, the detector is 
+
+pre-release ; it decides whether a VLM should be allowed to answer. Second, the method is not simply CLIP cosine similarity, final cosine is included as both a baseline and a feature, but TC-LIA uses layer-wise local patch–text alignment, late top-k evidence, early-to-late gain, and slope. Third, the method does not rely only on VLM self-refusal; the VLM’s structured class prediction is one feature among several and can be overridden by the ensemble. Fourth, blank/noise detection is not the main novelty; blank images are handled by a simple pixel gate. The central challenge is detecting U NRELATED -R EAL images that are visually valid but semantically mismatched to the question. 
+
+Contributions. 
+
+• We formulate runtime mirage detection as a pre-release decision problem for identifying whether an image–question pair is R ELATED , U NRELATED -R EAL , or B LANK /N OISE before a VLM answers, evaluated across five VQA domains. • We propose TC-LIA, a novel text-conditioned layer-wise internal alignment method that uses interme-diate CLIP ViT-H/14 patch-token representations across all layers to quantify the gradual emergence of question-relevant visual evidence, distilled into 11 interpretable scalar features. • The proposed multi-stage framework fuses pixel statistics, CLIP-based domain routing, TC-LIA features, and structured VLM self-assessment with a boosting ensemble, reducing base-prompt mirage rates of 21.7–66.6% down to 2.7–3.3% across models. 
+
+# 2 Related Work 
+
+Grounding failures, hallucination, and VQA shortcuts. Recent work has shown that VLMs can produce fluent answers that are weakly grounded in the supplied image, exposing a gap between answer plausibility and visual evidence use Li et al. (2023); Bai et al. (2024). POPE evaluates object hallucination by testing whether model outputs mention objects unsupported by the image Li et al. (2023), while broader surveys 2Figure 1: Proposed pipeline combining blank/noise detection, CLIP-based domain routing, TC-LIA image– text alignment, and structured VLM outputs. An ensemble fuses these to pass the VLM response only for RELATED image–question pairs, while rejecting U NRELATED -R EAL and B LANK /N OISE inputs to prevent mirage reasoning. organize multimodal hallucination sources, benchmarks, and mitigation strategies Bai et al. (2024). Relatedly, VQA benchmarks have long revealed that models may exploit language priors and dataset artifacts rather than visual evidence Goyal et al. (2017); Agrawal et al. (2018). Winoground further shows that strong vision–language systems can struggle with grounded compositional reasoning despite strong aggregate performance Thrush et al. (2022). Our work differs from post-generation hallucination diagnosis: we ask whether the image–question pair should be answered at all before generation. 
+
+Abstention and selective prediction. Selective prediction studies how models can trade coverage for reliability by abstaining on uncertain inputs Geifman and El-Yaniv (2017). Recent work also examines whether language models can recognize uncertainty or know when they know an answer Kadavath et al. (2022); Xiong et al. (2024). However, answer confidence is not equivalent to visual evidence consistency. In mirage detection, the key is not whether the model is uncertain, but whether the supplied image contains relevant evidence. We, therefore, formulate abstention as a pre-release image–question consistency decision. 
+
+Intermediate representations and image–text matching. Our method builds on the observation that intermediate neural representations encode structured task-relevant information and can be probed to analyze model behavior Alain and Bengio (2016); Tenney et al. (2019); Belinkov (2022). In vision transformers and self-supervised models, semantic and spatial structure can emerge non-uniformly across layers Caron et al. (2021); Raghu et al. (2021). CLIP-style image–text similarity provides a natural baseline for relevance estimation Radford et al. (2021), but a single final global similarity score may be too coarse for localized VQA evidence, especially in medical, document, and infographic settings. TC-LIA instead tracks question-3conditioned patch–text alignment across vision-encoder layers and uses this trajectory as a runtime mirage-detection signal. 
+
+Grounding, domain-aware verification, and datasets. Grounded pretraining and open-set grounding models provide phrase-to-region localization capabilities Li et al. (2022); Liu et al. (2023), but they are not designed specifically to decide whether a VLM should abstain before answering. Our framework targets this pre-release decision using lightweight model-agnostic layer-wise alignment features and domain-routing signals. We evaluate across diverse VQA settings, including pathology, scene-text, document, and infographic domains He et al. (2020); Singh et al. (2019); Mathew et al. (2021, 2022). 
+
+RAPT and visual evidence augmentation. Relative Attention Per Token (RAPT) and Visual Evidence Augmentation (VEA) analyze how VLM decoder layers allocate attention between image and text tokens, showing that models may attend to relevant visual regions even when final answers are wrong Liu et al. (2026). This is orthogonal to our setting - RAPT studies how available visual evidence is used during answering, whereas we ask whether sufficient question-relevant visual evidence is present before answering is allowed. In our experiments, RAPT-style attention ratios are useful diagnostics but are not reliable standalone mirage detectors, as shown in appendix E.3. 
+
+# 3 Problem Formulation 
+
+Let x ∈ X denote an image and q ∈ Q denote a textual question. We assign a label y ∈ Y = {R, U, B },where R indicates that x is related to q and the VLM may answer, U indicates that x is a real but unrelated image, and B indicates blank or noise input. A mirage detector g(x, q ) outputs one of these three labels. If 
+
+g(x, q ) = R, a downstream VLM is allowed to answer; otherwise the system returns a refusal. 
+
+Mirage rate. We define mirage rate as the fraction of all examples for which the detector incorrectly allows a non-related input to be answered:       
+
+> MR( g) = 1
+> |D|
+> X
+> (x,q,y )∈D
+> 1[y̸=R, g (x, q ) = R].(1)
+
+Here, R denotes R ELATED . Thus, y̸ = R corresponds to either U NRELATED -R EAL or B LANK /N OISE 
+
+inputs. This differs from conventional false-positive rate because the denominator is the entire evaluation set, matching the deployment risk that a random incoming request may be wrongly passed to the VLM. 
+
+# 4 Method 
+
+The proposed system consists of five stages, as depicted in Fig. 1: blank/noise screening, domain-adaptive CLIP routing, TC-LIA feature extraction, structured VLM self-assessment, and ensemble-based feature fusion. 
+
+Stage 1: Blank and noise detection. Blank and noise inputs are detected using image statistics, including the global standard deviation of grayscale intensities, patch-variance coefficient of variation, and spectral flatness. This stage serves as a high-recall safeguard for non-informative inputs, allowing subsequent stages to focus on the more challenging semantic distinction between R ELATED and U NRELATED -R EAL 
+
+image–question pairs. 
+
+Stage 2: Domain-adaptive CLIP routing. A single CLIP embedding space may not provide uniformly reliable image–text relevance estimates across heterogeneous visual domains Radford et al. (2021); Zhang 4Figure 2: TC-LIA computes text-conditioned layer-wise patch alignment from CLIP ViT-H/14 features. Late-layer top-k alignment, alignment gain, slope, final cosine similarity, and IAS are used as mirage detection features. et al. (2023). Rather than performing fine-grained domain assignment, we use a coarse distinction between medical and natural images. Specifically, we compute zero-shot prompt probabilities over separate medical and natural prompt sets. Let pm and pn denote the normalized probabilities assigned to the medical and natural groups, respectively. These probability features guide embedding-space routing and are also used as inputs to the final ensemble classifier. 
+
+Stage 3: TC-LIA. Let zℓ, 0: N = fℓ(x) denote the token representations extracted from layer ℓ of the CLIP ViT vision encoder, where zℓ, 0 is the CLS token and zℓ, 1: N are patch tokens. Let t(q) be the normalized CLIP text embedding of question q. To compare intermediate vision tokens with the text embedding, each token is mapped into the CLIP joint embedding space using the fixed CLIP visual post-normalization and projection:       
+
+> P(zℓ,i ) = norm(LN post (zℓ,i )Wv),sℓ,i = cos( P(zℓ,i ), t (q)) .
+
+Here, Wv is the CLIP visual projection matrix and norm( ·) denotes ℓ2 normalization. The projection is fixed and is not learned during detector training. 
+
+Why does a final-layer projection work on intermediate tokens? Wv was trained to map the final visual representation into the CLIP joint embedding space, not to optimally project arbitrary intermediate patch tokens. Applying it to intermediate-layer tokens should therefore be viewed as an approximate readout rather than a claim that those tokens are fully CLIP-aligned. Nevertheless, we empirically demonstrate the utility of this approximation in Fig. 3(a): deeper layers inhabit the same evolving residual feature space that ultimately feeds the CLIP readout, so question-relevant patch tokens progressively move toward semantically aligned directions even before the final layer. Crucially, TC-LIA does not require exact calibration of intermediate cosine values; it relies on relative trajectory statistics , namely late-layer top-k alignment, early-to-late gain, and slope (Fig. 2), which remain discriminative even when the projection is approximate. In this sense, Wv
+
+5acts as a shared semantic ruler across layers - not a layer-optimal projector, but a consistent probe whose output trajectory separates related from unrelated image–question pairs. For each layer, we exclude the CLS token and summarize local image evidence using the mean of the top-k patch–text similarities: 
+
+aℓ = 1
+
+k
+
+X  
+
+> i∈TopK k(sℓ, 1: N)
+
+sℓ,i , k = 10 .
+
+Let LE and LL denote the first and second halves of the captured vision-encoder layers. We compute 
+
+aE = 1
+
+|L E |
+
+X
+
+> ℓ∈L E
+
+aℓ, aL = 1
+
+|L L|
+
+X
+
+> ℓ∈L L
+
+aℓ.
+
+The scalar TC-LIA features are late = aL, gain = aL − aE ,
+
+> slope = LinearSlope( a1, . . . , a L).
+
+Further, we compute the standard final CLIP image–text similarity final _cos = cos( v(x), t (q)) , where v(x)
+
+is the normalized final CLIP image embedding. The composite Internal Alignment Score is,          
+
+> IAS = 0 .50 ×final _cos + 0 .25 ×late + 0 .15 ×gain + 0 .10 ×slope .
+
+The final TC-LIA feature set consists of final _cos , late , gain , slope , and IAS , which are passed to the ensemble classifier. The overall TC-LIA workflow and its layer-wise alignment features are illustrated in Fig. 2. The theoretical motivation in Section 5 formalizes why late-layer alignment, early-to-late gain, and slope are expected to be informative: related pairs should exhibit emerging localized patch–text evidence in deeper layers, whereas unrelated or blank/noise inputs should lack a consistent late-layer alignment trajectory. 
+
+Stage 4: Structured VLM self-assessment. The VLM receives a structured prompt (Fig. 8) requiring a class label and an answer. The predicted class is encoded as a feature. If the ensemble predicts R ELATED , the answer is released; otherwise, it is replaced by a refusal response. This prevents over-reliance on the VLM’s self-refusal behavior. 
+
+Stage 5: Feature fusion. The final feature vector includes pixel statistics, domain-routing outputs, TC-LIA scalar features, and the VLM class encoding. We train XGBoost as the primary classifier Chen and Guestrin (2016) and compare it with LightGBM Ke et al. (2017), Gradient Boosting, AdaBoost, Random Forest Breiman (2001), rule-based fusion, CLIP-only, TC-LIA-only, and VLM-only baselines. The complete inference procedure is summarized in Algorithm 1, with implementation details provided in Appendix A. 
+
+# 5 Theoretical Motivation 
+
+The central assumption of the proposed TC-LIA method is that related pairs exhibit an increase in localized semantic alignment in later vision layers, whereas non-related pairs may show generic similarity or spurious attention but lack consistent late-layer evidence. 
+
+Lemma 1: late-layer alignment separation. Let aL be the late-layer top-k patch alignment. Suppose 
+
+aL|R and aL|U are sub-Gaussian with means μR and μU , common proxy variance σ2, and margin ∆ = 
+
+μR − μU > 0. Then the threshold classifier ˆy = R iff aL > (μR + μU )/2 has error at most exp( −∆2/(8 σ2)) 
+
+for each class. 
+
+Proof sketch. Apply standard sub-Gaussian tail bounds to P (aL ≤ τ |R) and P (aL > τ |U ) with 
+
+τ = ( μR + μU )/2.6Lemma 2: gain cancels layer-invariant shortcuts. Assume aℓ(x, q ) = c(x, q ) + rℓ(x, q ) + ϵℓ, where c is a layer-invariant global image–text prior, rℓ is localized evidence that emerges in late layers, and ϵℓ is noise. Then gain = late − early cancels c and estimates the emergence of localized evidence. 
+
+Proposition 1: staged blank gating decomposes mirage risk. Let gB be the blank/noise gate and gN be the non-blank related/unrelated detector. The total mirage risk satisfies 
+
+MR( g) ≤ P (B)ϵB + P (U )ϵU , (2) where ϵB = P (gB̸ = B|B) and ϵU = P (gN = R|U ). This decomposition motivates the architecture in Fig. 1: a lightweight high-recall blank/noise stage reduces the first term, while TC-LIA and ensemble fusion target the harder semantic mismatch term. The theory therefore supports the design principle behind our system - mirage detection requires both low-level input validity checks and layer-wise semantic evidence alignment. Detailed proofs of the theoretical statements are provided in Appendix D. 
+
+# 6 Experiments 
+
+Datasets. Following Liu et al. (2026), we evaluate on five domains: chest VQA, pathology VQA He et al. (2020), TextVQA Singh et al. (2019), DocVQA Mathew et al. (2021), and InfoVQA Mathew et al. (2022). Each base item is expanded into three conditions - related real image, unrelated real image, and blank/noise image. The training set for the ensemble contains 100 samples per domain per condition, while remaining samples form the held-out test set. Dataset details are provided in Appendix A.1. 
+
+Models and Baselines. We evaluate twelve open VLMs with complete five-domain coverage: Qwen2.5-VL-7B, 32B and 72B Bai et al. (2025), BLIP2-OPT-2.7B, Gemma-3-4B-IT Gemma Team (2025), Phi-3.5-Vision, LLaVA-Next-110B, LLaVA-v1.6-34B Liu et al. (2024), InternVL3-38B Wang et al. (2025), MiniCPM-V-2.6, Aya-Vision-32B, LLaMA-3.2-90B; spanning 2.7B–110B parameters across the LLaVA, LLaMa, InternVL, Qwen-VL, Gemma, and BLIP families. 
+
+Metrics. A trivial detector could minimize mirage rate by refusing every input. Therefore, we report three-class accuracy, macro-F1, related recall, mirage rate, AUROC for binary related-versus-nonrelated detection, and answer quality of the eventual response using BLEU, ROUGE-L, and BERTScore F1 Papineni et al. (2002); Lin (2004); Zhang et al. (2020). Implementation details are provided in Appendix A.2. Our anonymized code is provided here: https://anonymous.4open.science/r/Mirage_Detection_in_VL MS-779D/ .
+
+# 7 Results 
+
+Layer-wise alignment separates related and non-related inputs. Figure 3(a) visualizes the core empirical signal behind TC-LIA. Averaged across domains, R ELATED image–question pairs develop a stronger late-layer top-k patch–text alignment trajectory, whereas U NRELATED -R EAL inputs remain comparatively flat and B LANK /N OISE inputs show unstable or non-semantic alignment. This pattern directly supports the use of late-layer alignment, early-to-late gain, and slope as features. 
+
+Main mirage detection performance. Table 1 reports mirage detection performance across VLM families and detector variants. Across models, the base prompt mirage rates span 21.7–66.6%, confirming that the VLMs often answer even when the image is unrelated or non-informative. In contrast, TC-LIA and ensemble fusion substantially reduce mirage rate to 2.7–3.3% across all models. The highest accuracy is obtained with Qwen2.5-VL-32B (RandomForest): 94.7% accuracy, while Qwen2.5-VL-72B achieves a slightly lower 7Figure 3: TC-LIA alignment behavior across conditions. (a) Mean top-k patch–text alignment across all domains, showing a stronger late-layer rise for R ELATED pairs than for U NRELATED -R EAL or B LANK /N OISE 
+
+inputs. (b) IAS distributions, where related inputs shift toward higher scores and non-related inputs remain lower or intermediate. Table 1: Main mirage detection results across twelve VLM backbones. MR denotes mirage rate. TC-LIA + Ensemble reduces MR to 2.7–3.3% across all models.                                                                                
+
+> VLM Backbone Base MR ↓TC-LIA Only TC-LIA + Ensemble (Ours) Acc ↑MR ↓Acc ↑MR ↓Macro-F1 ↑
+> Qwen2.5-VL-32B 57.4% 90.6% 3.4% 94.7% 3.0% 0.947 Qwen2.5-VL-72B 63.6% 90.6% 3.4% 94.6% 2.8% 0.946 LLaMA-3.2-90B 26.0% 90.6% 3.4% 94.1% 2.7% 0.941 Aya-Vision-32B 21.7% 90.6% 3.4% 93.9% 3.2% 0.939 Qwen2.5-VL-7B 63.6% 90.6% 3.4% 93.7% 3.2% 0.937 Gemma3-4B 58.8% 90.6% 3.4% 92.8% 3.1% 0.928 LLaVA-v1.6-34B 24.9% 90.6% 3.4% 92.0% 3.3% 0.920 LLaVA-Next-110B 63.6% 90.6% 3.4% 92.0% 3.0% 0.920 InternVL3-38B 27.1% 90.6% 3.4% 91.4% 2.8% 0.914 MiniCPM-V-2.6 66.6% 90.6% 3.4% 91.1% 3.1% 0.910 Phi-3.5-Vision 61.9% 90.6% 3.4% 91.0% 3.0% 0.910 BLIP2-2.7B 58.0% 90.6% 3.4% 91.0% 3.0% 0.910
+
+mirage rate (2.8%). Figure 4 visualizes the reduction from base prompt to ensemble across all twelve models. Additionally, Fig. 6 shows that all evaluated VLM backbones achieve low mirage rates after ensemble fusion, while accuracy varies across models. The best trade-off is obtained by Qwen2.5-VL-72B, which lies closest to the upper-left region with 94.6% accuracy and a 2.8% mirage rate. 
+
+Why the five TC-LIA features? Table 2 summarizes the individual relevance of the scalar alignment features. The composite Internal Alignment Score (IAS) improves over standard final CLIP cosine similarity, while slope and gain provide complementary information about whether evidence emerges across depth. These results justify using five features: final cosine, late top-k alignment, gain, slope, and IAS, rather than a single final embedding similarity. 
+
+IAS provides class-separating evidence. Figure 3(b) shows that R ELATED image–question pairs are shifted toward higher IAS, indicating stronger question-conditioned visual evidence. In contrast, U NRELATED -REAL examples concentrate at lower IAS values, while B LANK /N OISE inputs form a narrower intermediate distribution. This separation supports IAS as a discriminative signal for identifying answerable inputs and rejecting mirage-prone cases. Detailed domain-wise results are in B.2. 
+
+Qualitative results. Figure 5 illustrates the practical behavior of the proposed detector on matched and mismatched inputs using the same medical question. For the related CT image, the ensemble preserves the VLM answer because the visual evidence is consistent with the question. In contrast, when the same question is paired with an unrelated real image, the raw VLM still produces a plausible medical-style answer, but the ensemble correctly rejects the input and replaces the response with a refusal. This example highlights the central goal of mirage detection: preventing visually unsupported answers before they are released. Additional examples are provided in Appendix Figs. 23– 30. 8Figure 4: Mirage rate reduction: Base Prompt → TC-LIA Only → Ensemble across twelve VLMs. 
+
+Score / feature Interpretation AUROC ↑
+
+Final cosine (ViT-H/14) global image–text match 0.921 Final cosine (adaptive) routed CLIP/BioMedCLIP match 0.931 Late top-k mean late local evidence 0.822 Gain early-to-late growth 0.876 Slope layer-wise trend 0.882 
+
+IAS weighted composite 0.938 
+
+Table 2: TC-LIA feature comparison for llava-onevision-qwen2-7b-si-hf. IAS produces the strongest composite scalar relevance score. 
+
+Ensemble feature importance. Appendix Fig. 12 shows that IAS is the most important XGBoost feature, followed by VLM class encoding and final CLIP cosine similarity. This supports the role of TC-LIA as a complementary signal beyond both VLM self-assessment and standard global CLIP similarity. 
+
+Error structure. Blank/noise inputs are detected with near-perfect recall in our approach. We therefore do not present blank detection as the main source of novelty. The dominant errors are related–unrelated confusions, indicating that the remaining challenge is semantic mismatch rather than low-level image corruption. 
+
+Answer quality on accepted related inputs. Figure 7 summarizes answer quality averaged over all three conditions. TC-LIA + Ensemble substantially improves ROUGE-L and BERTScore across all models by producing well-formed refusals for U NRELATED and B LANK inputs. 
+
+Ablation results. Table 3 reports the contribution of each system component on Qwen2.5-VL-72B. Re-placing the full 11-feature ensemble with final CLIP cosine only drops accuracy to 90.0% and mirage rate becomes 2.1%, showing that shallow global similarity is insufficient. Using TC-LIA IAS alone yields 90.5% accuracy, confirming that layer-wise alignment adds signal beyond cosine but requires ensemble fusion to reach peak performance. Removing late top-k or gain/slope each costs roughly 0.4–0.6% accuracy. The largest single-feature drop comes from removing the VLM class encoding (90.2%, MR 3.9%), which shows that structured VLM self-assessment is the most complementary signal to TC-LIA. Removing Stage-1 blank gating has minimal impact on accuracy (94.4%) but slightly worsens mirage rate (3.0%), confirming its role 9Example A: Medical Question / Related Image Model: llama32_90b_vision            
+
+> Question: “what is the medium density close to the anterior abdominal wall?”
+> Raw VLM output: “The medium density close to the anterior abdominal wall is the liver.”
+> Ensemble decision: RELATED .
+> Released output: “The medium density close to the anterior abdominal wall is likely the liver.”
+> Example B: Medical Question / Unrelated-Real Image Model: llama32_90b_vision
+> Question: “what is the medium density close to the anterior abdominal wall?”
+> Raw VLM output: “The medium density close to the anterior abdominal wall is fat .”
+> Ensemble decision: UNRELATED -R EAL .
+> Released output: “I cannot answer based on the given image.”
+
+Figure 5: Qualitative result cards for related and unrelated-real inputs using the same medical question and VLM backbone. The ensemble preserves the answer for the related CT image but rejects the unrelated real image. 
+
+Variant Acc Macro-F1 Mirage Rate AUROC Final CLIP cosine only 90.0 0.899 2.1 0.963 TC-LIA IAS only 90.5 0.905 3.3 0.963 No late top-k 94.1 0.941 3.1 0.983 No gain/slope 94.0 0.940 3.2 0.983 No VLM class feature 90.2 0.902 3.9 0.963 No Stage-1 blank gate 94.4 0.944 3.0 0.987 
+
+Full XGBoost (11 feat.) 94.6 0.946 2.8 0.986 
+
+Table 3: Ablation on Qwen2.5-VL-72B: removing the VLM class feature causes the largest accuracy drop. as a precision guard rather than a recall booster. The full 11-feature XGBoost ensemble achieves 94.6% accuracy, 0.946 macro-F1, and 2.8% mirage rate. Ablation results in Appendix C show that the full ensemble generalizes across held-out domains and VLM backbones, while removing the structured VLM class feature or TC-LIA components increases mirage rate and reduces detection robustness. Per-domain ablations in Fig. 36 further show that the ensemble maintains strong accuracy across all five evaluation domains. 
+
+Qualitative grounding and negative probes. In the appendix, we report several approaches that were considered and rejected as standalone solutions: toy CLIP relevance scoring (E.1), GradCAM/attention-only metrics (E.2), SAM3-style grounding (G), RAPT image/question attention ratios (E.3), and small-scale easy datasets where final cosine performed nearly perfectly (E.4). They support that mirage detection requires text-conditioned semantic evidence rather than attention concentration or output overlap alone. 
+
+# 8 Conclusion 
+
+We introduced TC-LIA, a text-conditioned layer-wise internal alignment method for detecting mirage-prone image–question pairs before VLM generation. By combining blank/noise detection, domain-adaptive CLIP routing, layer-wise patch–text alignment, structured VLM self-assessment, and XGBoost fusion, the proposed system substantially reduces mirage rate while preserving answer quality on related inputs. These results 10 Figure 6: 3-class accuracy vs. mirage rate across twelve complete VLM backbones. Upper-left corner is better. Qwen2.5-VL-32B achieves the highest accuracy (94.7%), while Qwen2.5-VL-72B achieves a slightly lower mirage rate. support a broader principle for safe multimodal deployment: VLMs should verify that question-relevant visual evidence is present before answering. 
+
+# 9 Limitations 
+
+The detector reduces mirage risk but does not certify that the downstream VLM answer is correct. Passing the detector means that the image appears relevant to the question, not that the generated answer is clinically or factually valid. The method requires access to intermediate ViT tokens, making it easier to implement for open CLIP-like encoders than closed models. Projecting intermediate-layer patch tokens with the fixed final CLIP readout is an approximation; these tokens were not directly trained to be layer-wise optimal CLIP embeddings, and TC-LIA relies on the resulting alignment trajectory as a diagnostic signal rather than treating projected intermediate features as exact CLIP-space representations. The fixed TC-LIA weights may be suboptimal for some domains. Finally, SAM3 grounding is currently used only for visualization; quantitative integration of segmentation-based grounding remains future work. 
+
+# Ethics Statement 
+
+This work targets safer deployment of VLMs by reducing unsupported answers in medical and document VQA. The detector should not be used as a standalone clinical decision system. It is a pre-release safety layer intended to trigger abstention or human review when visual evidence is missing or mismatched. All medical data should be de-identified and used according to applicable licenses and institutional requirements. 11 Figure 7: Answer quality of the VLM backbones (BLEU, ROUGE-L, BERTScore F1). R ELATED : scored against ground-truth. U NRELATED & B LANK : scored against six reference refusal phrases. Detailed per-condition breakdown in Appendix K. 
+
+# References 
+
+Aishwarya Agrawal, Dhruv Batra, Devi Parikh, and Aniruddha Kembhavi. Don’t just assume; look and answer: Overcoming priors for visual question answering. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 4971–4980, 2018. Guillaume Alain and Yoshua Bengio. Understanding intermediate layers using linear classifier probes. arXiv preprint arXiv:1610.01644 , 2016. Mohammad Asadi, Jack W. O’Sullivan, Fang Cao, Tahoura Nedaee, Kamyar Rajabalifardi, Fei-Fei Li, Ehsan Adeli, and Euan Ashley. Mirage: The illusion of visual understanding. arXiv preprint arXiv:2603.21687 ,2026. Jinze Bai, Shu Xie, Yawen Li, Zhibo Chen, Yunshan Zhang, Jun Wang, Yike Su, and Xiaohui Shen. Hallucination of multimodal large language models: A survey. arXiv preprint arXiv:2404.18930 , 2024. Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, et al. Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 , 2025. Yonatan Belinkov. Probing classifiers: Promises, shortcomings, and advances. Computational Linguistics , 48 (1):207–219, 2022. Leo Breiman. Random forests. Machine Learning , 45(1):5–32, 2001. Mathilde Caron, Hugo Touvron, Ishan Misra, Hervé Jégou, Julien Mairal, Piotr Bojanowski, and Armand Joulin. Emerging properties in self-supervised vision transformers. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 9650–9660, 2021. Tianqi Chen and Carlos Guestrin. Xgboost: A scalable tree boosting system. In Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining , pages 785–794, 2016. Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Un-terthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. In International Conference on Learning Representations , 2021. 12 Yonatan Geifman and Ran El-Yaniv. Selective classification for deep neural networks. In Advances in Neural Information Processing Systems (NeurIPS) , 2017. Gemma Team. Gemma 3 technical report. arXiv preprint arXiv:2503.19786 , 2025. Yash Goyal, Tushar Khot, Douglas Summers-Stay, Dhruv Batra, and Devi Parikh. Making the v in VQA matter: Elevating the role of image understanding in visual question answering. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pages 6904–6913, 2017. Xuehai He, Yichen Zhang, Luntian Mou, Eric Xing, and Pengtao Xie. Pathvqa: 30000+ questions for medical visual question answering. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops , pages 646–647, 2020. Gabriel Ilharco, Mitchell Wortsman, Ross Wightman, Cade Gordon, Nicholas Carlini, Rohan Taori, Achal Dave, Vaishaal Shankar, Hongseok Namkoong, John Miller, Hannaneh Hajishirzi, Ali Farhadi, and Ludwig Schmidt. Openclip, 2021. URL https://github.com/mlfoundations/open_clip .Saurav Kadavath et al. Language models (mostly) know what they know. arXiv preprint arXiv:2207.05221 ,2022. Guolin Ke, Qi Meng, Thomas Finley, Taifeng Wang, Wei Chen, Weidong Ma, Qiwei Ye, and Tie-Yan Liu. Lightgbm: A highly efficient gradient boosting decision tree. In Advances in Neural Information Processing Systems , volume 30, 2017. Junnan Li, Dongxu Li, Silvio Savarese, and Steven C. H. Hoi. Grounded language-image pre-training. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 10965–10975, 2022. Yifan Li, Yifan Du, Kun Kuang, Wayne Xin Zhao, Hong Xie, Dawei Yin, and Ji-Rong Wen. Evaluating object hallucination in large vision-language models. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pages 292–305, 2023. Chin-Yew Lin. Rouge: A package for automatic evaluation of summaries. In Text Summarization Branches Out , pages 74–81, 2004. Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. Improved baselines with visual instruction tuning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 26296–26306, 2024. Shilong Liu, Zhaoyang Zeng, Tianhe Ren, Feng Li, Hao Zhang, Jing Yang, Chao Li, Jianwei Yang, Hang Su, Jun Zhu, and Lei Zhang. Grounding DINO: Marrying DINO with grounded pre-training for open-set object detection. arXiv preprint arXiv:2303.05499 , 2023. Zhining Liu, Ziyi Chen, Hui Liu, Chen Luo, Xianfeng Tang, Suhang Wang, Joy Zeng, Zhenwei Dai, Zhan Shi, Tianxin Wei, Hanqing Lu, Benoit Dumoulin, and Hanghang Tong. Seeing but not believing: Probing the disconnect between visual attention and answer correctness in vlms. In International Conference on Learning Representations , 2026. Minesh Mathew, Dimosthenis Karatzas, and C. V. Jawahar. Docvqa: A dataset for vqa on document images. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision , pages 2200–2209, 2021. 13 Minesh Mathew, Viraj Bagal, Ruben Tito, Dimosthenis Karatzas, Ernest Valveny, and C. V. Jawahar. Infographicvqa. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision , pages 1697–1706, 2022. Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu. Bleu: A method for automatic evaluation of machine translation. In Proceedings of the 40th Annual Meeting of the Association for Computational Linguistics , pages 311–318, 2002. Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, et al. Pytorch: An imperative style, high-performance deep learning library. In Advances in Neural Information Processing Systems , volume 32, 2019. Fabian Pedregosa, Gael Varoquaux, Alexandre Gramfort, Vincent Michel, Bertrand Thirion, Olivier Grisel, Mathieu Blondel, Peter Prettenhofer, Ron Weiss, Vincent Dubourg, et al. Scikit-learn: Machine learning in python. Journal of Machine Learning Research , 12:2825–2830, 2011. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning transferable visual models from natural language supervision. In International Conference on Machine Learning , pages 8748–8763. PMLR, 2021. Maithra Raghu, Thomas Unterthiner, Simon Kornblith, Chiyuan Zhang, and Alexey Dosovitskiy. Do vision transformers see like convolutional neural networks? In Advances in Neural Information Processing Systems (NeurIPS) , 2021. Amanpreet Singh, Vivek Natarajan, Meet Shah, Yu Jiang, Xinlei Chen, Dhruv Batra, Devi Parikh, and Marcus Rohrbach. Towards vqa models that can read. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 8317–8326, 2019. Ian Tenney, Dipanjan Das, and Ellie Pavlick. BERT rediscovers the classical NLP pipeline. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics (ACL) , pages 4593–4601, 2019. Tristan Thrush, Ryan Jiang, Max Bartolo, Amanpreet Singh, Adina Williams, Douwe Kiela, and Candace Ross. Winoground: Probing vision and language models for visio-linguistic compositionality. In Proceed-ings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 5238–5248, 2022. Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin Jing, Shenglong Ye, Jie Shao, et al. Internvl3.5: Advancing open-source multimodal models in versatility, reasoning, and efficiency. arXiv preprint arXiv:2508.18265 , 2025. Mufei Xiong et al. Can LLMs express their uncertainty? an empirical evaluation of confidence elicitation in large language models. In International Conference on Learning Representations (ICLR) , 2024. Sheng Zhang, Yanbo Xu, Naoto Usuyama, Hao Xu, Jaspreet Bagga, Robert Tinn, Sam Preston, Rajesh Rao, Mu Wei, Naveen Valluri, Cliff Wong, Matthew P. Lungren, Tristan Naumann, and Hoifung Poon. A multimodal biomedical foundation model trained from fifteen million scientific image-text pairs. arXiv preprint arXiv:2303.00915 , 2023. Tianyi Zhang, Varsha Kishore, Felix Wu, Kilian Q. Weinberger, and Yoav Artzi. Bertscore: Evaluating text generation with bert. In International Conference on Learning Representations , 2020. 14 Appendix A Reproducibility Details 
+
+A.1 Dataset Composition 
+
+Table 4 provides the detailed dataset composition used in our mirage detection experiments. We evaluate across five visually diverse VQA domains: Chest VQA, PathVQA, TextVQA, DocVQA, and InfoVQA. For each domain, examples are organized into three input conditions: R ELATED , where the image is semantically matched to the question; U NRELATED -R EAL , where the image is visually valid but does not contain evidence relevant to the question; and B LANK /N OISE , where the visual input is non-informative. This construction allows us to evaluate not only whether the detector preserves answerability for genuinely related image– question pairs, but also whether it can reject both low-level invalid inputs and harder semantic mismatches. The training set contains 100 samples per domain per condition, while the remaining examples are used for held-out evaluation.                      
+
+> Domain Train Test Total Chest VQA 300 1,053 1,353 PathVQA 300 ∼2,700 ∼3,000 TextVQA 300 ∼2,700 ∼3,000 DocVQA 300 ∼2,700 ∼3,000 InfoVQA 300 3,300 3,600 Total 1,500 12,453 13,953
+
+Table 4: Dataset composition across domains and splits. Each domain contains R ELATED , U NRELATED -REAL , and B LANK /N OISE conditions. 
+
+A.2 Implementation Summary 
+
+The full system uses Python, PyTorch Paszke et al. (2019), OpenCLIP Ilharco et al. (2021), scikit-learn Pedregosa et al. (2011), XGBoost Chen and Guestrin (2016), and LightGBM Ke et al. (2017). All experiments use a fixed random seed of 42. Our anonymized code is provided here: https://anonymous.4open.scie nce/r/Mirage_Detection_in_VLMS-779D/ .
+
+TC-LIA feature extraction. TC-LIA registers forward hooks on all 32 transformer blocks of a frozen ViT-H/14 CLIP encoder. For each non-blank image–question pair, the image is passed through the vision encoder; intermediate patch tokens are projected into the shared CLIP embedding space via the model’s 
+
+ln_post and projection matrix, and cosine similarity is computed against the text embedding. At each layer, the mean cosine similarity of the top-k (k=10 ) patch tokens is recorded, yielding a 32-point top-k curve . The scalar feature internal_alignment_score is then computed as a fixed linear combination: 
+
+IAS = 0 .50 fcos + 0 .25 ¯ slate + 0 .15 ∆ gain + 0 .10 βslope (3) where fcos is the final-layer cosine similarity, ¯slate is the mean of the top-k curve over the second half of layers, ∆gain is the difference between late-layer and early-layer means, and βslope is the slope of a linear fit over the full 32-point curve. 15 Domain classification uses a zero-shot CLIP prompt bank (16 medical templates and 13 natural-scene templates) with a softmax temperature of 0.07. A domain is labelled medical if the aggregated medical proba-bility exceeds 0.65, natural if the natural probability exceeds 0.65, and mixed otherwise. Blank/noise images bypass the cosine pipeline entirely; their features are derived from grayscale pixel statistics ( image_is_blank ,
+
+image_std ). 
+
+Dataset split. Each of the five domains (ChestVQA, PathVQA, TextVQA, DocVQA, InfoVQA) contributes 100 real -image samples to the training set, drawn uniformly at random (seed 42); all remaining samples form the held-out test set. Three image types are used: real, unrelated, and blank/noise. 
+
+Ensemble classifiers and hyperparameters. Five classifiers are trained independently on the 11 TC-LIA features per VLM backbone: • XGBoost : 300 estimators, max depth 6, learning rate 0.05, subsample 0.8, column subsample 0.8, log-loss evaluation metric. • LightGBM : 300 estimators, max depth 6, learning rate 0.05, subsample 0.8, column subsample 0.8. • Gradient Boosting : 200 estimators, max depth 5, learning rate 0.05, subsample 0.8. • AdaBoost : 200 estimators, learning rate 0.5, base learner is a decision stump with max depth 3. • Random Forest : 300 estimators, max depth 8. Blank images are classified deterministically as BLANK_OR_NOISE without invoking any classifier; the ensemble operates only on non-blank samples. Model selection is performed via 5-fold stratified cross-validation (StratifiedKFold, shuffle=True, seed 42) on the training split; the classifier with the highest mean CV accuracy is selected as the best ensemble for each VLM backbone. 
+
+Inference. At test time, each sample first passes through the blank detector ( image_is_blank ). Non-blank samples are scored by the selected ensemble; if the predicted class is RELATED , the VLM’s structured-prompt response is returned, otherwise the system outputs a fixed refusal: “I cannot answer based on the given image.” 
+
+A.3 Structured VLM Prompt 
+
+For the structured VLM output, we used a deterministic structured output prompt as shown in Fig. 8. 
+
+A.4 Algorithm 
+
+Algorithm 1 summarizes the runtime inference procedure for the proposed mirage detection framework. Given an image–question pair, the system first applies a lightweight blank/noise screen. Non-blank inputs are then processed through CLIP-based domain routing and TC-LIA feature extraction. The VLM is queried only for a structured preliminary class label and candidate answer, and the final decision is made by the ensemble classifier using pixel, routing, alignment, and VLM-derived features. If the ensemble predicts RELATED , the VLM answer is released; otherwise, the system returns a refusal response. 16 You are a visual analysis assistant.Examine the image carefully, then respond using EXACTLY this format:              
+
+> IMAGE_CLASS: <RELATED | UNRELATED_REAL | BLANK_OR_NOISE> ANSWER: <your response>
+> Classification rules:
+> • RELATED →real image containing evidence relevant to the question • UNRELATED_REAL →real image whose content does NOT match the question topic • BLANK_OR_NOISE →blank (black/white/grey/uniform) or random pixel noise
+> Answer rules:
+> •If RELATED →answer directly from what you see; multiple sentences are fine if the question requires detail •If UNRELATED_REAL or BLANK_OR_NOISE →write exactly: “I cannot answer based on the given image.”
+> Question: {question}
+
+Figure 8: Structured deterministic prompt used for VLM evaluation. 
+
+# B Additional TC-LIA Analyses 
+
+This section provides additional analyses that are useful for interpreting the main results but are placed in the appendix to preserve space in the eight-page paper. These analyses explain why the five scalar TC-LIA features were chosen, how domain routing affects final cosine similarity, and how the detector affects answer quality on genuinely related inputs. 
+
+B.1 Rationale for the Five TC-LIA Features 
+
+The five scalar TC-LIA features (Table 5) were selected from thirteen candidate features by evaluating each candidate’s ability to separate related from unrelated image–question pairs using AUROC on a controlled 200-pair dataset (100 related, 100 unrelated, balanced across natural and medical domains). The thirteen candidates spanned three families: CLS-based similarity ( late_cls_sim_mean , slope_cls_sim ), patch top-k alignment (late_patch_topk_mean , gain_patch_topk_late_minus_early , slope_patch_topk ), and attention-weighted patch alignment ( late_attn_weighted_sim_mean , gain_attn_weighted_late_minus_early ,
+
+slope_attn_weighted , late_attn_topk_semantic_mean ). CLS-based features were dropped because the CLS token aggregates global image information at the final layer and is therefore highly correlated with final_cos ; adding them introduced redundancy without improving separability. Attention-weighted features were dropped because they inherit the same failure mode as raw RAPT: the encoder’s self-attention is not conditioned on the question text, so attention-weighted similarity reflects visual salience rather than question relevance. Patch top-k features avoided this problem by selecting the patches with the highest cosine similarity to the text embedding directly, bypassing attention weights entirely. The five retained features capture complementary and non-redundant evidence signals. 
+
+final_cos measures global image–text compatibility as a strong baseline. late_patch_topk_mean 
+
+measures whether localised question-relevant evidence appears in the deeper visual layers. 
+
+gain_patch_topk_late_minus_early measures whether that evidence strengthens from early to late layers, suppressing layer-invariant shortcuts. slope_patch_topk summarises the global trajectory of 17 Algorithm 1: Runtime Mirage Detection with TC-LIA 
+
+Input: Image x, question q, VLM M , CLIP encoder C, trained ensemble E
+
+Output: Decision y ∈ { RELATED , UNRELATED -R EAL , BLANK /N OISE } and released response  
+
+> 1
+
+Compute pixel statistics b(x) 
+
+> 2
+
+if b(x) indicates blank/noise with high confidence then  
+
+> 3
+
+return BLANK /N OISE and refusal response  
+
+> 4
+
+Compute domain probabilities (pm, p n) using CLIP prompt routing  
+
+> 5
+
+Extract layer-wise patch tokens zℓ,i from the CLIP ViT encoder  
+
+> 6
+
+Compute patch–text similarities sℓ,i ← cos( P z ℓ,i , t (q))  
+
+> 7
+
+Compute TC-LIA features: final cosine, late top-k, gain, slope, and IAS  
+
+> 8
+
+Query the VLM for a structured class label and candidate answer  
+
+> 9
+
+Fuse pixel, routing, TC-LIA, and VLM features using ensemble E 
+
+> 10
+
+if E(x, q ) = RELATED then  
+
+> 11
+
+return RELATED and the VLM answer  
+
+> 12
+
+else  
+
+> 13
+
+return predicted non-related class and refusal response 
+
+alignment across all 32 layers. internal_alignment_score (IAS) combines these signals into a single compact scalar score: IAS = 0 .50 · fcos + 0 .25 · ¯slate + 0 .15 · ∆gain + 0 .10 · βslope . (4) An internal-only logistic-regression probe trained exclusively on the patch top-k features (excluding 
+
+final_cos ) achieved AUROC above 0.90, confirming that the layerwise trajectory carries separable in-formation beyond global cosine similarity alone. 
+
+Feature What it measures Why it helps 
+
+final_cos final global CLIP similarity strong baseline relevance signal 
+
+late_patch_topk_mean late local patch evidence captures localized support 
+
+gain late minus early alignment suppresses global shortcuts 
+
+slope trend across layers captures evidence emergence 
+
+IAS weighted composite compact scalar decision score 
+
+Table 5: Interpretation of the five TC-LIA features used by the ensemble. 
+
+B.2 Domain-wise TC-LIA Score and IAS Distributions 
+
+Figure 9 provides a domain-wise view of the TC-LIA alignment trajectory. Across all five domains, R ELATED 
+
+examples generally show increasing top-k patch–text similarity in later layers, consistent with the emergence of question-relevant visual evidence. In contrast, U NRELATED -R EAL inputs remain flatter and lower, indicating weaker semantic correspondence between the question and image. B LANK /N OISE inputs often show unstable or non-semantic intermediate behavior, but lack the sustained late-layer rise observed for related pairs. These patterns support the use of late alignment, gain, and slope as complementary TC-LIA features. Figure 10 expands the aggregate IAS distribution in Fig. 3 (b) by showing each domain separately. The main pattern is consistent across datasets: R ELATED examples tend to shift toward larger IAS values, UNRELATED -R EAL examples occupy lower values, and B LANK /N OISE examples concentrate in a narrower 18 intermediate range. The degree of separation varies by domain, motivating the use of ensemble fusion rather than a single universal IAS threshold. 
+
+Figure 9: Per-domain TC-LIA layerwise alignment curves for all three input conditions. Each panel shows the mean top-k patch–text alignment across 32 ViT-H/14 layers for one of the five evaluation domains. Medical domains ( chest_vqa , pathvqa ) show the sharpest late-layer rise for related pairs and the flattest curves for unrelated inputs, consistent with the domain-specific nature of medical questions. Natural-image and document domains show a similar but less pronounced pattern, reflecting the greater lexical ambiguity between questions and distractors. 
+
+B.3 Domain-Adaptive Routing 
+
+Domain-adaptive routing improves medical-domain cosine similarity by switching to BioMedCLIP when the image is confidently medical, but it can slightly degrade document or natural-image domains when mixed-content images are routed imperfectly. We therefore use routing probabilities and the encoded routing decision as features rather than treating routing as a hard final decision. 
+
+B.4 Classifier Comparison 
+
+Table 7 compares ensemble choices. XGBoost gives the best accuracy–mirage tradeoff, while Gradient Boosting, LightGBM, AdaBoost, and Random Forest remain close. The rule-based baseline is useful as a sanity check but is weaker and was evaluated in-sample, so it should not be treated as the main comparator. 
+
+B.5 Answer Quality 
+
+Figure 11 reports answer quality across all three input conditions for both the base-prompt and ensemble-filtered settings. Each row corresponds to a condition among R ELATED , U NRELATED -R EAL , and 19 Figure 10: Per-domain distributions of the TC-LIA Internal Alignment Score (IAS) across the three input conditions. Each panel shows the IAS histogram for one evaluation domain. R ELATED image–question pairs generally shift toward higher IAS values, while U NRELATED -R EAL examples concentrate at lower scores and B LANK /N OISE examples form a narrower intermediate distribution. These domain-wise patterns show that TC-LIA provides discriminative pre-generation evidence for separating answerable inputs from mirage-prone cases. BLANK /N OISE and each column reports a different metric: BLEU, ROUGE-L, and BERTScore F1. For RELATED inputs, answer quality is measured against ground-truth answers; for U NRELATED -R EAL and BLANK /N OISE inputs, it is measured against a set of six canonical refusal phrases, so a higher score means the system correctly refused. TC-LIA + Ensemble matches or improves the base prompt in every cell of the 3 × 3 grid. On R ELATED inputs, ensemble filtering preserves answer quality, confirming that mirage suppression does not collapse into indiscriminate refusal. On U NRELATED -R EAL and B LANK /N OISE inputs, the ensemble substantially raises refusal-match scores across all twelve VLM backbones, demonstrating that the detector reliably withholds responses when visual evidence is absent or mismatched. 
+
+B.6 Feature Importance 
+
+Feature importance is reported only as a diagnostic because tree-based importances are not causal explanations. Nevertheless, the rankings provide useful evidence that TC-LIA contributes signal beyond what either final cosine similarity or VLM self-assessment alone could provide. Figure 12 shows XGBoost and LightGBM importances aggregated over Qwen2.5-VL-7B. In XGBoost (left), internal_alignment_score is the single most important feature by a wide margin (importance 
+
+≈0.32), followed by vlm_class_enc (≈0.17) and final_cos (≈0.15). LightGBM (right) shows a more dis-tributed ranking: final_cos , gain_patch_topk_late_minus_early , internal_alignment_score , and 
+
+slope_patch_topk are roughly tied at the top, with domain-routing features ( pm , pn ) contributing moderately. 20 Domain ViT-H/14 Adaptive ∆
+
+Chest VQA 0.933 0.978 +0.044 PathVQA 0.835 0.882 +0.047 TextVQA 0.963 0.931 -0.032 DocVQA 0.886 0.869 -0.018 InfoVQA 0.979 0.972 -0.007 
+
+Table 6: Domain-adaptive final-cosine AUROC. Medical domains benefit from BioMedCLIP routing, whereas document/natural domains can be better served by the general ViT-H/14 embedding space. 
+
+Classifier Acc ↑ Mirage Rate ↓ Macro-F1 ↑
+
+XGBoost 94.1 2.4 0.941 GradientBoosting 93.9 2.6 0.939 LightGBM 93.8 2.6 0.938 AdaBoost 93.7 2.6 0.937 RandomForest 93.3 2.6 0.933 Rule-based fusion 91.1 5.1 0.911 
+
+Table 7: Classifier comparison. Boosting-based ensembles dominate the rule-based baseline; the rule-based result is in-sample and should be interpreted as an optimistic baseline. The two classifiers agree that the composite IAS, final cosine, and the gain/slope trajectory are the most informative TC-LIA signals, while blank-gate features ( s1_is_blank ) rank near the bottom because blank inputs are trivially handled before the ensemble is invoked. Figure 35 breaks down XGBoost importance across five representative VLM backbones. The pattern is consistent: IAS and final_cos are top-two features for BLIP2-2.7B, Gemma-3-4B, Phi-3.5-Vision, and LLaVA-OV-7B. The notable exception is Qwen2.5-VL-7B, where vlm_class_enc dominates ( ≈0.47), indicating that Qwen’s structured responses are unusually discriminative and the ensemble relies heavily on self-assessment for that backbone. Across all five models, no single feature suffices alone, confirming that ensemble fusion over complementary signals is necessary for robust detection. 
+
+# C Additional Ablation Studies 
+
+This section presents the complete per-ablation figures corresponding to the ablation study summarised in Table 3 of the main paper. 
+
+C.1 Leave-One-Domain-Out Generalization 
+
+We train the TC-LIA ensemble on four domains and evaluate on the held-out fifth, using Gemma-3-4B-IT as the VLM backbone. Figure 13 shows that 3-class accuracy ranges from 72.0% (PathVQA) to 96.3% (InfoVQA), and mirage rate stays between 1.4% and 6.7% across all held-out domains. ChestVQA is the hardest generalisation target (6.7% mirage rate) due to its distinctive medical visual distribution. These results confirm that TC-LIA features transfer across domains without domain-specific fine-tuning. 21 Figure 11: Per-condition answer quality across twelve complete VLM backbones. Rows: R ELATED (vs. ground-truth answers), U NRELATED -R EAL (vs. refusal phrases), B LANK /N OISE (vs. refusal phrases). Columns: BLEU, ROUGE-L, BERTScore F1. TC-LIA + Ensemble matches or improves the base prompt in every cell. 
+
+C.2 Leave-One-VLM-Out Generalization 
+
+We pool training data from eight VLMs and evaluate on the held-out ninth, testing two variants: the full 11-feature ensemble ( with vlm_class ) and the same ensemble with the VLM class encoding removed ( no vlm_class ). Figure 14 shows that accuracy remains consistently high (85–90%) across all held-out VLMs, confirming that the ensemble generalises across unseen model families. Removing the VLM class feature raises mirage rate noticeably for BLIP2-2.7B and Gemma-3-4B, the two models whose structured outputs differ most from the training pool, demonstrating that vlm_class_enc encodes model-specific response style that aids detection when that style is familiar. The gap is small for the larger models (AyaVision-32B, Qwen2.5-VL-32B), suggesting that TC-LIA features alone are sufficient when the VLM backbone is more capable. 
+
+# D Proofs for Theoretical Motivation 
+
+This appendix provides full proofs for the theoretical statements in Section 5. These results are intended as formal motivation for the TC-LIA feature design rather than as guarantees for the full nonlinear ensemble classifier. 22 Figure 12: XGBoost feature importance. The plot is diagnostic and should be interpreted as evidence that TC-LIA contributes useful signal beyond final cosine and VLM self-assessment. 
+
+D.1 Proof of Lemma 1: Late-layer Alignment Separation 
+
+Let aL denote the late-layer top-k patch alignment statistic. Assume that aL|R and aL|U are sub-Gaussian with means μR and μU , respectively, and with common proxy variance σ2. Thus, for any t > 0,
+
+P (aL − μR ≤ − t | R) ≤ exp 
+
+
+
+− t2
+
+2σ2
+
+
+
+,
+
+and 
+
+P (aL − μU ≥ t | U ) ≤ exp 
+
+
+
+− t2
+
+2σ2
+
+
+
+.
+
+Let ∆ = μR − μU > 0 and define the decision threshold 
+
+τ = μR + μU
+
+2 .
+
+The threshold classifier predicts ˆy = R if aL > τ and predicts ˆy = U otherwise. For a related pair, an error occurs when aL ≤ τ . Therefore,                      
+
+> P(ˆ y̸=R|R) = P(aL≤τ|R)=P(aL−μR≤τ−μR|R).
+
+Since 
+
+τ − μR = μR + μU
+
+2 − μR = − ∆2 ,
+
+we have 
+
+P (ˆ y̸ = R | R) = P (aL − μR ≤ − ∆/2 | R).
+
+Applying the sub-Gaussian lower-tail bound with t = ∆ /2 gives 
+
+P (ˆ y̸ = R | R) ≤ exp 
+
+
+
+− ∆2
+
+8σ2
+
+
+
+.
+
+23 Figure 13: Left: 3-class accuracy on the held-out domain. Right: Mirage rate on the held-out domain. ChestVQA is the most challenging held-out domain (MR = 6.7%); InfoVQA is the easiest (MR = 1.4%, Acc = 96.3%). Similarly, for an unrelated pair, an error occurs when aL > τ . Thus,                       
+
+> P(ˆ y̸=U|U) = P(aL> τ |U)=P(aL−μU> τ −μU|U).
+
+Since 
+
+τ − μU = μR + μU
+
+2 − μU = ∆2 ,
+
+we obtain 
+
+P (ˆ y̸ = U | U ) = P (aL − μU > ∆/2 | U ).
+
+Applying the sub-Gaussian upper-tail bound with t = ∆ /2 gives 
+
+P (ˆ y̸ = U | U ) ≤ exp 
+
+
+
+− ∆2
+
+8σ2
+
+
+
+.
+
+Therefore, the per-class error of the threshold classifier is bounded by 
+
+exp 
+
+
+
+− ∆2
+
+8σ2
+
+
+
+.
+
+This proves Lemma 1. 
+
+D.2 Proof of Lemma 2: Gain Cancels Layer-invariant Shortcuts 
+
+Assume that the layer-wise alignment statistic can be written as 
+
+aℓ(x, q ) = c(x, q ) + rℓ(x, q ) + ϵℓ,
+
+where c(x, q ) is a layer-invariant global image–text prior, rℓ(x, q ) is a localized evidence term that varies across layers, and ϵℓ is noise. Let early and late denote the average alignment over the early and late layer sets: 
+
+early = 1
+
+|L E |
+
+X
+
+> ℓ∈L E
+
+aℓ, late = 1
+
+|L L|
+
+X
+
+> ℓ∈L L
+
+aℓ.
+
+24 Figure 14: Left: 3-class accuracy on the held-out VLM. Right: Mirage rate on the held-out VLM. Two variants are shown: full features ( with vlm_class , dark) and features excluding the VLM class encoding ( no vlm_class , light). Accuracy is stable across all nine held-out VLMs; removing vlm_class_enc increases mirage rate most for smaller, less capable models. Substituting the decomposition of aℓ gives 
+
+early = c(x, q ) + rE + ϵE ,
+
+and 
+
+late = c(x, q ) + rL + ϵL,
+
+where rE and rL are the average localized evidence terms in the early and late layers, and ϵE and ϵL are the corresponding average noise terms. The gain feature is                    
+
+> gain = late −early = ( c(x, q ) + rL+ϵL)−(c(x, q ) + rE+ϵE)=rL−rE+ϵL−ϵE.
+
+Thus, the layer-invariant term c(x, q ) cancels exactly. Consequently, the gain feature suppresses global similarity shortcuts that persist across layers and instead emphasizes the emergence of localized evidence from early to late layers. This proves Lemma 2. 
+
+D.3 Proof of Proposition 1: Staged Blank Gating Decomposes Mirage Risk 
+
+Let B denote the event that the input is blank/noise, and let U denote the event that the input is unrelated-real. A mirage error occurs when a non-related input is incorrectly passed as related. Therefore, 
+
+MR( g) = P (g(x, q ) = R, Y ∈ { B, U }).
+
+Since B and U are disjoint classes,            
+
+> MR( g) = P(g(x, q ) = R, Y =B)+P(g(x, q ) = R, Y =U).
+
+For a blank/noise input to be passed as related, it must first fail to be rejected by the blank/noise gate. Therefore, 
+
+P (g(x, q ) = R, Y = B) ≤ P (gB̸ = B, Y = B).
+
+25 Using the product rule, 
+
+P (gB̸ = B, Y = B) = P (B)P (gB̸ = B | B).
+
+By definition, ϵB = P (gB̸ = B | B), so 
+
+P (g(x, q ) = R, Y = B) ≤ P (B)ϵB .
+
+For unrelated-real inputs, the relevant failure mode is that the non-blank related/unrelated detector passes the input as related. Thus, 
+
+P (g(x, q ) = R, Y = U ) ≤ P (gN = R, Y = U ).
+
+Again applying the product rule, 
+
+P (gN = R, Y = U ) = P (U )P (gN = R | U ).
+
+By definition, ϵU = P (gN = R | U ), so 
+
+P (g(x, q ) = R, Y = U ) ≤ P (U )ϵU .
+
+Combining the two bounds gives 
+
+MR( g) ≤ P (B)ϵB + P (U )ϵU .
+
+This proves Proposition 1. The result shows that the overall mirage risk can be reduced by separately controlling blank/noise failures through gB and semantic mismatch failures through gN , which matches the staged design of the proposed detector. 
+
+# E Negative and Developmental Experiments 
+
+In this section, we describe orthogonal approaches to TC-LIA that were attempted before TC-LIA. 
+
+E.1 Toy CLIP/BioMedCLIP Relevance Scoring 
+
+We first constructed a small image–text relevance dataset containing natural images, medical images, related prompts, and unrelated prompts. Standard OpenCLIP/BioMedCLIP final cosine similarity performed perfectly on the tiny 16-pair setting. However, this was not evidence of a robust solution: the dataset was too small, the negatives were often easy cross-domain mismatches, and final cosine did not test whether internal localized evidence emerged across layers. 
+
+Takeaway. Initial CLIP-only experiments were useful as a sanity check but were not sufficient as a main method because they overestimated performance on small/easy negatives and did not explain layer-wise evidence emergence. 
+
+E.2 Layer-wise Attention and GradCAM-style Metrics 
+
+We next tested several layer-wise attention and GradCAM-style metrics. These included attention con-centration, late-layer attention mass, Gini-like attention sparsity, text-conditioned GradCAM maps, and visualizations over related, unrelated, and blank images. These metrics produced interpretable plots, but they were not stable enough as standalone classifiers. Attention maps could be sparse for both correct and incorrect cases, and blank or unrelated cases could still produce visually salient but semantically meaningless hotspots. Figure 15 shows text-conditioned GradCAM maps computed over the late six ViT-H/14 layers for image–question pairs across three conditions: related, unrelated-real, and blank. Two failure patterns are 26 Figure 15: Text-conditioned GradCAM maps across three input conditions (columns: related, unrelated-real, blank). For unrelated inputs, GradCAM fires on spurious visually salient regions that bear no relation to the question. For blank inputs, activations are near-uniform or randomly scattered. GradCAM cannot separate related from unrelated inputs (AUROC 0.543), motivating the move to patch–text cosine alignment in TC-LIA. immediately visible. First, for unrelated inputs the GradCAM map fires on visually salient but semantically irrelevant regions — for example, activating on structural edges of a chest X-ray when the question concerns a rocket launch, or highlighting fur texture on a cat image when the question asks about lung opacity. The model attends to whatever is visually prominent, not to what is question-relevant. Second, for blank images GradCAM produces near-uniform or randomly scattered activations, confirming there is no stable grounding signal to detect. These observations are confirmed quantitatively. Across nine prompts × three conditions (27 samples), GradCAM achieved only 22% three-way accuracy and AUROC 0.543 — barely above chance. The other six attention-only metrics (Raw RAPT, PIA, MHVF, ATS, LER, Gini) all scored below 0.640 AUROC, with most below 0.450. Attention rollout reached AUROC 0.750 but still failed to reliably separate unrelated-real from related inputs in per-prompt evaluation. These results confirm that visual attention in a CLIP-style encoder is not text-conditioned at the feature level: the encoder attends to visually salient patches regardless of whether they are semantically matched to the query. This motivated the shift to TC-LIA, which replaces attention weights with direct patch–text cosine similarity computed against the question embedding. 
+
+Conclusion: Attention/saliency is useful for qualitative diagnosis, but a scalar mirage detector needs 27 Figure 16: Baseline ROUGE-L by condition across representative datasets. The plot shows that answer-overlap can remain nonzero even when the image is blank or unrelated, especially in easier settings, which makes ROUGE-L alone an unreliable signal of true visual grounding. text-conditioned semantic alignment rather than attention concentration alone. Figure 16 further illustrates why output-overlap metrics alone are insufficient for mirage detection. Even when the visual evidence is absent or mismatched, the model can retain nontrivial lexical overlap with reference answers, suggesting that answer quality does not by itself certify groundedness. Figure 17 shows that the impact of layer-wise intervention is highly condition-dependent. While some layers exhibit stronger degradation under perturbation, the overall patterns are not cleanly separable enough to define a reliable decision rule for mirage detection. 
+
+E.3 RAPT Probe Replication 
+
+We also tested a RAPT-style probe inspired by the “seeing but not believing” line of work Liu et al. (2026). The probe used Gemma-3-4B-IT and extracted relative attention per token for image and question spans over a 400-example, five-condition experiment. The conditions were: matched real image/question, unrelated image with real question, blank image with real question, real image with unrelated question, and real image with no question.                                     
+
+> Image condition Question condition nEM F1 Image RAPT Question RAPT Blank Real 80 6.2 11.2 0.105 1.211 Real None 80 0.0 5.1 0.277 0.000 Real Real 80 27.5 39.2 0.223 0.976 Real Unrelated 80 0.0 2.0 0.153 1.381 Unrelated Real 80 0.0 0.8 0.155 1.377
+
+Table 8: RAPT-style diagnostic probe. RAPT reveals modality attention shifts but is not sufficient as a stan-dalone mirage detector. Real/no-question inputs can show high image RAPT, while unrelated image/question pairs can still receive nontrivial image attention. The key observation is that RAPT is diagnostic but not decisional. It shows whether the decoder allocates relative attention to image or question tokens, but it does not directly verify that the attended image content 28 Figure 17: Layer-wise answer-quality changes under attention knockout, grouped by condition. The effect varies across layers and input settings, indicating that intervention sensitivity is interpretable but not suffi-ciently stable to serve as a standalone mirage detector. 
+
+Figure 18: Condition-wise RAPT shifts relative to the matched image-question setting. The perturbations clearly alter modality allocation, but the resulting patterns remain insufficient for deciding whether question-relevant visual evidence is actually present. semantically answers the question. For example, unrelated image–question pairs still receive image attention, and real images without questions can produce high image RAPT even though no VQA answer is meaningful. This motivated TC-LIA’s focus on patch–text semantic alignment rather than aggregate modality attention. Figure 18 complements the heatmap by summarizing how attention allocation moves under controlled perturbations. The deltas are meaningful as diagnostics, yet they still do not provide a robust criterion for separating related from unrelated-real cases. 
+
+E.4 High-resolution Pet Dataset Sanity Check 
+
+A larger natural-image sanity check used 100 Oxford-IIIT Pet image pairs with related and unrelated breed prompts. Final cosine and TC-LIA both performed extremely well because the task was comparatively easy. The internal-only probe also achieved high AUROC, confirming that intermediate features contain meaningful semantic information. However, this experiment did not represent the harder medical/document mirage setting, where same-domain and near-domain negatives are more challenging. 29 E.5 Mixed Medical–Nonmedical 200-pair Experiment 
+
+A mixed 200-pair experiment combined natural and medical images with related and unrelated prompts. TC-LIA features, including final cosine, late patch top-k, gain, slope, and internal alignment score, separated related and unrelated pairs well. This experiment motivated the final DiverseVQA-style evaluation but was still too small to support the main paper claim. 
+
+E.6 Lessons from Failed Attempts 
+
+• Final CLIP cosine is a strong baseline but can be overly optimistic on easy negatives. • Attention concentration alone does not imply semantic relevance. • RAPT captures modality allocation but not whether the image evidence answers the question. • GradCAM/SAM-style maps are valuable for visualization but require a scalar decision layer for deployment. • The final system needs both semantic alignment and supervised fusion to handle blank, unrelated-real, and related cases simultaneously. 
+
+# F Detailed Differentiation from RAPT/VEA 
+
+What RAPT and VEA measure. Relative Attention Per Token (RAPT) Liu et al. (2026) quantifies how much of a decoder’s attention budget is allocated to image tokens versus text tokens at each layer. Visual Evidence Augmentation (VEA) extends this by studying how attention shifts under controlled perturbations. Both methods ask: does the model attend to the image? Our method asks a different question: does the image contain question-relevant visual evidence? This distinction determines whether a detector can separate UNRELATED -R EAL inputs from R ELATED ones. Figure 21 makes this limitation concrete. The U NRELATED -R EAL curve (red) is nearly indistinguishable from the M ATCHED curve (blue) in both image and question RAPT across all 34 layers of Gemma-3-4B-IT, even though the image bears no semantic relation to the question. The decoder allocates a similar attention budget to image tokens regardless of whether those tokens contain question-relevant content. RAPT therefore cannot separate the two conditions that matter most for mirage detection. 
+
+Single-layer knockout cannot suppress visual grounding. We ran a controlled attention-knockout experi-ment on Gemma-3-4B-IT using 400 probes spanning 8 VQA domains (80 anchor samples × 5 conditions, 
+
+3 × 50 × 35 = 5 ,250 inference passes). At each intervention, image tokens were masked from attending at one target layer k, and RAPT was re-measured at all other layers. Figure 19 shows the result for five representative knockout layers ( k ∈ { 0, 8, 17 , 25 , 33 }) on real inputs. Each knockout produces a sharp local dip only at the intervened layer; all other observed layers return immediately to near-zero deviation from baseline. The network compensates for the blocked layer by redistributing image attention downstream, a forward compensation effect. Figure 20 generalises this across all 34 layers. The dark-blue diagonal marks local suppression at each knocked-out layer. The red upper-triangle confirms systematic forward compensation: downstream layers increase their image-attention allocation to recover the blocked signal, with early knockouts (rows 0–10) triggering the broadest redistribution because more downstream layers are available. No layer knockout systematically improved ROUGE-L or reduced mirage rate, confirming that visual grounding in Gemma-3 is distributed across the network and cannot be eliminated by single-layer intervention. 30 Figure 19: RAPT image cascade under single-layer knockout (real inputs). Each line shows the change in image-attention RAPT relative to baseline when layer k is knocked out ( k ∈ { 0, 8, 17 , 25 , 33 }). The knocked-out layer shows a sharp local drop (diagonal dip), but all other observed layers return to near-zero deviation, confirming that the network compensates for the blocked layer by redistributing image attention downstream. Visual grounding in Gemma-3-4B-IT is therefore distributed and cannot be suppressed by a single-layer intervention. 
+
+How TC-LIA differs. Where RAPT tracks how much attention flows to image tokens, TC-LIA tracks 
+
+whether question-conditioned patch evidence emerges in late vision-encoder layers . Specifically, TC-LIA computes top-k patch–text cosine similarity at each of the 32 ViT-H/14 transformer blocks using the frozen text embedding of the question, not the decoder’s attention weights. A related image–question pair exhibits a rising late-layer alignment trajectory; an unrelated pair shows a flat or declining one, regardless of how the decoder allocates its attention budget. This design sidesteps both failure modes of RAPT. First, it operates on the encoder before any decoder attention is computed, so there is no mechanism for downstream layers to compensate for a blocked signal. Second, it conditions alignment on the specific question text rather than measuring aggregate modality attention, making it sensitive to semantic mismatch rather than just image presence. TC-LIA is therefore 
+
+decisional - its scalar features feed directly into an ensemble classifier, rather than being merely diagnostic. 
+
+# G SAM3 Grounding as a Diagnostic Rather than a Detector 
+
+As a qualitative sanity check, we also visualize prompt-conditioned SAM3-style grounding maps. For related examples, the segmentation/grounding mask should cover plausible question-relevant image regions. For unrelated-real examples, the mask is expected to be absent, diffuse, low-confidence, or semantically inconsistent with the prompt. For blank/noise examples, no stable grounding should be produced. Figure 22 shows representative SAM3-style grounding maps across all three input conditions. Although SAM3-style grounding provides useful qualitative evidence, we found that it is not sufficiently reliable as a standalone mirage detector. For some R ELATED examples, the generated masks missed clinically or semantically salient regions, especially when the relevant evidence was subtle, diffuse, or not easily described by a short phrase. Conversely, for U NRELATED -R EAL or even B LANK /N OISE examples, the 31 Figure 20: ∆RAPT image heatmap under attention knockout (signed-log scale, real inputs). Rows are knocked-out layers; columns are RAPT measurement layers. The dark-blue diagonal marks the local suppression at the intervened layer. The red upper-triangle shows forward compensation: downstream layers increase their image-attention allocation to recover the blocked signal. Early knockouts (rows 0–10) produce the widest and strongest compensation because more downstream layers are available to redistribute attention. grounding model occasionally produced spurious masks on visually salient but question-irrelevant regions, indicating that mask presence alone does not guarantee question-relevant evidence. These failure modes suggest that grounding visualizations are valuable for interpretation and error analysis, but they should not be treated as a decisive pre-generation answerability test. We therefore use SAM3-style masks as auxiliary diagnostic evidence, while the main mirage detector relies on TC-LIA alignment features and ensemble fusion. 
+
+# H Qualitative Result Cards 
+
+Figures 23 and 24 show result cards for Gemma-3-4B-IT and InternVL2-8B respectively, each covering the R ELATED , U NRELATED -R EAL , and B LANK /N OISE conditions on the same question. Additional result cards for Qwen2.5-VL-32B, Aya-Vision-32B, BLIP2-OPT-2.7B, InternVL3-38B, LLaVA-1.5-7B, and InternVL3_38B are shown in Figures 26–30. 
+
+# I Classifier-Level Diagnostics 
+
+Figures 31–33 provide additional diagnostics for the ensemble classifiers. Figure 31 shows normalized confusion matrices for TC-LIA only and the best ensemble for each VLM backbone. Across models, blank/noise examples are almost perfectly separated, confirming that low-level invalid inputs are not the main error source. The remaining mistakes are concentrated between R ELATED and U NRELATED -R EAL ,indicating that the hardest failure mode is semantic mismatch rather than blank-image detection. Figure 32 compares the held-out accuracy and mirage rate of the five ensemble classifiers. The classifiers show broadly similar mirage suppression, but tree-based ensembles differ in the accuracy–mirage trade-off. This supports reporting the selected best ensemble per VLM rather than relying on a single classifier family in all settings. Figure 33 reports 5-fold cross-validation accuracy for each classifier and VLM backbone, 32 Figure 21: Per-layer RAPT curves for Gemma-3-4B-IT across four input conditions. Left: Image RAPT by layer. Right: Question RAPT by layer. The dotted vertical line marks the early/late split at layer 17. In the image RAPT panel, the unrelated image condition (red) tracks closely with the matched condition (blue) across all layers, confirming that the decoder allocates similar image attention regardless of whether the image is semantically relevant. The blank image condition (orange) shows suppressed but non-zero image RAPT, while no question (green) produces spuriously high image RAPT in late layers. In the question RAPT panel, the no question condition collapses to zero as expected, while all other conditions remain indistinguishable from each other in late layers. Together, these curves show that RAPT tracks modality budget allocation but cannot separate related from unrelated inputs — motivating TC-LIA’s patch–text cosine alignment as the decisional signal. showing that the selected classifiers are not chosen from a single unstable split. 
+
+# J Full TC-LIA Score Comparison 
+
+Figure 34 shows that IAS consistently matches or outperforms final_cos across all domains, with the largest gains in document and infographic settings where global cosine similarity is weakest. 
+
+# K Per-Condition Answer Quality 
+
+Figure 11 reports the full per-condition answer-quality breakdown for R ELATED , U NRELATED -R EAL ,and B LANK /N OISE inputs. For R ELATED examples, the base prompt sometimes achieves higher lexical or semantic overlap with the ground-truth answers, especially for models that generate longer free-form responses. This is expected because the ensemble is optimized primarily for safe answer release rather than answer rewriting. Importantly, however, the ensemble preserves non-trivial answer quality on related inputs while dramatically improving behavior on non-answerable inputs. For U NRELATED -R EAL and B LANK /N OISE examples, the pattern is much clearer: the ensemble obtains consistently high BLEU, ROUGE-L, and BERTScore F1 against reference refusal phrases, whereas the base prompt remains substantially lower and more variable. This indicates that many base VLMs continue to produce content-bearing answers even when the image is unrelated or non-informative, while the proposed detector reliably converts such cases into refusal outputs. The blank/noise row shows the strongest improvement, with the ensemble approaching near-perfect refusal behavior for most VLM backbones. Overall, the quality analysis supports the intended operating point of the system: preserve useful answers for related image–question pairs while enforcing consistent refusal for mirage-prone inputs. 33 Aspect RAPT/VEA-style work Our TC-LIA mirage detector Primary question Does the VLM attend to visual evidence and use it correctly? Is there question-relevant visual evidence present before generation? Input assumption Usually assumes the image is relevant and evidence exists. Explicitly includes related, unrelated-real, and blank/noise inputs. Signal Decoder-side attention mass over text/im-age/evidence tokens. Vision-encoder patch embeddings aligned with text across layers. Main operation Highlight or mask evidence regions to im-prove answer generation. Classify image–question pair and decide answer vs abstain. Failure addressed “Seeing but not believing”: evidence is present but underutilized. Mirage risk: answer is generated despite absent or mismatched evidence. Primary metric EM/F1 improvement and evidence attribu-tion quality. Mirage rate, three-class accuracy, macro-F1, related recall. Use in our paper Related work and auxiliary diagnostic. Main method. 
+
+Table 9: Conceptual distinction between RAPT/VEA-style evidence utilization and TC-LIA mirage detection. Classifier Accuracy ↑ Mirage Rate ↓ Macro-F1 ↑ CV Acc RandomForest 94.7 3.0 0.947 0.902 XGBoost 94.5 3.1 0.945 0.902 GradientBoosting 94.5 3.1 0.945 0.904 AdaBoost 94.3 3.2 0.943 0.900 LightGBM 94.1 3.2 0.941 0.913 Table 10: Representative (Qwen2.5-VL-32B) ensemble comparison 
+
+# L Calibration and Operating Points 
+
+For deployment, the detector threshold can be selected according to an acceptable mirage-rate budget rather than only maximizing overall accuracy. Table 12 shows three operating points. A strict 1.0% mirage-rate target yields the safest behavior, but it reduces related recall to 79.3%, meaning that more answerable cases are conservatively refused. Relaxing the budget to 2.5% improves accuracy to 94.2% and related recall to 90.4%, giving the best macro-F1 among the three settings. At a 5.0% mirage-rate budget, related recall increases further to 96.6%, but accuracy and macro-F1 slightly decrease. These results illustrate the expected safety–coverage trade-off: lower mirage budgets provide stronger protection against unsupported answers, while higher budgets preserve more responses for genuinely related inputs. 
+
+# M Per-Domain and Structured-Prompt Diagnostics 
+
+Figure 36 reports per-domain three-class accuracy for the best ensemble associated with each VLM backbone. The results show that performance is not uniform across datasets: some domains are consistently easier, while medical and pathology-style domains can be more variable due to domain-specific visual structure and question specificity. Nevertheless, the ensemble maintains strong accuracy across all five domains, supporting the claim that TC-LIA features transfer beyond a single dataset. Figure 37 compares the accuracy of the VLM’s structured self-assessment alone against the full ensemble. Points above the diagonal indicate cases where TC-LIA, domain-routing, and pixel-statistic features improve over the VLM class prediction alone. The consistent gap demonstrates that the proposed detector is not merely relying on VLM self-refusal or self-classification; instead, the ensemble gains additional discriminative signal from layer-wise image–text alignment. 34 Score AUROC Internal alignment score 0.963 Final cosine, ViT-H-14 only 0.963 Slope patch top-k 0.934 Gain patch top-k 0.930 Late patch top-k mean 0.909 
+
+Table 11: TC-LIA component and baseline score comparison.                 
+
+> Target MR Achieved MR Accuracy Related Recall Macro-F1 1.0% 1.0% 92.0 79.3 0.919 2.5% 2.5% 94.2 90.4 0.942 5.0% 5.0% 93.8 96.6 0.937
+
+Table 12: Operating points selected by mirage-rate budget. 
+
+# N Use of AI Assistants 
+
+AI assistance was used only for non-substantive writing support, including grammar correction, wording refinement, condensation of lengthy sections, and organization of appendix material. The research idea, experimental design, implementation, data analysis, results interpretation, figures, and final scientific claims were developed and verified by the authors. All AI-assisted edits were reviewed and revised by the authors, who take full responsibility for the content of the paper. 35 Figure 22: SAM3-style prompt-conditioned grounding sanity check. Related examples may not always produce stable evidence regions, whereas unrelated and blank/noise cases can produce unstable grounding. 36 Example A: Medical Question / Related Image Model: [gemma-3-4b-it] 
+
+Question: "is there airspace consolidation on the left side?" 
+
+Raw VLM output: "Yes, there appears to be airspace consolidation (likely pneumonia) on the left side of the chest. There is a hazy, opaque area in the lower left lung field, suggesting fluid or inflammatory material filling the alveoli." 
+
+TC-LIA: 
+
+final_cos= 0.14177778363227844 late=0.12022798601537943 gain=0.02796157542616129 slope=0.0017503922493838863 IAS=0.10531516385884666. 
+
+VLM class: "RELATED" 
+
+Ensemble decision: RELATED .
+
+Released output: "Yes, there appears to be airspace consolidation (likely pneumonia) on the left side of the chest. There is a hazy, opaque area in the lower left lung field, suggesting fluid or inflammatory material filling the alveoli." 
+
+Example B: Medical Question / Unrelated-real Image Model: [gemma-3-4b-it] 
+
+Question: "is there airspace consolidation on the left side?" 
+
+Raw VLM output: "Yes" 
+
+TC-LIA: 
+
+final_cos=0.14177778363227844 late=0.12022798601537943 gain=0.02796157542616129 slope=0.0017503922493838863 IAS= 0.10531516385884666 
+
+VLM class: "UNRELATED_REAL" 
+
+Ensemble decision: UNRELATED _R EAL .
+
+Released output: "I cannot answer based on the given image." 
+
+Example C: Blank/noise input Model: [gemma-3-4b-it] 
+
+Question: "is there airspace consolidation on the left side?" 
+
+Raw VLM output: "The image shows a radar display with a large, circular area highlighted in red, indicating a significant concentration of aircraft. This suggests airspace consolidation, as many aircraft are grouped together in a specific area." 
+
+Stage 1: 
+
+image_std=0 spectral_flatness=0 blank flag = blank. 
+
+Ensemble decision: BLANK /N OISE .
+
+Released output: "I cannot answer based on the given image." Figure 23: Qualitative result cards for all three input conditions (Related, Unrelated-Real, Blank/Noise) on the same question using Gemma-3-4B-IT. 37 Example A: Medical Question / Related Image Model: [internvl2-8b] 
+
+Question: "which side of the heart border is obscured?" 
+
+Raw VLM output: "The left border of the heart is obscured in the image." 
+
+TC-LIA: 
+
+final_cos= 0.21062666177749634 late= 0.17084469366818666 gain= 0.03115342278033495 slope= 0.001489122176974401 IAS=0.1528464299405425. 
+
+VLM class: "RELATED" 
+
+Ensemble decision: RELATED .
+
+Released output: "The left border of the heart is obscured in the image." 
+
+Example B: Medical Question / Unrelated-real Image Model: [internvl2-8b] 
+
+Question: "which side of the heart border is obscured?" 
+
+Raw VLM output: "The left side of the heart border is obscured." 
+
+TC-LIA: 
+
+final_cos=0.07188746333122253 late=0.15706725232303143 gain= 0.0027110567316412926 slope= 0.0002593882955457832 IAS= 0.0756431420856699 
+
+VLM class: "UNRELATED_REAL" 
+
+Ensemble decision: UNRELATED _R EAL .
+
+Released output: "I cannot answer based on the given image." 
+
+Example C: Blank/noise input Model: [internvl2-8b] 
+
+Question: "which side of the heart border is obscured?" 
+
+Raw VLM output: "The left border of the heart is obscured." 
+
+Stage 1: image_std=0 spectral_flatness=0 blank flag = blank. 
+
+Ensemble decision: BLANK /N OISE .
+
+Released output: "I cannot answer based on the given image." Figure 24: Qualitative result cards for all three input conditions (Related, Unrelated-Real, Blank/Noise) on the same question using InternVL2-8B. 38 Example A: Medical Question / Related Image Model: [llava-next-110b] 
+
+Question: "how is the patient positioned for this scan?" 
+
+Raw VLM output: "The patient is positioned lying down on their back." 
+
+TC-LIA: 
+
+final_cos= 0.25632190704345703 late=0.2388894772157073 gain=0.14442294416949153 slope=0.008294089832493374 IAS=0.2103761734343284. 
+
+VLM class: "RELATED" 
+
+Ensemble decision: RELATED. 
+
+Released output: "The patient is positioned lying down on their back." 
+
+Example B: Medical Question / Unrelated-real Image Model: [llava-next-110b] 
+
+Question: "how is the patient positioned for this scan?" 
+
+Raw VLM output: "The patient is positioned lying down on their back." 
+
+TC-LIA: 
+
+final_cos= 0.08261966705322266 late=0.12089351005852222 gain=0.02212412329390645 slope=0.0014618255643179523 IAS=0.07499801209175964. 
+
+VLM class: "RELATED" 
+
+Ensemble decision: UNRELATED _R EAL .
+
+Released output: "I cannot answer based on the given image." 
+
+Example C: Medical Question / Blank/noise input Model: [llava-next-110b] 
+
+Question: "how is the patient positioned for this scan?" 
+
+Raw VLM output: "The patient is lying down on their back." 
+
+Stage 1: 
+
+image_std=0.0 spectral_flatness=0.0 blank flag = blank. 
+
+Ensemble decision: BLANK /N OISE .
+
+Released output: "I cannot answer based on the given image." Figure 25: Qualitative result cards for all three input conditions (Related, Unrelated-Real, Blank/Noise) on the same question using llava-next-110b. 39 Example A: Medical Question / Related Image Model: Qwen2.5-VL-32B 
+
+Question: “what is the condition in which the ventricles are enlarged as seen in this image?” 
+
+Raw VLM output: “Hydrocephalus” 
+
+TC-LIA: final_cos=0.3814, late=0.2409, gain=0.1422, slope=0.0085, IAS=0.2731 
+
+VLM class: RELATED 
+
+Ensemble decision: RELATED ✓
+
+Released output: “Hydrocephalus” 
+
+Example B: Medical Question / Unrelated-Real Image Model: Qwen2.5-VL-32B 
+
+Question: “what is the condition in which the ventricles are enlarged as seen in this image?” 
+
+Raw VLM output: “Hydrocephalus” (base-prompt mirage) 
+
+TC-LIA: final_cos=0.1929, late=0.2108, gain=0.1015, slope=0.0060, IAS=0.1650 
+
+VLM class: RELATED (incorrect) 
+
+Ensemble decision: UNRELATED -R EAL ✓
+
+Released output: “I cannot answer based on the given image.” 
+
+Example C: Medical Question / Blank Image Model: Qwen2.5-VL-32B 
+
+Question: “what is the condition in which the ventricles are enlarged as seen in this image?” 
+
+Raw VLM output: “Dilated cardiomyopathy” (base-prompt mirage) 
+
+TC-LIA: Stage-1 blank gate triggered 
+
+image_std=0.0 spectral_flatness=0.0 blank flag = blank. 
+
+VLM class: BLANK _OR _N OISE 
+
+Ensemble decision: BLANK /N OISE ✓
+
+Released output: “I cannot answer based on the given image.” Figure 26: Qualitative result cards for all three input conditions (R ELATED , UNRELATED -R EAL ,BLANK /N OISE ) on the same medical question (Qwen2.5-VL-32B, chest_vqa , sample 153). The base-prompt VLM hallucinates a diagnosis for both non-related inputs; the ensemble correctly identifies all three conditions. 40 Example A: Medical Question / Related Image Model: Aya-Vision-32B 
+
+Question: “what are these opacities anterior to the right kidney?” 
+
+Raw VLM output: “Based on the image provided, the opacities anterior to the right kidney are likely to be lymph nodes. These structures are typically seen as well-defined, round or oval shapes with varying densities, and they can be located along the renal hilus or in the perirenal space. [. . . ]” 
+
+TC-LIA: final_cos=0.3303, late=0.2134, gain=0.1199, slope=0.0072, IAS=0.2372 
+
+VLM class: RELATED 
+
+Ensemble decision: RELATED ✓
+
+Released output: “[. . . ] the opacities anterior to the right kidney are likely to be lymph nodes. [. . . ]” 
+
+Example B: Medical Question / Unrelated-Real Image Model: Aya-Vision-32B 
+
+Question: “what are these opacities anterior to the right kidney?” 
+
+Raw VLM output: “Based on the image provided, the opacities anterior to the right kidney appear to be calcifications. These are likely calcium deposits that have formed within the kidney tissue or along the kidney’s surface. [. . . ]” (base-prompt mirage) 
+
+TC-LIA: final_cos=0.1880, late=0.1838, gain=0.1021, slope=0.0064, IAS=0.1559 
+
+VLM class: RELATED (incorrect) 
+
+Ensemble decision: UNRELATED -R EAL ✓
+
+Released output: “I cannot answer based on the given image.” 
+
+Example C: Medical Question / Blank Image Model: Aya-Vision-32B 
+
+Question: “what are these opacities anterior to the right kidney?” 
+
+Raw VLM output: “Based on the image provided, the opacities anterior to the right kidney are not clearly identifiable. [. . . ] They could potentially represent a variety of structures or conditions, such as bowel gas, soft tissue densities, or even artifacts from the imaging process. [. . . ]” (base-prompt mirage) 
+
+TC-LIA: Stage-1 blank gate triggered 
+
+image_std=0.0 spectral_flatness=0.0 blank flag = blank. 
+
+VLM class: RELATED (incorrect) 
+
+Ensemble decision: BLANK /N OISE ✓
+
+Released output: “I cannot answer based on the given image.” Figure 27: Qualitative result cards for all three input conditions (R ELATED , UNRELATED -R EAL ,BLANK /N OISE ) on the same medical question (Aya-Vision-32B, chest_vqa , sample 17). The base-prompt VLM generates confident diagnoses (lymph nodes, calcifications) even for unrelated and blank inputs; the ensemble correctly identifies all three conditions. 41 Example A: Medical Question / Related Image Model: BLIP2-OPT-2.7B 
+
+Question: “what is the condition?” 
+
+Raw VLM output: “a tumor” 
+
+TC-LIA: final_cos=0.2446, late=0.1809, gain=0.0357, slope=0.0020, IAS=0.1731 
+
+VLM class: RELATED 
+
+Ensemble decision: RELATED ✓
+
+Released output: “a tumor” 
+
+Example B: Medical Question / Unrelated-Real Image Model: BLIP2-OPT-2.7B 
+
+Question: “what is the condition?” 
+
+Raw VLM output: “cancer” (base-prompt mirage) 
+
+TC-LIA: final_cos=0.2368, late=0.1747, gain=0.0448, slope=0.0024, IAS=0.1690 
+
+VLM class: RELATED (incorrect) 
+
+Ensemble decision: UNRELATED -R EAL ✓
+
+Released output: “I cannot answer based on the given image.” 
+
+Example C: Medical Question / Blank Image Model: BLIP2-OPT-2.7B 
+
+Question: “what is the condition?” 
+
+Raw VLM output: “the condition is the condition” (base-prompt mirage) 
+
+TC-LIA: Stage-1 blank gate triggered 
+
+image_std=0.0 spectral_flatness=0.0 blank flag = blank. 
+
+VLM class: RELATED (incorrect) 
+
+Ensemble decision: BLANK /N OISE ✓
+
+Released output: “I cannot answer based on the given image.” Figure 28: Qualitative result cards for all three input conditions (R ELATED , UNRELATED -R EAL ,BLANK /N OISE ) on the same medical question (BLIP2-OPT-2.7B, chest_vqa , sample 221). The base-prompt VLM produces confident but wrong diagnoses for non-related inputs (“cancer”, “the condition is the condition”); the ensemble correctly identifies all three conditions. 42 Example A: Medical Question / Related Image Model: LLaVA-1.5-7B 
+
+Question: “the hypointense nature of the hemorrhage signifies what in terms of the timeline?” 
+
+Raw VLM output: “The hypointense nature of the hemorrhage signifies that it is an old hemorrhage.” 
+
+TC-LIA: final_cos=0.2859, late=0.1899, gain=0.0868, slope=0.0051, IAS=0.2040 
+
+VLM class: RELATED 
+
+Ensemble decision: RELATED ✓
+
+Released output: “The hypointense nature of the hemorrhage signifies that it is an old hemorrhage.” 
+
+Example B: Medical Question / Unrelated-Real Image Model: LLaVA-1.5-7B 
+
+Question: “the hypointense nature of the hemorrhage signifies what in terms of the timeline?” 
+
+Raw VLM output: “The hypointense nature of the hemorrhage signifies that it is a very early stage of the bleeding.” (base-prompt mirage) 
+
+TC-LIA: final_cos=0.0649, late=0.1344, gain=0.0247, slope=0.0012, IAS=0.0699 
+
+VLM class: RELATED (incorrect) 
+
+Ensemble decision: UNRELATED -R EAL ✓
+
+Released output: “I cannot answer based on the given image.” 
+
+Example C: Medical Question / Blank Image Model: LLaVA-1.5-7B 
+
+Question: “the hypointense nature of the hemorrhage signifies what in terms of the timeline?” 
+
+Raw VLM output: “The hypointense nature of the hemorrhage signifies that it is an old hemorrhage.” (base-prompt mirage) 
+
+TC-LIA: Stage-1 blank gate triggered 
+
+image_std=0.0 spectral_flatness=0.0 blank flag = blank. 
+
+VLM class: RELATED (incorrect) 
+
+Ensemble decision: BLANK /N OISE ✓
+
+Released output: “I cannot answer based on the given image.” Figure 29: Qualitative result cards for all three input conditions (R ELATED , UNRELATED -R EAL ,BLANK /N OISE ) on the same medical question (LLaVA-1.5-7B, chest_vqa , sample 316). The base-prompt VLM hallucinates timeline-specific diagnoses for both non-related inputs; the IAS drop from 0.204 (related) to 0.070 (unrelated) illustrates the discriminative power of TC-LIA. 43 Example A: Medical Question / Related Image Model: InternVL3-38B 
+
+Question: “from what structure is the large hypodense mass emanating from?” 
+
+Raw VLM output: “The large hypodense mass is emanating from the pituitary gland.” 
+
+TC-LIA: final_cos=0.3106, late=0.1985, gain=0.0864, slope=0.0051, IAS=0.2184 
+
+VLM class: RELATED 
+
+Ensemble decision: RELATED ✓
+
+Released output: “The large hypodense mass is emanating from the pitu-itary gland.” 
+
+Example B: Medical Question / Unrelated-Real Image Model: InternVL3-38B 
+
+Question: “from what structure is the large hypodense mass emanating from?” 
+
+Raw VLM output: “The large hypodense mass is emanating from the pituitary gland.” (base-prompt mirage) 
+
+TC-LIA: final_cos=0.1384, late=0.1358, gain=0.0216, slope=0.0013, IAS=0.1065 
+
+VLM class: RELATED (incorrect) 
+
+Ensemble decision: UNRELATED -R EAL ✓
+
+Released output: “I cannot answer based on the given image.” 
+
+Example C: Medical Question / Blank Image Model: InternVL3-38B 
+
+Question: “from what structure is the large hypodense mass emanating from?” 
+
+Raw VLM output: “The large hypodense mass is emanating from the pituitary gland.” (base-prompt mirage) 
+
+TC-LIA: Stage-1 blank gate triggered 
+
+image_std=0.0 spectral_flatness=0.0 blank flag = blank. 
+
+VLM class: RELATED (incorrect) 
+
+Ensemble decision: BLANK /N OISE ✓
+
+Released output: “I cannot answer based on the given image.” Figure 30: Qualitative result cards for all three input conditions (R ELATED , UNRELATED -R EAL ,BLANK /N OISE ) on the same medical question (InternVL3-38B, chest_vqa , sample 81). Despite hav-ing no relevant visual evidence, the base-prompt VLM confidently produces the identical answer “pituitary gland” for all three conditions; the ensemble correctly identifies each case. 44 REL UNREL BLANK 
+
+Predicted 
+
+> REL UNREL BLANK
+> True
+
+0.83 0.17 0.00 
+
+0.10 0.89 0.00 
+
+0.00 0.00 1.00 
+
+TC-LIA Only 
+
+Acc=0.9065 MR=0.0342 
+
+REL UNREL BLANK 
+
+Predicted 
+
+> REL UNREL BLANK
+> True
+
+0.91 0.09 0.00 
+
+0.10 0.90 0.00 
+
+0.00 0.00 1.00 
+
+Qwen2.5-7B / RandomForest 
+
+Acc=0.9367 MR=0.0324 
+
+REL UNREL BLANK 
+
+Predicted 
+
+> REL UNREL BLANK
+> True
+
+0.82 0.17 0.00 
+
+0.09 0.91 0.00 
+
+0.00 0.00 1.00 
+
+BLIP2-2.7B / RandomForest 
+
+Acc=0.9102 MR=0.0296 
+
+REL UNREL BLANK 
+
+Predicted 
+
+> REL UNREL BLANK
+> True
+
+0.88 0.12 0.00 
+
+0.09 0.90 0.00 
+
+0.00 0.00 1.00 
+
+Gemma3-4B / XGBoost 
+
+Acc=0.9281 MR=0.0308 
+
+REL UNREL BLANK 
+
+Predicted 
+
+> REL UNREL BLANK
+> True
+
+0.82 0.17 0.00 
+
+0.09 0.91 0.00 
+
+0.00 0.00 1.00 
+
+Phi3.5-V / RandomForest 
+
+Acc=0.9104 MR=0.0300 
+
+REL UNREL BLANK 
+
+Predicted 
+
+> REL UNREL BLANK
+> True
+
+0.84 0.16 0.00 
+
+0.08 0.92 0.00 
+
+0.00 0.00 1.00 
+
+LLaVA-OV-7B / RandomForest 
+
+Acc=0.9187 MR=0.0259 
+
+Confusion Matrices Held-Out Test Set Figure 31: Confusion matrices: TC-LIA Only and best ensemble per VLM on the held-out test set. 
+
+Figure 32: Accuracy and mirage rate for all five ensemble classifiers across all VLM families. 45 XGBoo 
+
+> Light
+> Gradi
+> AdaBo
+> Rando
+> 0.80
+> 0.82
+> 0.84
+> 0.86
+> 0.88
+> 0.90
+> 0.92
+> 5-Fold CV Accuracy
+> Qwen2.5-7B
+> XGBoo
+> Light
+> Gradi
+> AdaBo
+> Rando
+> BLIP2-2.7B
+> XGBoo
+> Light
+> Gradi
+> AdaBo
+> Rando
+> Gemma3-4B
+> XGBoo
+> Light
+> Gradi
+> AdaBo
+> Rando
+> Phi3.5-V
+> XGBoo
+> Light
+> Gradi
+> AdaBo
+> Rando
+> LLaVA-OV-7B
+
+Cross-Validation Accuracy All VLM Models × All Classifiers Figure 33: 5-fold cross-validation accuracy for all classifiers across all VLM families. 
+
+Figure 34: Per-domain AUROC for binary R ELATED vs. U NRELATED -R EAL detection using final_cos 
+
+(ViT-H/14 global cosine) alone versus the full Internal Alignment Score (IAS). IAS matches or exceeds 
+
+final_cos across all domains. The largest gains appear in infovqa and docvqa , where a single global embedding is a weaker discriminator than the layer-wise patch-level alignment summary captured by IAS. 0.0 0.1 0.2 0.3 0.4 0.5 
+
+Importance 
+
+s1 blank 
+
+pn 
+
+s1_std 
+
+pm 
+
+late topk 
+
+gain 
+
+clip domain 
+
+slope 
+
+final cos 
+
+IAS 
+
+vlm class 
+
+> Feature
+
+Qwen2.5-7B 
+
+0.00 0.05 0.10 0.15 0.20 0.25 
+
+Importance 
+
+BLIP2-2.7B 
+
+0.00 0.05 0.10 0.15 0.20 0.25 
+
+Importance 
+
+Gemma3-4B 
+
+0.00 0.05 0.10 0.15 0.20 0.25 
+
+Importance 
+
+Phi3.5-V 
+
+0.000 0.025 0.050 0.075 0.100 0.125 0.150 0.175 0.200 
+
+Importance 
+
+LLaVA-OV-7B 
+
+XGBoost Feature Importance All VLM Models 
+
+Figure 35: XGBoost feature importance across all VLM families. IAS is consistently the top feature. 46 Chest VQA PathVQA TextVQA DocVQA InfoVQA 
+
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> 3-Class Accuracy
+
+Per-Domain Accuracy All VLM Models (Best Ensemble per Model) 
+
+> Qwen2.5-7B
+> BLIP2-2.7B
+> Gemma3-4B
+> Phi3.5-V
+> LLaVA-OV-7B
+
+Figure 36: Per-domain 3-class accuracy for all VLM families (best ensemble per model). 0.0 0.2 0.4 0.6 0.8 1.0 
+
+VLM Structured Accuracy (vlm_class only) 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Ensemble Accuracy
+
+Qwen2.5-7B 
+
+BLIP2-2.7B Gemma3-4B Phi3.5-V LLaVA-OV-7B 
+
+VLM Structured Accuracy vs. Ensemble Accuracy 
+
+(gap = ensemble gain from TC-LIA) 
+
+Qwen2.5-7B 
+
+BLIP2-2.7B 
+
+Gemma3-4B 
+
+Phi3.5-V 
+
+LLaVA-OV-7B 
+
+y = x 
+
+Figure 37: Comparison between VLM structured-prompt accuracy and full ensemble accuracy. The perfor-mance gap highlights the additional gain achieved through TC-LIA features. 47
