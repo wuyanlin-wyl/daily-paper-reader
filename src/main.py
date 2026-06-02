@@ -306,12 +306,15 @@ def resolve_summary_step_env() -> dict[str, str]:
     summary_model = _read_env_text("SUMMARY_MODEL", "BLT_SUMMARY_MODEL")
 
     if summary_api_key:
+        env["DEEPSEEK_API_KEY"] = summary_api_key
         env["BLT_API_KEY"] = summary_api_key
     if summary_base_url:
+        env["DEEPSEEK_BASE_URL"] = summary_base_url
         env["LLM_PRIMARY_BASE_URL"] = summary_base_url
         env["BLT_PRIMARY_BASE_URL"] = summary_base_url
         env["BLT_API_BASE"] = summary_base_url
     if summary_model:
+        env["DEEPSEEK_MODEL"] = summary_model
         env["BLT_SUMMARY_MODEL"] = summary_model
     return env
 
@@ -724,6 +727,7 @@ def main() -> None:
     )
     if trace_ids:
         print_trace_recommend("RECOMMEND", recommend_path, trace_ids)
+    summary_step_env = resolve_summary_step_env()
     run_step(
         "Step 6 - Generate Docs",
         [
@@ -736,7 +740,19 @@ def main() -> None:
                 else []
             ),
         ],
-        env=resolve_summary_step_env(),
+        env=summary_step_env,
+    )
+    run_step(
+        "Step 7 - Generate Innovation Brief",
+        [
+            python,
+            os.path.join(SRC_DIR, "7.generate_innovation_brief.py"),
+            "--date",
+            run_date_token,
+            "--mode",
+            recommend_mode,
+        ],
+        env=summary_step_env,
     )
 
 
