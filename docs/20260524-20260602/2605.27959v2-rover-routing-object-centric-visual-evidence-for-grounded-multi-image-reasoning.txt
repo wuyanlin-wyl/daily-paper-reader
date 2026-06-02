@@ -1,0 +1,977 @@
+Title: ROVER: Routing Object-Centric Visual Evidence for Grounded Multi-Image Reasoning
+
+URL Source: https://arxiv.org/pdf/2605.27959v2
+
+Published Time: Fri, 29 May 2026 00:37:14 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# ROVER: Routing Object-Centric Visual Evidence for Grounded Multi-Image Reasoning 
+
+Guannan Lv, Ren Nie, Hongjian Dou, Tingting Gao 
+
+Kuaishou Technology 
+
+{lvguannan, nieren, douhongjian}@kuaishou.com 
+
+Abstract 
+
+Multimodal Large Language Models (MLLMs) have increasingly localized and interleaved visual evidence for deliberative reasoning. Grounding-based approaches typically focus on regions of interest (RoIs) by injecting cropped image patches or RoI-specific features into the reasoning context. However, such designs can weaken holistic scene understanding and inter-object relations, while incurring decoding costs that scale with the number and size of RoIs. Alternatively, adaptive visual feature selection often requires fine-grained supervision or complex heuristics. To address these limitations, we propose ROVER (Routing Object-centric Visual 
+
+Evidence for grounded multi-image Reasoning), a lightweight, learnable plugin for efficient global visual evidence routing. Upon each object grounding prediction, ROVER injects a step-specific token triplet to synergistically: (i) aggregate the ongoing reasoning context, (ii) distill intra-image cues into a visual working space via object-centric differential attention, and (iii) route and integrate history-aware evidence across objects and images within this space for subsequent reasoning. We integrate ROVER into Qwen2.5-VL-7B and develop an interleaved SFT-to-GRPO training pipeline. Strictly adhering to the original datasets and evaluation protocols, our method achieves the best performance on MM-GCoT (+4.8% answer accuracy, +14.6% grounding accuracy) and VideoEspresso (+8.6% answer accuracy). The VideoEspresso-trained model demonstrates strong transferability, outperforming the base model by +4.7% on average across diverse benchmarks. 
+
+1 Introduction 
+
+Multimodal Large Language Models (MLLMs) have rapidly advanced in both vision–language understanding and generation, narrowing the long-standing divide between visual perception and language-driven reasoning [ 15 , 37 , 59 ]. Recent research has increasingly equipped MLLMs with language-centric reasoning mechanisms, among which Chain-of-Thought (CoT) has emerged as a dominant paradigm. These strategies have consistently yielded substantial gains across a broad spectrum of multimodal tasks [61, 27, 52, 74, 40]. In vision–language reasoning, a widely adopted paradigm encodes images once and performs text-only CoT reasoning over fixed visual features [ 74 , 21 , 50 , 52 ]. While effective for many tasks, this approach often falls short when fine-grained perception is required [ 51 , 53 , 54 ], as it prevents the model from explicitly revisiting and reorganizing visual evidence along the evolving reasoning trajectory. Motivated by this limitation, recent work shifts from thinking about images to thinking with 
+
+images [ 44 , 52 ], treating visual representations as revisitable intermediate states during generation. A representative advancement in this direction is visual interleaving, which dynamically injects targeted visual evidence into the reasoning stream [60, 41, 10, 22]. 
+
+> Preprint.
+> arXiv:2605.27959v2 [cs.CV] 28 May 2026
+
+Despite their effectiveness, most interleaving designs remain region-centric. They explicitly target regions of interest (RoIs) by injecting cropped image patches or RoI-specific visual features into the decoding stream [ 60 , 48 , 22 , 68 , 58 , 41 ]. Such mechanisms face two structural limitations. First, focusing on isolated regions neglects the broader scene context and inter-object relations. Lacking sufficient holistic understanding, MLLMs tend to fall back on language priors and potentially induce hallucinations [ 8]. Moreover, ignoring inter-object relations can lead to biased conclusions, particularly in human-in-the-loop scenarios where coarse and sparse user-provided region prompts often omit critical contextual cues [ 65 , 75 ]. Second, the decoding cost scales significantly with the spatial size of RoIs, making it expensive to process high-resolution and multi-object scenes. Beyond RoI-based revisitation, adaptive visual feature selection or pruning typically aims to retain and interleave step-relevant visual features [ 10 , 14 , 78 ]. However, existing approaches are largely confined to single-image scenarios and necessitate expensive fine-grained annotations or intricate heuristics, hindering scalable multi-image reasoning. Another line of work augments MLLMs with external tools or executable programs to iteratively acquire and manipulate evidence [ 5, 18 , 22 , 77 , 33 , 45 , 57 ]. While promising, tool-augmented frameworks often incur high latency and complexity, with potential execution brittleness complicating seamless integration. These limitations call for a decoding-efficient mechanism that transcends isolated regions to facilitate holistic scene understanding and the modeling of inter-object relations. In this work, we propose 
+
+ROVER (Routing Object-centric Visual Evidence for grounded multi-image Reasoning), which extends RoI-based revisitation into a structured visual evidence routing process co-evolving with language reasoning . This synergistic architecture conceptually aligns with the dual-process cognitive framework [ 26 ]. As an intuitive frontend, ROVER rapidly aggregates object-centric visual context for the MLLM backend’s deliberate reasoning. In multi-hop scenarios, the MLLM can dynamically initiate further grounding steps to accumulate supplementary visual evidence. To operationalize this intuitive frontend, the routing process draws inspiration from human visual cognition—specifically selective attention [ 28 ], working memory [ 43 ], and return fixations [ 70 , 42 ]. Upon each object grounding prediction, the reasoning context is first absorbed into a compact representation. Serving as an active routing node, each grounded object then distills contextual cues while suppressing distractors to incorporate broader scene context, and archives this information into the history-aware Visual Working Space (VWS). Attending to the VWS resembles return fixations and iteratively integrates historical evidence across objects and images. In practice, ROVER encodes this mechanism into a constant-length token triplet, bridging local details and global reasoning while bypassing the overhead of injecting variable-length RoI features. We integrate ROVER into Qwen2.5-VL-7B [ 4 ] and develop a unified interleaved SFT-to-GRPO [ 49 ]training pipeline. Under strictly controlled settings relying solely on the original datasets, our method achieves the best performance on MM-GCoT [ 63 ] (+4.8% answer accuracy, +14.6% grounding accuracy), and improves answer accuracy by +8.6% over the previous best on VideoEspresso [ 19 ]. Notably, despite being fine-tuned exclusively on VideoEspresso, the resulting model demonstrates robust transferability, outperforming the base model by +4.7% on average across diverse benchmarks (e.g., +2.2% on Mantis [25], +4.8% on V-Star [62], and +5.9% on TreeBench [56]). Our main contributions are summarized as follows: • We propose ROVER (Routing Object-centric Visual Evidence for grounded multi-image 
+
+Reasoning), a lightweight learnable plugin that implements global object-centric visual evidence routing during chain-of-thought generation by appending a constant-length token triplet after each grounding prediction. • We devise an object-centric differential attention mechanism to distill complementary cues while suppressing visual distractors, alongside a Visual Working Space (VWS) as a structured routing substrate. This architecture consolidates object-centric cues and enables history-aware routing of visual evidence across objects and images during decoding. • We integrate ROVER into Qwen2.5-VL-7B and develop a unified interleaved SFT-to-GRPO training pipeline, yielding consistent gains on both single-image and multi-image grounded reasoning tasks in controlled settings, and superior generalization to diverse benchmarks. 2LLM Decoder   
+
+> Text
+> Tokens
+> Visual
+> Tokens
+> Textual
+> CoT
+> Visual
+> Tokens
+> Text
+> Tokens
+> Visual
+> Tokens
+> Select and Inject
+
+LLM Decoder 
+
+> Trigger
+> Tokens
+> Routing
+> Tokens
+> Text
+> Tokens
+> Visual
+> Tokens
+> ROVER
+
+LLM Decoder         
+
+> Trigger
+> Tokens
+> Textual Chain -of -Thought Visual Chain -of -Thought Visual Chain -of -Thought with ROVER
+> Global Evidence
+> Local Details
+> Decoding
+> Efficiency
+> Lightweight
+> Transferability
+
+Figure 1: Comparison between our method and prior paradigms. Compared to textual CoT and existing visual CoT approaches, ROVER preserves local object details while seamlessly routing evidence across objects and images. It is learnable, lightweight, and decoding-efficient by injecting a constant-length token triplet per grounding step, and exhibits strong transferability. Evidence: The <obj> weight ball in image 2 </obj><box> [253, 79, 278, 104] </box> [LSW] hitting the 
+
+<obj> second white chalk line in image 1 </obj><box> [323, 373, 584, 407] </box> [LSW] indicates the 
+
+success of the man’s <obj> throw in image 4 </obj><box >[200, 6, 255, 57 ]</ box >[ LSW]. The checks 
+
+by the woman to measure the distance, along with the watching and measuring by the surrounding 
+
+<obj >crowd in image 3</ obj><box >[548, 70, 639, 303 ]</ box >[LSW] further confirm his success. 
+
+Answer : The success of the man’s throw is indicated when the ball hits the second white chalk line. 
+
+The checks by the woman to measure the distance confirm it, while the crowd watches and measures 
+
+the distance of his throw. 
+
+Question : What indicates the success of the man's throw in the images? 
+
+Figure 2: Qualitative example with ROVER token insertions. Given a multi-image query from VideoEspresso [ 19 ], the model grounds key entities across images (ball in image 2, chalk line in image 1, throw in image 4, and crowd in image 3) and composes evidence to support the final answer. We mark the insertion positions of the Link /Sift /Weave triplet with [LSW] in the evidence. Bounding boxes are reported in absolute pixel coordinates as [xmin , y min , x max , y max ].
+
+2 Related work 
+
+Reasoning with LLMs. Chain-of-thought (CoT) prompting improves LLM reasoning by eliciting explicit intermediate steps that guide the model toward the final solution [ 61 ]. Expanding upon this foundation, follow-up work has developed a variety of CoT-related paradigms, such as zero-shot CoT prompting [ 27 ] and automated CoT synthesis [ 73 ]. Beyond prompting, recent studies leverage reinforcement learning to directly optimize outcome-driven objectives along CoT-style solution trajectories [ 47 , 36 , 49 ], leading to strong gains on difficult text-only benchmarks, including STEM problem solving and code generation [ 24 , 46 ]. Nevertheless, relying solely on textual CoT often proves fundamentally inadequate for complex vision-centric or vision–language tasks [ 13 , 53 ], thereby necessitating multimodal approaches that can actively revisit visual evidence to substantiate intermediate reasoning steps. 
+
+Reasoning with MLLMs. Multimodal Large Language Models (MLLMs) have revolutionized open-ended visual understanding and complex reasoning tasks [ 37 ]. This rapid progress is propelled by innovations in visual instruction tuning, robust vision–language alignment, high-resolution percep-tion mechanisms, and the curation of reasoning-intensive multimodal datasets [ 3, 41 , 59 , 29 ]. These foundational advancements also underpin the emergence of increasingly capable proprietary systems that demonstrate sophisticated reasoning in real-world scenarios [1, 15, 2]. 3VT L WS
+
+> Enc w
+
+... ... 
+
+> Enc s
+
+...     
+
+> VWS
+> What indicates the success
+> of the man’s throw in images Answer: The success of man’s
+> throw ..the ball hits the second
+> white chalk line. ..
+> Evidence: ... white chalk line in
+> image 1 [ 323, 373, 584, 407 ]...
+
+... 
+
+...   
+
+> +
+> +
+> ++
+> +
+> -
+> -
+> (a) ROVER Pipeline
+
+T T T
+
+T ... T T T
+
+V V V
+
+T ... T T T     
+
+> Multimodal Encoding Interleaved Decoding Textual Decoding
+
+T        
+
+> (b) Sift via DiffAttn and VWS (c) Weave over VWS
+> Enc s
+> +-
+> DiffAttn
+
+...   
+
+> Object and Image Context DiffAttn VWS
+
+S
+
+S
+
+... 
+
+W
+
+W       
+
+> Causal Attention
+> -
+> +-
+> +
+> Evidence Flow across Objects
+> -+-
+> +
+
+T T T T T 
+
+> Enc wVWS
+
+L
+
+S
+
+W    
+
+> +
+> -
+> Grounding
+> Tokens
+> Link Token
+> Sift Token
+> Weave Token
+> Relevant
+> Irrelevant
+> Evidence Flow
+> Context
+> Object
+
+... 
+
+...  
+
+> 1
+> 2
+> 3
+> 4
+> LLM Decoder LLM Decoder LLM Decoder
+> obj1: weight ball /img2
+> obj4: crowd /img3
+
+Figure 3: Overview of ROVER. (a) ROVER Pipeline. Triggered by each object grounding, ROVER injects a Link /Sift /Weave token triplet to route visual evidence through the VWS. The MLLM then autoregressively interleaves reasoning and subsequent grounding steps, concluding with a pure-text answer. (b) Sift via DiffAttn and VWS. Leveraging object-centric differential attention, Sift distills complementary visual context while suppressing irrelevant regions to populate the VWS with compact object-centric cues. (c) Weave over VWS. Via history-aware attention, Weave routes and integrates relevant evidence from previously grounded objects into the current reasoning state. 
+
+Visual Chain-of-Thought. As MLLMs mature, visual chain-of-thought (visual CoT) has emerged to ground intermediate reasoning in visual evidence. This body of research encompasses RoI-centric revisitation, tool-augmented visual reasoning, and adaptive visual feature selection. For example, Argus [ 41 ] revisits RoI-specific visual signals during reasoning, while Visual Sketchpad [ 22 ] augments reasoning with tool-generated intermediate visual artifacts (e.g., drawing auxiliary lines) to support visual problem solving. Existing adaptive methods, whether heuristic (e.g., ICoT [ 14 ]) or learned (e.g., MINT-CoT [ 10 ]), primarily target single-image reasoning. This focus, coupled with reliance on sensitive hyperparameters or expensive annotations, limits their extension to multi-image reasoning scenarios. Collectively, these trade-offs motivate context-preserving revisitation with global, object-centric visual evidence routing for multi-image reasoning. 
+
+3 Method 
+
+We propose ROVER, a mechanism that equips autoregressive multimodal generation with an explicit, object-level pathway for global visual evidence routing. In Section 3.1, we detail the proposed framework (depicted in Figure 3 and compared to prior paradigms in Figure 1). It comprises four key components: (i) a trigger-and-insert interface that determines when to initiate routing, (ii) the 
+
+Link /Sift /Weave token triplet serving as routing primitives, (iii) object-centric differential cross-attention for evidence routing within each image, and (iv) the Visual Working Space (VWS) that enables history-aware visual evidence routing across objects and images. Finally, we present our training recipe in Section 3.2, combining tailored interleaved SFT and GRPO. 
+
+3.1 ROVER Triggering. ROVER initiates visual evidence routing upon detecting a valid event ok. Formally, ok
+
+encapsulates an object phrase (any visually localizable concept, from tangible items to specific actions and visual states), its image index, and spatial localization (typically a bounding box). Triggers can originate from diverse sources, including intrinsic model-emitted grounding patterns [ 41 ], user-provided region prompts (e.g., clicks or boxes) [75], and external detector proposals [38]. 4In this work, we primarily focus on the model-emitted grounding trigger: the routing event is activated upon the generation of a valid grounding pattern—e.g., <obj>the man in image 1</obj> <box>[ xmin , y min , x max , y max ]</box> (see Figure 2). Here, [xmin , y min ] and [xmax , y max ] denote the top-left and bottom-right corners of the predicted bounding box in image coordinates. 
+
+Routing Primitives. After each routing event, ROVER appends an explicit object-level routing interface formatted as a constant-length token triplet— Link , Sift , and Weave . This is represented as 
+
+Tk ∈ R3×d, where d is the hidden size: 
+
+Tk = tLink  
+
+> k
+
+; tSift  
+
+> k
+
+; tWeave 
+
+> k
+
+. (1) As depicted in Figure 3, the learnable Link embedding absorbs the evolving decoding context, compactly encapsulating the current reasoning state [ 14 ]. Sift populates the VWS by distilling object-anchored intra-image context. For instance, when grounding a braking car on the street, it can attend to co-occurrent traffic lights or crosswalks to gather candidate visual cues and facilitate holistic scene understanding for subsequent reasoning. Weave then leverages the VWS to integrate historical evidence across objects and images. This design imposes a constant three-token overhead per grounded object, independent of its spatial size. 
+
+Routing Modules. Both Sift and Weave routing modules are instantiated as lightweight single-layer Transformer blocks [ 55 ] comprising cross-attention and feed-forward networks (FFNs). Let 
+
+Enc( X; S, M) denote a generic block where the query X attends to the source S (serving as both key and value, i.e., K = V = S) under mask M. Sharing this architectural backbone, Enc Sift adopts differential attention, whereas Enc Weave relies on standard attention. 
+
+Sift with DiffAttn. Given an input image Im, the vision encoder yields a sequence of patch tokens 
+
+Vm ∈ RNm×d. For the k-th valid object bounding box bk in image Im(k), let Ω( bk) denote the indices of patches overlapping the box, and ¯Ω( bk) denote the remaining non-RoI patch indices. Following [17, 34], we first compute a compact RoI query qk via average pooling: 
+
+qk = AvgPool  Vm(k)[Ω( bk)]  ∈ Rd. (2) As illustrated in Figure 3, Sift is designed to extract complementary context while suppressing irrelevant distractors. We adopt differential attention [ 67 ] as the core operator in Enc Sift . Formally, given query Q, key K, and value V , the operator computes: 
+
+DiffAttn( Q, K, V ) = 
+
+
+
+softmax( Q1K⊤
+
+> 1√dh
+
+) − λ · softmax( Q2K⊤
+
+> 2√dh
+
+)
+
+
+
+V, (3) where query/key projections are split into two heads [Q1; Q2] = QW Q, [K1; K2] = KW K , and λ
+
+is a learnable parameter initialized as in [ 67 ]. Sift executes object-centric differential attention to generate tSift  
+
+> k
+
+, querying the complementary context Vm(k)[ ¯Ω( bk)] with the object query qk:
+
+tSift  
+
+> k
+
+= Enc Sift 
+
+
+
+qk; Vm(k)[ ¯Ω( bk)] , MSift 
+
+> k
+
+
+
+. (4) With the residual connection [ 20 ] inherently retaining the object query qk, the attention mechanism is exclusively dedicated to routing complementary context from non-RoI regions (e.g., scene background or surrounding entities). In the rare edge case where | ¯Ω( bk)| = 0 (e.g., full-image box), differential comparison becomes inapplicable, and we default to tSift  
+
+> k
+
+= qk.
+
+Weave over VWS. We maintain the VWS as a unified, history-ordered routing substrate: 
+
+Wk = [ Wk−1; tSift  
+
+> k
+
+] ∈ Rk×d, W0 = ∅. (5) Importantly, as shown in Figure 3, this workspace is shared across all routing events irrespective of the source image index, thus allowing Wk to form a global memory of grounded objects across multiple images. We compute tWeave  
+
+> k
+
+with a single-layer encoder that routes and integrates visual evidence through the VWS, where tSift  
+
+> k
+
+attends to Wk under an autoregressive mask: 
+
+tWeave  
+
+> k
+
+= Enc Weave 
+
+
+
+tSift  
+
+> k
+
+; Wk, MWeave 
+
+> k
+
+
+
+. (6) 5Decoding. After the k-th routing event, we append Tk to the input embedding sequence, allowing the backbone LLM to perform a forward pass and then autoregressively interleave textual reasoning with further grounding steps. For a trajectory with K routing events, ROVER introduces exactly 3K
+
+additional tokens (i.e., LK = L0 + 3 K), independent of the spatial size of RoIs. 
+
+3.2 Training Overview. Featuring the interleaving of text tokens and ROVER triplets, our training pipeline proceeds in two stages: (i) interleaved supervised fine-tuning (SFT), which empowers the model to emit accurate grounding patterns and task-specific responses, and (ii) interleaved Group Relative Policy Optimization (GRPO) [49] to optimize trajectory rewards for better answer accuracy. 
+
+Interleaved SFT. Given a dataset of multimodal instruction-response pairs, we construct training sequences that alternate natural language tokens with closed grounding patterns (see Figure 2). During teacher forcing, whenever a closed and valid grounding pattern is completed, we trigger a routing event and insert the Link /Sift /Weave token triplet Tk into the input embedding sequence. We minimize the masked negative log-likelihood: 
+
+LSFT = Et|mt=1 
+
+− log pθ
+
+ yt | y<t , I . (7) Here, the target tokens yt comprise both textual and grounding outputs, conditioned on the preceding context y<t and the visual input I. We set mt = 1 for these targets and mt = 0 for the inserted token triplets. Although these inserted tokens are not directly supervised, they affect the hidden states used to predict subsequent target tokens, and are thus optimized end-to-end via backpropagation driven by the language modeling objective. 
+
+Interleaved GRPO. Building upon the SFT checkpoint, we tailor GRPO [ 49 ] to the interleaved multimodal setting to further optimize performance. For each prompt, we sample a group of G
+
+trajectories {τi}Gi=1 from the old policy pθold and compute task-specific rewards r(τi). The rewards are then normalized to obtain advantages: 
+
+ˆA(τi) = r(τi) − μr
+
+σr + ϵ , (8) where μr and σr are the group-wise mean and standard deviation of {r(τi)}Gi=1 . We use the following KL-regularized GRPO loss: 
+
+LGRPO = Eτi∼pθold , t |mt=1 
+
+
+
+− pθ (yt | y<t )
+
+pθold (yt | y<t ) ˆA(τi) + β DKL (pθ ∥pref )
+
+
+
+. (9) Here, DKL (pθ ∥pref ) denotes the token-level KL divergence between the current policy pθ and the reference policy pref (initialized from the SFT model), weighted by a coefficient β. Note that the ROVER triplet consists of deterministically inserted tokens; hence, we exclude them from the loss calculation by setting mt = 0 .
+
+4 Experiments 
+
+This section evaluates ROVER across diverse grounded reasoning scenarios. We begin by detailing the implementation specifics and evaluation protocols in Section 4.1. Next, we present comparative results on (i) multi-image grounded reasoning with VideoEspresso (Section 4.2) and (ii) single-image grounded reasoning on MM-GCoT (Section 4.3), benchmarking against standard text-only grounded chain-of-thought (GCoT) approaches and additional vision-centric RoI-based revisitation strategies. Finally, in Section 4.4, we assess backbone compatibility and robust zero-shot transfer capabilities across various held-out benchmarks. 
+
+4.1 Experimental setup Implementation Details. We build ROVER upon Qwen2.5-VL-7B [ 4], adhering to the official protocols of VideoEspresso [ 19 ] and MM-GCoT [ 63 ]. These benchmarks pose complementary challenges. VideoEspresso requires long-form, multi-step grounded reasoning across multiple images 6Table 1: Main results on VideoEspresso. We report the official VideoEspresso baseline [ 19 ] and our 
+
+ROVER -LSW in a controlled setting. ∗: full video inputs (otherwise core frames); †: LLM-as-a-judge verification after similarity retrieval. Best and second-best results are highlighted.                                                                                                                                                                                                    
+
+> Method Params Narra. Event Ingre. Causal Theme Conte. Influ. Role Inter. Behav. Emoti. Cook. Traff. Situa. Avg.
+> Closed-source MLLMs ⋆
+> GPT-4o [23] –32.3 16.7 25.5 22.8 32.8 27.5 37.5 28.6 24.2 19.3 30.8 30.2 20.0 22.0 26.4 Qwen-VL-Max [3] –33.9 22.4 23.5 21.4 26.2 30.3 41.7 30.2 27.4 26.3 20.0 20.8 16.7 24.0 26.0
+> Opened-source MLLMs ⋆
+> LLaVA-1.5 [37] 6.8B 32.3 21.3 19.4 17.1 26.2 20.2 36.1 33.3 21.0 21.1 20.0 35.8 16.7 18.0 24.2 InternVL2 [12] 8.1B 33.9 24.1 27.6 24.4 42.6 33.0 45.8 28.6 19.4 22.8 21.5 34.0 20.0 24.0 28.7 LLaVA-N-Inter [31] 8.1B 24.2 23.6 26.5 19.2 31.1 32.1 31.9 17.5 24.2 21.1 26.2 30.2 13.3 20.0 24.4 Qwen2-VL [59] 8.3B 27.4 23.0 24.5 23.5 29.5 31.2 47.2 31.7 22.6 28.1 40.0 22.6 30.0 18.0 28.5 LongVA-DPO [71] 7.9B 35.5 14.9 16.3 19.0 34.4 22.0 37.5 23.8 29.0 22.8 20.0 37.7 16.7 12.0 24.4 mPLUG-Owl3 [66] 8.1B 30.6 23.6 20.4 22.3 37.7 29.4 48.6 34.9 30.6 24.6 27.7 24.5 13.3 24.0 28.0 LLaVA-N-Video [72] 7.1B 31.2 20.2 16.2 17.6 36.5 32.7 30.6 24.5 26.4 24.5 34.7 20.8 20.3 17.0 25.2
+> Baseline
+> VideoEspresso [19] 8.5B 45.2 27.0 33.7 26.1 39.3 36.7 55.6 41.3 30.6 29.8 30.8 35.8 20.0 26.0 34.1
+> Main results on Qwen2.5-VL-7B
+> +ROVER -LSW 8.5B 50.6 45.9 42.9 33.8 45.9 43.1 37.5 42.9 41.9 26.3 36.9 49.1 56.6 44.0 42.7
+> +ROVER -LSW †8.5B 49.4 45.2 41.8 33.6 44.3 41.3 36.1 41.3 40.3 24.6 35.4 47.2 53.3 40.0 41.0
+
+(e.g., video keyframes). MM-GCoT, in contrast, emphasizes GCoT generation from a single image, requiring precise inter-object reasoning. For VideoEspresso, we use only interleaved SFT, since its open-ended nature precludes reliable RL rewards. For MM-GCoT, we apply the full SFT-to-GRPO pipeline under a controlled setting: we split the original training set between the SFT and RL stages, strictly avoiding any external data. During training, we fine-tune all parameters except the frozen vision encoder. Further details are provided in Appendix A.1. 
+
+Evaluation Protocols. In accordance with the official VideoEspresso protocol, we report category-wise scores and the overall average, supplemented by an LLM-as-a-judge evaluation for open-ended responses (see details in Section 4.2). For MM-GCoT, we report answer accuracy (A-Acc), grounding accuracy (G-Acc), and answer–grounding consistency (Consist.). Additional evaluation metrics and prompt template details are provided in Appendix A.2. 
+
+Baselines and Variants. We structure our comparisons across two paradigms: (1) Text-only GCoT: representative baselines on each dataset relying on static visual features. (2) Visual CoT: vision-centric RoI-based revisitation strategies compared against our routing mechanism, following the taxonomy in Argus [ 41 ]: (i) RoI-reencoding, which re-encodes cropped image patches (e.g., Visual CoT [ 48 ]and the agentic cropping in DeepEyes [ 77 ]); and (ii) RoI-resampling, which extracts RoI-aligned visual features directly from the feature map for re-injection (e.g., VGR [58]). We then analyze ROVER’s components via progressive variants: (i) ROVER -Sift s (using standard attention); (ii) ROVER -Sift d (using differential attention); (iii) ROVER -SW (adding Weave and VWS); and (iv) the full ROVER -LSW (Link +Sift +Weave ). Finally, on MM-GCoT, we report 
+
+ROVER -LSW -GRPO to isolate the gains from reinforcement learning. 
+
+4.2 Multi-Image Reasoning on VideoEspresso Main Results. Table 1 reports the main results on VideoEspresso. Overall, ROVER -LSW achieves the best average in our controlled setting, outperforming the previous best baseline by +8.6%. For evaluation, we adhere to the benchmark’s official similarity-based option-matching protocol. Furthermore, we apply an LLM-as-a-judge verification using OpenAI o3 [ 44 ] to assess response– option agreement across logical consistency, factuality, accuracy, and conciseness, complementing the benchmark’s subjective evaluation [ 19 ]. This verification typically lowers absolute scores but yields a more reproducible estimate of reasoning correctness. 
+
+Ablations and Analysis. Table 2 dissects the contribution of each component to multi-image reasoning, reporting performance alongside parameter growth ( ∆Params) and the average generated token count (evidence + answer) as a proxy for decoding efficiency. Comparing the two Sift variants (both +0.1B params), the standard attention model (36.6%) trails the RoI-resampling baseline (38.1%). 7Table 2: Ablations on VideoEspresso. Comparison against RoI-reencoding/resampling methods and component ablation under identical configurations. 
+
+Method ∆Params Gen. Toks Narra. Event Ingre. Causal Theme Conte. Influ. Role Inter. Behav. Emoti. Cook. Traff. Situa. Avg. 
+
+Baseline 
+
+VideoEspresso [19] +0.4B 448.4 45.2 27.0 33.7 26.1 39.3 36.7 55.6 41.3 30.6 29.8 30.8 35.8 20.0 26.0 34.1 
+
+Ablations on Qwen2.5-VL-7B 
+
++ RoI-reencoding [41] +0.0B 686.7 41.8 42.0 39.8 32.4 41.0 39.4 34.7 39.7 38.7 22.8 32.3 39.6 46.7 36.0 37.6 + RoI-resampling [41] +0.0B 732.1 44.3 40.8 41.8 33.1 42.6 43.1 31.9 42.9 30.6 24.6 35.4 39.6 43.3 40.0 38.1 + ROVER -Sift s +0.1B 318.5 46.8 38.9 33.7 31.0 36.1 41.3 34.7 42.9 25.8 19.3 32.3 43.4 46.7 40.0 36.6 + ROVER -Sift d +0.1B 324.8 48.1 42.0 40.8 32.4 45.9 42.2 40.3 39.7 33.9 26.3 33.8 45.3 50.0 42.0 40.2 + ROVER -SW +0.2B 303.4 49.4 45.2 43.9 33.8 47.5 42.2 36.1 41.3 43.5 24.6 35.4 47.2 53.3 44.0 42.0 + ROVER -LSW +0.2B 308.0 50.6 45.9 42.9 33.8 45.9 43.1 37.5 42.9 41.9 26.3 36.9 49.1 56.6 44.0 42.7 
+
+Table 3: Main results on MM-GCoT. Comparison with GCoT baselines and GRPO effects. “AF” and “GF” denote answer-first and grounding-first prompting, respectively [63]. 
+
+Method Params Prompt Setting Attribute Judgement Object Average A-Acc. G-Acc. Consist. A-Acc. G-Acc. Consist. A-Acc. G-Acc. Consist. A-Acc. G-Acc. Consist. 
+
+Opened-source MLLMs with prompting 
+
+InternVL2.5-8B [11] 8.1B AF 61.9 51.9 42.6 89.3 36.4 31.5 48.3 43.2 39.4 66.5 43.8 37.8 InternVL2.5-8B [11] 8.1B GF 54.5 43.1 40.7 76.9 31.9 26.1 37.1 46.2 31.1 56.2 40.4 32.6 LLaVA-7B [37] 6.8B AF 68.6 9.2 8.8 83.0 11.2 11.5 58.4 9.1 9.9 70.0 9.8 10.1 LLaVA-7B [37] 6.8B GF 59.7 6.3 5.6 82.5 0.5 0.6 35.9 5.5 9.7 59.4 4.1 5.3 LLaVA-13B [37] 13.1B AF 69.7 12.0 9.6 83.5 14.6 15.4 58.7 11.6 14.4 70.6 12.7 13.1 LLaVA-13B [37] 13.1B GF 69.7 11.5 11.7 83.3 6.1 6.6 51.9 14.6 17.2 68.3 10.8 11.8 
+
+Baseline 
+
+LLaVA-7B GCoT [63] 6.8B GCoT 72.8 66.7 56.1 88.3 61.7 56.9 62.3 61.7 61.3 74.5 63.3 58.1 LLaVA-13B GCoT [63] 13.1B GCoT 74.7 67.8 58.0 90.3 72.8 68.0 64.1 60.8 59.3 76.4 67.1 61.8 
+
+Main results on Qwen2.5-VL-7B 
+
++ ROVER -LSW 8.5B GCoT 75.6 78.0 66.7 90.8 90.3 81.1 63.8 71.4 64.8 76.7 79.9 70.8 + ROVER -LSW -GRPO 8.5B GCoT 76.7 81.0 68.0 95.6 90.3 85.9 71.4 73.9 68.9 81.2 81.7 74.3 
+
+Table 4: Ablations on MM-GCoT. Comparison against RoI-reencoding/resampling methods and component ablation under identical configurations. 
+
+Method Params Prompt Setting Attribute Judgement Object Average A-Acc. G-Acc. Consist. A-Acc. G-Acc. Consist. A-Acc. G-Acc. Consist. A-Acc. G-Acc. Consist. 
+
+Baseline 
+
+LLaVA-13B GCoT [63] 13.1B GCoT 74.7 67.8 58.0 90.3 72.8 68.0 64.1 60.8 59.3 76.4 67.1 61.8 
+
+Ablations on Qwen2.5-VL-7B 
+
++ RoI-reencoding [41] 8.3B GCoT 75.4 63.8 55.5 90.3 69.9 65.0 58.4 60.2 56.6 74.7 64.6 59.0 + RoI-resampling [41] 8.3B GCoT 76.7 64.7 56.8 90.3 70.4 65.5 57.4 60.5 56.5 74.8 65.2 59.6 + ROVER -Sift s 8.4B GCoT 74.1 59.7 53.9 88.8 71.8 65.5 60.5 58.7 56.2 74.5 63.4 58.5 + ROVER -Sift d 8.4B GCoT 75.4 76.3 65.3 90.7 87.9 79.5 60.8 71.1 61.3 75.6 78.4 68.7 + ROVER -SW 8.5B GCoT 75.4 78.0 66.4 90.8 90.3 81.1 63.2 71.4 64.1 76.5 79.9 70.5 + ROVER -LSW 8.5B GCoT 75.6 78.0 66.7 90.8 90.3 81.1 63.8 71.4 64.8 76.7 79.9 70.8 
+
+In contrast, differential attention yields a distinct improvement to 40.2%, underscoring the necessity of distractor suppression during evidence routing. Incorporating history-aware aggregation via Weave 
+
+and VWS further lifts the average to 42.0% (+0.2B), with the full Link +Sift +Weave model achieving the best overall performance of 42.7%. Notably, ROVER -LSW reduces total output tokens (both generated and inserted) by 57.9% and 31.3% compared to RoI-resampling and the text-only baseline, respectively, indicating that our object-centric evidence routing mechanism effectively enhances both reasoning quality and decoding efficiency. 
+
+4.3 Single-Image Reasoning on MM-GCoT Main Results. Following official protocols [63], Table 3 shows that ROVER -LSW surpasses the strongest baseline (LLaVA-13B GCoT) by +12.8% in grounding accuracy and +9.0% in consistency, indicating tighter evidence–reasoning alignment. Furthermore, incorporating GRPO yields additional gains, effectively lifting the overall answer accuracy (+4.8%) while extending the lead in grounding metrics (+14.6% G-Acc, +12.5% Consist.) over the baseline. 
+
+Ablations and Analysis. Table 4 breaks down the impact of each component on MM-GCoT. Relative to the RoI-resampling baseline, introducing Sift with differential attention improves overall G-Acc by +13.2%, and Consist. by +9.1%. Finally, integrating Weave /VWS and Link contributes to sustained improvements, culminating in the best overall performance across all metrics. 8VE Avg. A-Acc. G-Acc. Consist.                     
+
+> 90
+> 80
+> 70
+> 60
+> 50
+> 40
+> 30
+> 20
+> 10
+> 0
+> VideoEspresso MM -GCoT InternVL3 + ROVER
+> Qwen 2-VL + ROVER
+> 42.4 42.3
+> 80.8 80.6 80.6 79.1
+> 73.0 72.2
+> Mantis MicroVQA V-Star TreeBench
+> 90
+> 80
+> 70
+> 60
+> 50
+> 40
+> 30
+> 20
+> 10
+> 0
+> Qwen2 .5-VL + ROVER
+> Qwen 2.5 -VL
+> 69.8 72.0
+> 48.8 50.2
+> 72.8 77.6
+> 42.9
+> 37.0
+> RealWorldQA
+> 68.4 73.9
+> MMBench
+> 82.6 82.8
+> HallBench
+> 52.9
+> 68.8
+> 62.9
+> Avg .
+> 67.6
+> DeepScan
+> Dyfo
+> TreeVGR
+> ZoomRefine
+> 38
+> 34
+> 30
+> 26
+> 42.9 42.5
+> 39.3
+> 38.0
+> Pixel -Reasoner
+> 41.0
+> DeepEyes
+> 39.0
+> Qwen 2.5 -VL
+> 37.5 37.0
+> 42
+> Ours
+> +5.9 (zero -shot)
+> (a) Backbone Compatibility (b) Zero -shot Transfer (c) Zero -shot Transfer on TreeBench
+> SeedBench2 +
+> 70.7 72.8
+
+Figure 4: Backbone compatibility and transferability. (a): Backbone compatibility. VideoEspresso (Avg.) evaluated via similarity matching and MM-GCoT (A-Acc./G-Acc./Consist.). (b): Zero-shot transfer of ROVER-enhanced Qwen2.5-VL-7B to held-out benchmarks. (c): Comparison with state-of-the-art alternatives on TreeBench [56], with scores taken from DeepScan [33]. 
+
+4.4 Backbone Compatibility and Transferability 
+
+As summarized in Figure 4, we evaluate the versatility of ROVER along two dimensions: (i) backbone compatibility, where we extend ROVER to diverse architectures including InternVL3-8B [ 79 ] and Qwen2-VL-7B [ 59 ]; and (ii) zero-shot transfer, applying the ROVER-enhanced Qwen2.5-VL-7B (trained on VideoEspresso) to a range of public benchmarks, evaluating generalization to diverse multimodal domains held out during training. Detailed analysis reveals that ROVER’s explicit object-centric routing effectively mitigates hallucina-tions and enhances spatial understanding, yielding significant gains on RealWorldQA [ 64 ] (+5.5%) and HallBench [ 16 ] (+15.9%). Moreover, sustained improvements on Mantis [ 25 ] (+2.2%) and Mi-croVQA [ 6] (+1.4%) confirm robust transferability across multi-image reasoning tasks. Finally, gains on V-Star [ 62 ] (+4.8%), SEED-Bench-2-Plus [ 30 ] (+2.1%), and TreeBench [ 56 ] (+5.9%, achieving the best zero-shot result among all compared methods [ 33 , 32 , 69 , 56 , 57 , 77 ]) demonstrate that intra-image routing successfully preserves fine-grained visual details and spatial hierarchies to facilitate robust higher-order reasoning. Collectively, these consistent results confirm that ROVER acquires a highly generalized strategy for object-centric visual evidence routing across diverse domains (see Appendix A.3 for additional qualitative examples). 
+
+5 Conclusion and Discussion 
+
+We presented ROVER , a lightweight learnable plugin that equips autoregressive multimodal genera-tion with a global object-centric pathway for visual evidence routing. Operating via a constant-length 
+
+Link /Sift /Weave token triplet, ROVER anchors localized objects, extracts complementary context via differential attention while suppressing distractors, and consolidates history-aware evidence across images through a shared Visual Working Space. Trained via an interleaved SFT-to-GRPO pipeline, ROVER achieves consistent gains and establishes new state-of-the-art results on both single-image and multi-image grounded reasoning benchmarks. 
+
+Discussion 1: Implicit structured representation. Compressing visual regions into constant-length representations with differential attention potentially acts as an information bottleneck that filters noise and captures underlying scene structure (e.g., semantic correlations and spatial layouts). Conceptually, ROVER mirrors dynamic graph reasoning, where objects act as nodes and the VWS enables implicit message passing, though formal alignment requires future validation. 
+
+Discussion 2: Adaptive token allocation strategy. While the constant-length triplet balances efficiency and accuracy, it might constrain information capacity for regions with extreme visual complexity (e.g., dense text). Exploring adaptive routing token allocation conditioned on semantic density could further enhance fine-grained perception. This introduces inevitable trade-offs among representational capacity, latency, and background noise, warranting future investigation. 
+
+Discussion 3: Parameter footprint optimization. ROVER guarantees a constant three-token decoding overhead per grounded object with approximately 0.2B additional parameters. Although this footprint is marginal relative to the 7B backbone, exploring even more lightweight architectural designs remains a promising direction for future work. 9References 
+
+[1] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. Gpt-4 technical report. arXiv preprint arXiv:2303.08774 , 2023. [2] Sonnet Anthropic. Model card addendum: Claude 3.5 haiku and upgraded claude 3.5 sonnet. In 
+
+Claude 3.5 Sonnet , 2024. [3] Jinze Bai, Shuai Bai, Shusheng Yang, Shijie Wang, Sinan Tan, Peng Wang, Junyang Lin, Chang Zhou, and Jingren Zhou. Qwen-vl: A frontier large vision-language model with versatile abilities. ArXiv , abs/2308.12966, 2023. [4] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-vl technical report, 2025. [5] Tianyi Bai, Zengjie Hu, Fupeng Sun, Jiantao Qiu, Yizhen Jiang, Guangxin He, Bohan Zeng, Conghui He, Binhang Yuan, and Wentao Zhang. Multi-step visual reasoning with visual tokens scaling and verification. arXiv preprint arXiv:2506.07235 , 2025. [6] James Burgess, Jeffrey J Nirschl, Laura Bravo-Sánchez, Alejandro Lozano, Sanket Rajan Gupte, Jesus G Galaz-Montoya, Yuhui Zhang, Yuchang Su, Disha Bhowmik, Zachary Coman, et al. Microvqa: A multimodal reasoning benchmark for microscopy-based scientific research. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 19552–19564, 2025. [7] Jianlyu Chen, Shitao Xiao, Peitian Zhang, Kun Luo, Defu Lian, and Zheng Liu. M3-embedding: Multi-linguality, multi-functionality, multi-granularity text embeddings through self-knowledge distillation. In Findings of the Association for Computational Linguistics: ACL 2024 , pages 2318–2335, Bangkok, Thailand, August 2024. Association for Computational Linguistics. [8] Junzhe Chen, Tianshu Zhang, Shiyu Huang, Yuwei Niu, Linfeng Zhang, Lijie Wen, and Xuming Hu. Ict: Image-object cross-level trusted intervention for mitigating object hallucination in large vision-language models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 4209–4221, 2025. [9] Liang Chen, Lei Li, Haozhe Zhao, Yifan Song, and Vinci. R1-v: Reinforcing super generaliza-tion ability in vision-language models with less than $3. https://github.com/Deep-Agent /R1-V , 2025. Accessed: 2025-02-02. [10] Xinyan Chen, Renrui Zhang, Dongzhi Jiang, Aojun Zhou, Shilin Yan, Weifeng Lin, and Hongsheng Li. Mint-cot: Enabling interleaved visual tokens in mathematical chain-of-thought reasoning. arXiv preprint arXiv:2506.05331 , 2025. [11] Zhe Chen, Weiyun Wang, Yue Cao, Yangzhou Liu, Zhangwei Gao, Erfei Cui, Jinguo Zhu, Shen-glong Ye, Hao Tian, Zhaoyang Liu, et al. Expanding performance boundaries of open-source multimodal models with model, data, and test-time scaling. arXiv preprint arXiv:2412.05271 ,2024. [12] Zhe Chen, Jiannan Wu, Wenhai Wang, Weijie Su, Guo Chen, Sen Xing, Muyan Zhong, Qinglong Zhang, Xizhou Zhu, Lewei Lu, et al. Internvl: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 24185–24198, 2024. [13] Xingyu Fu, Yushi Hu, Bangzheng Li, Yu Feng, Haoyu Wang, Xudong Lin, Dan Roth, Noah A Smith, Wei-Chiu Ma, and Ranjay Krishna. Blink: Multimodal large language models can see but not perceive. In European Conference on Computer Vision , pages 148–166. Springer, 2024. [14] Jun Gao, Yongqi Li, Ziqiang Cao, and Wenjie Li. Interleaved-modal chain-of-thought. In 
+
+2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 19520–19529. IEEE, 2025. 10 [15] Google Gemini Team. Gemini: a family of highly capable multimodal models. arXiv preprint arXiv:2312.11805 , 2023. [16] Tianrui Guan, Fuxiao Liu, Xiyang Wu, Ruiqi Xian, Zongxia Li, Xiaoyu Liu, Xijun Wang, Lichang Chen, Furong Huang, Yaser Yacoob, Dinesh Manocha, and Tianyi Zhou. Hallusion-bench: An advanced diagnostic suite for entangled language hallucination and visual illusion in large vision-language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 14375–14385, June 2024. [17] Qiushan Guo, Shalini De Mello, Hongxu Yin, Wonmin Byeon, Ka Chun Cheung, Yizhou Yu, Ping Luo, and Sifei Liu. Regiongpt: Towards region understanding vision language model. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13796–13806, 2024. [18] Tanmay Gupta and Aniruddha Kembhavi. Visual programming: Compositional visual reasoning without training. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 14953–14962, 2023. [19] Songhao Han, Wei Huang, Hairong Shi, Le Zhuo, Xiu Su, Shifeng Zhang, Xu Zhou, Xiaojuan Qi, Yue Liao, and Si Liu. Videoespresso: A large-scale chain-of-thought dataset for fine-grained video reasoning via core frame selection. In Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR) , pages 26181–26191, June 2025. [20] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition ,pages 770–778, 2016. [21] Zhitao He, Sandeep Polisetty, Zhiyuan Fan, Yuchen Huang, Shujin Wu, and Yi R. Fung. MMBoundary: Advancing MLLM knowledge boundary awareness through reasoning step confidence calibration. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 16427–16444, Vienna, Austria, July 2025. Association for Computational Linguistics. [22] Yushi Hu, Weijia Shi, Xingyu Fu, Dan Roth, Mari Ostendorf, Luke Zettlemoyer, Noah A Smith, and Ranjay Krishna. Visual sketchpad: Sketching as a visual chain of thought for multimodal language models. arXiv preprint arXiv:2406.09403 , 2024. [23] Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, AJ Ostrow, Akila Welihinda, Alan Hayes, Alec Radford, et al. Gpt-4o system card. arXiv preprint arXiv:2410.21276 , 2024. [24] Naman Jain, King Han, Alex Gu, Wen-Ding Li, Fanjia Yan, Tianjun Zhang, Sida Wang, Ar-mando Solar-Lezama, Koushik Sen, and Ion Stoica. Livecodebench: Holistic and contamination free evaluation of large language models for code. arXiv preprint arXiv:2403.07974 , 2024. [25] Dongfu Jiang, Xuan He, Huaye Zeng, Cong Wei, Max Ku, Qian Liu, and Wenhu Chen. Mantis: Interleaved multi-image instruction tuning. arXiv preprint arXiv:2405.01483 , 2024. [26] Daniel Kahneman. Thinking, fast and slow. Farrar, Straus and Giroux , 2011. [27] Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. Large language models are zero-shot reasoners. Advances in neural information processing systems ,35:22199–22213, 2022. [28] Jarrod A Lewis-Peacock, Yoav Kessler, and Klaus Oberauer. The removal of information from working memory. Annals of the New York Academy of Sciences , 1424(1):33–44, 2018. [29] Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Yanwei Li, Ziwei Liu, and Chunyuan Li. Llava-onevision: Easy visual task transfer. arXiv preprint arXiv:2408.03326 , 2024. [30] Bohao Li, Yuying Ge, Yi Chen, Yixiao Ge, Ruimao Zhang, and Ying Shan. Seed-bench-2-plus: Benchmarking multimodal large language models with text-rich visual comprehension, 2024. 11 [31] Feng Li, Renrui Zhang, Hao Zhang, Yuanhan Zhang, Bo Li, Wei Li, Zejun Ma, and Chunyuan Li. Llava-next-interleave: Tackling multi-image, video, and 3d in large multimodal models. 
+
+arXiv preprint arXiv:2407.07895 , 2024. [32] Geng Li, Jinglin Xu, Yunzhen Zhao, and Yuxin Peng. Dyfo: A training-free dynamic focus visual search for enhancing lmms in fine-grained visual understanding. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 9098–9108, 2025. [33] Yangfu Li, Hongjian Zhan, Jiawei Chen, Yuning Gong, Qi Liu, and Yue Lu. Deepscan: A training-free framework for visually grounded reasoning in large vision-language models. arXiv preprint arXiv:2603.03857 , 2026. [34] Yanwei Li, Chengyao Wang, and Jiaya Jia. Llama-vid: An image is worth 2 tokens in large language models. In European Conference on Computer Vision , pages 323–340. Springer, 2024. [35] You Li, Heyu Huang, Chi Chen, Kaiyu Huang, Chao Huang, Zonghao Guo, Zhiyuan Liu, Jinan Xu, Yuhua Li, Ruixuan Li, et al. Migician: Revealing the magic of free-form multi-image grounding in multimodal large language models. In Findings of the Association for Computational Linguistics: ACL 2025 , pages 9845–9867, 2025. [36] Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harrison Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. Let’s verify step by step. In The Twelfth International Conference on Learning Representations , 2023. [37] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. Advances in neural information processing systems , 36:34892–34916, 2023. [38] Shilong Liu, Zhaoyang Zeng, Tianhe Ren, Feng Li, Hao Zhang, Jie Yang, Qing Jiang, Chunyuan Li, Jianwei Yang, Hang Su, et al. Grounding dino: Marrying dino with grounded pre-training for open-set object detection. In European conference on computer vision , pages 38–55. Springer, 2024. [39] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. arXiv preprint arXiv:1711.05101 , 2017. [40] Pan Lu, Hritik Bansal, Tony Xia, Jiacheng Liu, Chunyuan Li, Hannaneh Hajishirzi, Hao Cheng, Kai-Wei Chang, Michel Galley, and Jianfeng Gao. Mathvista: Evaluating mathematical reasoning of foundation models in visual contexts. arXiv preprint arXiv:2310.02255 , 2023. [41] Yunze Man, De-An Huang, Guilin Liu, Shiwei Sheng, Shilong Liu, Liang-Yan Gui, Jan Kautz, Yu-Xiong Wang, and Zhiding Yu. Argus: Vision-centric reasoning with grounded chain-of-thought. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 14268–14280, 2025. [42] Andrey R Nikolaev, Radha Nila Meghanathan, and Cees van Leeuwen. Refixation behavior in naturalistic viewing: Methods, mechanisms, and neural correlates. Attention, Perception, & Psychophysics , 87(1):25–49, 2025. [43] Klaus Oberauer. Working memory and attention–a conceptual analysis and review. Journal of cognition , 2(1):36, 2019. [44] OpenAI. Openai o3. https://openai.com/index/introducing-o3-and-o4-mini ,2025. [45] Runqi Qiao, Qiuna Tan, Minghan Yang, Guanting Dong, Peiqing Yang, Shiqiang Lang, Enhui Wan, Xiaowan Wang, Yida Xu, Lan Yang, et al. V-thinker: Interactive thinking with images. 
+
+arXiv preprint arXiv:2511.04460 , 2025. [46] David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang, Julien Dirani, Julian Michael, and Samuel R Bowman. Gpqa: A graduate-level google-proof q&a benchmark. In First Conference on Language Modeling , 2024. [47] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. 12 [48] Hao Shao, Shengju Qian, Han Xiao, Guanglu Song, Zhuofan Zong, Letian Wang, Yu Liu, and Hongsheng Li. Visual cot: Advancing multi-modal language models with a comprehen-sive dataset and benchmark for chain-of-thought reasoning. Advances in Neural Information Processing Systems , 37:8612–8642, 2024. [49] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. [50] Chuming Shen, Wei Wei, Xiaoye Qu, and Yu Cheng. Satori-r1: Incentivizing multimodal reasoning with spatial grounding and verifiable rewards. arXiv preprint arXiv:2505.19094 ,2025. [51] Min Shi, Fuxiao Liu, Shihao Wang, Shijia Liao, Subhashree Radhakrishnan, Yilin Zhao, De-An Huang, Hongxu Yin, Karan Sapra, Yaser Yacoob, et al. Eagle: Exploring the design space for multimodal llms with mixture of encoders. arXiv preprint arXiv:2408.15998 , 2024. [52] Zhaochen Su, Peng Xia, Hangyu Guo, Zhenhua Liu, Yan Ma, Xiaoye Qu, Jiaqi Liu, Yanshu Li, Kaide Zeng, Zhengyuan Yang, et al. Thinking with images for multimodal reasoning: Foundations, methods, and future frontiers. arXiv preprint arXiv:2506.23918 , 2025. [53] Peter Tong, Ellis Brown, Penghao Wu, Sanghyun Woo, Adithya Jairam Vedagiri IYER, Sai Charitha Akula, Shusheng Yang, Jihan Yang, Manoj Middepogu, Ziteng Wang, et al. Cambrian-1: A fully open, vision-centric exploration of multimodal llms. Advances in Neural Information Processing Systems , 37:87310–87356, 2024. [54] Shengbang Tong, Zhuang Liu, Yuexiang Zhai, Yi Ma, Yann LeCun, and Saining Xie. Eyes wide shut? exploring the visual shortcomings of multimodal llms. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 9568–9578, 2024. [55] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. [56] Haochen Wang, Xiangtai Li, Zilong Huang, Anran Wang, Jiacong Wang, Tao Zhang, Jiani Zheng, Sule Bai, Zijian Kang, Jiashi Feng, et al. Traceable evidence enhanced visual grounded reasoning: Evaluation and methodology. arXiv preprint arXiv:2507.07999 , 2025. [57] Haozhe Wang, Alex Su, Weiming Ren, Fangzhen Lin, and Wenhu Chen. Pixel reasoner: Incentivizing pixel-space reasoning with curiosity-driven reinforcement learning. arXiv preprint arXiv:2505.15966 , 2025. [58] Jiacong Wang, Zijian Kang, Haochen Wang, Haiyong Jiang, Jiawen Li, Bohong Wu, Ya Wang, Jiao Ran, Xiao Liang, Chao Feng, et al. Vgr: Visual grounded reasoning. arXiv preprint arXiv:2506.11991 , 2025. [59] Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, et al. Qwen2-vl: Enhancing vision-language model’s perception of the world at any resolution. arXiv preprint arXiv:2409.12191 , 2024. [60] Ye Wang, Qianglong Chen, Zejun Li, Siyuan Wang, Shijie Guo, Zhirui Zhang, and Zhongyu Wei. Simple o3: Towards interleaved vision-language reasoning. arXiv preprint arXiv:2508.12109 ,2025. [61] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. 
+
+Advances in neural information processing systems , 35:24824–24837, 2022. [62] Penghao Wu and Saining Xie. V*: Guided visual search as a core mechanism in multimodal llms. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) ,pages 13084–13094. IEEE, 2024. 13 [63] Qiong Wu, Xiangcong Yang, Yiyi Zhou, Chenxin Fang, Baiyang Song, Xiaoshuai Sun, and Rongrong Ji. Grounded chain-of-thought for multimodal large language models. arXiv preprint arXiv:2503.12799 , 2025. [64] xAI. Realworldqa: A benchmark for evaluating spatial understanding and physical reasoning in the real world, 2024. Benchmark release. [65] Zhengyuan Yang, Linjie Li, Jianfeng Wang, Kevin Lin, Ehsan Azarnasab, Faisal Ahmed, Zicheng Liu, Ce Liu, Michael Zeng, and Lijuan Wang. Mm-react: Prompting chatgpt for multimodal reasoning and action. arXiv preprint arXiv:2303.11381 , 2023. [66] Jiabo Ye, Haiyang Xu, Haowei Liu, Anwen Hu, Ming Yan, Qi Qian, Ji Zhang, Fei Huang, and Jingren Zhou. mplug-owl3: Towards long image-sequence understanding in multi-modal large language models. arXiv preprint arXiv:2408.04840 , 2024. [67] Tianzhu Ye, Li Dong, Yuqing Xia, Yutao Sun, Yi Zhu, Gao Huang, and Furu Wei. Differential transformer. arXiv preprint arXiv:2410.05258 , 2024. [68] Runpeng Yu, Xinyin Ma, and Xinchao Wang. Introducing visual perception token into multi-modal large language model. arXiv preprint arXiv:2502.17425 , 2025. [69] Xuan Yu, Dayan Guan, and Yanfeng Gu. Zoom-refine: Boosting high-resolution multimodal understanding via localized zoom and self-refinement, 2025. [70] Mengmi Zhang, Marcelo Armendariz, Will Xiao, Olivia Rose, Katarina Bendtz, Margaret Livingstone, Carlos Ponce, and Gabriel Kreiman. Look twice: A generalist computational model predicts return fixations across tasks and species. PLoS computational biology , 18(11):e1010654, 2022. [71] Peiyuan Zhang, Kaichen Zhang, Bo Li, Guangtao Zeng, Jingkang Yang, Yuanhan Zhang, Ziyue Wang, Haoran Tan, Chunyuan Li, and Ziwei Liu. Long context transfer from language to vision. 
+
+arXiv preprint arXiv:2406.16852 , 2024. [72] Yuanhan Zhang, Bo Li, haotian Liu, Yong jae Lee, Liangke Gui, Di Fu, Jiashi Feng, Ziwei Liu, and Chunyuan Li. Llava-next: A strong zero-shot video understanding model, April 2024. [73] Zhuosheng Zhang, Aston Zhang, Mu Li, and Alex Smola. Automatic chain of thought prompting in large language models. arXiv preprint arXiv:2210.03493 , 2022. [74] Zhuosheng Zhang, Aston Zhang, Mu Li, Hai Zhao, George Karypis, and Alex Smola. Mul-timodal chain-of-thought reasoning in language models. arXiv preprint arXiv:2302.00923 ,2023. [75] Liang Zhao, En Yu, Zheng Ge, Jinrong Yang, Haoran Wei, Hongyu Zhou, Jianjian Sun, Yuang Peng, Runpei Dong, Chunrui Han, et al. Chatspot: bootstrapping multimodal llms via precise referring instruction tuning. In Proceedings of the Thirty-Third International Joint Conference on Artificial Intelligence , pages 1743–1752, 2024. [76] Yaowei Zheng, Richong Zhang, Junhao Zhang, Yanhan Ye, Zheyan Luo, Zhangchi Feng, and Yongqiang Ma. Llamafactory: Unified efficient fine-tuning of 100+ language models. In 
+
+Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 3: System Demonstrations) , Bangkok, Thailand, 2024. Association for Computational Linguistics. [77] Ziwei Zheng, Michael Yang, Jack Hong, Chenxiao Zhao, Guohai Xu, Le Yang, Chao Shen, and Xing Yu. Deepeyes: Incentivizing" thinking with images" via reinforcement learning. arXiv preprint arXiv:2505.14362 , 2025. [78] Liangyu Zhong, Fabio Rosenthal, Joachim Sicking, Fabian Hüger, Thorsten Bagdonat, Hanno Gottschalk, and Leo Schwinn. Focus: Internal mllm representations for efficient fine-grained visual question answering. arXiv preprint arXiv:2506.21710 , 2025. [79] Jinguo Zhu, Weiyun Wang, Zhe Chen, Zhaoyang Liu, Shenglong Ye, Lixin Gu, Hao Tian, Yuchen Duan, Weijie Su, Jie Shao, et al. Internvl3: Exploring advanced training and test-time recipes for open-source multimodal models. arXiv preprint arXiv:2504.10479 , 2025. 14 A Appendix 
+
+A.1 Additional Implementation Details Training Details. All SFT and GRPO experiments are conducted on eight NVIDIA A800 (80GB) GPUs. We implement SFT using LLaMA-Factory [ 76 ] and GRPO using R1-V [ 9]. We employ the AdamW optimizer [ 39 ] across all stages. For interleaved SFT on VideoEspresso, we train for 1 epoch with a cosine scheduler, a peak learning rate of 1 × 10 −5, a warmup ratio of 0.1, and an effective global batch size of 64. MM-GCoT SFT uses the same setting except for a higher peak learning rate of 2 × 10 −5. Subsequently, for MM-GCoT GRPO, we train on a disjoint 14K split for 2 epochs with a linearly decayed learning rate (starting from 3 × 10 −6), an effective global batch size of 64, and 
+
+G = 4 sampled generations per prompt. The reward is set to 1 only if the generated output is parsable and the final answer is correct (otherwise 0). The KL coefficient β is set to 0.04. We formally present our core operational procedures via pseudocode. We detail the object-centric evidence injection in our decoding pipeline (Algorithm 1) and summarize the trajectory-level opti-mization in the interleaved GRPO loop (Algorithm 2). 
+
+Algorithm 1 ROVER Decoding Pipeline 
+
+Require: Images I = {I m}Mm=1 , Instruction prompt Xprompt , Vision Encoder, LLM 
+
+Ensure: Generated multimodal response Y 
+
+> 1:
+
+Extract image tokens {Vm} 
+
+> 2:
+
+Initialize W0 ← ∅, k ← 0, s ← Xprompt  
+
+> 3:
+
+while generation is not finished do  
+
+> 4:
+
+yt ← LLM.GenerateNextToken (s, {Vm}) 
+
+> 5:
+
+Append yt to s 
+
+> 6:
+
+if yt completes a valid grounding pattern ok with bounding box bk then  
+
+> 7:
+
+k ← k + 1  
+
+> 8:
+
+qk ← AvgPool  Vm(k)[Ω( bk)]  ▷ Extract RoI summary  
+
+> 9:
+
+Ck ← Vm(k)[ ¯Ω( bk)] ▷ Obtain non-RoI context  
+
+> 10:
+
+tSift  
+
+> k
+
+← qk if |Ck| = 0 else Enc Sift 
+
+ qk; Ck, MSift 
+
+> k
+
+ ▷ DiffAttn with fallback  
+
+> 11:
+
+Wk ← [Wk−1; tSift  
+
+> k
+
+] ▷ Update VWS memory  
+
+> 12:
+
+tWeave  
+
+> k
+
+← Enc Weave 
+
+ tSift  
+
+> k
+
+; Wk, MWeave 
+
+> k
+
+ ▷ Route inter-object history  
+
+> 13:
+
+Tk ← [tLink  
+
+> k
+
+; tSift  
+
+> k
+
+; tWeave  
+
+> k
+
+] ▷ Form constant-length triplet  
+
+> 14:
+
+Append Tk to s ▷ Inject triplet into sequence  
+
+> 15:
+
+end if  
+
+> 16:
+
+end while  
+
+> 17:
+
+return Y ← s
+
+Algorithm 2 Interleaved GRPO for ROVER 
+
+Require: Initial policy pθ , Reference policy pref , Dataset D, Group size G, KL coef. β
+
+Ensure: Optimized policy pθ 
+
+> 1:
+
+while training is not converged do  
+
+> 2:
+
+Sample a batch of prompts from D 
+
+> 3:
+
+Synchronize old policy pθold ← pθ 
+
+> 4:
+
+for each prompt do  
+
+> 5:
+
+Sample G interleaved trajectories {τi}Gi=1 ∼ pθold  
+
+> 6:
+
+Compute binary rewards {r(τi)}Gi=1 and normalized advantages ˆA(τi) 
+
+> 7:
+
+for each token yt ∈ τi do  
+
+> 8:
+
+mt ← 0 if yt ∈ { Link , Sift , Weave }, else mt ← 1 
+
+> 9:
+
+end for  
+
+> 10:
+
+Compute masked loss LGRPO with mt, ˆA(τi), β, and policies ( pθ , p θold , p ref ) 
+
+> 11:
+
+end for  
+
+> 12:
+
+Update parameters θ by optimizing LGRPO  
+
+> 13:
+
+end while  
+
+> 14:
+
+return pθ
+
+15 VideoEspresso Data Preprocessing. To optimize interleaving efficiency, we address instances where a single object mention maps to multiple candidate bounding boxes by retaining only the largest box as the representative anchor. This representative box serves as the grounding pattern trigger (Section 3.1), thereby minimizing token redundancy in crowded scenes. Notably, complementary information from unselected boxes can be implicitly retrieved via differential attention. During SFT, we employ diverse instruction templates [ 25 , 35 ] to prevent format overfitting and enhance instruction-following adaptability, ensuring the learned routing capabilities transfer robustly to broader open-ended scenarios. As shown in Figure 2, the output is structured into an initial reasoning sequence (integrating visual evidence text, grounding tokens, and ROVER triplets) followed by a pure-text final answer. 
+
+A.2 Additional Evaluation Details 
+
+For VideoEspresso, we report two evaluation variants. (i) LLM-as-a-judge verification: we follow the official similarity-based matching with bge-m3 [7] to retrieve the closest option, and then verify response–option agreement using OpenAI o3 [ 44 ] in terms of logical consistency, factuality, accuracy, and conciseness [ 19 ] (see the full prompt in Figure 5). (ii) Multiple-choice evaluation: we additionally report direct multiple-choice QA on the test split (Table 5). The ROVER-enhanced model outperforms the Qwen2.5-VL-7B by +4.3%, indicating our gains are robust to the evaluation protocol. 
+
+Role 
+
+You are a professional text relevance evaluator with expertise in semantic analysis and content comparison. Your task is to objectively assess whether two texts are semantically equivalent, considering logic consistency, factuality, accuracy, and conciseness. 
+
+Task 
+
+Determine whether the two texts are semantically equivalent. Return YES only if they convey essentially the same meaning, such as sharing the same core characters, objects, actions, scenes, and overall intent; otherwise return NO (unrelated, only weakly related, partially overlapping, or inconsistent). You should first briefly explain your reasoning, and then provide the final result. 
+
+Texts to compare 
+
+(1). {text_1} (2). {text_2} 
+
+Output format 
+
+[Reason]: Briefly explain the basis for your judgment, focusing on whether the two texts share the same topic, entities, actions, or overall meaning. 
+
+[Result]: Yes / No Figure 5: LLM-as-a-judge prompt used for OpenAI o3 verification. Table 5: MCQ evaluation on VideoEspresso. We compare the VideoEspresso-trained ROVER-enhanced model with the Qwen2.5-VL-7B baseline. Best results are highlighted.                                 
+
+> Method Narra. Event Ingre. Causal Theme Conte. Influ. Role Inter. Behav. Emoti. Cook. Traff. Situa. Avg.
+> Results on Qwen2.5-VL-7B
+> Qwen2.5-VL 39.2 40.8 49.0 38.7 47.5 50.5 48.6 35.0 38.7 31.6 41.5 45.3 43.3 58.0 43.4 +ROVER 51.9 43.9 59.2 39.4 50.8 54.1 47.2 47.6 43.5 29.8 44.6 47.2 56.7 52.0 47.7
+
+A.3 Additional Qualitative Examples 
+
+To further illustrate the effectiveness and generalizability of our approach, we provide additional qualitative examples on both in-domain test sets (VideoEspresso: Figure 6 and Figure 7; MM-GCoT: Figure 8) and diverse transfer benchmarks (Mantis: Figure 9; V-Star: Figure 10). For brevity, ROVER triplets following grounding predictions are omitted from the presented textual outputs. Moreover, to offer deeper insights into the model’s inner workings, we include visualizations of both the differential cross-attention (Figure 11) and the VWS cross-attention (Figure 12). 16 Answer -B: The stalls and booths are directly related to typical fairground events . Initially, a wooden stall 
+
+featuring toy ducks and a teddy bear, along with a gazebo displaying various prizes , establishes a festive 
+
+atmosphere. Later, George and a red -haired child are seen at a booth playing a carnival game by tossing 
+
+objects toward a target . Overall, these scenes show that the fairground is a lively place filled with diverse 
+
+games and interactive activities .
+
+Question: How do the activities with the stalls, booths, and toys relate to the fairground setting ? 
+
+Answer -A: The activities at stalls and booths are an essential part of the lively fairground setting. After 
+
+seeing toys such as teddy bears and rubber ducks, George and his friend decide to purchase these items .
+
+Visitors also typically take part in games or contests, such as throwing balls into buckets , which adds to the 
+
+interactive and playful nature of the scene. (a) Example 1. Answer -B: The overcast skies in the first two images suggest reduced visibility , which could make it 
+
+challenging for drivers to see other vehicles and pedestrians clearly .
+
+Question: How does the weather potentially impact the visibility and safety on the highway? 
+
+Answer -A: The overcast and misty weather in the images suggests reduced visibility, making it difficult for 
+
+drivers to notice the child crossing the road , as shown in the second image. This situation requires drivers 
+
+to exercise greater caution and also highlights the importance of safety measures such as guardrails and 
+
+barriers , as seen in the third image. 
+
+(b) Example 2. Answer -B: The Humanities Center has a brick facade with arched doorways and multiple windows, a sidewalk in 
+
+front of the building, the well -maintained bushes and plants, and a sign that reads "Humanities Center" . At the 
+
+entrance, a person in a blue jacket and white pants is seen walking away from the camera towards the building 
+
+and climbing up a ramp . The setting appears to be well -lit , likely at night, as indicated by the artificial lighting. 
+
+Question: Describe the visual features of the Humanities Center and the movement of people. 
+
+Answer -A: The primary visual features of the Humanities Center include a brick building with arched doorways 
+
+and greenery such as bushes and shrubs. The movement of people at the venue includes a person in a light blue 
+
+jacket walking towards the building and another person in a white jacket running towards the camera .
+
+(c) Example 3. 
+
+Figure 6: Qualitative comparison on the VideoEspresso test set. Compared to the RoI-resampling baseline (Answer-A), ROVER (Answer-B) demonstrates superior holistic scene understanding and precise reasoning of key inter-object relations, thereby yielding more accurate predictions. 17 Evidence: Initially, <obj> George in image 1 </obj><box> [543 , 276 , 632 , 479 ]</box> stands beside the 
+
+<obj> toy plane in image 1 </obj><box> [612, 329, 776, 450] </box> with a neutral expression, suggesting 
+
+anticipation; later, the <obj> child in image 2 </obj><box >[400 , 145 , 500 , 433 ]</box> seems confused 
+
+while the <obj> scientist in image 2 </obj><box> [151, 122, 372, 445] </box> explains something; then, 
+
+when the <obj >hand in image 3</ obj><box >[0, 100, 352, 478 ]</ box> operates a <obj> control panel in 
+
+image 3 </obj><box >[238, 13, 677, 427 ]</ box> , George’s overall mood and <obj> expression in image 
+
+4</obj><box >[499, 167, 691, 358 ]</ box> brighten, showing his interest in the new activity ; finally, 
+
+both George and the child stand smiling amidst the greenery, suggesting they have successfully 
+
+engaged with the project. 
+
+Answer: Initially, George attentively stands beside a toy plane, looking up at the scientist with a neutral 
+
+expression, indicating curiosity or anticipation. Later, the child next to George looks confused while a 
+
+scientist explains something, suggesting an attempt to engage with a complex idea. After that , when the 
+
+hand operates a control panel, George’s expression brightens, showing increased interest . Finally, both 
+
+George and the child stand smiling amidst greenery, showing that they have engaged successfully with 
+
+the demonstrated activity was being explained or demonstrated by the scientist. The change in George ’s
+
+expression reflects a progression from curiosity and uncertainty to excitement and satisfaction as they 
+
+interacted with the toy plane and the control panel. 
+
+Question: Evaluate how George’s expression and involvement change and infer the reasons. (a) Example 1. Evidence: The overcast skies in the first two images suggest reduced visibility, which could make 
+
+it challenging for drivers to see <obj >vehicles in image 1 </obj><box> [287, 168, 358, 207] </box> 
+
+and <obj> vehicles in image 2 </obj><box >[318, 176, 370, 207] </box> . D rivers should watch for the 
+
+<obj> person in image 3 </obj><box> [547, 234, 597, 315] </box> on the road, who also appears as the 
+
+<obj> person in image 2 </obj><box> [384, 190, 402, 219 ]</box> .
+
+Answer: The overcast skies in the first two images suggest reduced visibility, which could make it 
+
+challenging for drivers to see other vehicles and pedestrians clearly. 
+
+Question: How does the weather potentially impact the visibility and safety on the highway? 
+
+(b) Example 2. 
+
+Figure 7: Additional qualitative examples on the VideoEspresso test set. Model-predicted grounded evidence with bounding boxes across core frames, followed by the final answer. 18 What is draping over the middle grey and brown elephant that shows its ear ?
+
+Step 1: The middle grey and brown elephant is at <box> [116, 72, 361, 260] </box> 
+
+Step 2: The ear of the elephant is at <box> [239, 85, 300, 166] </box> 
+
+Step 3: The chain draped over the elephant is at <box> [277, 158, 306, 246] </box> 
+
+Final Answer: Chain 
+
+What is the yellow thing in front of the blue and white double -decker bus? 
+
+Step 1: The blue and white double -decker bus is at <box >[80 , 59, 418, 330] </box> 
+
+Step 2: The yellow thing in front of the bus is at <box> [163, 278, 181, 298 ]</box> 
+
+Final Answer: Sign 
+
+elephant 
+
+ear 
+
+chain 
+
+bus 
+
+yellow thing Figure 8: Additional qualitative example on the MM-GCoT test set. Model-predicted grounded evidence with bounding boxes, followed by the final answer. Question : In terms of energy production, how does <|image|> compare to 
+
+<|image|>? 
+
+(A) Image 1 generates more air pollution 
+
+(B) image 2 is more efficient 
+
+(C) Image 1 is cleaner in terms of carbon emissions 
+
+(D) image 2 has lower operational risks 
+
+Evidence : The <obj> cooling tower in image 1</ obj> <box> [733, 408, 927, 685] 
+
+</box> and the <obj >nuclear power plant in image 1</ obj> <box >[352, 572, 838 ,
+
+897] </box> , compared with the <obj> smokestacks in image 2 </obj> <box >[680 ,
+
+309 , 714 , 661 ]</box > originating from the <obj> coal -fired power plant in 
+
+image 2</obj> <box> [264 , 494 , 7 76 , 6 65 ]</box> , suggest that the nuclear 
+
+facility produces lower carbon emissions and air pollutants. 
+
+Answer : (C) Image 1 is cleaner in terms of carbon emissions 
+
+cooling tower 
+
+nuclear power plant 
+
+smokestacks 
+
+coal -fired power plant 
+
+Question : Do both <image_1> and < image_2> show a place in Osaka? 
+
+(A) Image 1 does but Image 2 not 
+
+(B) Image 2 does but Image 1 not 
+
+(C) Both images do 
+
+Evidence : The <obj> signboard in image 1 </obj><box> [95, 193, 720, 
+
+354] </box> reads “for Shin Osaka Hakata”. In the second image, 
+
+we can find the illuminated <obj> storefront in image 2 </obj><box> 
+
+[198, 122, 1388, 1040] </box> with the <obj> Japanese characters in 
+
+image 2</ obj><box >[400, 204, 1316, 500 ]</ box> which mention 
+
+Osaka . These elements indicate that scenes are set in Osaka. 
+
+Answer : (C) Both images do 
+
+signboard storefront 
+
+Japanese characters 
+
+Figure 9: Transfer example on Mantis after training on VideoEspresso. Model-predicted multi-image reasoning that integrates cues from multiple objects and images to support the final answer. Question : Is the color of the motorcycle red or blue? 
+
+(A) red (B) blue 
+
+Evidence : There’s a <obj> motorcycle in image 1 </obj> 
+
+<box > [0, 1005, 100, 1106 ]</ box> in front of a tent, and 
+
+it’s blue. 
+
+Answer : (B) blue 
+
+Question : What is the color of the flower? 
+
+(A) pink (B) yellow (C) red (D) white 
+
+Evidence : The image depicts an old, historic cemetery 
+
+with a grave and the <obj> flower in image 1 </obj><box> 
+
+[1355 , 1 072 , 1428 , 1155 ]</box> , which is white. 
+
+Answer : (D) white 
+
+Question : Is the keyboard on the left or right side of 
+
+the guitar? (A) left (B) right 
+
+Evidence : The <obj> keyboard in image 1 </obj><box> [1262, 
+
+746 , 1353, 770] </box> is on the left side of the <obj> 
+
+guitar in image 1 </obj><box> [1446, 731 , 1488, 807] </box> .
+
+Answer : (A) left 
+
+Figure 10: Transfer example on V-Star after training on VideoEspresso. Model-predicted high-resolution grounding and fine-grained recognition in a single-image setting. 19 (a) (b) (c) (d) (e) Figure 11: Differential cross-attention visualization within Sift. (a) Input image. (b–c) Positive and negative attention maps in DiffAttn, respectively. (d) Standard cross-attention replacing DiffAttn in Sift . (e) Cross-attention directly on raw ViT patch features. In (b–e), the shared query is the average-pooled feature over cyan-outlined patches overlapping the predicted box (red dashed). For clarity, each map is normalized to [0 , 1] by its maximum value. 
+
+Figure 12: VWS cross-attention visualization. We demonstrate Weave retrieving and aggregating relevant cues from previously routed objects into the current reasoning step. 20

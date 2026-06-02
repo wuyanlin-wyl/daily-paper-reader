@@ -1,0 +1,818 @@
+Title: Personalize Your Large Vision-language Models With In-context Prompt Tuning
+
+URL Source: https://arxiv.org/pdf/2605.31513v1
+
+Published Time: Mon, 01 Jun 2026 01:31:56 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# Personalize Your Large Vision-language Models With In-context Prompt Tuning 
+
+Yanshu Li 1, Jiaqian Li 1, Kuai Yu 2, Xi Xiao 3, Dongfang Liu 4, Tianyang Wang 3,and Ruixiang Tang 5 
+
+> 1
+
+Brown University 
+
+yanshu_li1@brown.edu  
+
+> 2
+
+Columbia University  
+
+> 3
+
+University of Alabama at Birmingham  
+
+> 4
+
+Purdue University  
+
+> 5
+
+Rutgers University 
+
+ruixiang.tang@rutgers.edu 
+
+Abstract. Large vision-language models (LVLMs) have demonstrated strong general multimodal capability and are increasingly deployed in downstream systems. This trend has driven growing interest in LVLM personalization, which aims to enable models to quickly and effectively learn out-of-distribution multimodal concepts to meet user-specific needs. However, many existing methods rely on inference-time training, which reduces efficiency. They also struggle to maintain accuracy in complex multi-image, multi-concept settings. These limitations restrict the broader deployment of LVLM-based systems. Therefore, this paper proposes in-context prompt tuning (ICPT). Specifically, ICPT employs a lightweight projection module capable of operating in complex scenarios to extract fine-grained visual semantics from multiple reference images, seamlessly transforming these features alongside identity-label mappings into con-tinuous prompts. To maximize computational efficiency, this module adaptively determines the prompt length based on the intrinsic visual complexity of each concept. Crucially, to overcome the environmental bi-ases and cross-concept interference prevalent in real-world applications, we introduce two novel geometric regularizations. These constraints re-fine prompt representations by decoupling key identities from transient environmental states and separating concepts to avoid semantic confu-sion. Extensive experiments show that ICPT achieves state-of-the-art personalization accuracy across diverse tasks and LVLM backbones. 
+
+Keywords: Large Vision-language Models · Personalization 
+
+## 1 Introduction 
+
+A large vision-language model (LVLM) integrates a vision encoder with a large language model (LLM) backbone and is trained using staged learning procedures [34]. By extending the capability boundary of LLMs to more real-world scenarios, LVLMs have become a core component in many modern AI systems, including interactive assistants and specialized agents [11, 30]. 
+
+> arXiv:2605.31513v1 [cs.CV] 29 May 2026
+
+2 F. Author et al. <Alice> Single-concept personalization                
+
+> What is <Alice> wearing?
+> There is a man
+> wearing a blue
+> hoodie, and a
+> woman wearing ...
+> Vocabulary
+> <Alice>
+> <Alice> is
+> wearing a white
+> women's blouse
+> and a silver...
+> Vanilla
+> LVLM
+> Concept Multi-concept personalization
+> Prompts
+> Query image
+> <Queen>
+> <Knight>
+> Vocabulary
+> <Alice>
+> <Queen> is standing
+> on a stone staircase,
+> and a blonde girl was
+> standing at the top of
+> the staircase.
+> Describe this image.
+> <Knight> Query image
+> Multi-image, multi-concept personalization
+> <sks1>
+> <sks2>
+> <sks3>
+> Query image
+> <sks2> is holding
+> his phone in his left
+> hand, smiling happily
+> and trying to take a
+> selfie with <sks1> .
+> What is <sks2>
+> doing to <sks1> ?
+> Query image
+> <sks1> sits on the
+> edge of a bed, looking
+> concerned as <sks3>
+> curls up tightly on the
+> mattress in a fetal
+> position, his eyes ...
+> Describe this image.
+> Projector
+> In-context prompts
+> Label embedddings
+> Trainable
+
+Fig. 1: Overview of LVLM personalization. Existing methods often rely on vocabulary expansion with inference-time training and struggle in multi-image and multi-concept settings. Our proposed ICPT improves efficiency and performance in complex scenarios. 
+
+As these systems, which are built upon general-purpose LVLMs, naturally shift toward private and user-facing deployments, personalization emerges as a critical research topic [18]. Enabling models to acquire user-specific concepts that go beyond their parametric knowledge is a key step toward fully unlocking the practical value of LVLM-based applications. As illustrated in Fig. 1, by learn-ing the conceptual mapping between a personalized label <sks1 > and the visual features of a specific individual given by a few reference images, an LVLM can subsequently leverage this concept directly to perform various tasks. However, achieving stable and efficient personalization in LVLMs remains challenging, as it requires learning both intra- and cross-modal mappings. A common solution uses in-context learning (ICL) by injecting explicit concepts into the prompt [14]. However, LVLMs are highly sensitive to few-shot prompts, which often leads to unstable concept acquisition [12]. Moreover, concept images are processed directly as visual inputs, generating many redundant tokens that reduce effi-ciency [13]. To address these challenges, two main lines of work have been ex-plored. One of them focuses on post-training the entire model to improve its ICL capacity, such as PVIT [24]. However, the cost of building large-scale training datasets and performing model training further exacerbates efficiency concerns. In contrast, soft prompt-based personalization becomes a dominant paradigm. Methods such as MyVLM [1] and Yo’LLaVA [20] learn a small set of prompts to encode user-specific concepts, enabling lightweight adaptation [2]. However, they reduce practical scalability, as each new concept requires vocabulary ex-pansion and separate training. To avoid test-time training, PLVM [23] utilizes an additional pretrained vision encoder to extract features from a reference im-age and trains a cross-attention module to combine them with the concept label for prompt generation. While offering novel insights, PLVM and recent work are evaluated only on relatively simple tasks and do not address two complex yet crucial scenarios: (1) multi-concept personalization, where the model must simultaneously learn and reason over multiple concepts spanning diverse cate-gories beyond people, such as animals, objects, and scenes. (2) multi-image 
+
+settings, where each concept is defined by multiple reference images exhibiting Abbreviated paper title 3
+
+varying degrees of visual diversity, often requiring fine-grained and cross-image visual feature extraction. This motivates the following question: How can we gen-erate prompts that encode multimodal concepts with sufficient clarity for reliable reasoning in these complex settings, while avoiding inference-time training? 
+
+In pursuit of this question, we propose in-context prompt tuning (ICPT), a personalization method that simulates ICL entirely within the representation space of frozen LVLMs. At the core of ICPT is the Adaptive Concept Projector (ACP), which extracts hierarchical multi-scale features directly from the built-in vision encoder to generate a dedicated textual label embedding alongside a continuous visual prompt for each novel concept. To balance representational ca-pacity with inference efficiency, the ACP incorporates a Dynamic Token Router (DTR) that adaptively allocates variable prompt lengths based on the inherent visual complexity of the target concept. To guarantee pure and robust identity acquisition through these prompts, we propose two structural constraints: Con-textual Variation Memory (CVM) and Margin-constrained Concept Separation (MCS). CVM maintains a memory queue of environment-induced variations, allowing learned prompts to be projected into a bounded, state-invariant sub-space. Meanwhile, MCS applies a dual-modality soft-margin constraint on visual tokens and text anchors to separate identities while preserving shared semantic priors. Optimized end-to-end with carefully curated data and training objec-tives designed for the proposed modules and constraints, ICPT seamlessly inte-grates into various LVLMs and enables efficient and robust personalization at inference time. We evaluate ICPT on four common personalization tasks under both single-concept and multi-concept settings. Results across four LVLMs with different sizes and backbones demonstrate the consistently state-of-the-art per-sonalization capability of ICPT compared to ICL and prior methods. Therefore, ICPT is an effective and practical method for future LVLM personalization. The contributions of this paper are three-fold. First , we propose the Adap-tive Concept Projector to extract, aggregate, and transform fine-grained infor-mation from multiple reference images into continuous prompts natively usable by LVLMs, introducing a dynamic token routing mechanism to adaptively allo-cate prompt length. Second , to optimize the semantic representation of these prompts for complex scenarios, we propose two innovative structural constraints alongside a targeted training strategy to optimize the entire framework end-to-end. Third , extensive experiments demonstrate that ICPT achieves supe-rior performance and broad generalization across diverse multimodal tasks and LVLM backbones compared to existing methods. 
+
+## 2 Related Works 
+
+Large Vision-language Models (LVLMs). Most mainstream LVLMs consist of three core components: a vision encoder, a projector, and an LLM serving as the decoder [33]. Given multimodal inputs containing both images and text, the vision encoder, such as the Vision Transformer (ViT) used in CLIP [25], first partitions images into patches and converts them into visual tokens that encode 4 F. Author et al. 
+
+perceptual features. These tokens are then merged and mapped by an MLP-based projector into the same latent space as textual tokens. They are then jointly processed by the LLM for unified multimodal reasoning [34]. With the progression from LLaVA1.5 [17] to more recent models like InternVL3.5 [31], and Qwen3VL [5], LVLMs have demonstrated steadily improving visual perception and understanding capabilities and are increasingly adopted as core components in a wide range of downstream applications [6,22]. As a result, enabling effective personalization for LVLMs has become increasingly important [10]. 
+
+Personalized LVLMs. Personalization aims to enable LVLMs to recog-nize and utilize user-specific concepts, supporting rapid semantic alignment in private and personalized scenarios [32]. In-context learning (ICL) is the most commonly used strategy, with methods such as LaMP [27] and RAP [7] leverag-ing retrieval augmented generation for personalization. However, in multimodal settings, ICL often exhibits instability. PVIT [24] addresses this issue by intro-ducing additional post-training to improve the ICL capability of LVLMs. To achieve more lightweight personalization, MyVLM [1] and Yo’LLaVA [20] inject user-specific concepts through a small number of learnable soft prompts, avoiding long token-level inputs and improving stability. MC-LLaVA [2] further extends this paradigm to multi-concept scenarios. Nevertheless, these methods require retraining for each new concept due to vocabulary expansion. To reduce this overhead, PLVM [23] introduces an auxiliary pre-trained visual encoder to add new concepts without inference-time training, but its applicability is restricted to relatively simple task settings. These limitations motivate us to explore more scalable and flexible personalization methods. Meanwhile, studying training data recipes also emerges as a core topic in LVLM personalization [3, 4, 9]. 
+
+## 3 Method 
+
+3.1 Overview Problem setting. Each set C = {C1, . . . , C n} contains n concepts, where each 
+
+Ci consists of a label and a collection of reference images of varying sizes that exhibit its visual features. The concepts, namely the label–image mappings, are assumed to constitute novel knowledge for a pre-trained LVLM. Thus, given an LVLM θ, the goal of personalization is to enable the model to learn these concepts from scratch and leverage them across a variety of tasks. Although ICL aligns well with personalization, explicitly encoding all reference images in the prompt incurs high token costs and unstable performance. Therefore, we propose in-context prompt tuning (ICPT), which simulates ICL in the latent space. Its pipeline is shown in Fig. 2. We first establish our real-time setting (Sec. 3.2). Next, we utilize a lightweight Adaptive Concept Projector and its dynamic token allocation mechanism (Sec. 3.3). We then in-troduce two strategies to enhance the multimodal semantic capture of in-context prompts: Contextual Variation Memory, which decouples transient environmen-tal states from intrinsic identity (Sec. 3.4), and Margin-constrained Concept Abbreviated paper title 5<sks1> 
+
+> is
+> Vision
+> Encoder
+
+M
+
+L
+
+P
+
+> :
+> Cross-attention&
+> Aggregation
+> ...
+> Δ
+> Δ
+> Δ
+> FIFO Update
+> Contextual Variation
+> Memory
+> Extraction
+> <sks2>
+> is
+> :
+> Margin-
+> constrained
+> Concept
+> Separation
+
+... 
+
+> Dynamic Token Route r
+
+... 
+
+... 
+
+> Constraints
+
+## L
+
+## L
+
+## M 
+
+> What
+> Query image <sks1> <sks2>
+
+User-specific data 
+
+> Learnble Queries
+> Label Embedding
+> In-context Prompt
+> Query Image
+> Embedding
+> Frozen Trainable
+> <sks1>
+> is
+> attacking
+> <sks2>
+> Adaptive Concept Projector
+
+Fig. 2: The overall framework of ICPT. The components highlighted in pink constitute the core Adaptive Concept Projector. 
+
+Separation, which mitigates cross-concept confusion while preserving shared se-mantic structure (Sec. 3.5). Finally, we describe the training strategy (Sec. 3.6). 
+
+3.2 Multi-concept In-context Prompts 
+
+For each concept Ci, an Adaptive Concept Projector (ACP) processes the ref-erence images to generate a continuous in-context prompt Pi ∈ RLi×d, where 
+
+d is the hidden dimension of the LVLM. Unlike prior works that force a fixed prompt length for all concepts, the ACP then determines a variable token length 
+
+Li ≤ Lmax based on the visual complexity of the specific concept. It simulta-neously generates a token embedding wi ∈ R1×d to represent the label of each concept. During personalization, to associate a generic label with the visual fea-tures of a concept, a two-concept LVLM input can be formatted as follows: 
+
+[System]: We define <sks1> is w1 : P1
+
+<sks2> is w2 : P2
+
+[User]: (Query Image) What is <sks2> doing to <sks1>? 
+
+Here, the textual labels ( <sks1> , <sks2> ) are retained, enabling the frozen LVLM to output them in open-ended responses using its pre-trained vocabulary. 
+
+wi serves as the dedicated semantic anchor for each label, while the subsequent 
+
+Pi provides visual evidence. Under this real-time setting, the challenge is en-suring that these in-context prompts and their anchors precisely capture the identities while maintaining disentanglement during multi-concept routing. 
+
+3.3 Adaptive Concept Projector (ACP) 
+
+In realistic settings, reference images of a concept are often not clean or well-isolated. Instead, they may contain visual distractions such as co-occurring ob-jects and complex backgrounds. To address this issue, existing approaches either employ an auxiliary mask generator to crop concept-specific regions or introduce an additional vision encoder to extract embeddings dedicated to personalization. 6 F. Author et al. 
+
+To eliminate such external dependencies while improving efficiency, we di-rectly leverage the built-in vision encoder θV of the LVLM. For each refer-ence image, we feed it into θV and, inspired by [19], extract visual represen-tations from its early and deep layers. By utilizing these hierarchical embed-dings, we capture multi-level visual characteristics of objects within the image, enabling fine-grained concept identification without requiring external supervi-sion. Specifically, let Ii,j denote the j-th reference image of concept Ci, where 
+
+j ∈ { 1, . . . , N i}. We extract its patch-wise embeddings from the designated early and deep layers of θV , denoted respectively as Fearly i,j , Fdeep i,j ∈ RS×dv , where S
+
+is the sequence length of the patches and dv is the feature dimension of the vi-sion encoder. We fuse these multi-scale features via channel-wise concatenation followed by a linear projection weight Wf use :
+
+Fi,j = [ Fearly i,j ∥ Fdeep i,j ]Wf use ∈ RS×d, (1) where ∥ denotes the concatenation operator and Wf use ∈ R2dv ×d projects the fused features into the LVLM’s hidden dimension d.After obtaining the fused visual embeddings for each image, we employ the ACP, which consists of a single-layer cross-attention module followed by an MLP, to transform them into in-context visual prompts and their corresponding textual label embeddings. We initialize a fixed set of Lmax + 1 learnable latent queries 
+
+Q ∈ R(Lmax +1) ×d. The ACP distills the dense visual features into a fixed-capacity representation via cross-attention: 
+
+vi,j = Softmax 
+
+ (QW q )( Fi,j Wk)⊤
+
+√d
+
+
+
+(Fi,j Wv ) ∈ R(Lmax +1) ×d, (2) where Wq , Wk, Wv ∈ Rd×d are learnable projection matrices. The visual cen-troid across the Ni reference images is aggregated as ¯vi = 1
+
+> Ni
+
+PNi 
+
+> j=1
+
+vi,j . This cen-troid is then processed by the MLP to generate a joint representation [wi; Pf ull i ] = 
+
+MLP (¯ vi), where the first token wi ∈ R1×d serves as the dedicated word embed-ding for the text label, and the remaining Lmax tokens form the intermediate full-capacity visual prompt Pf ull i ∈ RLmax ×d.As different concepts vary in visual complexity, we aim to allocate prompts dynamically to balance accuracy and efficiency. To this end, the ACP incorpo-rates a Dynamic Token Router (DTR) applied exclusively to the visual prompt. The DTR utilizes a lightweight linear routing head and a Sigmoid activation σ
+
+to assign a continuous score si,l to each of the Lmax visual tokens: 
+
+si,l = σ(pf ull i,l wrouter + brouter ) ∈ (0 , 1) , for l ∈ { 1, . . . , L max }, (3) where pf ull i,l ∈ R1×d is the l-th token of Pf ull i , wrouter ∈ Rd×1, and brouter 
+
+is a bias term. During training, to preserve end-to-end differentiability, we ap-ply soft-masking via element-wise multiplication: Pi = si ⊙ Pf ull i , where si =[si, 1, . . . , s i,L max ]⊤ and ⊙ denotes row-wise broadcasting multiplication. During inference, we dynamically prune redundant visual tokens by retaining only the Abbreviated paper title 7
+
+Li tokens satisfying si,l > τ , guaranteeing Li ≥ 1. The discrete label embedding 
+
+wi, acting as the global text anchor, is preserved without pruning. This ensures each concept occupies an optimal, minimal footprint in the LVLM context. In summary, the ACP defines the prompt-generation process. It takes Ci’s hierarchical visual features as input and produces a full-capacity visual prompt 
+
+Pf ull i and an embedding of the concept label wi. The visual prompt is then dynamically routed into a soft-masked prompt Pi, which is incorporated into the LVLM prompt alongside wi, introduced in Sec. 3.2. However, to ensure the representations capture pure, disentangled concepts, we regularize them during training via two geometric constraints, detailed next. 
+
+3.4 Contextual Variation Memory 
+
+Although the generated full-capacity prompt Pf ull i encodes the target identity, it also retains biases from environmental factors such as background and lighting. If unaddressed, the LVLM may overfit to these cues rather than the true identity. In multi-concept settings, estimating such noise from intra-concept differences is unreliable because the aggregated centroid is itself biased by visual context. To isolate and filter this noise without identity leakage, we construct a Con-textual Variation Memory (CVM), denoted Mext , dynamically maintained as a First-In-First-Out (FIFO) queue with a fixed capacity limit K. During training, we concurrently perform two operations: populating this memory with environmental variations and utilizing it to regularize the prompts of the target concepts. To populate Mext without introducing significant additional overhead, we reuse the representations already computed during the ACP’s forward pass. For each concept Ci in the current batch with Ni ≥ 2 reference images, we randomly sample one pair of distinct indices (x, y ). To extract a sharp envi-ronmental transition without the blurring effect of multi-image averaging, we bypass centroid aggregation and independently pass vi,x and vi,y through the shared MLP to obtain their single-image full-capacity visual prompts, Pf ull i,x and 
+
+Pf ull i,y . In practical personalization scenarios, the provided reference images are typically selected to preserve stable or correlated identity components across dif-ferent views. As a result, these identity components are expected to largely offset each other in the visual latent space. Thus, their Euclidean difference yields a directional matrix that captures environment-induced variations: 
+
+∆i,x,y = Pf ull i,x − Pf ull i,y ∈ RLmax ×d. (4) We then normalize this matrix to obtain ˆ∆ = ∆i,x,y /∥∆i,x,y ∥F and push it into Mext . Once the memory queue reaches its capacity limit K, the oldest transitions are dequeued as new ones are added. Meanwhile, we utilize this up-dated memory to regularize the multi-image target concepts being optimized. For the aggregated visual prompt Pf ull i of a target concept, we normalize it onto the unit hypersphere ( ˆPf ull i = Pf ull i /∥Pf ull i ∥F ) and explicitly penalize its projection onto the variation matrices currently stored in Mext . Because both 8 F. Author et al. 
+
+operands are Frobenius-normalized, their Frobenius inner product is mathemati-cally equivalent to their cosine similarity. This constraint encourages the prompt to suppress components aligned with dominant contextual variation directions: 
+
+⟨ ˆPf ull i , ˆd⟩F = 0 , ∀ˆd ∈ M ext . (5) By satisfying this constraint across all discrete matrices in Mext , we geomet-rically drive the learned prompt into the orthogonal null space of the continuous, identity-agnostic subspace spanned by the memory queue. By equipping the ma-trix space RLmax ×d with the Frobenius inner product, we formally denote this contextual variation subspace as ˆVext = span (Mext ).This regularization provides an explicit decomposition and bound on state-induced interference. Consider the LVLM evaluating a novel query image at test time. Let ˆq denote the Frobenius-normalized representation of a concept observed under a novel condition, and let ˆvid denote the ideal, identity-dominant reference representation of that same concept. The deviation caused by the novel environment is defined as δstate ≜ ˆq − ˆvid . We can orthogonally decompose this state-induced shift with respect to our learned subspace ˆVext :
+
+δstate = δ∥ 
+
+> state
+
++ δ⊥
+
+> state
+
+, δ∥ 
+
+> state
+
+∈ ˆVext , δ⊥ 
+
+> state
+
+⊥ ˆVext . (6) Because ˆVext captures a broad spectrum of environmental shifts, δ∥ 
+
+> state
+
+rep-resents the predictable environmental interference, while δ⊥ 
+
+> state
+
+is the unpre-dictable, out-of-span residual. The following theorem formally proves that en-forcing Eq. 5 during training neutralizes this interference during inference. 
+
+Theorem 1 (State-Induced Interference Bound). If the learned prompt satisfies the orthogonality constraint ⟨ ˆPf ull i , ˆd⟩F = 0 for all ˆd ∈ M ext , then the Frobenius inner product (which is equivalent to cosine similarity for Frobenius-normalized matrices) between the prompt and the novel query decomposes as 
+
+⟨ ˆP f ull i , ˆq⟩F = ⟨ ˆP f ull i , ˆvid ⟩F + ⟨ ˆP f ull i , δ⊥
+
+> state
+
+⟩F , (7) 
+
+and the contribution of state-induced deviation is bounded by 
+
+⟨ ˆP f ull i , δ⊥
+
+> state
+
+⟩F ≤ δ⊥ 
+
+> state F
+
+. (8) 
+
+Remark 1. Theorem 1’s proof is provided in the Appendix. It establishes that enforcing orthogonality to the subspace ˆVext attenuates interference aligned with the stored variation directions. As Mext is continuously updated with diverse, Frobenius-normalized pairwise transitions during training, it provides a progres-sively richer empirical reference frame for common environment-induced changes. 
+
+3.5 Margin-constrained Concept Separation 
+
+When multiple concepts populate the LVLM’s visual dictionary simultaneously, cross-concept interference can manifest in two distinct pathways: visual-space Abbreviated paper title 9
+
+collision between the candidate visual prompts ( Pf ull i and Pf ull j ) during cross-attention, and textual-space collision between the generated label embeddings (wi and wj ) during self-attention. Enforcing global orthogonality between two concepts by driving their similarity toward zero can induce catastrophic feature loss. For example, if two concepts are both specific dog breeds, forcing their embeddings to be orthogonal harms their shared semantic priors, collapsing the representations out-of-distribution. To address this issue across modalities, we introduce Margin-constrained Concept Separation (MCS). Rather than driving the cross-concept Frobe-nius inner product (which equates to cosine similarity for Frobenius-normalized matrices) to zero, we implement this constraint using a soft margin boundary 
+
+m ∈ (0 , 1) and enforce it dually on both the continuous visual prompts and the discrete label embeddings: 
+
+⟨ ˆPf ull i , ˆPf ull j ⟩F ≤ m, and ⟨ ˆwi, ˆwj ⟩ ≤ m, ∀i̸ = j,  (9) where ˆwi = wi/∥wi∥2 denotes the L2-normalized textual label embedding, and the vector inner product corresponds to their cosine similarity. This bounded projection allows the representations to dynamically preserve shared features up to the similarity threshold m, while making unique identity embeddings remain separated enough to prevent confusion in both textual and visual spaces. By imposing these pre-DTR constraints, we ensure that the in-context prompts are less affected by visual noise and cross-concept interference. 
+
+3.6 Training 
+
+Training Data. To equip ICPT with robust multi-image, multi-concept person-alization capabilities, we construct a dedicated, high-quality training dataset due to the lack of suitable existing resources. We first collect 350 concepts from four sources: three existing training sets (MyVLM, Yo’LLaVA, and MC-LLaVA) and additional concepts curated from public media repositories. Each concept is as-signed a generic label that is independent of the LVLM’s prior knowledge. The selected concepts cover diverse categories, including people, animals, objects, and scenes. For each concept, we prepare a pool of 10 reference images that provide informative visual cues. These images are either directly collected real-world captures or generated using image editing by Nano Banana2 1, allowing us to explicitly introduce controlled variations in appearance, context, and back-ground within each concept. During training, the number of reference images sampled per concept ranges from 1 to 6 and is non-uniformly distributed. Based on these concepts, we construct diverse query images and user queries. In total, we collect 2000 query images, each containing between 0 and 5 concepts. To ensure robust reasoning and explicitly penalize text-prior hallucinations, the data distribution is carefully balanced: single-concept settings account for 35% of the data, multi-concept cases comprise 60%. For each query image, we utilize  
+
+> 1https://gemini.google/overview/image-generation/
+
+10 F. Author et al. 
+
+Gemini3.1-Pro 2 to generate 10 candidate user queries spanning a wide range of multimodal tasks, including existence recognition, multiple-choice visual ques-tion answering (VQA), and MSCOCO-style [15] captioning. Finally, we conduct two rounds of manual filtering to retain the five highest-quality user queries per image for training. Detailed statistics are provided in the Appendix. 
+
+Training Objective. To optimize the ACP while keeping the LVLM backbone frozen, we adopt a three-term multi-task objective: 
+
+L = LV QA + αLGeo + βLSpa . (10) Here, LV QA represents the standard cross-entropy loss over the generated answer tokens yt of length T . Given the user query Xquery , query image Iquery ,and the set of active concepts C, the VQA loss is formulated as: 
+
+LV QA = − 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+log P (yt|y<t , X query , I query , {wi, Pi}i∈C ). (11) Meanwhile, LGeo geometrically unifies the constraints introduced in Sec. 3.4 and Sec. 3.5 into a learning objective. For a batch containing active concepts C
+
+and a sampled subset of normalized variation matrices ˆMb, we define:                          
+
+> LGeo =P
+> i∈C
+> 1
+> |ˆMb|
+> Pˆ∆∈ˆMb⟨ˆPf ull i,ˆ∆⟩2
+> F+1
+> |C|− 1
+> Pj∈C
+> j̸=i
+> 
+> max
+> 
+> 0,⟨ˆPf ull i,ˆPf ull j⟩F−m
+> 2
+> + max (0 ,⟨ˆwi,ˆwj⟩ − m)2
+> 
+> .
+
+(12) 
+
+Finally, LSpa applies an L1 penalty to the DTR’s predicted scores, actively encouraging the ACP to drop redundant visual tokens and minimize the expected length of in-context prompts: 
+
+LSpa = 1
+
+|C| · Lmax 
+
+X
+
+> i∈C
+> Lmax
+
+X
+
+> l=1
+
+si,l . (13) 
+
+## 4 Experiment 
+
+4.1 Experimental Setup 
+
+Evaluation. Existing LVLM personalization benchmarks generally fail to satisfy the two evaluation requirements of our setting: support for multi-image, multi-concept personalization, and an out-of-distribution test set with respect to the training data. Therefore, to maintain consistency with existing protocols, we adapt data from prior benchmarks and follow their construction principles to enable effective evaluation. We collect concepts from MyVLM, Yo’LLaVA, MC-LLaVA, MMPB [9], and additional concepts curated and annotated from public media, resulting in a total of 200 concepts. All selected concepts are verified to be absent from the training set. For each concept, we obtain 1 to 6 reference images  
+
+> 2
+
+https://deepmind.google/models/gemini/pro/ Abbreviated paper title 11 
+
+through collection or synthesis, with the number of images uniformly distributed across concepts. At test time, all reference images for each concept are used for personalization. These concepts correspond to 300 collected query images, each containing between 0 and 6 concepts, where 6 represents an out-of-distribution setting. We then construct 10 high-quality user queries for each query image by combining existing annotations with those generated by Gemini3.1-Pro. These queries cover the three task types used in training and a novel open-ended VQA task. We report performance separately for each task type under single-concept and multi-concept settings, comprising 1050 and 2100 cases, respectively. Among them, 150 cases correspond to open-ended VQA without any query image, where the LVLM answers solely based on the user query. 
+
+Models and baselines. We conduct experiments on LLaVA-NeXT-7B [16], LLaVA-NeXT-34B, InternVL3-8B [35], and Qwen3VL-8B [5]. Results on LLaVA-NeXT-7B serve as the primary comparison. We benchmark against multiple personaliza-tion baselines, including ICL, MyVLM [1], Yo’LLaVA [20], PVIT [24], RAP [7], PeKit [28], PLVM [23], and MC-LLaVA [2]. We also include GPT-4o with ICL as a closed-source baseline. On the other three LVLMs, we compare ICPT with ICL and PLVM to demonstrate its generalization across different LVLM backbones. For closed-source baselines, we reproduce their pipelines to the extent possible and report the best scores. For baselines originally designed only for single-concept personalization, we first report their results under the original setting. We then adapt them to the multi-concept settings strictly following their official implementations and report their best scores. If a method cannot be properly adapted, we mark its entries as “-”. For methods that expand LVLM’s vocabulary, we retrain them using in-distribution data to ensure a fair comparison. 
+
+Implementation details. The MLP used in the ACP has three linear layers, where the hidden dimension is set to twice the embedding dimension of the LVLM, and GeLU is used as the activation function. During training, only the parameters of the ACP and its DTR module are updated, while the LVLM backbone remains frozen. We use AdamW as the optimizer with a learning rate of 1e-4 and a batch size of 8. Across different LVLMs, we fix the full capacity of each in-context prompt to Lmax = 20 and the capacity limit of the CVM to K = 128 , set the DTR decision threshold to τ = 0 .5, and use a soft margin of m = 0 .15 . For visual feature extraction, we consistently take representations from the third layer and the third-to-last layer of the LVLM vision encoder. The coefficients α and β
+
+are selected in a model-specific manner. For example, on LLaVA-NeXT-7B, we set α = 0 .3 and β = 0 .5. All experiments are conducted on two NVIDIA H200 GPUs. All additional details of Sec. 4.1 are provided in the Appendix. 
+
+4.2 Main Results ICPT demonstrates strong performance across different personaliza-tion tasks and settings .As summarized in Table 1, ICPT achieves state-of-the-art results across all settings for the four task categories, outperforming existing 12 F. Author et al. 
+
+Table 1: Performance across four personalization task types under two settings, and their weighted average, on LLaVA-NeXT-7B. For existence recognition, we report recall; for multiple-choice VQA (MVQA), accuracy; for open-ended VQA (OVQA), BLEU; and for captioning, we report the average of concept recall in the generated captions and their embedding similarity to the ground-truth captions using DeBERTa-v3-large [8].                                                                                                                             
+
+> Method Recognition MVQA OVQA Captioning
+> Single Multi Weight Single Multi Weight Single Multi Weight Single Multi Weight GPT-4o + ICL 0.726 0.653 0.702 0.695 0.651 0.661 0.663 0.605 0.619 0.674 0.608 0.630 Vanilla 0.500 0.500 0.500 0.565 0.370 0.413 0.367 0.325 0.335 0.208 0.159 0.175 ICL 0.632 0.560 0.608 0.705 0.609 0.630 0.572 0.483 0.504 0.289 0.137 0.188 MyVLM 0.718 --0.645 --0.548 --0.493 --Yo’ LLaVA 0.709 0.640 0.686 0.680 0.597 0.615 0.593 0.451 0.485 0.506 0.385 0.425 PVIT 0.752 0.633 0.712 0.695 0.647 0.658 0.642 0.537 0.562 0.623 0.467 0.519 RAP 0.725 0.621 0.690 0.710 0.627 0.645 0.651 0.529 0.558 0.580 0.493 0.522 PeKit 0.684 0.647 0.672 0.700 0.657 0.667 0.680 0.524 0.561 0.658 0.486 0.543 PLVM 0.794 0.719 0.769 0.760 0.673 0.692 0.695 0.607 0.628 0.664 0.507 0.559 MC-LLaVA 0.824 0.785 0.811 0.815 0.709 0.733 0.689 0.630 0.644 0.686 0.538 0.587
+> ICPT (Ours) 0.873 0.859 0.868 0.850 0.774 0.791 0.716 0.697 0.702 0.713 0.624 0.654
+
+personalization baselines and GPT-4o with ICL. Compared with directly in-serting concepts through ICL, ICPT improves both efficiency and effectiveness while using fewer tokens. On the existence recognition task, ICPT surpasses the prior SOTA baseline MC-LLaVA by 0.057 in weighted score, while using only 
+
+13.6 tokens per concept on average, compared with the fixed 16 tokens used by MC-LLaVA. ICPT also shows larger gains in more complex scenarios. For ex-ample, on open-ended VQA, it improves over MC-LLaVA by 0.027 in the single-image setting and by 0.067 in the multi-image setting. These results confirm that our design effectively addresses the challenges of multi-image and multi-concept personalization. In addition, the strong performance on open-ended VQA and captioning indicates that introducing in-context prompts does not impair the generative ability of the LVLM, allowing ICPT to integrate naturally into exist-ing LVLM-based systems. Qualitative examples are shown in Fig. 3. 
+
+ICPT exhibits promising generalization across different LVLM sizes and backbones . Table 2 summarizes the performance of ICPT on three addi-tional LVLMs, where it consistently achieves SOTA results across all settings. Results on LLaVA-NeXT-7B and LLaVA-NeXT-34B show that ICPT adapts well across model scales when Lmax is properly configured. ICPT also performs strongly on InternVL3 and Qwen3VL, two recent LVLM architectures, demon-strating its robustness across different backbones. We further observe that ICPT continues to improve personalization performance even when the underlying LVLM already has strong ICL ability, which PLVM fails to maintain. On the two latest LVLMs, InternVL3 and Qwen3VL, PLVM performs worse than direct ICL on several tasks, whereas ICPT consistently provides stable gains. These results indicate that ICPT can effectively leverage advances in foundation LVLMs and highlight its practical value for building next-generation applications. Abbreviated paper title 13 <sks1>             
+
+> <sks2>
+> <sks3>
+> Query image Yes.
+> Can you see both
+> <sks1> and <sks4>
+> in this photo?
+> Answer with a single
+> word: Yes or No.
+> Query image
+> From left to right in this
+> image, which of the
+> following is the correct order?
+> Answer with the option only.
+> A. <sks3> <sks1> <sks2>
+> B. <sks2> <sks1> <sks3>
+> C. <sks2> <sks3> <sks1>
+> D. <sks3> <sks2> <sks1>
+> <sks1>
+> Query image
+> <sks2> , wielding
+> <sks1> , is engaged in
+> melee combat with
+> <sks3> , who is
+> wielding a hammer.
+> Please caption the main
+> elements in this image,
+> following the style:...
+> <sks1> has a long golden
+> shaft. Its tip features a
+> sharp metallic head with a
+> glowing blue core.
+> What does <sks1> look
+> like in two sentences?
+> <sks2> <sks3>
+> <sks4>
+> D.
+> (a)
+> (c)
+> (b)
+> (d)
+
+Fig. 3: Qualitative examples of ICPT on four tasks: (a) captioning, (b) open-ended VQA without a query image, (c) existence recognition, and (d) multiple VQA. More examples are provided in the Appendix. 
+
+Table 2: Performance across four personalization task types under two settings when the personalization methods are applied to three additional LVLM backbones. 
+
+LVLM Method Recognition MVQA OVQA Captioning 
+
+Single Multi Weight Single Multi Weight Single Multi Weight Single Multi Weight LLaVA-NeXT-34B Vanilla 0.500 0.500 0.500 0.585 0.407 0.447 0.392 0.316 0.334 0.231 0.147 0.175 ICL 0.695 0.584 0.658 0.715 0.646 0.661 0.636 0.573 0.588 0.328 0.215 0.253 PLVM 0.812 0.721 0.782 0.780 0.682 0.704 0.723 0.668 0.681 0.740 0.545 0.610 
+
+ICPT 0.913 0.885 0.904 0.875 0.807 0.822 0.746 0.715 0.722 0.762 0.614 0.663 
+
+InternVL3-8B Vanilla 0.500 0.500 0.500 0.635 0.507 0.535 0.386 0.379 0.381 0.235 0.263 0.254 ICL 0.738 0.705 0.727 0.825 0.702 0.729 0.726 0.618 0.644 0.575 0.538 0.550 PLVM 0.795 0.730 0.773 0.820 0.695 0.723 0.734 0.597 0.630 0.806 0.762 0.777 
+
+ICPT 0.945 0.906 0.932 0.905 0.893 0.896 0.740 0.706 0.714 0.828 0.804 0.812 
+
+Qwen3VL-8B Vanilla 0.500 0.500 0.500 0.600 0.604 0.603 0.403 0.364 0.373 0.306 0.257 0.273 ICL 0.775 0.743 0.764 0.865 0.826 0.835 0.758 0.642 0.670 0.635 0.572 0.593 PLVM 0.820 0.735 0.792 0.825 0.799 0.805 0.760 0.668 0.690 0.784 0.708 0.733 
+
+ICPT 0.963 0.924 0.950 0.920 0.867 0.879 0.776 0.724 0.736 0.835 0.821 0.826 
+
+4.3 Ablation Studies 
+
+We first examine the effectiveness of the two proposed prompt constraints and their corresponding learning objective. The results in Fig. 4 show that both CVM and MCS, together with LGeo , improve performance under both single-concept and multi-concept settings, with larger gains in the multi-concept case. This indicates that the proposed mechanisms are well optimized during training and effectively enhance the semantic quality of the in-context prompts. We then analyze the impact of the prompt full capacity Lmax and the DTR mechanism. One ablation replaces DTR with random pruning at the same ra-tio. As shown in Fig. 5, personalization performance generally improves as the prompt length increases, since longer prompts can encode richer visual features. The improvement continues until a threshold. Within this range, the performance gain brought by DTR also becomes more pronounced. Beyond this threshold, however, longer prompts tend to encode redundant features or noise, which leads to performance degradation. In this regime, dynamic pruning becomes even more 14 F. Author et al. MVQA  
+
+> (single)
+> MVQA
+> (multi)
+> OVQA
+> (single)
+> OVQA
+> (multi)
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> Score
+> Full
+> w/o CVM
+> w/o MCS
+> w/o Geo
+
+Fig. 4: Ablation study on the proposed constraints. 12 16 20 24 28 
+
+> Lmax
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> Score
+> MVQA (weight) w DTR
+> MVQA (weight) w/o DTR
+> MVQA (weight) w/ random
+> OVQA (weight) w DTR
+> OVQA (weight) w/o DTR
+> OVQA (weight) w/ random
+
+Fig. 5: Ablation study on the DTR mechanism. Reco MVQA OVQA Captioning     
+
+> 0.50
+> 0.55
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> Score
+> m= 0.15
+> prompt only ( m= 0.15 )
+> label only ( m= 0.15 )
+> m= 0
+
+Fig. 6: Ablation study on the MCS setting. 
+
+important. These results indicate that both proper prompt length selection and adaptive pruning are critical for soft prompt-based methods. For MCS, we design three ablation settings. We apply MCS only to label em-beddings or only to full-capacity prompts while keeping the similarity threshold at m = 0 .15 , and we further test the case where m = 0 , which enforces strict orthogonality. Results in Fig. 6 show that applying MCS only to label embed-dings causes a larger performance drop than applying it only to prompts. This suggests that multi-concept confusion mainly arises from overlap in the visual representation space. Nevertheless, applying constraints to both modalities re-mains important because LVLMs have limited ability to clearly separate them. When m = 0 , the model overemphasizes separation and weakens the beneficial role of prior knowledge during personalization. This result highlights the impor-tance of selecting an appropriate margin m. We provide more comprehensive ablation studies in the Appendix, covering the choice of vision encoder, the se-lection of feature extraction layers, the coefficients of each loss term, the DTR decision threshold τ , and the CVM capacity K.
+
+4.4 Analyses 
+
+We conduct efficiency analyses of ICPT. With the prompt full capacity set to 20, ICPT achieves 12% and 18% lower inference latency on the full test set compared with PLVM and MC-LLaVA, which use fixed 16-token prompts for each concept. This improvement results from using the model’s native vision encoder, together with the lightweight design of ACP and the dynamic pruning enabled by DTR. We also investigate an open question in LVLM personalization: whether train-ing data volume or diversity is more important. We characterize training data diversity along three dimensions: the visual distribution of reference images per concept, the distribution of the number of concepts per input, and the variety of task types. The results show that a low-volume, high-diversity training setup substantially outperforms its high-volume counterpart. This indicates that ex-posing the model to complex visual contexts, varied concept combinations, and diverse task formats is far more important than simply increasing the number of collected concepts. As LVLM capabilities advance, effective personalization should move beyond brute-force data memorization and instead serve as a gen-Abbreviated paper title 15 
+
+eralizable semantic bridge that aligns concepts with the LVLM’s reasoning in the latent space. These analyses are presented in detail in the Appendix. 
+
+## 5 Conclusion 
+
+We propose in-context prompt tuning (ICPT), a novel and effective framework that advances the capability of LVLMs to handle complex, multi-concept person-alization tasks. By fully shifting the personalization process into the latent space through simulated ICL, our method circumvents the heavy computational bur-den of inference-time training, allowing users to introduce multiple new concepts on the fly. Central to this capability is the Adaptive Concept Projector (ACP), which efficiently distills reference images into dynamic-length visual prompts and dedicated semantic anchors. Furthermore, to ensure these representations remain robust against background noise and cross-concept entanglement, we design two geometric constraints: Contextual Variation Memory and Margin-constrained Concept Separation. These designs are validated through extensive experiments. We envision that ICPT will provide a strong and practical baseline for future research on LVLM personalization. 
+
+## References 
+
+1. Alaluf, Y., Richardson, E., Tulyakov, S., Aberman, K., Cohen-Or, D.: Myvlm: Personalizing vlms for user-specific queries. In: European Conference on Computer Vision. pp. 73–91. Springer (2024) 2, 4, 11, 17, 20 2. An, R., Yang, S., Lu, M., Zhang, R., Zeng, K., Luo, Y., Cao, J., Liang, H., Chen, Y., She, Q., et al.: Mc-llava: Multi-concept personalized vision-language model. arXiv preprint arXiv:2411.11706 (2024) 2, 4, 11, 17, 20, 21 3. An, R., Yang, S., Zhang, R., Shen, Z., Lu, M., Dai, G., Liang, H., Guo, Z., Yan, S., Luo, Y., et al.: Unictokens: Boosting personalized understanding and generation via unified concept tokens. arXiv preprint arXiv:2505.14671 (2025) 4 4. An, R., Zeng, K., Lu, M., Yang, S., Zhang, R., Ji, H., Zhang, Q., Luo, Y., Liang, H., Zhang, W.: Concept-as-tree: Synthetic data is all you need for vlm personalization. In: Synthetic Data for Computer Vision Workshop@ CVPR 2025 (2025) 4 5. Bai, S., Cai, Y., Chen, R., Chen, K., Chen, X., Cheng, Z., Deng, L., Ding, W., Gao, C., Ge, C., Ge, W., Guo, Z., Huang, Q., Huang, J., Huang, F., Hui, B., Jiang, S., Li, Z., Li, M., Li, M., Li, K., Lin, Z., Lin, J., Liu, X., Liu, J., Liu, C., Liu, Y., Liu, D., Liu, S., Lu, D., Luo, R., Lv, C., Men, R., Meng, L., Ren, X., Ren, X., Song, S., Sun, Y., Tang, J., Tu, J., Wan, J., Wang, P., Wang, P., Wang, Q., Wang, Y., Xie, T., Xu, Y., Xu, H., Xu, J., Yang, Z., Yang, M., Yang, J., Yang, A., Yu, B., Zhang, F., Zhang, H., Zhang, X., Zheng, B., Zhong, H., Zhou, J., Zhou, F., Zhou, J., Zhu, Y., Zhu, K.: Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 (2025) 4, 11 6. Gao, D., Ji, L., Zhou, L., Lin, K.Q., Chen, J., Fan, Z., Shou, M.Z.: Assistgpt: A general multi-modal assistant that can plan, execute, inspect, and learn. arXiv preprint arXiv:2306.08640 (2023) 4 7. Hao, H., Han, J., Li, C., Li, Y.F., Yue, X.: Rap: Retrieval-augmented personal-ization for multimodal large language models. In: Proceedings of the Computer Vision and Pattern Recognition Conference. pp. 14538–14548 (2025) 4, 11, 21 16 F. Author et al. 8. He, P., Gao, J., Chen, W.: Debertav3: Improving deberta using electra-style pre-training with gradient-disentangled embedding sharing. arXiv preprint arXiv:2111.09543 (2021) 12 9. Kim, J., Kim, W., Park, W., Do, J.: Mmpb: It’s time for multi-modal personaliza-tion. arXiv preprint arXiv:2509.22820 (2025) 4, 10, 19 10. Kim, J., Choi, J., Chay, W., Kyung, D., Kwon, Y., Jo, Y., Choi, E.: Propersim: De-veloping proactive and personalized ai assistants through user-assistant simulation. arXiv preprint arXiv:2509.21730 (2025) 4 11. Li, F., Han, S., Lee, C.H., Feng, S., Jiang, Z., Sun, Z.: A new era in human factors engineering: A survey of the applications and prospects of large multimodal models. International Journal of Human–Computer Interaction pp. 1–14 (2025) 1 12. Li, Y., Cao, Y., He, H., Cheng, Q., Fu, X., Xiao, X., Wang, T., Tang, R.: M²IV: Towards efficient and fine-grained multimodal in-context learning via rep-resentation engineering. In: Second Conference on Language Modeling (2025), 
+
+https://openreview.net/forum?id=9ffYcEiNw9 213. Li, Y., Yang, J., Shen, Z., Han, L., Xu, H., Tang, R.: Catp: Contextually adaptive token pruning for efficient and enhanced multimodal in-context learning. In: Pro-ceedings of the AAAI Conference on Artificial Intelligence. vol. 40, pp. 6619–6627 (2026) 2 14. Li, Y., Yang, J., Yang, Z., Li, B., Han, L., He, H., Yao, Z., Chen, Y.V., Fei, S., Liu, D., et al.: Make lvlms focus: Context-aware attention modulation for better mul-timodal in-context learning. In: Proceedings of the AAAI Conference on Artificial Intelligence. vol. 40, pp. 6610–6618 (2026) 2 15. Lin, T.Y., Maire, M., Belongie, S., Hays, J., Perona, P., Ramanan, D., Dollár, P., Zitnick, C.L.: Microsoft coco: Common objects in context. In: European conference on computer vision. pp. 740–755. Springer (2014) 10 16. Liu, H., Li, C., Li, Y., Li, B., Zhang, Y., Shen, S., Lee, Y.J.: Llava-next: Improved reasoning, ocr, and world knowledge (January 2024) 11 17. Liu, H., Li, C., Wu, Q., Lee, Y.J.: Visual instruction tuning. Advances in neural information processing systems 36 , 34892–34916 (2023) 4 18. Lyu, H., Jiang, S., Zeng, H., Xia, Y., Wang, Q., Zhang, S., Chen, R., Leung, C., Tang, J., Luo, J.: Llm-rec: Personalized recommendation via prompting large language models. In: Findings of the Association for Computational Linguistics: NAACL 2024. pp. 583–612 (2024) 2 19. Meng, L., Yang, J., Tian, R., Dai, X., Wu, Z., Gao, J., Jiang, Y.G.: Deepstack: Deeply stacking visual tokens is surprisingly simple and effective for lmms. Ad-vances in Neural Information Processing Systems 37 , 23464–23487 (2024) 6 20. Nguyen, T., Liu, H., Li, Y., Cai, M., Ojha, U., Lee, Y.J.: Yo’llava: Your personalized language and vision assistant. Advances in Neural Information Processing Systems 
+
+37 , 40913–40951 (2024) 2, 4, 11, 17, 20 21. Oquab, M., Darcet, T., Moutakanni, T., Vo, H., Szafraniec, M., Khalidov, V., Fernandez, P., Haziza, D., Massa, F., El-Nouby, A., et al.: Dinov2: Learning robust visual features without supervision. arXiv preprint arXiv:2304.07193 (2023) 22 22. Park, S., Song, Y., Lee, S., Kim, J., Seo, J.: Leveraging multimodal llm for inspira-tional user interface search. In: Proceedings of the 2025 CHI Conference on Human Factors in Computing Systems. pp. 1–22 (2025) 4 23. Pham, C., Phan, H., Doermann, D., Tian, Y.: Personalized large vision-language models. arXiv preprint arXiv:2412.17610 (2024) 2, 4, 11, 21 24. Pi, R., Zhang, J., Han, T., Zhang, J., Pan, R., Zhang, T.: Personalized visual instruction tuning. arXiv preprint arXiv:2410.07113 (2024) 2, 4, 11, 21 Abbreviated paper title 17 25. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al.: Learning transferable visual models from natural language supervision. In: International conference on machine learning. pp. 8748–8763. PmLR (2021) 3 26. Ren, T., Liu, S., Zeng, A., Lin, J., Li, K., Cao, H., Chen, J., Huang, X., Chen, Y., Yan, F., et al.: Grounded sam: Assembling open-world models for diverse visual tasks. arXiv preprint arXiv:2401.14159 (2024) 22 27. Salemi, A., Mysore, S., Bendersky, M., Zamani, H.: Lamp: When large language models meet personalization. In: Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers). pp. 7370–7392 (2024) 4 28. Seifi, S., Dorovatas, V., Reino, D.O., Aljundi, R.: Personalization toolkit: Training free personalization of large vision language models. arXiv preprint arXiv:2502.02452 (2025) 11, 21 29. Siméoni, O., Vo, H.V., Seitzer, M., Baldassarre, F., Oquab, M., Jose, C., Khali-dov, V., Szafraniec, M., Yi, S., Ramamonjisoa, M., et al.: Dinov3. arXiv preprint arXiv:2508.10104 (2025) 22 30. Sun, Q., Liu, Z., Ma, C., Ding, Z., Xu, F., Yin, Z., Zhao, H., Wu, Z., Cheng, K., Liu, Z., et al.: Scienceboard: Evaluating multimodal autonomous agents in realistic scientific workflows. arXiv preprint arXiv:2505.19897 (2025) 1 31. Wang, W., Gao, Z., Gu, L., Pu, H., Cui, L., Wei, X., Liu, Z., Jing, L., Ye, S., Shao, J., et al.: Internvl3. 5: Advancing open-source multimodal models in versatility, reasoning, and efficiency. arXiv preprint arXiv:2508.18265 (2025) 4 32. Xu, B., Feng, J., Lu, S., Luo, Y., Yan, S., Liang, H., Lu, M., Zhang, W.: Jarvis: Towards personalized ai assistant via personal kv-cache retrieval. arXiv preprint arXiv:2510.22765 (2025) 4 33. Yin, S., Fu, C., Zhao, S., Li, K., Sun, X., Xu, T., Chen, E.: A survey on multimodal large language models. National Science Review 11 (12), nwae403 (2024) 3 34. Zhang, D., Yu, Y., Dong, J., Li, C., Su, D., Chu, C., Yu, D.: Mm-llms: Recent advances in multimodal large language models. arXiv preprint arXiv:2401.13601 (2024) 1, 4 35. Zhu, J., Wang, W., Chen, Z., Liu, Z., Ye, S., Gu, L., Tian, H., Duan, Y., Su, W., Shao, J., et al.: Internvl3: Exploring advanced training and test-time recipes for open-source multimodal models. arXiv preprint arXiv:2504.10479 (2025) 11 
+
+## A Personalization Data 
+
+A.1 Training data 
+
+When constructing the multi-image, multi-concept personalization dataset, we follow three steps: selecting concepts, assigning reference images, and construct-ing user queries and query images. For the training data, the first source of concepts comes from existing personalization datasets, including MyVLM [1], Yo’LLaVA [20], and MC-LLaVA [2]. The Yo’LLaVA dataset contains 40 diverse concepts, each represented by 4 to 10 images. MyVLM has 29 object-centric concepts, providing at least 10 images for each concept. MC-LLaVA provides high-quality multi-concept data, covering 50 scenarios with 2 to 4 concepts and a total of 2020 samples. Beyond these datasets, we further collect concepts from 18 F. Author et al. 
+
+films, TV series, animation, and variety shows, as well as public image reposi-tories. We also expand the concept pool through image editing based on these sources to avoid overrepresentation of well-known entities. In total, we obtain 350 concepts covering diverse categories, including characters with different vi-sual styles, animals, objects, buildings, and scenes. Each concept is assigned a generic label. We ensure that the label does not correlate with the LVLM’s para-metric knowledge of the concept, so that the task truly reflects personalization. For example, for an image of Donald Trump, we avoid labels such as <Donald> or <President> and instead use generic identifiers such as <Mike> or <sks1>. Next, for each concept, we prepare 10 reference images. We impose the fol-lowing requirements for each set of reference images. Each image must clearly contain part or all of the visual characteristics of the concept so that it can be distinguished from other concepts. Within a set, no two images should be overly similar, and the images should maintain diversity in factors such as entity posi-tion, viewpoint, pose, appearance, and background. Among all reference images, 75% are collected from existing visual materials, while the remaining 25% are generated based on other reference images of the same concept according to the requirements. During training, the number of reference images sampled for each concept ranges from 1 to 6 and is non-uniformly distributed. By combining each label with its corresponding reference images, we obtain a complete set of concepts. Based on these concepts, we further construct query images and user queries. In total, we collect 2000 query images, each containing between 0 and 5 concepts. To encourage robust reasoning and reduce text-prior hallucinations, the data distribution is carefully balanced. Single-concept cases account for 35% of the data, multi-concept cases account for 60%, and the re-maining cases contain zero concepts. Following prior work, the training data adopts standard dialogue formats. The user queries cover three task types: ex-istence recognition, multiple-choice visual question answering (VQA), and cap-tioning. Existence recognition is the most representative task in LVLM per-sonalization. It requires the model to determine whether a concept appears in the provided query image. A typical user query follows the format “Can you see <sks1> in this photo? Answer with a single word: Yes or No.” Query images that contain zero concepts are also used in this task. These samples naturally serve as negative examples during training, which are important for effective personaliza-tion. Multiple-choice VQA provides the reference images while asking the model about attributes of the query image, together with four answer options labeled A, B, C, and D. The model must directly select the correct option. Caption-ing requires the model to generate a descriptive caption for the provided query image. After personalization, the model is expected to produce a complete and accurate caption while using the assigned labels to represent the corresponding concepts. All captions follow the MSCOCO style, and each user query includes a textual caption example as guidance. During dataset construction, we use the Gemini3.1-Pro API for text generation and the Nano Banana 2 API for image generation. For each QA pair, we employ four expert annotators to conduct two rounds of review. Problematic questions and incorrect annotations are corrected Abbreviated paper title 19 
+
+during this process to ensure the quality of the training data. Only the five highest-quality user queries are retained for each query image, while ensuring diversity across task types. This results in a total of 10000 QA pairs. Among them, 500 correspond to zero-concept cases, 3500 to single-concept cases, 2000 to two-concept cases, 2000 to three-concept cases, 1500 to four-concept cases, and 500 to five-concept cases. 
+
+A.2 Test data 
+
+The tools and procedures used to construct the test data follow the same pipeline as those used for the training data. When collecting concepts, in addition to MyVLM, Yo’LLaVA, MC-LLaVA, and public image sources, we also include concepts from MMPB [9], a benchmark specifically designed for evaluating per-sonalization. In total, we obtain 200 concepts for testing and assign each a generic label. Since our method emphasizes avoiding inference-time training, all concepts in the test set are ensured to be out-of-distribution relative to the training data. For each concept, we obtain 1 to 6 reference images through collection or syn-thesis, with the number of images uniformly distributed across concepts. Among them, 85% are directly collected from existing visual materials and 15% are synthesized. At test time, all available reference images of a concept are used. Based on these concepts, we collect 300 query images. Each query image con-tains between 0 and 6 concepts. We then construct 20 user queries for each query image by combining existing annotations with additional queries generated by the Gemini3.1-Pro API. These queries cover the three task types used in training and a novel open-ended VQA task, which requires the LVLM to answer a ques-tion directly based on multimodal reasoning without predefined options. In the open-ended VQA setting, some questions are asked without a query image and require the model to answer solely based on its understanding of the concepts, such as describing the appearance of a concept. Next, we filter the 20 queries for each image and retain 10 high-quality queries to ensure question quality and task diversity with the GPT-5 API. Finally, we manually inspect the resulting queries to remove invalid questions, incorrect gold labels, and overly redundant task types. Across the four task types, the evaluation set contains 1050 single-concept cases and 2100 multi-concept cases. 
+
+## B Theorem 
+
+Theorem 1 (State-Induced Interference Bound). If the learned prompt satisfies the orthogonality constraint ⟨ ˆPf ull i , ˆd⟩F = 0 for all ˆd ∈ M ext , then the Frobenius inner product (which is equivalent to cosine similarity for Frobenius-normalized matrices) between the prompt and the novel query decomposes as 
+
+⟨ ˆP f ull i , ˆq⟩F = ⟨ ˆP f ull i , ˆvid ⟩F + ⟨ ˆP f ull i , δ⊥
+
+> state
+
+⟩F , (14) 
+
+and the contribution of state-induced deviation is bounded by 
+
+⟨ ˆP f ull i , δ⊥
+
+> state
+
+⟩F ≤ δ⊥ 
+
+> state F
+
+. (15) 20 F. Author et al. 
+
+Proof. The constraint encourages the prompt to suppress components aligned with dominant contextual variation directions: 
+
+⟨ ˆPf ull i , ˆd⟩F = 0 , ∀ˆd ∈ M ext . (16) The Frobenius inner product between the prompt ˆPf ull i and query ˆq expands algebraically as: 
+
+⟨ ˆPf ull i , ˆq⟩F = ⟨ ˆPf ull i , ˆvid + δstate ⟩F = ⟨ ˆPf ull i , ˆvid ⟩F + ⟨ ˆPf ull i , δ∥
+
+> state
+
+⟩F + ⟨ ˆPf ull i , δ⊥
+
+> state
+
+⟩F .
+
+(17) 
+
+By explicitly constraining the prompt to be mathematically orthogonal to the contextual variation span in Eq. 5, the parallel interference term is nulli-fied: ⟨ ˆPf ull i , δ∥
+
+> state
+
+⟩F = 0 . The interaction simplifies to the pure identity match plus the out-of-span interference: ⟨ ˆPf ull i , ˆvid ⟩F + ⟨ ˆPf ull i , δ⊥
+
+> state
+
+⟩F . Applying the Cauchy-Schwarz inequality for the Frobenius inner product, the residual inter-ference error E is bounded by E = |⟨ ˆPf ull i , δ⊥
+
+> state
+
+⟩F | ≤ ∥ ˆPf ull i ∥F ∥δ⊥
+
+> state
+
+∥F . Since 
+
+ˆPf ull i is Frobenius-normalized ( ∥ ˆPf ull i ∥F = 1 ), the interference error is bounded exactly by E ≤ ∥ δ⊥
+
+> state
+
+∥F .
+
+Remark 1. Theorem 1’s proof is provided in the Appendix. It establishes that enforcing orthogonality to the subspace ˆVext attenuates interference aligned with the stored variation directions. As Mext is continuously updated with diverse, Frobenius-normalized pairwise transitions during training, it provides a progres-sively richer empirical reference frame for common environment-induced changes. As the memory accumulates more diverse variation directions up to its capac-ity limit K, the learned subspace can better approximate commonly observed contextual shifts, reducing the magnitude of predictable residual components. 
+
+## C Implementation Details 
+
+We first introduce the used baselines: 
+
+– MyVLM [1]: MyVLM personalizes a pretrained LVLM with external con-cept heads that detect the presence of concepts in a set of images using features extracted from its vision encoder. When a concept is detected, a learned concept embedding in the intermediate feature space is injected into the model to condition the LLM decoder. It is designed for multi-image, single-concept settings and cannot be properly extended to multi-concept scenarios. 
+
+– Yo’LLaVA [20]: Yo’LLaVA learns a personalized soft prompt for each con-cept from a small set of reference images by introducing a new identifier token together with several learnable latent tokens that encode the concept’s vi-sual attributes. It considers both single-image and multi-image settings. In addition, by fusing the tokens assigned to each concept with extended clas-sification head parameters, we adapt it to multi-concept settings, which is a commonly used operation also used in [2]. Abbreviated paper title 21 
+
+– PVIT [24]: PVIT performs personalized instruction tuning by constructing training samples that combine reference images, query images, and dialogue-style prompts containing concept identifiers. The LVLM is then instruction-tuned on these multimodal conversations so that the model learns to asso-ciate the concept labels with their visual identities and generate responses conditioned on the input image and prompt. Since it improves the base LVLM’s ICL ability through instruction tuning, it can be directly applied to multi-image, multi-concept settings. Following the original paper, we use the same training data and training procedure for each LVLM and tune the hyperparameters to achieve the best performance. 
+
+– RAP [7]: RAP adopts a retrieval-augmented personalization pipeline con-sisting of three stages. First, concepts and their associated images or at-tributes are stored in a key–value database; during inference, a multimodal retriever identifies relevant concepts for the query image; the retrieved con-cept information is then concatenated with the input prompt and image and fed into the LVLM to generate the final response. It can be directly applied to multi-image, multi-concept settings and updates the concept database online, as in the original architecture. 
+
+– PeKit [28]: PeKit encodes patch-level features from reference images into a persistent memory module M, which are dynamically retrieved by a retrieval module R and used as visual prompts for personalized inference. As no publicly available source code is provided, we reproduce the method based on the pipeline described in the original paper and ensure that it achieves the reported performance on its original benchmarks. Since it is an ICL-based method, it can be directly applied to multi-image, multi-concept settings. 
+
+– PLVM [23]: PLVM first encodes a reference image of a personalized concept using a pretrained vision encoder and transforms the extracted features into a concept representation composed of a word embedding and a set of context tokens. The resulting concept tokens are inserted as soft prompts. As no publicly available source code is provided, we reproduce the method based on the pipeline described in the original paper and ensure that it achieves the reported performance on its original benchmarks. It considers only single-image, single-concept settings, but the method can be directly extended to multi-concept scenarios. To adapt it to multi-image settings, we adopt the same aggregation strategy as ICPT to combine visual features from multiple reference images of the same concept. 
+
+– MC-LLaVA [2]: MC-LLaVA first encodes images of multiple user-provided concepts with the vision encoder and projection layer to obtain visual tokens, which are clustered and used to initialize learnable concept tokens in person-alized textual prompts. During inference, the model aggregates similarity-based location confidence maps between stored concept features and the test image to construct a personalized visual prompt, which is combined with the textual prompts and input image for the LVLM to generate responses. It is designed for multi-image, multi-concept settings. 22 F. Author et al. 
+
+Table 3: Ablation study on the visual feature extraction strategy used as input to ACP.                                                                     
+
+> Method Recognition MVQA OVQA Captioning
+> Single Multi Weight Single Multi Weight Single Multi Weight Single Multi Weight Original 0.873 0.859 0.868 0.850 0.774 0.791 0.716 0.697 0.702 0.713 0.624 0.654 CLIP 0.820 0.779 0.806 0.795 0.673 0.700 0.643 0.618 0.624 0.625 0.527 0.560 DINO-v2 0.842 0.791 0.825 0.810 0.718 0.738 0.669 0.625 0.635 0.643 0.543 0.576 DINO-v3 0.856 0.825 0.846 0.825 0.725 0.747 0.678 0.620 0.634 0.651 0.549 0.583 Early only 0.838 0.796 0.824 0.820 0.733 0.752 0.681 0.645 0.654 0.657 0.558 0.591 Late only 0.832 0.787 0.817 0.830 0.748 0.766 0.667 0.628 0.637 0.641 0.532 0.568 First both 0.859 0.823 0.847 0.825 0.756 0.771 0.705 0.674 0.681 0.685 0.583 0.617 Fifth both 0.865 0.831 0.854 0.835 0.767 0.782 0.697 0.669 0.676 0.702 0.608 0.639
+
+For baselines such as MyVLM, Yo’LLaVA, and MC-LLaVA, which expand the LVLM vocabulary and therefore support only in-distribution personalization, we construct corresponding training data based on the test concepts so that these methods can operate effectively. All experiments are conducted on the same test data and settings to ensure a fair comparison. The four LVLMs used in our experiments are based on the officially released checkpoints, and inference is conducted using the Transformers and HuggingFace libraries. For most hyperparameters in our method, we use the same configura-tion across all LVLMs, except for the loss coefficients α and β. On LLaVA-NeXT-7B, we set α = 0 .3 and β = 0 .5. On LLaVA-NeXT-34B, we set α = 0 .6
+
+and β = 0 .5. On InternVL3-8B, we set α = 0 .5 and β = 0 .4. On Qwen3VL-8B, we set α = 0 .6 and β = 0 .4. For most hyperparameters, we provide ablation studies to examine the sensitivity of ICPT to their choices. 
+
+## D Ablation Studies 
+
+Adaptive Concept Projector (ACP). For the ACP, in addition to designing strate-gies that optimize the transformation from visual features to in-context prompts, it is also crucial to ensure that the input features themselves are of high quality. Some baselines, such as MC-LLaVA, introduce auxiliary modules like Ground-edSAM [26] to generate masks for the main characters and improve feature quality. PLVM instead employs an additional vision encoder, though the refer-ence images used in its setting are relatively simple. In ICPT, we take a different approach by directly using the model’s own vision encoder and fusing cross-layer representations. This design allows the model to capture cross-image and fine-grained visual information without introducing additional heavy modules. To investigate this component, we replace the original visual feature extractor with CLIP, DINO-v2 [21], and DINO-v3 [29]. We also perform ablations on the feature extraction layers while keeping the vision encoder unchanged, replacing the default third and third-to-last layers with either one of them alone, or with the first and fifth layers from both ends. The results are reported in Table 3. We Abbreviated paper title 23 
+
+observe that replacing the LVLM’s native vision encoder with other pretrained vision encoders consistently leads to performance degradation when extracting visual features for concepts. This is because the vision encoder and the LLM in an LVLM are jointly trained during pretraining, which partially aligns their semantic representations. As a result, embeddings produced by the native vision encoder are better aligned with the LVLM in the latent space, making them more suitable for constructing in-context prompts. At the same time, the two proposed constraints are more effective when applied to prompts that are better aligned with the LLM decoder’s latent space. This finding suggests that per-sonalization methods should prioritize designs that leverage the model’s native components. In addition, our multi-layer feature extraction strategy proves ef-fective. By capturing visual representations at different levels of granularity, it allows the ACP to learn how to adaptively utilize visual embeddings. This design compensates for the absence of explicit masking to highlight key regions. When selecting feature extraction layers, it is necessary to balance the preservation of visual details in the embeddings with the degree of feature fusion. Therefore, choosing layers with indices between 2 and 5 from both the beginning and the end of the encoder is a suitable strategy. 
+
+Loss coefficients. We further conduct an ablation study on the loss coefficients 
+
+α and β using LLaVA-NeXT-7B and Qwen3VL-8B. The results are reported in Table 4. Our observations are as follows. (1) Personalization performance across different tasks remains relatively stable as these two coefficients vary, indicating that ICPT is robust to the choice of these model-specific hyperparameters. At the same time, LVLMs with weaker general capabilities tend to be more sensitive to these coefficients. (2) The coefficient α has a larger impact on personaliza-tion performance than β, especially in multi-task settings. This highlights the important role of the two geometric constraints and their derived optimization objective in ICPT. (3) Moderate coefficient values tend to produce the most balanced performance across tasks. For example, on LLaVA-NeXT-7B, reduc-ing α from 0.5 to 0.1 consistently lowers the weighted scores across tasks, while moderate adjustments (e.g., β = 0 .7) can slightly improve certain tasks such as MVQA. A similar pattern appears for Qwen3VL-8B, where moderate β values maintain strong performance while avoiding noticeable degradation. This sug-gests that the loss terms contribute complementary regularization effects, and excessively weakening either constraint slightly harms the balance among tasks. 
+
+Dynamic Token Router (DTR) decision threshold. We investigate the effect of the DTR decision threshold τ on the performance across the four personaliza-tion tasks. As illustrated in Fig. 7, varying τ from 0.3 to 0.7 yields an inverted U-shaped trend, with performance peaking at τ = 0 .5 for all tasks. When the threshold is lowered to 0.3 or 0.4, the performance exhibits a slight decline. This indicates that retaining an excessive number of visual tokens allows redundant background features to bypass the router, which introduces noise during the LVLM’s inference with in-context prompts and increases cross-concept interfer-ence. Conversely, increasing the threshold to 0.6 or 0.7 results in a performance 24 F. Author et al. 
+
+Table 4: Ablation study on the coefficients of LGeo and LSpa in the overall loss.                                                                                              
+
+> LVLM Method Recognition MVQA OVQA Captioning
+> Single Multi Weight Single Multi Weight Single Multi Weight Single Multi Weight LLaVA-NeXT-7B Original 0.873 0.859 0.868 0.850 0.774 0.791 0.716 0.697 0.702 0.713 0.624 0.654
+> α= 0 .10.865 0.827 0.852 0.840 0.737 0.760 0.702 0.627 0.645 0.687 0.565 0.606
+> α= 0 .50.875 0.847 0.866 0.835 0.752 0.770 0.709 0.703 0.704 0.692 0.612 0.639
+> β= 0 .30.857 0.847 0.854 0.835 0.746 0.766 0.712 0.686 0.692 0.719 0.614 0.649
+> β= 0 .70.864 0.852 0.860 0.845 0.782 0.796 0.694 0.683 0.686 0.698 0.616 0.643 Qwen3VL-8B Original 0.963 0.924 0.950 0.920 0.867 0.879 0.776 0.724 0.736 0.835 0.821 0.826
+> α= 0 .40.958 0.898 0.938 0.905 0.836 0.851 0.759 0.679 0.698 0.823 0.799 0.807
+> α= 0 .80.947 0.886 0.927 0.900 0.853 0.863 0.764 0.687 0.705 0.816 0.782 0.793
+> β= 0 .20.958 0.908 0.941 0.915 0.858 0.871 0.783 0.710 0.727 0.843 0.836 0.838
+> β= 0 .60.967 0.913 0.949 0.925 0.849 0.866 0.769 0.694 0.712 0.827 0.813 0.818
+
+drop across all tasks. This suggests that a strict threshold prunes the fine-grained visual evidence necessary for accurate reasoning. Therefore, setting τ = 0 .5
+
+provides an appropriate information bottleneck, filtering out visual distractions while preserving essential semantic features. 
+
+Contextual Variation Memory (CVM) capacity. We further examine the effect of the CVM capacity K under varying training batch sizes (BS) on the single- and multi-concept OVQA tasks. As shown in Fig. 8, the optimal capacity K is cou-pled with the batch size. For smaller batch sizes (BS=4 and BS=8), performance peaks early at moderate capacities ( K = 64 or K = 128 ) and noticeably declines as K increases to 256. In contrast, for a larger batch size (BS=16), performance steadily improves as K increases up to 256. This phenomenon highlights the un-derlying trade-off between variation subspace diversity and representation stale-ness. Because the CVM relies on dynamically updated network representations, filling a large memory queue under a small batch size requires a significantly higher number of optimization steps. This forces the model to regularize against outdated features computed from past iterations, providing misaligned geometric constraints that hinder convergence. A larger batch size mitigates this staleness by updating the queue more rapidly, enabling the model to safely benefit from a richer variation subspace. Consequently, the CVM capacity should be scaled in proportion to the batch size to maintain temporal consistency. 
+
+## E Analyses 
+
+E.1 Additional qualitative examples and failure case study 
+
+We provide two additional qualitative examples of ICPT in Fig. 9 as a supple-ment to the examples shown in the main text. The upper example corresponds to data constructed from synthetic images in our test set. The lower example follows the same setting as the examples in the main text, where all images are drawn from real-world visual data. These tasks require strict reliance on Abbreviated paper title 25 0.3 0.4 0.5 0.6 0.7 
+
+Threshold 
+
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> Score  Recognition
+> MVQA
+> OVQA
+> Captioning
+
+Fig. 7: Ablation study on DTR decision threshold τ .32 64 128 256 
+
+CVM capacity 
+
+> 0.66
+> 0.68
+> 0.70
+> 0.72
+> 0.74
+> Score
+> OVQA (single) BS=4
+> OVQA (single) BS=8
+> OVQA (single) BS=16
+> OVQA (multi) BS=4
+> OVQA (multi) BS=8
+> OVQA (multi) BS=16
+
+Fig. 8: Ablation study on CVM capacity 
+
+K.
+
+visual reasoning over the query image together with an understanding of the personalized concepts. Each case involves multiple concepts, and each concept is associated with a varying number of reference images. The results show that, with ICPT, the model is able to robustly integrate user-specific concepts into general multimodal reasoning. This capability enables the LVLM to maintain strong reasoning performance while accurately grounding personalized concepts in the visual context, thereby supporting more reliable and flexible personalized multimodal applications. However, we also observe several representative failure cases of ICPT in the test data, which mainly fall into two categories. First, in multi-concept settings, some concepts exhibit high visual similarity. In such cases, ICPT may confuse these similar concepts and incorrectly associate the query with the wrong con-cept label. This behavior suggests that although the geometric constraints help separate concepts in the representation space, visually similar identities can still lead to ambiguity when multiple personalized concepts coexist. Second, failure cases also arise when the user query contains too many concept labels, or when the generated output needs to include many concept labels. In ICPT, the prompt template explicitly links each textual label with its corresponding word embed-ding and learned prompts directly. When the number of labels becomes large, this explicit association may make it difficult for the model to correctly interpret or generate the appropriate label, even though the model may still capture the underlying visual features of the corresponding concept. 
+
+E.2 Efficiency Analyses 
+
+We analyze the efficiency of ICPT from the perspectives of training cost and inference latency. During the training phase, ICPT’s lightweight architectural design requires updating only a small number of parameters within the ACP, while the LVLM backbone remains entirely frozen. What’s more, the CVM dy-namically reuses representations already computed during the ACP’s forward pass to populate its queue, completely avoiding the need for redundant network 26 F. Author et al. <sks1>                          
+
+> <sks2>
+> Query image
+> No .
+> Can you see <sks1>
+> ,<sks2> and <sks6>
+> in this photo?
+> Answer with a single
+> word: Yes or No.
+> Query image
+> Who is sitting between
+> <sks4> and <sks6>
+> in this picture? Answer with
+> the option only.
+> A. <sks1> and <sks2>
+> B. <sks1> and <sks5>
+> C. <sks1> and <sks3>
+> D. <sks2> and <sks3>
+> <bb>
+> Query image
+> <Saki> is holding
+> <Kiki> and handing it to
+> <Lily> .
+> Please caption the main
+> elements in this image,
+> following the style:...
+> <bb> and <Kiki> .
+> What are <Saki> and
+> <Lily> holding in the picture?
+> <Kiki>
+> <Lily>
+> <sks4>
+> C.
+> (a)
+> (c)
+> (b)
+> (d)
+> <sks3>
+> <sks5>
+> <sks6>
+> <Saki>
+> Query image
+
+Fig. 9: Two additional qualitative examples of ICPT on four personalization tasks. 250 300 350 400 450 
+
+Number of training concept 
+
+> 0.66
+> 0.68
+> 0.70
+> 0.72
+> 0.74
+> 0.76
+> 0.78
+> 0.80
+> Score
+> Low Diversity
+> Medium Diversity
+> High Diversity
+
+Fig. 10: ICPT’s weighted average perfor-mance across the four task types under different training data recipes. 
+
+Table 5: Comparison of the total infer-ence latency of different methods on all test cases and on cases containing four or more concepts. 
+
+Method Latency (s) All ≥ 4-concept ICL 12285.48 4631.26 PLVM 2689.95 1150.76 MC-LLaVA 2886.78 1209.77 ICPT 2367.16 943.62 
+
+passes. Crucially, ICPT eliminates the need for inference-time training. When encountering novel concepts, vocabulary-expansion methods like MC-LLaVA re-quire separate, computationally expensive fine-tuning steps for each addition. In contrast, ICPT seamlessly extracts and projects new concepts on the fly via a single forward pass. Consequently, as the personalized system is continuously deployed and tasked with acquiring an ever-growing number of concepts, the cumulative savings in training costs become increasingly substantial. Regarding inference efficiency, ICPT is explicitly designed to minimize sys-tem latency. This advantage stems directly from two core architectural choices. First, rather than relying on computationally heavy external vision encoders or auxiliary mask generators, ICPT directly leverages hierarchical multi-scale fea-tures from the LVLM’s built-in vision encoder, thereby streamlining the visual extraction pipeline. Second, the overall decoding latency of an LVLM is primarily bottlenecked by the sequence length of the input prompt. The DTR effectively mitigates this bottleneck by adaptively evaluating the intrinsic visual complex-ity of each concept and softly pruning redundant visual tokens. This reduces KV-cache memory consumption and attention computation, ensuring rapid re-Abbreviated paper title 27 
+
+sponse times even in highly complex multi-image and multi-concept scenarios. As reported in Table 5, these architectural advantages translate into substantial empirical latency reductions, and the efficiency gap widens as scenarios become more complex with longer input token sequences. 
+
+E.3 Volume vs Diversity in Personalization Training 
+
+In the field of LVLM personalization, determining the optimal training data recipe remains an open but important problem. This is primarily because col-lecting high-quality, user-specific reference images across varying natural con-ditions and manually annotating complex multi-concept reasoning interactions are highly labor-intensive and resource-demanding processes. Consequently, it is crucial to understand whether personalization models benefit more from simply scaling up the absolute number of unique training concepts (data volume) or from exposure to highly varied contextual conditions (data diversity). To systematically evaluate this, we design a controlled scaling experiment. We scale the training data volume, represented by the number of unique train-ing concepts, from 250 to 450. The numbers of query images and QA pairs constructed thereafter are increased proportionally. Concurrently, we categorize data diversity into three distinct regimes-Low, Medium, and High-based on three explicit dimensions: the visual variance among reference images of the same con-cept, the distribution of the number of concepts per input, and the variety of reasoning tasks. The Low Diversity regime restricts the training data to visually homogeneous reference images, strictly single-concept inputs, and uniform task types. The Medium Diversity regime introduces moderate visual variance and a partial mix of single- and multi-concept inputs. The High Diversity setting corresponds exactly to our current training data construction strategy. As illustrated in Fig. 10, the performance trends across the three regimes reveal a clear hierarchy: High > Medium > Low Diversity across all volume scales. While increasing the data volume generally yields performance improve-ments, the Low and Medium Diversity curves exhibit clear signs of diminishing returns, plateauing noticeably after reaching 350 concepts. This indicates that passively memorizing an expanding vocabulary of isolated, homogeneous con-cepts fails to generalize to complex, unseen scenarios. In stark contrast, the High Diversity curve maintains a consistent upward trajectory. Most notably, the high-diversity model trained on merely 250 concepts outperforms the low-diversity model trained on the maximum volume of 450 concepts. This empiri-cally demonstrates that exposing the model to complex visual contexts, varied concept combinations, and diverse task formats is fundamentally more critical than simply expanding the training concept vocabulary. As the foundational ca-pabilities of LVLMs continue to advance, an ideal personalization method should transcend the memorization of massive data. It must act as a robust semantic bridge that distills disentangled concepts from complex real-world inputs and seamlessly aligns them with the model’s inherent reasoning capabilities.
