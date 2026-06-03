@@ -6,70 +6,71 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-25 ~ 2026-06-03
-- 运行时间：2026-06-03 03:21:27 UTC
+- 最新运行日期：2026-06-03
+- 运行时间：2026-06-03 22:36:18 UTC
 - 运行状态：成功
-- 本次总论文数：16
-- 精读区：5
+- 本次总论文数：17
+- 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-1) 本期精读5篇、速读11篇，重点涵盖医学CT分割鲁棒性测试与综合属性过滤的近似最近邻搜索。  
-2) 最值得关注的两项工作：《Pre-Deployment Robustness Stress Testing for CT Segmentation Systems》提出临床驱动的多损坏增强测试（8.0/10），《EMA: Approximate Nearest Neighbor Search with General Attribute Filtering and Dynamic Updates》实现带通用过滤的动态更新近邻搜索（8.0/10）。  
-3) 建议普通读者优先精读这两篇高分工作：前者可学到医疗AI部署前的鲁棒性验证思路，后者提供了高维度数据高效检索的实用方案。
-- 详情：[/20260525-20260603/README](/20260525-20260603/README)
+今日共推荐17篇论文，精读2篇（评分9.0）、速读3篇（评分8.0），涵盖医学影像分割与临床推理两大热点。最值得关注的方向是单通道组织分割的跨模态蒸馏方法，以及临床智能体的结构化工具集成推理。下一步建议深入研究跨模态蒸馏在低资源医学图像上的迁移效果，同时探索结构化知识库检索对临床决策的增强潜力。
+- 详情：[/202606/03/README](/202606/03/README)
 
 ### 精读区论文标签
-1. [Pre-Deployment Robustness Stress Testing for CT Segmentation Systems Using Clinically Motivated Multi-Corruption Augmentation](/20260525-20260603/2606.00491v1-pre-deployment-robustness-stress-testing-for-ct-segmentation-systems-using-clinically-motivated-multi-corruption-augmentation)  
+1. [Single-Channel Tissue Segmentation via Cross-Modal Distillation from Foundation Models](/202606/03/2606.00928v1-single-channel-tissue-segmentation-via-cross-modal-distillation-from-foundation-models)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：通过基础模型的跨模态蒸馏实现单通道组织分割
+2. [CAREAgent: Clinical Agent with Structured Reasoning and Tool-Integrated for Order Generation](/202606/03/2606.01094v1-careagent-clinical-agent-with-structured-reasoning-and-tool-integrated-for-order-generation)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：临床医嘱生成智能体用于医学分析
+3. [PathAR: Structure-First Autoregressive Synthesis of Multimodal Pathology Images](/202606/03/2606.01543v1-pathar-structure-first-autoregressive-synthesis-of-multimodal-pathology-images)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：面向病理图像的视觉语言模型合成
+4. [Agentic-J: An AI Agent for Biological Microscopy Image Analysis](/202606/03/2606.02080v1-agentic-j-an-ai-agent-for-biological-microscopy-image-analysis)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：用于生物显微镜图像分析的AI智能体
+5. [Does Language Shift Break Medical Vision-Language Models? Indonesian Radiology Visual Question Answering Case Study](/202606/03/2606.03693v1-does-language-shift-break-medical-vision-language-models-indonesian-radiology-visual-question-answering-case-study)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：评估医学VLM在印尼放射学VQA上的表现
+6. [ST-ColoNet: Spatio-Temporal Colon Segment Recognition via Hybrid Attention and Edge-Guided Feature Learning](/202606/03/2605.28119v1-st-colonet-spatio-temporal-colon-segment-recognition-via-hybrid-attention-and-edge-guided-feature-learning)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：用于CT分割的鲁棒性增强框架
-2. [EMA: Approximate Nearest Neighbor Search with General Attribute Filtering and Dynamic Updates](/20260525-20260603/2606.00734v1-ema-approximate-nearest-neighbor-search-with-general-attribute-filtering-and-dynamic-updates)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：用于RAG和智能体记忆的过滤近似最近邻搜索
-3. [An Open-Source Benchmark and Baseline for Multi-temporal Referring Segmentation](/20260525-20260603/2606.00987v1-an-open-source-benchmark-and-baseline-for-multi-temporal-referring-segmentation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：使用LVLM和代理的多时相指代分割
-4. [ResNet-34 with Lightweight Decoder for Accurate and Efficient Segmentation of Fetal Brain MRI](/20260525-20260603/2606.01293v1-resnet-34-with-lightweight-decoder-for-accurate-and-efficient-segmentation-of-fetal-brain-mri)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：ResNet-34结合轻量MLP解码器用于胎儿脑MRI分割
-5. [Quality-Guided Semi-Supervised Learning for Medical Image Segmentation](/20260525-20260603/2606.01753v1-quality-guided-semi-supervised-learning-for-medical-image-segmentation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：用于医学图像分割的质量估计半监督学习
+   evidence：提出ST-ColoNet用于结肠段识别，采用混合注意力和边缘引导学习
 
 ### 速读区论文标签
-1. [CausalFlow: Causal Attribution and Counterfactual Repair for LLM Agent Failures](/20260525-20260603/2605.25338v1-causalflow-causal-attribution-and-counterfactual-repair-for-llm-agent-failures)  
+1. [ST-ColoNet: Spatio-Temporal Colon Segment Recognition via Hybrid Attention and Edge-Guided Feature Learning](/202606/03/2605.28119v2-st-colonet-spatio-temporal-colon-segment-recognition-via-hybrid-attention-and-edge-guided-feature-learning)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：基于混合注意力和边缘引导学习的时空结肠段识别
+2. [GRASP: Plan-Guided Graph Retrieval with Adaptive Fusion and Reranking on Semi-Structured Knowledge Bases](/202606/03/2605.30237v2-grasp-plan-guided-graph-retrieval-with-adaptive-fusion-and-reranking-on-semi-structured-knowledge-bases)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：面向精准医学查询的图检索
+3. [FOCUS: Forcing In-Context Object Localization through Visual Support Constraints and Policy Optimization](/202606/03/2605.31145v1-focus-forcing-in-context-object-localization-through-visual-support-constraints-and-policy-optimization)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：使用视觉语言模型的上下文定位
+4. [Bridging Topology and Deep Representation Learning: A TDA-ViT Fusion Model for Four-Class Brain Tumor Classification](/202606/03/2606.00927v1-bridging-topology-and-deep-representation-learning-a-tda-vit-fusion-model-for-four-class-brain-tumor-classification)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：TDA-ViT融合用于脑肿瘤分类，使用Vision Transformer
+5. [From Pixels to Words -- Towards Native One-Vision Models at Scale](/202606/03/2605.28820v1-from-pixels-to-words----towards-native-one-vision-models-at-scale)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：用于LLM代理故障修复的因果干预框架
-2. [Beyond Surrogate Gradients: Fully Differentiable Token Pruning for Vision-Language Models](/20260525-20260603/2605.28051v1-beyond-surrogate-gradients-fully-differentiable-token-pruning-for-vision-language-models)  
+   evidence：原生视觉语言模型实现跨帧像素-词对应
+6. [Geodesics with Unified Tangent-constrained Priors and Curvature Regularization](/202606/03/2606.00139v1-geodesics-with-unified-tangent-constrained-priors-and-curvature-regularization)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：视觉语言模型的全可微令牌剪枝
-3. [HiKEY: Hierarchical Multimodal Retrieval for Open-Domain Document Question Answering](/20260525-20260603/2605.29606v1-hikey-hierarchical-multimodal-retrieval-for-open-domain-document-question-answering)  
+   evidence：带有切线约束和曲率正则化的测地线分割
+7. [Grounded Decoding: Retrieval-Anchored Probability Fusion for Faithful RAG](/202606/03/2606.00432v1-grounded-decoding-retrieval-anchored-probability-fusion-for-faithful-rag)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：用于RAG的层次化多模态检索
-4. [CRITIC-R1: Learning Structured Critics for Retrieval-Augmented Generation](/20260525-20260603/2605.29886v1-critic-r1-learning-structured-critics-for-retrieval-augmented-generation)  
+   evidence：无需训练的RAG解码提高忠实性
+8. [SWARD: Stochastic Window-Attention-Based Relational Distillation for Cross-Architectural Semantic Segmentation](/202606/03/2606.00999v1-sward-stochastic-window-attention-based-relational-distillation-for-cross-architectural-semantic-segmentation)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：结构化评论器用于RAG
-5. [Generalistic or Specific Embeddings, Which is Better? An Empirical Study on Search for Clinical Coding in Non-English Languages](/20260525-20260603/2605.30529v1-generalistic-or-specific-embeddings-which-is-better-an-empirical-study-on-search-for-clinical-coding-in-non-english-languages)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：基于检索增强的临床编码嵌入模型
-6. [Seeing Before Agreeing: Aligning Multi-Agent Consensus with Visual Evidence](/20260525-20260603/2605.30698v1-seeing-before-agreeing-aligning-multi-agent-consensus-with-visual-evidence)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：多智能体视觉语言模型与视觉证据对齐
-7. [FAST-GOAL: Fast and Efficient Global-local Object Alignment Learning](/20260525-20260603/2605.26615v1-fast-goal-fast-and-efficient-global-local-object-alignment-learning)  
+   evidence：使用变压器教师进行语义分割的蒸馏
+9. [Can Broad Biomedical Knowledge be Contextualized into Scenario-Grounded Propositions?](/202606/03/2605.27082v1-can-broad-biomedical-knowledge-be-contextualized-into-scenario-grounded-propositions)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：视觉语言模型微调用于长文本对齐
-8. [Which Pretraining Paradigm Better Serves Spatial Intelligence? An Empirical Comparison of Vision-Language and Video Generation Models](/20260525-20260603/2605.28132v1-which-pretraining-paradigm-better-serves-spatial-intelligence-an-empirical-comparison-of-vision-language-and-video-generation-models)  
+   evidence：用于生物医学知识情境化的双层多智能体框架
+10. [FoundObj: Self-supervised Foundation Models as Rewards for Label-free 3D Object Segmentation](/202606/03/2605.27178v1-foundobj-self-supervised-foundation-models-as-rewards-for-label-free-3d-object-segmentation)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：VLM空间智能实证比较
-9. [Resolution-free neural surrogates for geometric parameterization and mapping with spatially varying fields](/20260525-20260603/2605.28551v2-resolution-free-neural-surrogates-for-geometric-parameterization-and-mapping-with-spatially-varying-fields)  
+   evidence：使用基础模型进行无标签3D物体分割
+11. [Resolution-free neural surrogates for geometric parameterization and mapping with spatially varying fields](/202606/03/2605.28551v1-resolution-free-neural-surrogates-for-geometric-parameterization-and-mapping-with-spatially-varying-fields)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：可变形图像配准和基于图谱的分割方法
-10. [Subtraction Gets You More: Gap-Aware Retrieval for Multimodal Multi-Hop QA](/20260525-20260603/2605.28641v1-subtraction-gets-you-more-gap-aware-retrieval-for-multimodal-multi-hop-qa)  
-   标签：评分：6.0/10、query:vlmmed
-   evidence：用于RAG的缺口感知多模态检索
-11. [PARCEL: Pool-Anchored Resampling with Conditioned Elastic Queries for Efficient Vision-Language Understanding](/20260525-20260603/2605.30126v1-parcel-pool-anchored-resampling-with-conditioned-elastic-queries-for-efficient-vision-language-understanding)  
-   标签：评分：6.0/10、query:vlmmed
-   evidence：通过弹性令牌压缩实现高效视觉语言理解
+   evidence：用于可变形图像配准和分割的神经代理
 
 
 <div class="dpr-home-promo-card">
