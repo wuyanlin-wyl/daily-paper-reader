@@ -151,6 +151,7 @@ class SimpleLLMClient:
         self.api_key = api_key
         self.model = model
         self.base_urls = self._resolve_base_urls()
+        self.last_unparsed_excerpt = ""
 
     @staticmethod
     def _resolve_base_urls() -> List[str]:
@@ -235,7 +236,10 @@ class SimpleLLMClient:
                 content = message.get("content") or ""
                 if isinstance(content, list):
                     content = "\n".join(str(x.get("text") or x.get("content") or x) for x in content)
-                return self._parse_json(str(content))
+                parsed = self._parse_json(str(content))
+                if parsed is None:
+                    self.last_unparsed_excerpt = clean_text(content, 600)
+                return parsed
             except Exception as exc:
                 last_error = exc
                 continue
@@ -760,13 +764,18 @@ def paper_compact_item(paper: Dict[str, Any], innovations: Dict[str, Dict[str, A
     }
 
 
-def fallback_research_directions(papers: List[Dict[str, Any]], innovations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def fallback_research_directions(
+    papers: List[Dict[str, Any]],
+    innovations: Dict[str, Dict[str, Any]],
+    reason: str | None = None,
+) -> Dict[str, Any]:
+    warning = clean_text(reason, 1000) or (
+        "未生成研究方向与二次创新路线：该步骤需要 LLM 完成跨论文机制互补和数学建模推理。"
+        "请配置 BLT_API_KEY / SUMMARY_API_KEY 后重新运行，不要使用 --no-llm。"
+    )
     return {
         "directions": [],
-        "generation_warning": (
-            "未生成研究方向与二次创新路线：该步骤需要 LLM 完成跨论文机制互补和数学建模推理。"
-            "请配置 BLT_API_KEY / SUMMARY_API_KEY 后重新运行，不要使用 --no-llm。"
-        ),
+        "generation_warning": warning,
     }
 
     if not papers:
@@ -1078,11 +1087,75 @@ def build_research_directions_prompt(items: List[Dict[str, Any]]) -> List[Dict[s
     ]
 
 
+def build_research_directions_from_batches(
+    client: SimpleLLMClient,
+    papers: List[Dict[str, Any]],
+    innovations: Dict[str, Dict[str, Any]],
+    batch_size: int = 8,
+) -> Dict[str, Any]:
+    all_items = [paper_compact_item(paper, innovations) for paper in papers]
+    raw_directions: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+
+    for start in range(0, len(all_items), batch_size):
+        batch_items = all_items[start : start + batch_size]
+        batch_no = start // batch_size + 1
+        try:
+            parsed = call_structured(
+                client,
+                build_research_directions_prompt(batch_items),
+                f"research_directions_batch_{batch_no}",
+                DIRECTIONS_SCHEMA,
+                7000,
+            )
+        except Exception as exc:
+            message = f"batch {batch_no} failed: {exc}"
+            log(f"[WARN] LLM research directions {message}")
+            warnings.append(message)
+            continue
+        if not parsed or not isinstance(parsed.get("directions"), list):
+            message = f"batch {batch_no} returned unparsable or schema-invalid JSON"
+            log(f"[WARN] LLM research directions {message}")
+            warnings.append(message)
+            continue
+        raw_directions.extend(
+            item for item in parsed.get("directions") or [] if isinstance(item, dict)
+        )
+
+    if not raw_directions:
+        return {
+            "directions": [],
+            "generation_warning": "LLM 已启用，但分批生成研究方向仍未返回可解析的 directions JSON。",
+            "quality_warnings": warnings[:20],
+        }
+
+    cleaned = normalize_directions_payload({"directions": raw_directions}, papers)
+    if cleaned.get("directions"):
+        if warnings:
+            cleaned["quality_warnings"] = [
+                *(cleaned.get("quality_warnings") or []),
+                *warnings,
+            ][:20]
+        return cleaned
+    warning = "LLM 分批返回了研究方向，但全部被质量门控过滤。"
+    if cleaned.get("quality_warnings"):
+        warning += " 过滤原因：" + " | ".join(cleaned["quality_warnings"][:8])
+    return {
+        "directions": [],
+        "generation_warning": warning,
+        "quality_warnings": [*(cleaned.get("quality_warnings") or []), *warnings][:20],
+    }
+
+
 def build_research_directions(client: SimpleLLMClient | None, papers: List[Dict[str, Any]], innovations: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     if not papers:
         return {"directions": []}
     if client is None:
-        return fallback_research_directions(papers, innovations)
+        return fallback_research_directions(
+            papers,
+            innovations,
+            "未生成研究方向与二次创新路线：未启用 LLM。请配置 BLT_API_KEY / SUMMARY_API_KEY，且不要使用 --no-llm。",
+        )
 
     items = [paper_compact_item(paper, innovations) for paper in papers]
     messages = build_research_directions_prompt(items)
@@ -1095,14 +1168,38 @@ def build_research_directions(client: SimpleLLMClient | None, papers: List[Dict[
             warning = "LLM 已返回研究方向，但全部被质量门控过滤；请检查模型输出是否仍为泛泛方向、单论文方向或缺少公式草图。"
             if cleaned.get("quality_warnings"):
                 warning += " 过滤原因：" + " | ".join(cleaned["quality_warnings"][:8])
+            log("[WARN] full research directions were filtered; retrying in batches")
+            batch_payload = build_research_directions_from_batches(client, papers, innovations)
+            if batch_payload.get("directions"):
+                batch_payload["generation_warning"] = "全量研究方向生成被质量门控过滤，已使用分批生成兜底。"
+                return batch_payload
             return {"directions": [], "generation_warning": warning, "quality_warnings": cleaned.get("quality_warnings", [])}
+        excerpt = clean_text(getattr(client, "last_unparsed_excerpt", ""), 600)
+        if excerpt:
+            log(f"[WARN] full research directions returned unparsable JSON excerpt: {excerpt}")
+        log("[WARN] full research directions returned unparsable or schema-invalid JSON; retrying in batches")
+        batch_payload = build_research_directions_from_batches(client, papers, innovations)
+        if batch_payload.get("directions"):
+            batch_payload["generation_warning"] = "全量研究方向生成返回不可解析 JSON，已使用分批生成兜底。"
+            return batch_payload
+        warning = "LLM 已启用，但研究方向生成返回了不可解析或不符合 schema 的 JSON。请检查模型是否截断、输出 Markdown 或未包含 directions 字段。"
+        if batch_payload.get("generation_warning"):
+            warning += " " + clean_text(batch_payload.get("generation_warning"), 400)
+        return {
+            "directions": [],
+            "generation_warning": warning,
+            "quality_warnings": batch_payload.get("quality_warnings", []),
+        }
     except Exception as exc:
         log(f"[WARN] LLM research directions failed: {exc}")
+        batch_payload = build_research_directions_from_batches(client, papers, innovations)
+        if batch_payload.get("directions"):
+            batch_payload["generation_warning"] = f"全量研究方向生成失败（{exc}），已使用分批生成兜底。"
+            return batch_payload
         return {
             "directions": [],
             "generation_warning": f"LLM 研究方向生成失败：{exc}",
         }
-    return fallback_research_directions(papers, innovations)
 
 
 def md_escape_table(text: Any) -> str:
