@@ -1,0 +1,752 @@
+Title: ETC: Extreme Token Compression via Task-aware Visual Information Distillation in VLMs
+
+URL Source: https://arxiv.org/pdf/2606.00543v1
+
+Published Time: Tue, 02 Jun 2026 00:44:51 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# ETC: E xtreme Token Compression via Task -aware Visual Information 
+
+# Distillation in VLM s
+
+Yiling Gao 1, Hongchen Wei 1, and Zhenzhong Chen *1 1School of Remote Sensing and Information Engineering, Wuhan University 
+
+# Abstract 
+
+In Vision-Language Models (VLMs), high-resolution images produce a large number of visual tokens, resulting in high computational costs and KV-cache overhead during inference. To address this problem, we propose an 
+
+Extreme Token Compression (ETC) framework that minimizes task loss when reducing the number of input tokens based on the principle of variational information distillation. Specifically, from an information-theoretic perspective, we show that minimizing task loss requires the compact representation to preserve the instruction-aware su ffi cient statistic of the task-relevant visual information for prediction. In practice, ETC leverages text-to-image cross-attention to weight the original visual features to approximate the latent instruction-aware predictive statistic. Moreover, ETC introduces a variational information distillation, enabling the compact representation to preserve the essential information to recover this predictive statistic. Experiments on LLaVA-1.5-7B and Qwen3-VL-2B show that ETC remains e ff ective even under single-token compression, substantially reducing KV-cache overhead while retaining strong task performance. 
+
+# 1 INTRODUCTION 
+
+Recent VLMs [1, 2, 3] consist of a visual encoder [4], a projec-tor, and a pretrained LLM. These models have significantly im-proved visual reasoning and high-resolution image understand-ing. However, these capabilities also lead to a larger number of visual tokens. For example, a standard 336 × 336 image al-ready yields 576 visual tokens in LLaVA-1.5 [5], whereas high-resolution models like Qwen3-VL [1] can generate over 10 ,000 visual tokens. Since Transformer computation scales quadrat-ically with sequence length [6], these visual tokens result in higher computational and KV-cache costs, making visual token compression an important research topic. Existing methods mainly reduce visual tokens in two ways: selective compression and abstractive compression. Selective methods, such as SparseVLM [7] and TopV [8], discard or merge image patches using heuristics like attention scores or spatial similarity. They can work well under moderate com-pression, but often su ff er from a “compression cli ff ” [9, 10], where performance drops sharply once the token budget be-comes very small. This suggests that simply retaining the seem-ingly most important patches is unreliable in the extreme com-pression regime. On the other hand, abstractive methods summarize the full vi-sual sequence into a few compact tokens. Representative exam-ples include MQT-LLAVA [11] and VoCo-LLaMA [12]. Com-pared with selective methods, they are better suited to synthesiz-ing information across the image. However, most of them are trained only through Next-Token Prediction (NTP) loss [13], which provides only indirect supervision for compression. As long as the final text prediction is correct, the model is not ex-plicitly required to preserve the visual information needed for the task, and may rely too heavily on language priors. In this work, we study visual token compression from the per-spective of task-loss minimization, with the goal of retaining the most useful visual information for downstream prediction. 
+
+> Corresponding author: Zhenzhong Chen, E-mail:zzchen@ieee.org
+
+Based on this insight, we propose an Extreme Token Com-pression (ETC) framework, which distills the task-relevant visual information into the compact representation to satisfy the task-loss minimization requirement. In theory, ETC de-rives a guideline that the compact representation should pre-serve the instruction-aware su ffi cient statistic of the original vi-sual tokens if the task loss is minimized under compression. In practice, it utilizes text-to-visual cross-attention to weight the original visual tokens to approximate the latent instruction-aware predictive statistic, and introduces a variational informa-tion distillation objective [14] to preserve this approximation in the compact representation. Implemented in a decoder-only VLM with a bottleneck compression attention mask similar to VoCo [12], ETC guides the compact representation to preserve the crucial task-relevant visual information directly, maintain-ing substantial e ff ectiveness even under extreme compression (e.g., 1–4 tokens). The rest of this paper is organized as follows. We first intro-duce the inference costs and prior work on visual token com-pression in Section 2. In Section 3, we derive the theoretical requirements for task-loss minimization and present their prac-tical implementation for token compression. Finally, the pro-posed method is validated and discussed in Sections 4 and 5. 
+
+# 2 Related Work 
+
+The sequence length of visual tokens is a key factor in the e ffi -ciency of VLMs. This is because the computational cost of the self-attention mechanism scales quadratically as O(N2) [15, 16] with the number of tokens. To reduce the number of tokens, InternVL 3.5 [2] generates 256 tokens per 448 × 448 tile af-ter a 2 × 2 Pixel Unshu ffl e operation. However, to preserve fine-grained detail, modern VLMs generate increasingly more image tokens to achieve higher performance. For example, LLaVA-v1.5 [17] produces 576 tokens per image. Qwen3-VL [18] utilize dynamic resolution that can result in over 10 , 000 tokens. This growth in sequence length causes computational cost and KV-cache storage to increase [19, 20]. However, high-
+
+> arXiv:2606.00543v1 [cs.CV] 30 May 2026
+
+resolution inputs often contain redundancy that contributes less to downstream reasoning [21]. Therefore, visual token com-pression is a promising direction for reducing the cost of VLM inference while retaining strong performance. Existing visual token compression work mainly falls into two paradigms. Selective compression preserves semantically sig-nificant visual tokens while reducing redundancy. Pruning-based methods such as ST3 [22], LVPruning [23], and Fit-and-Prune [24] discard background tokens using importance-driven metrics, while merging-based approaches such as PACT [25], TempMe [26], and LTM [27] consolidate visually simi-lar patches through grouping or clustering. Under aggressive compression, these methods can incur irreversible information loss or feature over-smoothing. Consequently, such techniques are typically limited to a 50%-70% compression rate to main-tain a reasonable balance between e ffi ciency and accuracy. Ab-stractive compression instead condenses large-scale visual se-quences into a few latent representations. Query-based resam-pling methods, such as HierarQ [28], PQR [29], and LLaMA-Vid [30], pool features into a compact set of tokens via cross-attention, while VoCo-LLaMA [12] performs internal distilla-tion through bottleneck attention masks. However, these meth-ods are typically trained only through next-token prediction loss, leaving the preservation of task-relevant visual informa-tion weakly supervised and allowing the model to rely on tex-tual priors rather than faithfully retaining visual evidence. 
+
+# 3 Methodology 
+
+3.1 Task-Loss Minimization 
+
+Let V ∈ V be the original visual token sequence, T ∈ T the textual query or instruction, and Y ∈ Y the target output. ETC compresses V into a compact instruction-aware representation: 
+
+Z = fθ(V, T ), (1) where Z ∈ Z is the compact representation and fθ is a com-pressor, which compresses the visual token sequence V into a compact representation Z guided by the instruction T . The com-pressed representation Z is then used in place of V for down-stream prediction. We define the compression loss as the excess task loss incurred by using Z instead of V for prediction. Under the log-likelihood objective, this loss is formulated as: 
+
+∆task (Z) = H(Y | Z, T ) − H(Y | V, T ). (2) where H(· | · ) denotes conditional entropy and I(·; · | · ) denotes conditional mutual information. 
+
+Proposition 1 (Criterion for task-loss minimization) . Accord-ing to Eq. (2) , the task loss caused by the compressor f θ can be formulated as: 
+
+∆task (Z) = I(Y; V | Z, T ). (3) 
+
+where I (·; · | · ) denotes conditional mutual information. More-over, 
+
+∆task (Z) = 0 ⇐⇒ Y ⊥ V | (Z, T ), (4) 
+
+which implies that minimizing the compression loss requires Z to be a su ffi cient statistic of V for predicting Y conditioned on the instruction T . 
+
+Accordingly, Eq. (4) characterizes an instruction-aware predic-tive statistic: 
+
+X⋆ = g⋆(V, T ) : = p(· | V, T ). (5) where g⋆ denotes the mapping from ( V, T ) to the predictive suf-ficient statistic, and p(· | V, T ) denotes the conditional distribu-tion of Y given V and T . According to Eq. (4), ideal compres-sion satisfies p(· | V, T ) = p(· | Z, T ). So we have 
+
+H(X⋆ | Z, T ) = 0. (6) Eq. (6) states that the compact representation Z, together with the query T , retains all information needed to determine the la-tent predictive statistic X⋆. Thus, the su ffi cient statistic Z is real-ized by preserving a latent instruction-aware predictive statistic 
+
+X⋆. Detailed derivations are deferred to Appendix A.1.1. In practice, however, X⋆ represents an output distribution and cannot be directly accessed. We therefore address the task-loss minimization via a proxy statistic ̂ X = g(V, T ) ≈ X⋆, which approximates the latent predictive statistic and should be pre-served in Z. Therefore, we have 
+
+H(̂ X | Z, T ) → 0. (7) 
+
+3.2 Cross-Attention for Instruction-aware Predictive-Statistic Approximation 
+
+The proxy statistic ̂ X = g(V, T ) ≈ X⋆ needs an instruction-aware mapping within the model architecture. In a decoder-only VLM, visual information a ff ects the textual computation through text-to-image cross-attention. Let Xv = [x1, . . . , xNv ] ∈
+
+RNv×D be the visual features at the selected LLM layer, where 
+
+Nv is the number of visual tokens and D is the hidden dimension. For the jth text token, the visual contribution can be written as 
+
+o j =
+
+> Nv
+
+∑
+
+> i=1
+
+A j,iWV xi, (8) where A j,i is the attention score from the jth text token to ith 
+
+visual token, WV is the value-weight matrix. This makes cross-attention a natural mapping, since it determines how visual to-kens contribute to the text-side representations used to predict 
+
+Y.Let Ahj,i denote the attention from jth text token to ith visual to-ken at head h. ETC weights the ith visual token by the mean text-to-image cross-attention score across all heads and text to-kens: 
+
+S i = 1
+
+Nh · NtNh∑
+
+> h=1
+> Nt
+
+∑
+
+> j=1
+
+Ahj,i, (9) where Nh is the number of attention heads and Nt is the num-ber of text tokens. We then apply min-max normalization over cross-attention scores S = {S i}Nv
+
+> i=1
+
+:˜S i =
+
+
+
+S i − min( S )max( S ) − min( S ) , if max( S ) > min( S ),
+
+1, otherwise .
+
+(10) The instruction-aware predictive-statistic estimate is repre-sented as ̂
+
+X = (1 − α)Xv + α(Xv ⊙ ˜S ) = Xv ⊙ (1 − α + α ˜S ), (11) 2Visual  
+
+> Tokens (V)
+
+W
+
+Weighted Visual Tokens ( Xw)
+
+MLP 
+
+Upsample    
+
+> Compressed
+> Token (Z)
+> Text
+> Tokens (T)
+
+V
+
+Z
+
+LLM Inputs  Bottleneck Attention Mask 
+
+> Text-V isual
+> cross-attention score
+
+Training 
+
+Infer ence  
+
+> Do the wet suit
+> and the shirt have
+> the same color?
+> Insert
+
+Prefilling  
+
+> Bottleneck Attention Mask
+> ×
+
+Decoding   
+
+> Normal Causal Mask
+> Discard
+> Visual Tokens
+
+Outputs Attention Mask Visibility     
+
+> × Attention Mask Non-V isibility
+> VZTZT
+
+Reconstructed Visual Tokens 
+
+( μ 
+
+> ϕ
+
+(Z, T ) ) 
+
+> Query-Conditioned
+> Suf ficient-Statistic Approximation
+
+Figure 1: Overview of ETC. Training: compressed tokens Z are inserted between visual tokens V and text tokens T , and a bottleneck attention mask allows Z to aggregate information from V while preventing T from directly attending to the raw visual tokens. At the final LLM layer, text-to-image cross-attention scores produce instruction-aware weights that define the predictive-statistic estimate ̂ X; in parallel, an MLP decoder maps Z to μ(Z, T ), and the variational information distillation loss encourages the reconstructed compressed representation to preserve this estimate. Inference: after prefilling with the same mask, V is discarded from the KV cache and decoding uses only Z and T under a normal causal mask. where ˜ S = { ˜S i}Nv 
+
+> i=1
+
+is broadcast along the feature dimension, ⊙
+
+denotes element-wise multiplication, and α ∈ [0 , 1] controls the contribution of instruction-aware weighting. 
+
+3.3 Variational Information Distillation for Predictive-Statistic Preservation 
+
+Eq. (7) requires the compact representation to preserve the proxy instruction-aware predictive statistic, which amounts to minimizing the conditional entropy H(̂ X | Z, T ). Using the con-ditional mutual information identity, 
+
+I(̂ X; Z | T ) = H(̂ X | T ) − H(̂ X | Z, T ), (12) 
+
+H(̂ X | T ) does not depend on Z, it can be treated as a constant during optimization. So reducing H(̂ X | Z, T ) is equivalent to maximizing the mutual information between ̂ X and Z given the query. Exact optimization of I(̂ X; Z | T ) is not directly available because the true conditional distribution p(̂ X | Z, T ) is unknown. Following Variational Information Distillation (VID) [14], we introduce a variational distribution q(̂ X | Z, T ) to approximate 
+
+p(̂ X | Z, T ), which yields the lower bound 
+
+I(̂ X; Z | T ) ≥ H(̂ X | T ) + Ep(̂ X,Z,T )
+
+[ log q(̂ X | Z, T )]. (13) where Ep(̂ X,Z,T )[·] denotes expectation under the joint distribu-tion of ̂ X, Z, and T . Since H(̂ X | T ) does not depend on the model parameters, maximizing this bound is equivalent to min-imizing 
+
+LETC = −Ep(̂ X,Z,T )
+
+[ log q(̂ X | Z, T )], (14) which follows the same variational objective as VID. Following the Gaussian parameterization used in VID, we model the variational distribution with heteroscedastic mean 
+
+μ(Z, T ) and homoscedastic variance shared across samples: 
+
+q(̂ X | Z, T ) =
+
+> N
+
+∏
+
+> n=1
+> D
+
+∏
+
+> d=1
+
+N(̂ Xn,d; μn,d(Z, T ), σ 2
+
+> d
+
+), (15) where μn,d(Z, T ) denotes the ( n, d)-th element of the predicted mean, and σ2 
+
+> d
+
+is the learnable variance. In practice N = Nv, and 
+
+μ(Z, T ) is aligned with ̂ X ∈ RN×D. Substituting Eq. (15) into Eq. (14) and dropping constants gives the objective 
+
+LETC = 1
+
+B
+
+> B
+
+∑
+
+> b=1
+
+
+
+> D
+
+∑
+
+> d=1
+
+ 12σ2
+
+> dN
+
+∑
+
+> n=1
+
+(̂ Xb,n,d − μb,n,d(Z, T ))2 + N log σd
+
+ ,
+
+(16) where where B is the size of batch and b ∈ { 1, . . . , B} indexes training samples. To ensure numerical stability, we parameter-ize the variance as 
+
+σ2 
+
+> d
+
+= log(1 + exp( βd)) + ϵ. (17) where βd is a learnable scalar and ϵ > 0 is a small constant. In standard VID, the teacher feature and the student feature usu-ally have the same dimensionality, so the student feature can be matched to the teacher feature directly. In our setting, however, ̂
+
+X ∈ RN×D is a high-dimensional statistic, while Z ∈ RM×D is a compact representation ( M ≪ N). We therefore parameterize the mean function μ(Z, T ) ∈ RN×D with a decoder that maps the compact representation back to the predictive-statistic space. 3Figure 2: Text-to-image cross-attention patterns in LLaVA-1.5-7B. (a) Layer-wise average of cross-modal attention scores across the LLM backbone, illustrating the concentration of interaction at initial and terminal layers. (b)–(d) Token-wise distribution of attention scores across 576 visual tokens at layers 0, 1, and 31, respectively. Higher magnitudes indicate visual regions with stronger alignment to the text instructions. Table 1: Performance of ETC with di ff erent compressed-token budgets on LLaVA-1.5-7B.                                                                                                   
+
+> Methods Tokens MMBench MME SEED SQA VQAv2 Avg(%) LLaVA-1.5-7B 576 64.00 1869.08 57.90 69.56 77.70 100 MQT-LLaVA [11] 456.50 1176.10 –65.10 64.10 –LLaMA-VID [30] 4–––68.70 ––VoCo [12] 460.40 –56.00 –74.50 –ETC (Ours) 460.99 1668.84 56.66 68.76 74.10 95.33 MQT-LLaVA 254.40 1144.00 –65.00 61.00 –LLaMA-VID 2–––68.80 ––VoCo 260.10 –55.00 –73.50 –ETC 261.00 1666.84 55.76 68.47 72.68 94.55 QueCC [31] 159.40 1269.10 –69.90 67.30 –VoCo 158.80 1323.30 53.70 65.40 72.30 –ETC (Ours) 160.22 1553.82 54.18 67.63 72.31 92.22 LLaVA-1.5-7B 021.0 697.8 29.2 63.6 41.0 -
+
+3.4 Training Objective 
+
+The final objective combines cross-entropy task loss with the VID loss for predictive-statistic preservation: 
+
+L = LCE + λLETC (̂ X, Z, T ), (18) where LCE is the autoregressive cross-entropy task loss and 
+
+λ > 0 controls the strength of predictive-statistic preservation. In this form, the method follows the theory directly: LCE op-timizes the observable task loss, cross-attention approximates the instruction-aware predictive statistic ̂ X, and LETC encour-ages the compressed representation to preserve it by VID. 
+
+3.5 Compression Architecture 
+
+We implement the proposed compressor (Eq. (1)) within a decoder-only VLM architecture. This design replaces the orig-inal visual sequence V with a compact representation Z while maintaining the instruction-aware predictive statistics required by Eq. (7) during inference. Figure 1 illustrates the complete pipeline. We introduce M learnable compressed tokens Z ∈ RM×d, where 
+
+M ≪ Nv, and construct the input sequence as X = [V; Z; T ], where V and T denote visual and text tokens, respectively. The compressed tokens provide the token-level representation of Z.Following VoCo [12], we use a bottleneck attention mask to regulate information flow. The compressed tokens Z attend to the visual tokens V, while the text tokens T attend only to Z.This design distills instruction-aware visual information into Z.Supervision is applied at the final layer of the LLM backbone. This choice is motivated by three considerations. First, the final layer is the stage most directly tied to the model output. Second, text-to-image attention in VLMs tends to peak at the initial and final layers, as illustrated in Figure 2, indicating that these lay-ers are critical position for cross-modal interaction. Third, com-pared with early layers that primarily aggregate local features, the final layer contains more mature multimodal semantics and exhibits stronger sparsity over task-relevant tokens. Aligning features at final layer therefore facilitates the extraction of high-density, query-relevant information. At the final layer, we compute the practical predictive-statistic target in Eq. (11) using the original visual features. Specifi-cally, text-to-image cross-attention provides instruction-aware weights, which reweight the final-layer visual representation to obtain ̂ X. Since Z contains only M tokens whereas Xv contains 
+
+Nv tokens, an MLP decoder maps Z back to the original vi-sual token dimension. The decoded representation parameter-izes the mean function μ(Z, T ) of the variational distribution in Eq. (15). During training, LETC is optimized together with the autore-gressive cross-entropy loss LCE in Eq. (18). Thus, the model 4Table 2: Performance of ETC with di ff erent compressed-token budgets on Qwen3-VL-2B.                                                                                                         
+
+> Method Tokens SQA MMBench-CN MMBench-EN MME SEED QBench Avg Qwen3VL-2B-SFT -86.81 81.52 84.29 2087.55 76.84 60.60 100% LLaMA-VID 453.69 25.92 28.83 263.30 14.11 39.60 37.36 QueCC 428.84 25.29 25.80 642.53 24.86 40.50 37.47 VoCo 484.38 79.63 82.56 1413.28 71.10 55.40 90.75 ETC (Ours) 485.48 81.44 82.75 1840.46 71.36 58.49 95.68
+> LLaMA-VID 252.94 27.95 27.95 262.94 13.84 38.70 37.15 VoCo 283.63 79.83 82.01 1360.18 69.84 51.80 88.85 ETC (Ours) 285.23 80.49 82.72 1840.24 70.42 54.11 94.02
+> QueCC 130.00 24.95 25.69 645.47 24.74 39.90 37.43 VoCo 182.94 78.91 81.34 1333.89 66.74 49.70 86.93 ETC (Ours) 184.43 80.39 82.40 1838.02 68.07 53.70 93.15
+> Qwen3VL-2B-SFT 067.37 35.09 35.74 860.46 36.81 47.50 -
+
+Figure 3: Comparison between selective compression methods and ETC. learns both to predict downstream outputs and to preserve in Z
+
+the instruction-aware visual information needed for prediction. During inference, Z is obtained in the prefilling stage by ap-plying the same bottleneck mask, e ff ectively compressing the information in V into Z. The original visual tokens V are then discarded from the KV cache. In the subsequent decoding stage, generation is performed using only Z and the text tokens T .This retains instruction-relevant visual information while reduc-ing decoding cost and improving inference e ffi ciency. 
+
+# 4 Experiments 
+
+4.1 Experimental Setup 
+
+Datasets and Models. We perform Supervised Fine-Tuning (SFT) on the LLaVA-v1.5-mix665k instruction-tuning dataset, which combines COCO [32], GQA [33], OCR-VQA [34], TextVQA [35], and Visual Genome [36]. We evaluate two representative architectures: LLaVA-1.5-7B [5], a widely used model for token compression, and Qwen3-VL-2B [1], a strong open-source VLM with native dynamic resolution and 3D ro-tary positional embeddings. 
+
+Benchmarks. We evaluate on MMBench [37], MME [38], Table 3: RefCOCO results of ETC and other compression meth-ods.                
+
+> Method Tokens RefCOCO bbox TestA TestB Qwen3VL-2B-SFT -20.78 41.48 QueCC 116.31 33.96 VoCo 110.38 28.51 ETC (Ours) 118.73 37.72
+
+SEED-Bench [39], ScienceQA [40], VQAv2 [41], and Q-Bench [42]. 
+
+Implementation Details. We freeze the vision tower and optimize the cross-modal projector and LLM backbone with AdamW on NVIDIA GeForce RTX 3090 GPUs. The model is trained with the joint objective in Eq. (18), using λ = 10 −5
+
+for the ETC loss and α = 0.6 for instruction-aware approxima-tion. To accommodate the 3D rotary positional embedding in Qwen3-VL, we specifically adapt the indexing for the M com-pressed tokens. The temporal index for all compressed tokens is set to Tvisual + 1. Regarding spatial indices, the first compressed token’s W and H are aligned with its T , while subsequent to-kens’ spatial indices are incremented sequentially to maintain unique positional identity. 
+
+4.2 Experimental Results 
+
+Performance on LLaVA-1.5-7B. Table 1 compares ETC with existing abstractive compression methods on LLaVA-1.5-7B. At a 4-token budget, ETC achieves the best results on MM-Bench (60.99%), MME (1668.84), SEED (56.66%), and SQA (68.76%), outperforming MQT-LLaVA by 492.74 points on MME. Under extreme compression at a single token, ETC still achieves the best performance on four metrics, including 60.22% on MMBench and 1553.82 on MME. The performance remains robust across token budgets of 4, 2, and 1. 
+
+Performance on Qwen3-VL-2B. To further validate scalabil-ity across architectures, we evaluate ETC on Qwen3-VL-2B. Table 2 shows that, at a 4-token budget, ETC achieves the best results on all metrics, including 85.48% on SQA and 1840.46 5Table 4: E ffi ciency analysis of ETC, including KV-cache memory, CUDA time, and FLOPs. ∆ denotes the reduction ratio.                      
+
+> Method Image Tokens KV cache (MB) ∆CUDA Time (ms) ∆FLOPs (T) ∆
+> Full cache 1024 223.54 -203.05 -2.98 -ETC 110.44 95.33 114.13 43.79 1.37 54.03
+
+Table 5: Ablation of the instruction-aware mixing coe ffi cient α
+
+across SQA, MMBench-CN, MMBench-EN, and QBench.                               
+
+> αSQA MMBench-CN MMBench-EN QBench 082.59 79.6 81.64 51.5 0.10 82.64 79.6 81.7 52.5 0.20 83.59 78.56 81.5 52.7 0.40 83.14 79.26 81.82 52.4 0.60 84.43 80.39 82.4 53.7
+> 0.80 82.69 79.93 82.24 51.4 1.00 82.89 79.89 82.05 52.2
+
+Table 6: Ablation of the ETC loss weight λ across SQA, MMBench-CN, MMBench-EN, and QBench.                               
+
+> λSQA MMBench-CN MMBench-EN QBench 082.94 78.91 81.34 49.70 10 −584.43 80.39 82.4 53.7
+> 10 −482.94 79.51 81.89 52.8 10 −382.59 79.83 81.75 52.2 10 −281.6 79.28 81.38 51.4 10 −182.84 79.16 81.08 51.9 10 084.03 79.65 82.12 50.7
+
+Table 7: Comparison of alignment strategies across SQA, MME, and QBench.             
+
+> Method SQA (%) MME QBench (%) None 82.94 1333.89 49.70 MSE 84.13 1741.05 50.50 VID (ETC) 84.43 1838.02 53.70
+
+on MME, while retaining 95.68% of the performance of the Qwen3VL-2B-SFT baseline on average. Compared with VoCo, ETC improves MME by 427.18 points and QBench by 3.09 points. This trend remains consistent in the 1-token setting: ETC retains 93.15% of the baseline performance on average, outperforming VoCo (86.93%) and QueCC (37.43%). These results suggest stable behavior across both LLaVA and Qwen backbones. 
+
+Comparisons with Selective Compression Methods. Fig-ure 3 compares ETC with selective compression methods, including SparseVLM[7], VisionZip[43], PDrop[44], and FastV[45]. ETC compresses visual tokens into a single token, while other methods compress them into 64 tokens. Using a single token, ETC achieves 56.19% on GQA, 60.22% on MM-Bench, and 54.18% on SEED, outperforming all 64-token meth-ods on these benchmarks. These results suggest that ETC pre-serves task-relevant information even under extreme compres-sion. 
+
+RefCOCO Results. We further evaluate ETC on RefCOCO to assess fine-grained region-text alignment under compression. As shown in Table 3, ETC is the best-performing compressed method, reaching 18.73 on TestA and 37.72 on TestB. This sug-gests that ETC preserves task-relevant visual evidence more eff ectively than other compression methods. Overall, perfor-mance remains limited may because the 2B backbone is rel-atively weak, and bounding-box tasks have high information density, requiring more tokens. Further analysis of task di ffi -culty and token budgets is provided in Appendix A.2.5. 
+
+Effi ciency Analysis. Table 4 shows that, relative to a full cache of 1 ,024 visual tokens, ETC reduces the KV cache from 223 .54 MB to 10 .44 MB (95 .33%), CUDA time from 203 .05 ms to 114 .13 ms, and theoretical FLOPs from 2 .98 T to 1 .37 T, sub-stantially lowering visual-stream inference cost. 
+
+# 5 Discussion 
+
+5.1 Sensitivity to Alpha and Lambda 
+
+We examine the two scalar coe ffi cients involved in ETC: the instruction-aware mixing coe ffi cient α in Equation 11 and the ETC loss weight λ in Equation 18. As shown in Table 5, perfor-mance is lowest in the task-agnostic setting ( α = 0), where the model yields 82.59 on SQA, 79.6 on MMBench-CN, 81.64 on MMBench-EN, and 51.5 on QBench. In this case, all visual patches are treated uniformly, making it harder for the com-pressed representation to concentrate on instruction-relevant re-gions. As α increases, the query is used as a relevance signal to emphasize more task-relevant visual content, and performance peaks at α = 0.60, where ETC reaches 84.43 on SQA, 80.39 on MMBench-CN, 82.4 on MMBench-EN, and 53.7 on QBench. When α is increased further to 1.00, the scores decline to 82.89, 79.49, 82.05, and 52.2, respectively, suggesting that overly ag-gressive weighting may suppress auxiliary cues that are still useful for reasoning. Table 6 shows a similar trend for λ. Without the ETC term (λ = 0), the model obtains 82.94 on SQA, 78.91 on MMBench-CN, 81.34 on MMBench-EN, and 49.70 on QBench. Intro-ducing a small positive weight substantially improves all four benchmarks, with the best overall result achieved at λ = 10 −5.Over the broader range from 10 −4 to 10 0, the performance changes remain moderate, indicating that ETC loss weight λ
+
+is not overly sensitive. 
+
+5.2 Validity of the Variational Information Distillation Objective 
+
+To validate the second component of ETC, we evaluate three variants regarding the preservation of the instruction-aware predictive-statistic estimate ̂ X: no auxiliary loss, direct MSE re-gression, and the proposed variational information distillation 6Table 8: Comparison of supervision layers.             
+
+> Layer SQA(%) MMBench-EN(%) MME 083.19 81.94 1,796.61 15 83.34 82.05 1,755.84 32 84.43 82.40 1,838.02
+
+Table 9: Comparison of decoder parameterizations.             
+
+> Model SQA(%) MMBench-EN(%) MME Q-Former 83.04 81.96 1,822.15 linear interpolation 84.38 81.64 1,744.50 MLP 84.43 82.40 1,838.02
+
+objective. Table 7 shows that VID performs best on all three benchmarks, with especially clear gains over MSE on MME and QBench. This result is expected under extreme compression. MSE en-forces point-wise Euclidean alignment, which tends to pull the compressed token toward an averaged representation when a single token must summarize many visual tokens, causing a mean-collapse e ff ect that blurs fine-grained semantics. In con-trast, VID optimizes a tractable variational bound on the mutual information between ̂ X and ( Z, T ), while using a learnable vari-ance to accommodate reconstruction uncertainty. Therefore, ETC encourages ̂ X to remain recoverable from the compressed representation rather than merely close in ℓ2 distance, which is more suitable for extreme token compression. 
+
+5.3 Layer-wise Alignment Analysis 
+
+We ablate where ETC supervision is applied when constructing ̂
+
+X and optimizing LETC . As shown in Table 8, the final layer (L = 32) performs best across all reported benchmarks, improv-ing SQA from 83.19 to 84.43 and MMBench-EN from 81.94 to 82.40 compared with L = 0, while also achieving the highest MME score (1838.02). This supports the method design: the final layer is most directly tied to prediction and contains more task-relevant multimodal semantics, making it the most suitable layer for predictive-statistic preservation. 
+
+5.4 Decoder Parameterizations 
+
+We compare three choices for parameterizing the mean func-tion μ(Z, T ) of the variational distribution in Eq. (15): an MLP decoder [5], QFormer [46], and linear interpolation [47]. Ta-ble 9 shows that the MLP decoder achieves the best overall re-sults, reaching 1838.02 on MME and 82.40 on MMBench-EN. This indicates that a simple non-linear decoder is su ffi cient to recover the target ̂ X from compressed tokens, whereas linear in-terpolation underfits and Q-Former o ff ers no clear gain, poten-tially because the powerful downstream decoder alleviates the learning pressure on the compression module, leading to sub-optimal representation alignment. We therefore use the MLP decoder as the default parameterization of μ(Z, T ). 
+
+# References 
+
+[1] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chen-gen Huang, Chenxu Lv, et al. Qwen3 technical report. 
+
+arXiv Preprint arXiv:2505.09388 , 2025. [2] Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin Jing, Shenglong Ye, Jie Shao, et al. InternVL3.5: Advancing open-source multimodal models in versatility, reasoning, and e ffi ciency. arXiv Preprint arXiv:2508.18265 , 2025. [3] Guowei Xu, Peng Jin, Ziang Wu, Hao Li, Yibing Song, Lichao Sun, and Li Yuan. LLaVA-CoT: Let vision lan-guage models reason step-by-step. In Proceedings of the IEEE /CVF International Conference on Computer Vision ,pages 2087–2098, 2025. [4] Wentong Li, Yuqian Yuan, Jian Liu, Dongqi Tang, Song Wang, Jie Qin, Jianke Zhu, and Lei Zhang. TokenPacker: Effi cient visual projector for multimodal LLM. Inter-national Journal of Computer Vision , pages 6794–6812, 2025. [5] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. Improved baselines with visual instruction tuning. In Pro-ceedings of the IEEE /CVF Conference on Computer Vi-sion and Pattern Recognition , pages 26296–26306, 2024. [6] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Ad-vances in Neural Information Processing Systems , 30: 5998–6008, 2017. [7] Yuan Zhang, Chun-Kai Fan, Junpeng Ma, Wenzhao Zheng, Tao Huang, Kuan Cheng, Denis A Gudovskiy, To-moyuki Okuno, Yohei Nakata, Kurt Keutzer, and Shang-hang Zhang. SparseVLM: Visual token sparsification for e ffi cient vision-language model inference. In Inter-national Conference on Machine Learning , pages 74840– 74857, 2025. [8] Cheng Yang, Yang Sui, Jinqi Xiao, Lingyi Huang, Yu Gong, Chendi Li, Jinghua Yan, Yu Bai, Ponnuswamy Sadayappan, Xia Hu, et al. TopV: Compatible token pruning with inference time optimization for fast and low-memory multimodal vision language model. In Proceed-ings of the IEEE /CVF Conference on Computer Vision and Pattern Recognition , pages 19803–19813, 2025. [9] Yuzhang Shang, Mu Cai, Bingxin Xu, Yong Jae Lee, and Yan Yan. LLaVA-PruMerge: Adaptive token reduction for effi cient large multimodal models. In Proceedings of the IEEE /CVF International Conference on Computer Vision ,pages 22857–22867, 2025. [10] Xubing Ye, Yukang Gan, Yixiao Ge, Xiao-Ping Zhang, and Yansong Tang. ATP-LLaVA: Adaptive token pruning for large vision language models. In Proceedings of the IEEE /CVF Conference on Computer Vision and Pattern Recognition , pages 24972–24982, 2025. [11] Wenbo Hu, Zi-Yi Dou, Liunian Li, Amita Kamath, Nanyun Peng, and Kai-Wei Chang. Matryoshka query transformer for large vision-language models. Advances in Neural Information Processing Systems , pages 50168– 50188, 2024. 7[12] Xubing Ye, Yukang Gan, Xiaoke Huang, Yixiao Ge, and Yansong Tang. Voco-LLaMA: Towards vision compres-sion with large language models. In Proceedings of the IEEE /CVF Conference on Computer Vision and Pattern Recognition , pages 29836–29846, 2025. [13] Chenyu Yang, Xuan Dong, Xizhou Zhu, Weijie Su, Jia-hao Wang, Hao Tian, Zhe Chen, Wenhai Wang, Lewei Lu, and Jifeng Dai. PVC: Progressive visual token com-pression for unified image and video processing in large vision-language models. In Proceedings of the IEEE /CVF Conference on Computer Vision and Pattern Recognition ,pages 24939–24949, 2025. [14] Sungsoo Ahn, Shell Xu Hu, Andreas Damianou, Neil D Lawrence, and Zhenwen Dai. Variational information dis-tillation for knowledge transfer. In Proceedings of the IEEE /CVF Conference on Computer Vision and Pattern Recognition , pages 9163–9171, 2019. [15] Samir Brahim Belhaouari and Insaf Kraidia. Effi cient self-attention with smart pruning for sustainable large lan-guage models. Scientific Reports , 15(1):10171, 2025. [16] Yuqin Zeng, Lianli Liu, Ze Wen, Jiquan Liu, and Shuqian Fan. DyLoFViT: A novel approach for real-time metal 3d printing surface quality classification. IET Image Process-ing , 19(1):e70182, 2025. [17] Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Peiyuan Zhang, Yanwei Li, Ziwei Liu, and Chunyuan Li. LLaVA-OneVision: Easy visual task transfer. Transactions on Machine Learn-ing Research , 2025. ISSN 2835-8856. [18] Imtiaz Ahmed, Sadman Islam, Partha Protim Datta, Im-ran Kabir, Naseef Ur Rahman Chowdhury, and Ahshanul Haque. Qwen 2.5: A comprehensive review of the lead-ing resource-e ffi cient LLM with potentioal to surpass all competitors. Authorea Preprints , 2025. [19] Payman Behnam, Yaosheng Fu, Ritchie Zhao, Po-An Tsai, Zhiding Yu, and Alexey Tumanov. RocketKV: Ac-celerating long-context LLM inference via two-stage KV cache compression. In International Conference on Ma-chine Learning , pages 3358–3392, 2025. [20] Jialong Wu, Zhenglin Wang, Linhai Zhang, Yilong Lai, Yulan He, and Deyu Zhou. SCOPE: Optimizing key-value cache compression in long-context generation. In 
+
+Proceedings of the 63rd Annual Meeting of the Associa-tion for Computational Linguistics , pages 10775–10790, 2025. [21] Shiyu Zhao, Zhenting Wang, Felix Juefei-Xu, Xide Xia, Miao Liu, Xiaofang Wang, Mingfu Liang, Ning Zhang, Dimitris N Metaxas, and Licheng Yu. Accelerating multi-modal large language models by searching optimal vision token reduction. In Proceedings of the IEEE /CVF Confer-ence on Computer Vision and Pattern Recognition , pages 29869–29879, 2025. [22] Jiedong Zhuang, Lu Lu, Ming Dai, Rui Hu, Jian Chen, Qiang Liu, and Haoji Hu. ST3: Accelerating multimodal large language model by spatial-temporal visual token trimming. In Proceedings of the AAAI Conference on Ar-tificial Intelligence , pages 11049–11057, 2025. [23] Yizheng Sun, Yanze Xin, Hao Li, Jingyuan Sun, Chenghua Lin, and Riza Theresa Batista-Navarro. LVPruning: An e ff ective yet simple language-guided vi-sion token pruning approach for multi-modal large lan-guage models. In Findings of the Association for Com-putational Linguistics: NAACL , pages 4299–4308, 2025. [24] Weihao Ye, Qiong Wu, Wenhao Lin, and Yiyi Zhou. Fit and prune: Fast and training-free visual token pruning for multi-modal large language models. In Proceedings of the AAAI Conference on Artificial Intelligence , pages 22128– 22136, 2025. [25] Mohamed Dhouib, Davide Buscaldi, Sonia Vanier, and Aymen Shabou. PACT: Pruning and clustering-based to-ken reduction for faster visual language models. In Pro-ceedings of the IEEE /CVF Conference on Computer Vi-sion and Pattern Recognition , pages 14582–14592, 2025. [26] Leqi Shen, Tianxiang Hao, Tao He, Sicheng Zhao, Yifeng Zhang, pengzhang liu, Yongjun Bao, and Guiguang Ding. TempMe: Video temporal token merging for e ffi cient text-video retrieval. In International Conference on Learning Representations , pages 60839–60860, 2025. [27] Yancheng Wang and Yingzhen Yang. Effi cient visual transformer by learnable token merging. IEEE Transac-tions on Pattern Analysis & Machine Intelligence , 47(11): 9597–9608, 2025. [28] Shehreen Azad, Vibhav Vineet, and Yogesh Singh Rawat. HierarQ: Task-aware hierarchical Q-Former for enhanced video understanding. In Proceedings of the IEEE /CVF Conference on Computer Vision and Pattern Recognition ,pages 8545–8556, 2025. [29] Roberto Amoroso, Gengyuan Zhang, Rajat Koner, Lorenzo Baraldi, Rita Cucchiara, and Volker Tresp. Per-ceive. query & reason: Enhancing video QA with question-guided temporal queries. In IEEE /CVF Winter Conference on Applications of Computer Vision , pages 8853–8862. IEEE, 2025. [30] Yanwei Li, Chengyao Wang, and Jiaya Jia. LLaMA-Vid: An image is worth 2 tokens in large language models. In European Conference on Computer Vision , pages 323– 340. Springer, 2024. [31] Kevin Li, Sachin Goyal, João D. Semedo, and J Zico Kolter. Inference optimal VLMs need fewer visual to-kens and more parameters. In International Conference on Learning Representations , pages 96066–96083, 2025. [32] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence Zitnick. Microsoft COCO: Common objects in context. In European Conference on Computer Vision ,pages 740–755. Springer, 2014. [33] Drew A Hudson and Christopher D Manning. GQA: A new dataset for real-world visual reasoning and com-positional question answering. In Proceedings of the IEEE /CVF Conference on Computer Vision and Pattern Recognition , pages 6700–6709, 2019. [34] Anand Mishra, Shashank Shekhar, Ajeet Kumar Singh, and Anirban Chakraborty. OCR-VQA: Visual question 8answering by reading text in images. In International Con-ference on Document Analysis and Recognition , pages 947–952. IEEE, 2019. [35] Amanpreet Singh, Vivek Natarajan, Meet Shah, Yu Jiang, Xinlei Chen, Dhruv Batra, Devi Parikh, and Marcus Rohrbach. Towards VQA models that can read. In Pro-ceedings of the IEEE /CVF Conference on Computer Vi-sion and Pattern Recognition , pages 8317–8326, 2019. [36] Ranjay Krishna, Yuke Zhu, Oliver Groth, Justin John-son, Kenji Hata, Joshua Kravitz, Stephanie Chen, Yannis Kalantidis, Li-Jia Li, David A Shamma, et al. Visual genome: Connecting language and vision using crowd-sourced dense image annotations. International Journal of Computer Vision , 123(1):32–73, 2017. [37] Yuan Liu, Haodong Duan, Yuanhan Zhang, Bo Li, Songyang Zhang, Wangbo Zhao, Yike Yuan, Jiaqi Wang, Conghui He, Ziwei Liu, et al. MMBench: Is your multi-modal model an all-around player? In European Confer-ence on Computer Vision , pages 216–233. Springer, 2024. [38] Chaoyou Fu, Peixian Chen, Yunhang Shen, Yulei Qin, Mengdan Zhang, Xu Lin, Jinrui Yang, Xiawu Zheng, Ke Li, Xing Sun, et al. MME: A comprehensive evalu-ation benchmark for multimodal large language models. In Annual Conference on Neural Information Processing Systems Datasets and Benchmarks Track , 2025. [39] Bohao Li, Yuying Ge, Yixiao Ge, Guangzhi Wang, Rui Wang, Ruimao Zhang, and Ying Shan. Seed-Bench: Benchmarking multimodal large language models. In Pro-ceedings of the IEEE /CVF Conference on Computer Vi-sion and Pattern Recognition , pages 13299–13308, 2024. [40] Pan Lu, Swaroop Mishra, Tanglin Xia, Liang Qiu, Kai-Wei Chang, Song-Chun Zhu, Oyvind Tafjord, Peter Clark, and Ashwin Kalyan. Learn to explain: Multimodal rea-soning via thought chains for science question answering. 
+
+Advances in Neural Information Processing Systems , 35: 2507–2521, 2022. [41] Yash Goyal, Tejas Khot, Douglas Summers-Stay, Dhruv Batra, and Devi Parikh. Making the V in VQA matter: El-evating the role of image understanding in visual question answering. In Proceedings of the IEEE /CVF Conference on Computer Vision and Pattern Recognition , pages 6904– 6913, 2017. [42] Haoning Wu, Zicheng Zhang, Erli Zhang, Chaofeng Chen, Liang Liao, Annan Wang, Chunyi Li, Wenxiu Sun, Qiong Yan, Guangtao Zhai, and Weisi Lin. Q-Bench: A bench-mark for general-purpose foundation models on low-level vision. In International Conference on Learning Repre-sentations , 2024. [43] Senqiao Yang, Yukang Chen, Zhuotao Tian, Chengyao Wang, Jingyao Li, Bei Yu, and Jiaya Jia. VisionZIP: Longer is better but not necessary in vision language models. In Proceedings of the IEEE /CVF Conference on Computer Vision and Pattern Recognition , pages 19792– 19802, 2025. [44] Long Xing, Qidong Huang, Xiaoyi Dong, Jiajie Lu, Pan Zhang, Yuhang Zang, Yuhang Cao, Conghui He, Jiaqi Wang, Feng Wu, and Dahua Lin. Conical visual concen-tration for e ffi cient large vision-language models. In Pro-ceedings of the IEEE /CVF Conference on Computer Vi-sion and Pattern Recognition , pages 14593–14603, 2025. [45] Liang Chen, Haozhe Zhao, Tianyu Liu, Shuai Bai, Jun-yang Lin, Chang Zhou, and Baobao Chang. An image is worth 1 /2 tokens after layer 2: Plug-and-play inference ac-celeration for large vision-language models. In European Conference on Computer Vision , pages 19–35. Springer, 2024. [46] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. BLIP-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In 
+
+International Conference on Machine Learning , pages 19730–19742, 2023. [47] Shouyuan Chen, Sherman Wong, Liangjian Chen, and Yuandong Tian. Extending context window of large lan-guage models via positional interpolation. arXiv Preprint arXiv:2306.15595 , 2023. 9A Appendix 
+
+A.1 Proofs and Additional Derivations 
+
+This appendix provides the full derivations for Section 3. We derive the ideal requirement for the compact representation Z
+
+from task-loss minimization, and then approximate the practi-cal objective based on cross-attention and variational informa-tion distillation. 
+
+A.1.1 Conditions for Minimizing Task Loss 
+
+Let V ∈ V denote the original visual token sequence, T ∈ T the text instruction or query, Y ∈ Y the target output sequence, and 
+
+Z ∈ Z the compact representation produced by the compressor 
+
+fθ:
+
+Z = fθ(V, T ). (19) Under the standard negative log-likelihood objective, the condi-tional Bayes risk under log-loss with an representation S is 
+
+R∗(S ) = min  
+
+> q
+
+E[ − log q(Y | S , T )] = H(Y | S , T ), (20) where q(Y | S , T ) is the predictive distribution conditioned on 
+
+S and T , and H(· | · ) denotes conditional entropy. Applying this identity to the full visual input V and the com-pressed representation Z gives 
+
+∆task (Z) : = R∗(Z) − R ∗(V) = H(Y | Z, T ) − H(Y | V, T ). (21) Here ∆task (Z) is the excess task loss incurred when Z replaces 
+
+V for downstream prediction. Eq. (19) implies that Z introduces no additional information beyond ( V, T ). Therefore, 
+
+H(Y | V, T ) = H(Y | V, Z, T ). (22) Substituting this identity into the Eq. (21) 
+
+∆task (Z) = H(Y | Z, T ) − H(Y | V, Z, T ) = I(Y; V | Z, T ), (23) where I(·; · | · ) denotes conditional mutual information. To relate the task loss to the information preserved in Z, expand the joint conditional mutual information I(Y; V, Z | T ) in two ways: 
+
+I(Y; V, Z | T ) = I(Y; Z | T ) + I(Y; V | Z, T ). (24) and 
+
+I(Y; V, Z | T ) = I(Y; V | T ) + I(Y; Z | V, T ). (25) Since Z = fθ(V, T ) is fully determined by ( V, T ), we have 
+
+I(Y; Z | V, T ) = 0. Therefore, 
+
+∆task (Z) = I(Y; V | Z, T ) = I(Y; V | T ) − I(Y; Z | T ). (26) This shows that minimizing the task loss is equivalent to mini-mizing the task-relevant information discarded by compression, namely I(Y; V | Z, T ), or equivalently maximizing the task-relevant information retained in Z, namely I(Y; Z | T ). The ideal zero-loss limit satisfies 
+
+∆task (Z) = 0 ⇐⇒ I(Y; V | Z, T ) = 0 ⇐⇒ Y ⊥ V | (Z, T ),
+
+(27) which means that once the compact representation Z and the in-struction T are given, the original visual input V provides no ad-ditional predictive information about Y. Z is a su ffi cient statistic of V for predicting Y conditioned on the instruction T .To express the ideal predictive su ffi cient statistic, define the la-tent statistic 
+
+X⋆ = g⋆(V, T ) : = p(· | V, T ). (28) Here g⋆ maps the pair ( V, T ) to the predictive su ffi cient statis-tic, X⋆ denotes the ideal instruction-aware predictive statistic in the uncompressed input, and p(· | · , ·) denotes the conditional distribution. Again because Z = fθ(V, T ), conditioning on ( V, T ) or on (V, Z, T ) gives the same conditional law: 
+
+p(· | V, T ) = p(· | V, Z, T ). (29) Under the zero-loss condition Y ⊥ V | (Z, T ), we also have 
+
+p(· | V, Z, T ) = p(· | Z, T ). (30) Combining the last two equalities yields 
+
+X⋆ = p(· | V, T ) = p(· | Z, T ). (31) If we define h⋆(Z, T ) : = p(· | Z, T ), where h⋆ maps the com-pressed representation and the instruction to the same predic-tive distribution, then 
+
+X⋆ = h⋆(Z, T ). (32) Hence X⋆ is measurable with respect to ( Z, T ), and therefore 
+
+H(X⋆ | Z, T ) = 0. (33) Here H(X⋆ | Z, T ) is the conditional entropy of the latent pre-dictive statistic after observing Z and T . The value zero means that the ideal predictive statistic can be recovered exactly from the compact representation and the instruction. 
+
+A.1.2 Why Cross-Attention Provides a Practical Proxy 
+
+For jth text token, let A j,i denote the text-to-image attention score assigned to ith visual token, let WV be the value-weight matrix in cross-attention, and let o j ∈ RD be the visual contri-bution to the cross-attention output for text token. Then 
+
+o j =
+
+> Nv
+
+∑
+
+> i=1
+
+A j,iWV xi. (34) Let o(−i) 
+
+> j
+
+∈ RD denote the output after removing ith visual token while keeping all attention weights fixed. Then 
+
+o(−i) 
+
+> j
+
+=
+
+∑
+
+> k,i
+
+A j,kWV xk. (35) Subtracting the two expressions gives 
+
+o j − o(−i) 
+
+> j
+
+= A j,iWV xi. (36) Taking norms yields 
+
+∥o j − o(−i) 
+
+> j
+
+∥ ≤ A j,i∥WV xi∥, (37) because attention weights are non-negative. Summing over all text positions gives 
+
+> Nt
+
+∑
+
+> j=1
+
+∥o j − o(−i) 
+
+> j
+
+∥ ≤ ∥ WV xi∥
+
+> Nt
+
+∑
+
+> j=1
+
+A j,i. (38) 10 Equation (38) shows that, under fixed-attention ablation, the change in the text-side representation caused by removing the 
+
+ith visual token is upper bounded by the product of its attention score and the norm of its value vector. Thus, larger aggregated attention score indicates that a visual token plays a stronger role in shaping the downstream text representation. This analysis explains why aggregated cross-attention scores can serve as a proxy for instruction-conditioned predictive rel-evance. However, it does not establish exact causal attribution under full recomputation of attention and hidden states. 
+
+A.1.3 VID Objective for Preserving ̂ X
+
+Once ̂ X is defined, the second part of Eq. (7) requires it to re-main recoverable from ( Z, T ). The standard VID [14] gives a tractable objective for this requirement. Starting from the definition of conditional mutual information, 
+
+I(̂ X; Z | T ) = H(̂ X | T ) − H(̂ X | Z, T )
+
+= H(̂ X | T ) + Ep(̂ X,Z,T )
+
+[ log p(̂ X | Z, T )], (39) where ̂ X is the practical predictive-statistic proxy, p(̂ X | Z, T )is the true conditional distribution of ̂ X given ( Z, T ), and the expectation is taken over the joint distribution of ( ̂ X, Z, T ). We introduce a variational distribution q(̂ X | Z, T ) to approximate 
+
+p(̂ X | Z, T ) This gives 
+
+I(̂ X; Z | T ) = H(̂ X | T ) + Ep(̂ X,Z,T )
+
+[ log q(̂ X | Z, T )]
+
++ Ep(Z,T )
+
+[KL (p(̂ X | Z, T ) ∥ q(̂ X | Z, T ))] , (40) where KL( ·∥· ) denotes the Kullback-Leibler divergence. Be-cause the KL term is non-negative, we obtain 
+
+I(̂ X; Z | T ) ≥ H(̂ X | T ) + Ep(̂ X,Z,T )
+
+[ log q(̂ X | Z, T )]. (41) Since H(̂ X | T ) does not depend on the model parameters, max-imizing I(̂ X; Z | T ) is equivalent to minimizing 
+
+LETC = −Ep(̂ X,Z,T )
+
+[ log q(̂ X | Z, T )]. (42) In standard VID, teacher and student features usually have matched dimensionality. In our setting, however, the proxy predictive statistic ̂ X ∈ RN×D and the compact representation 
+
+Z ∈ RM×D are separated by a bottleneck with M ≪ N. We therefore parameterize the mean function μ(Z, T ) ∈ RN×D with an MLP decoder and use the Gaussian variational distribution 
+
+q(̂ X | Z, T ) =
+
+> N
+
+∏
+
+> n=1
+> D
+
+∏
+
+> d=1
+
+N(̂ Xn,d; μn,d(Z, T ), σ 2
+
+> d
+
+), (43) where n ∈ {1, . . . , N} indexes token positions in ̂ X, d ∈{1, . . . , D} indexes feature dimensions, μb,n,d(Z, T ) is the ( n, d)-th entry of the decoder mean, and σ2 
+
+> d
+
+is the learnable variance shared across batch. In practice, N = Nv, so the decoder out-put is aligned with the same final-layer visual-token space as ̂ X.Substituting this Gaussian form into Eq. (14) yields 
+
+LETC = 1
+
+B
+
+> B
+
+∑
+
+> b=1
+
+
+
+> D
+
+∑
+
+> d=1
+
+ 12σ2
+
+> dN
+
+∑
+
+> n=1
+
+(̂ Xb,n,d − μb,n,d(Z, T ))2 + N log σd
+
+
+
++ C,
+
+(44) where B is the size of batch, b ∈ { 1, . . . , B} indexes training samples and C = ND  
+
+> 2
+
+log(2 π) is a constant independent of the model parameters and can be omitted during optimization. The empirical objective becomes 
+
+LETC = 1
+
+B
+
+> B
+
+∑
+
+> b=1
+
+
+
+> D
+
+∑
+
+> d=1
+
+ 12σ2
+
+> dN
+
+∑
+
+> n=1
+
+(̂ Xb,n,d − μb,n,d(Z, T ))2 + N log σd
+
+ .
+
+(45) The variance is parameterized as 
+
+σ2 
+
+> d
+
+= log(1 + exp( βd)) + ϵ, (46) where βd is a learnable scalar and ϵ > 0 is a small constant used for numerical stability. This parameterization enforces positiv-ity and improves training stability. This completes the bridge from the ideal su ffi ciency condition in Eq. (6) to the practical training objective in Eq. (16). 
+
+A.2 Additional Experimental Details A.2.1 Training Datasets 
+
+LLaVA-v1.5-mix665k Overview. 1 The primary instruction-tuning source is the LLaVA-v1.5-mix665k dataset, a large-scale multimodal collection designed to enhance the model’s ability to follow complex instructions. It integrates a diverse range of visual tasks by consolidating several specialized datasets, en-suring robust performance across general visual QA, spatial rea-soning, and text-centric visual understanding. 
+
+COCO is a foundational dataset for object detection, segmen-tation, and captioning. It contains over 200,000 labeled images across 80 object categories. In the context of instruction tun-ing, it provides the model with a fundamental understanding of scene composition and the relationships between everyday objects in natural environments. 
+
+GQA focuses on real-world visual reasoning and compositional question answering. Unlike standard VQA, it utilizes scene graphs to create questions that require multistep reasoning (e.g., spatial relations and attribute identification). This dataset is in-strumental in improving the model’s logical consistency and its ability to handle complex, structured queries. 
+
+OCR-VQA is designed to bridge the gap between visual recog-nition and optical character recognition (OCR). It consists of over 200,000 images of book covers and documents associated with 1 million question-answer pairs. This dataset enables the model to read, interpret, and reason about text embedded within various visual contexts. 
+
+TextVQA specifically challenges models to read and reason about text found in natural images (e.g., street signs, storefronts, and labels). By requiring the model to extract text to answer questions, it significantly enhances the system’s “OCR-centric” visual reasoning capabilities beyond structured document for-mats.          
+
+> 1LLaVA instruction data file: https://huggingface.co/ datasets/liuhaotian/LLaVA-Instruct-150K/blob/main/ llava_instruct_150k.json .Data preparation and collection documentation: https://github.com/haotian-liu/LLaVA/ blob/main/docs/Data.md .
+
+11 Table 10: Hyperparameter settings for LLaVA-1.5-7B and Qwen3-VL-2B fine-tuning.                                           
+
+> Category Hyperparameter LLaVA-1.5-7B Qwen3-VL-2B Model Base LLM Vicuna-7B-v1.5 Qwen3-2B-Instruct Training Type Full Fine-Tuning LoRA LoRA Rank /Alpha –8/32 Precision bfloat16 bfloat16 Training Learning Rate 2e-5 1e-4 Optimizer AdamW AdamW Total Batch Size 128 8LR Scheduler Cosine decay Cosine decay Epochs 11Warmup Ratio 0.03 0.05 Weight Decay 0.0 0.0 ETC Compressed Tokens (M) 11ETC Loss Weight ( λ)1e-5 1e-5 Instruction-aware Weighting ( α)0.6 0.6 Alignment Layer -1 -1 ETC Rank 88
+
+Visual Genome provides dense annotations of image compo-nents, including objects, attributes, and relationships, mapped to a formal knowledge base. It facilitates a deeper understand-ing of visual concepts by providing more granular detail than standard captioning datasets, allowing the model to ground its language in specific visual regions. 
+
+A.2.2 Benchmarks 
+
+MMBench is a comprehensive evaluation pipeline that em-ploys a “Circular Eval” strategy to robustly assess a model’s various capabilities. It covers 20 distinct dimensions, including logic reasoning, attribute recognition, and social relation under-standing. 
+
+MME provides a holistic evaluation across 14 subtasks cate-gorized into perception and cognition. The perception track covers object counts, positions, and colors, while the cognition track tests commonsense reasoning, numerical calculation, and code translation. It is specifically designed to identify common pitfalls in Large Multimodal Models (LMMs), such as halluci-nation and lack of basic visual grounding. 
+
+SEED-Bench is a large-scale benchmark consisting of thou-sands of multiple-choice questions that cover both image and video understanding. It is organized into 12 evaluation dimen-sions, such as spatial awareness, temporal reasoning, and ac-tion recognition. The benchmark provides a unified framework to assess how well models generalize across di ff erent visual modalities and reasoning types. 
+
+ScienceQA is a multi-modal dataset comprising diverse science questions spanning three subjects (Natural Science, Language Science, and Social Science) and 26 topics. Most questions are accompanied by visual contexts and detailed explanations. It serves as a rigorous test for the model’s high-level reasoning capabilities and its ability to synthesize knowledge from text-books and diagrams. 
+
+VQAv2 is the industry-standard benchmark for open-ended vi-sual question answering on natural images. Building upon the original VQA dataset, it incorporates counter-examples to re-duce language bias, requiring models to rely more heavily on visual evidence rather than statistical patterns in the text. It remains a primary metric for assessing basic visual-linguistic alignment. 
+
+Q-Bench focuses specifically on the “low-level” vision capa-bilities of multimodal models, such as assessing image quality, clarity, and aesthetic appeal. Unlike standard VQA, which fo-cuses on high-level semantics (e.g., “What is the cat doing?”), Q-Bench asks about distortions, noise, and lighting, evaluating whether the model perceives the technical attributes of an image correctly. 
+
+A.2.3 Compared Methods 
+
+We compare ETC with four representative visual-token com-pression baselines. 
+
+MQT-LLaVA [11] uses a query transformer with M latent query tokens to compress visual features into a shorter token se-quence. During training, it randomly samples a prefix of length 
+
+m ≤ M and keeps only the first m query tokens while dropping the remaining ones. At inference time, the model directly uses the first m compressed tokens under the target token budget, and in the reported setting it can be compressed to as few as 2 tokens. 
+
+LLaMA-VID [30] represents each visual input using two types of tokens: a context token and a content token. The context token is generated through cross-modal interaction between vi-sual features and the user instruction, while the content token is obtained by pooling visual features to preserve compact visual content. The compressed visual representation is then formed by these two tokens and projected into the LLM input space, so its basic compressed form uses 2 tokens. 
+
+VoCo [12] inserts a small number of Vision Compression (VoCo) tokens between visual tokens and text tokens in the LLM. It modifies the attention pattern so that VoCo tokens attend to visual tokens, while text tokens interact with visual information through the VoCo tokens. Training is performed with attention distillation, so that the activations on VoCo to-kens learn to absorb information from the original visual-token sequence. In the extreme setting, VoCo can compress an image 12 Figure 4: Token-budget scaling behavior of ETC on SQA (left) and TextVQA (right). ETC approaches the full-token baseline quickly on SQA, while TextVQA improves more gradually as additional compressed tokens are introduced. The dashed line in the figure represents the accuracy of the Qwen3VL-2B-SFT baseline. to a single token. 
+
+QueCC [31] performs query-dependent visual-token compres-sion by injecting the user query into visual features before com-pression. It then combines spatial downsampling with cross-attention to map the original visual-token sequence into a very small number of compressed tokens, which are projected into the LLM input space. Its method is designed for extreme com-pression regimes and can reduce the visual input to as few as 1 token. 
+
+A.2.4 Training parameters 
+
+We implement the ETC framework across two representative ar-chitectures to validate scalability: LLaVA-1.5-7B 2 and Qwen3-VL-2B 3. The training process is conducted on NVIDIA GeForce RTX 3090 GPUs using the DeepSpeed and MS-Swift frameworks. For both models, we freeze the vision tower while optimizing the cross-modal projector and the LLM backbone. Unless otherwise stated, the main experiments use a single learnable compressed token ( M = 1) and apply ETC supervi-sion at the final layer of the LLM backbone. Consistent with the method formulation, we set the instruction-aware weight-ing strength to α = 0.6 and the ETC su ffi ciency loss weight to 
+
+λ = 10 −5.The following table summarizes the hyperparameter configura-tions for both base models. While LLaVA-1.5-7B undergoes full fine-tuning with a global batch size of 128 to establish a ro-bust baseline, Qwen3-VL-2B is adapted via LoRA for e ffi cient scaling. 
+
+A.2.5 Token-Budget Analysis 
+
+We further study how ETC behaves under di ff erent token bud-gets on SQA and TextVQA. As shown in Figure 4, SQA reaches near-saturated performance with very few tokens: the score in-creases from 84.4 with 1 token to 85.7 with 8 tokens, which is already close to the full-model result of 85.77. Adding more to-kens yields only minor gains. In contrast, TextVQA improves 
+
+> 2https://huggingface.co/liuhaotian/llava-v1.5-7b
+> 3https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct
+
+more steadily as the token budget increases, with accuracy con-tinuing to rise from 1 to 8 to 32 to 64 tokens before largely flattening afterward (73.89 to 74.15). This di ff erence suggests that tasks with di ff erent information complexity require di ff er-ent compression budgets. Overall, simpler tasks saturate early (around 8 tokens), while more challenging tasks benefit from larger token budgets (around 32–64), with clear diminishing re-turns in both cases. 
+
+A.2.6 Visualization 
+
+We present qualitative evaluations across diverse visual reason-ing tasks to further assess ETC’s multimodal capabilities (Fig-ure 5). Even under a 1-visual-token budget, ETC successfully solves simple icon questions (Question 1), outperforming the Qwen3VL-2B baseline. It also demonstrates comparable per-formance to token-heavy models in natural scene understand-ing (Question 2). Furthermore, ETC shows accurate instance-level recognition by identifying the liquid color (Question 3) and produces comprehensive, context-aware descriptions for extended tasks (Question 4). Collectively, these results demon-strate ETC’s e ff ectiveness in managing both analytical and de-scriptive vision-language tasks. 13 This time line shows ancient sports that are still popular 
+
+today . It gives each sport's likely place and date of origin. 
+
+Based on the time line, when did people start playing 
+
+polo? 
+
+A. before surfing 
+
+B. before sumo wrestling 
+
+Qwen3VL-2B (Auto Tokens): B 
+
+ETC (1 Token): A 
+
+Is it an indoors scene? 
+
+LLaVA-v1.5-7B (576 Tokens): No, it is an outdoors scene 
+
+with a waterfall and mountains in the background. 
+
+ETC (1 Token): No, it is not an indoor’s scene. It is an 
+
+outdoor scene with a snowy mountain and a waterfall. 
+
+Which color do you think the shampoo that is in the 
+
+middle is? 
+
+LLaVA-v1.5-7B (576 Tokens): The shampoo that is in the 
+
+middle is blue. 
+
+ETC (1 Token): The shampoo in the middle is black in 
+
+color. 
+
+What's happen? 
+
+LLaV A-v1.5-7B (576 Tokens):  to maintain balance and 
+
+control. The surfer is the main focus of the scene, and the 
+
+wave he is riding is the main subject of the image. 
+
+ETC (1 Token): a handstand on the surfboard. The 
+
+man’s arms are outstretched, and he is in the process of 
+
+making a big wave as he surfs through the water. Figure 5: Qualitative comparison of ETC with LLaVA-v1.5-7B and Qwen3VL-2B. 14
