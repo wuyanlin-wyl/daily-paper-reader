@@ -6,73 +6,65 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-06
-- 运行时间：2026-06-06 21:09:49 UTC
+- 最新运行日期：2026-06-07
+- 运行时间：2026-06-07 21:06:05 UTC
 - 运行状态：成功
-- 本次总论文数：17
-- 精读区：6
+- 本次总论文数：15
+- 精读区：4
 - 速读区：11
 
 ### 今日简报（AI）
-今天共处理17篇论文，精读2篇、速读3篇，涵盖医学视觉问答、脑肿瘤分类、病变表征及鲁棒分割等方向。  
-最值得关注的是9分精读《Noise-Aware Visual Representation Learning for Medical VQA》与8分精读《TDA-ViT Fusion Model for Brain Tumor Classification》，前者创新噪声鲁棒的视觉表示，后者融合拓扑数据分析与Transformer。  
-建议优先精读这两篇，了解噪声建模与拓扑几何增强的前沿应用，再速读轻量级血管分割与隐式模糊化方法作为补充。
-- 详情：[/202606/06/README](/202606/06/README)
+今日聚焦AI辅助医学成像与视觉语言模型效率提升，精读两篇高分论文涉及空间分子成像分析和心脏MRI诊断。最值得关注CodeCytos的代码增强智能体空间分析及Motion-Guided因果解缠方法。建议深入研读这两篇精读论文，并关注视觉语言模型中Token压缩与融合策略。
+- 详情：[/202606/07/README](/202606/07/README)
 
 ### 精读区论文标签
-1. [Noise-Aware Visual Representation Learning for Medical Visual Question Answering](/202606/06/2606.05535v1-noise-aware-visual-representation-learning-for-medical-visual-question-answering)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：面向医学视觉问答的噪声感知视觉表示学习，是VLM的关键应用
-2. [Bridging Topology and Deep Representation Learning: A TDA-ViT Fusion Model for Four-Class Brain Tumor Classification](/202606/06/2606.00927v1-bridging-topology-and-deep-representation-learning-a-tda-vit-fusion-model-for-four-class-brain-tumor-classification)  
+1. [CodeCytos: AI-assisted spatial molecular imaging analysis via code-augmented agent action space](/202606/07/2606.00472v1-codecytos-ai-assisted-spatial-molecular-imaging-analysis-via-code-augmented-agent-action-space)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：ViT结合TDA进行脑肿瘤分类
-3. [Ask4VG: Risk-Aware Question Selection for Reducing Prior-Driven Answers in Medical VQA](/202606/06/2606.01044v1-ask4vg-risk-aware-question-selection-for-reducing-prior-driven-answers-in-medical-vqa)  
+   evidence：基于编码的代理框架用于空间分子成像分析
+2. [Motion-Guided Causal Disentanglement for Robust Multi-View Cine Cardiac MRI Diagnosis](/202606/07/2606.04414v1-motion-guided-causal-disentanglement-for-robust-multi-view-cine-cardiac-mri-diagnosis)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：通过风险感知问题选择减少幻觉的医学VQA
-4. [Beyond One-shot: AI Agents for Learning in Field Experiments](/202606/06/2606.02458v1-beyond-one-shot-ai-agents-for-learning-in-field-experiments)  
+   evidence：基于Transformer的多视角心脏MRI诊断
+3. [Query-based Cross-Modal Projector Bolstering Mamba Multimodal LLM](/202606/07/2606.04719v1-query-based-cross-modal-projector-bolstering-mamba-multimodal-llm)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：工具增强的智能体AI在医疗处方消息中的应用
-5. [Pathway-Structured Privileged Distillation for Deployable Computational Pathology](/202606/06/2606.02877v1-pathway-structured-privileged-distillation-for-deployable-computational-pathology)  
+   evidence：基于查询的跨模态投影器，用于视觉语言建模
+4. [ORACLE-CT: Anatomy-Aware Support Pooling for CT Classification](/202606/07/2606.05460v1-oracle-ct-anatomy-aware-support-pooling-for-ct-classification)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：用于计算病理学的多模态知识蒸馏
-6. [XSSR: Cross-Domain Self-Supervised Representative Selection for Efficient Annotation in Medical Image Segmentation](/202606/06/2606.04301v1-xssr-cross-domain-self-supervised-representative-selection-for-efficient-annotation-in-medical-image-segmentation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：用于医学分割的跨域自监督选择
+   evidence：利用分割的解剖感知注意力池化用于CT分类
 
 ### 速读区论文标签
-1. [Multi-Granularity 3D Kidney Lesion Characterization from CT Volumes](/202606/06/2606.04365v1-multi-granularity-3d-kidney-lesion-characterization-from-ct-volumes)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：基于DETR的CT肾脏病变特征提取，医学影像中的Transformer
-2. [Implicit Fuzzification via Bounded Noise Injection for Robust Medical Image Segmentation](/202606/06/2606.04427v1-implicit-fuzzification-via-bounded-noise-injection-for-robust-medical-image-segmentation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：通过有界噪声注入的NoiseUNet实现鲁棒医学图像分割
-3. [LightVesselNet: An Ultra-Lightweight Sub-100K Parameter Network for Retinal Blood Vessel Segmentation](/202606/06/2606.05354v1-lightvesselnet-an-ultra-lightweight-sub-100k-parameter-network-for-retinal-blood-vessel-segmentation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：用于视网膜血管分割的超轻量注意力网络
-4. [SC-MFJ: A Simple Haptic Quality Metric for Medical Image Segmentation](/202606/06/2606.06199v1-sc-mfj-a-simple-haptic-quality-metric-for-medical-image-segmentation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：医学图像分割的新触觉质量度量
-5. [SOCO: Benchmarking Semantic Object Correspondence in Vision Foundation Models](/202606/06/2605.31597v2-soco-benchmarking-semantic-object-correspondence-in-vision-foundation-models)  
+1. [Bridging Topology and Deep Representation Learning: A TDA-ViT Fusion Model for Four-Class Brain Tumor Classification](/202606/07/2606.00927v1-bridging-topology-and-deep-representation-learning-a-tda-vit-fusion-model-for-four-class-brain-tumor-classification)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：包含语言描述的视觉基础模型语义对应基准
-6. [Decomposed On-Policy Distillation for Vision-Language Reasoning: Steering Gradients for Visual Grounding](/202606/06/2606.00564v1-decomposed-on-policy-distillation-for-vision-language-reasoning-steering-gradients-for-visual-grounding)  
+   evidence：TDA-ViT融合用于脑肿瘤分类；复合主题包括分类
+2. [On the Limits of Token Reduction for Efficient Unified Vision Language Training](/202606/07/2606.01503v1-on-the-limits-of-token-reduction-for-efficient-unified-vision-language-training)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：视觉语言模型蒸馏与分解损失
-7. [Improving Visual Token Reduction via Rectifying Distortions for Efficient Multimodal LLM Inference](/202606/06/2606.01711v1-improving-visual-token-reduction-via-rectifying-distortions-for-efficient-multimodal-llm-inference)  
+   evidence：统一视觉语言模型训练的令牌减少；与视觉语言模型进展相关
+3. [EvoCut: Multi-Layer Evolution-Aware Visual Token Compression for Efficient Large Vision-Language Models](/202606/07/2606.01756v1-evocut-multi-layer-evolution-aware-visual-token-compression-for-efficient-large-vision-language-models)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：高效多模态大模型推理的视觉令牌减少
-8. [Provably Auditable and Safe LLM Agents from Human-Authored Ontologies](/202606/06/2606.04903v1-provably-auditable-and-safe-llm-agents-from-human-authored-ontologies)  
+   evidence：高效大型视觉语言模型的视觉令牌压缩；与视觉语言模型进展相关
+4. [When Attention Collapses: Stage-Aware Visual Token Pruning from Structure to Semantics](/202606/07/2606.03569v1-when-attention-collapses-stage-aware-visual-token-pruning-from-structure-to-semantics)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：可审计的LLM代理用于医疗合规
-9. [A Context-Aware Middleware for Medical Image Based Reports: An approach based on image feature extraction and association rules](/202606/06/2605.30699v1-a-context-aware-middleware-for-medical-image-based-reports-an-approach-based-on-image-feature-extraction-and-association-rules)  
+   evidence：两阶段视觉令牌剪枝以提高视觉语言模型效率
+5. [Visual Instruction Tuning Aligns Modalities through Abstraction](/202606/07/2606.03871v1-visual-instruction-tuning-aligns-modalities-through-abstraction)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：分析视觉语言模型中的视觉指令微调
+6. [Beyond Encoder Accumulation: Measuring Encoder Roles in Multi-Encoder VLMs](/202606/07/2606.03879v1-beyond-encoder-accumulation-measuring-encoder-roles-in-multi-encoder-vlms)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：测量多编码器视觉语言模型中编码器角色以指导设计
+7. [Beyond Visual Memory: Mechanistic Diagnostics of Latent Visual Reasoning](/202606/07/2606.01287v1-beyond-visual-memory-mechanistic-diagnostics-of-latent-visual-reasoning)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：用于医学影像报告的上下文感知中间件
-10. [Agent Skills Should Go Beyond Text: The Case for Visual Skills](/202606/06/2606.01414v1-agent-skills-should-go-beyond-text-the-case-for-visual-skills)  
+   evidence：多模态语言模型中潜在视觉推理的机制分析
+8. [PaCX-MAE: Physiology-Augmented Chest X-Ray Masked Autoencoder](/202606/07/2606.01537v2-pacx-mae-physiology-augmented-chest-x-ray-masked-autoencoder)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：提出智能体的多模态视觉技能，可迁移至医学智能体任务
-11. [PaCX-MAE: Physiology-Augmented Chest X-Ray Masked Autoencoder](/202606/06/2606.01537v1-pacx-mae-physiology-augmented-chest-x-ray-masked-autoencoder)  
+   evidence：胸部X光编码的跨模态蒸馏
+9. [Investigating Adversarial Robustness of Multi-modal Large Language Models](/202606/07/2606.03713v1-investigating-adversarial-robustness-of-multi-modal-large-language-models)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：跨模态蒸馏增强胸部X光片与生理先验
+   evidence：MLLM的对抗鲁棒性研究；与医疗多模态分析中的鲁棒性相关
+10. [SBP-Net: Learning Thin Structure Reconstruction with Sliding-Box Projections](/202606/07/2606.04251v1-sbp-net-learning-thin-structure-reconstruction-with-sliding-box-projections)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：医学影像中薄结构重建
+11. [Can Generalist Agents Automate Data Curation?](/202606/07/2606.04261v1-can-generalist-agents-automate-data-curation)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：通用智能体用于视觉语言指令微调的数据整理
 
 
 <div class="dpr-home-promo-card">
