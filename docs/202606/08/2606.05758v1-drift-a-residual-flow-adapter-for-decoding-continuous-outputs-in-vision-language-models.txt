@@ -1,0 +1,881 @@
+Title: DRIFT: A Residual Flow Adapter for Decoding Continuous Outputs in Vision-Language Models
+
+URL Source: https://arxiv.org/pdf/2606.05758v1
+
+Published Time: Fri, 05 Jun 2026 00:51:51 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# DRIFT: A Residual Flow Adapter for Decoding Continuous Outputs in Vision-Language Models 
+
+Zhuoming Liu 1∗
+
+, Jinhong Lin 1∗
+
+, Kwan Man Cheng 1∗
+
+, Lin Zhang 1, Shayok Bagchi 2, Yin Li 11University of Wisconsin–Madison 2West Lafayette Jr./Sr. High School https://dragonlzm.github.io/DRIFT 
+
+## Abstract 
+
+Many modern vision-language models (VLMs) build on autoregressive decoding of discrete tokens. While text-based output interfaces enable scalable pretraining and strong zero-shot generalization across diverse tasks, they are poorly suited for problems that require precise continuous outputs, such as localizing temporal boundaries of events or generating robotic control actions. To address this chal-lenge, we propose DRIFT, a general framework for adapting pretrained VLMs to continuous decoding tasks. DRIFT combines a base predictor, which provides a coarse estimate of the target output, with a generative refinement module based on flow matching that iteratively improves the prediction. This residual formula-tion transforms the generative modeling problem from learning a global output distribution to modeling a localized residual distribution around a strong prior, substantially simplifying optimization. We evaluate DRIFT on both perception and planning tasks, including visual grounding and robotic control. Across multiple tasks and architectures spanning MLLMs, VLAs, and WAMs, DRIFT consistently outperforms a strong set of regression- and generative-based solutions. 
+
+## 1 Introduction 
+
+Vision-language models (VLMs) [ 29 , 1] pretrained on large-scale visual and textual corpora have achieved remarkable success across perception and planning tasks, leading to the emergence of multimodal large language models (MLLMs) [ 2, 10 ], vision-language-action models (VLAs) [ 20 ,6, 5], and world action models (WAMs) [ 65 , 62 ]. Inspired by the success of language modeling, modern VLMs typically adopt a generic autoregressive backbone ( e.g ., Transformers [ 52 ]) and decode discrete text tokens as their primary output interface. This design enables scalable pretraining via next token prediction, and supports flexible zero-shot transfer to downstream tasks whose outputs can be naturally expressed as text, including classification, captioning, and question answering. However, many important perception and planning tasks fundamentally require predicting continuous quantities. Examples include estimating event timestamps in temporal video grounding (TVG) [ 49 ,21 ] and generating control signals for robotic manipulation in VLA tasks [ 28 , 25 ]. The discrete token interface is poorly suited to such tasks: tokenization introduces quantization errors, discards ordinal structure, and ignores fine-grained variation within bins. At the same time, replacing the discrete interface entirely is undesirable, as it would sacrifice the scalability of language-style pretraining and the generality that enables zero-shot transfer. In this work, we ask the following question: “ How can pretrained VLMs with discrete decoding interfaces be adapted for precise continuous prediction while preserving and leveraging the knowledge acquired during pretraining? ”Existing approaches only partially address this challenge. In MLLMs, prior work often discretizes continuous targets into tokens [ 20 , 2] or appends special tokens with lightweight regression heads [ 69 ].           
+
+> ∗Co-first Author. Preprint.
+> arXiv:2606.05758v1 [cs.CV] 4 Jun 2026 Query: the person was putting the bag into the cabinet.
+> 14.6s 21.2s
+> 18.3s 25.3s
+> 14.3 ±0.9 s 22.1 ±0.8 s
+> 21.6 ±0.4 s 14.7 ±0.5 s
+
+3 
+
+> DRIFT
+> Flow
+> MLP
+> GT
+> Temporal Video Grounding (VTG)
+> MLP DRIFT Flow
+
+2 Vision -Language -Action (VLA)   
+
+> Direct Flow
+> Base
+> Predictor
+> 𝑔 (𝑥 )
+> Nor mal
+> Distribution
+> 𝑁 (0,𝐼 )
+> Target
+> Distribution
+> 𝒟 !"#"
+> Prior Distribution
+> 𝑁 (𝑔 (𝑥 ),𝜎 𝐼 )
+> Flow
+> Refiner
+
+1 DRIFT 
+
+> Residual
+
+Figure 1: (1) : DRIFT learns a velocity field that transports a starting distribution centered at an initial coarse prediction toward the target distribution, simplifying optimization by modeling localized residuals. (2, 3) : Visualization of predicted action trajectories (on Libero-Long) and temporal event boundaries (on Charades-STA) under different decoding strategies. Compared to MLP or flow matching, DRIFT produces more accurate and stable predictions with lower variance. In VLAs and WAMs, diffusion- and flow-based action decoders have emerged as dominant approaches for generating continuous outputs [ 6, 5, 65 ]. Tokenization and direct regression are fundamentally deterministic and thus struggle to model uncertainty in continuous prediction, including multimodal output distributions [8] and high-variance modes [37, 70] (Figure 1-2,3). Diffusion- and flow-based approaches alleviate this issue by iteratively refining predictions through generative modeling in continuous space. However, they typically require substantially more training data and optimization effort, can exhibit high prediction variance in low-data regimes (Figure 1-2,3), and must devote modeling capacity to global structure that can be readily captured by deterministic predictors. 
+
+Our key insight is that deterministic prediction and iterative generative refinement can form a natural cascade. Deterministic predictors leverage pretrained representations to produce efficient coarse estimates, while generative refinement effectively captures uncertainty and recovers fine-grained structure around these estimates. Leveraging this insight, we propose DRIFT (D ecoding via Res i dual Flow Adap ter), a general framework for adapting pretrained VLMs to continuous decoding tasks. DRIFT introduces a lightweight residual flow adapter that augments a base predictor such as a token decoder or multilayer perceptron (MLP) regressor, with a flow-matching-based refinement module. Rather than generating predictions from scratch, DRIFT models the residual error distribution around an initial coarse prediction and progressively refines it using flow matching (Figure 1-1). This residual formulation transforms the generative modeling problem from learning a global output distribution to modeling a localized residual distribution around a strong prior, substantially simpli-fying optimization and improving learning efficiency. Building on this formulation, we develop a general adaptation framework and effective training strategy applicable across diverse perception and planning tasks, provide theoretical analysis of its optimization advantages, and demonstrate strong empirical performance across a broad range of continuous decoding tasks. We evaluate DRIFT on both perception and planning tasks. For perception, we study spatial visual grounding and temporal video grounding using MLLMs. For planning, we evaluate robotic control tasks using recent VLA and WAM architectures. Across all settings, DRIFT consistently improves over both direct regression baselines and standalone flow-matching decoders, while achieving state-of-the-art performance on several TVG and VLA benchmarks. For example, on TVG benchmarks, DRIFT achieves gains of +2.6% on Charades-STA and +2.1% on ActivityNet Captions compared to the latest methods [ 44 ]. In VLA tasks, DRIFT built on Qwen3-VL-2B [ 2] achieves 97.9% average accuracy on Libero benchmarks and 61.5% accuracy on Simpler WidowX. 
+
+Our main contributions are summarized as follows. • We introduce DRIFT, a general framework for adapting pretrained vision-language models with discrete decoding interfaces to precise continuous prediction tasks. • Our key innovation lies in a residual refinement adapter that combines efficient coarse predic-tion with flow-matching-based refinement, together with theoretical analysis of its optimization advantages and an effective training strategy. 2• Through extensive experiments across visual grounding and robotic manipulation benchmarks, we demonstrate strong empirical results across multiple VLM architectures. 
+
+## 2 Related Work 
+
+Vision Language Models (VLMs). VLMs learn from paired visual and textual data to ad-dress a broad range of vision-language tasks. In particular, multi-modal large language models (MLLMs) [ 29 , 2 , 10 , 22 , 1] have emerged as powerful frameworks for learning transferable cross-modal representations from massive-scale image-text and video-text datasets, enabling sophisticated multimodal understanding and reasoning [ 11 , 66 , 23 ]. Beyond passive perception, another line of VLM research focuses on action control, leading to vision-language-action (VLA) models [ 20 , 6 , 5 ]. These models are typically pretrained on large-scale action trajectories to improve cross-embodiment generalization and can be adapted to diverse downstream manipulation tasks with limited fine-tuning. More recently, researchers have begun to connect scene generation with action control, giving rise to world-action models (WAMs) [ 65 , 62 ], which aim to model both environmental dynamics and action-conditioned interactions. Many of these models follow the design of large language models, using Transformer backbones to decode discrete tokens. Our framework, DRIFT, builds upon pretrained VLMs with discrete output interfaces and equips them with precise continuous decoding capabilities. 
+
+Vision Tasks with Continuous Output. Many perception and planning tasks require outputs that are inherently continuous rather than purely discrete. In this work, we focus on two representative tasks: (1) visual grounding [ 59 ], which localizes the spatial or temporal extent of a visual concept in an image or video given a language query, and (2) VLA tasks [ 28 , 25 ], which predicts continuous robot action trajectories conditioned on visual observations and language instructions. Prior work has explored several ways to adapt VLMs to such continuous-output tasks. For visual grounding, some methods [ 2, 9, 31 , 51 , 2] discretize box coordinates or timestamps into tokens, while others [ 44 , 38 ,26 ] attach an MLP head to directly regress continuous values. For VLA tasks, existing approaches either use a simple MLP decoder to predict action trajectories from VLM representations [ 69 ], or adopt diffusion- or flow-matching-based heads [6, 7, 71] to improve action precision. Unlike these task-specific decoding strategies, DRIFT provides an efficient and general adapter for extending pretrained VLMs to continuous-output tasks. By refining continuous predictions around a learned prior, our framework supports diverse perception and planning problems while preserving the reusable Transformer backbone of existing VLMs. 
+
+Diffusion and Flow Matching. Diffusion models [ 14 , 50 ] seek to reverse a forward “diffusion” process that progressively injects noise into data by learning a denoising function. Flow matching models [ 27 , 30 ] simplify the training of continuous-time normalizing flows as supervised regression over target vector fields, leading an objective closely connected to diffusion models. While both frameworks were initially designed for generative modeling [ 48 , 43 ], recent research has expanded their utility to continuous value decoding in VLA [8, 6, 61]. Our framework combines a base predictor with a flow-matching-based generative refinement module. We formulate this design as a general adaptation framework for VLMs and provide theoretical justification for its optimization advantages. 
+
+## 3 DRIFT: Decoding Continuous Output via Residual Flow Adapter 
+
+3.1 Preliminaries: Decoding Continuous Outputs in Autoregressive VLMs Autoregressive VLMs . An autoregressive VLM takes an image or video Xv and a text query 
+
+Xq = {xq } as its input, and generates an answer Xa = {xa} in text form. Specifically, Xv is first encoded by a visual encoder Ev (·) (including a vision backbone and its projector) into a set of vision tokens {zv ∈ Rd}. Similarly, Xq is processed by a text encoder Et(·), which embeds the words 
+
+{xq } into a set of text tokens {zq ∈ Rd}. These tokens are combined into {zv|q } = [ {zv }, {zq }],and processed by f (·) (often a LLM) that decodes the answer Xa autoregressively 
+
+zai = f
+
+h 
+
+{zv|q }, {za<i }
+
+i
+
+; θf
+
+
+
+, xai = Dt(zai ), (1) 3𝑧 
+
+𝑦 #
+
+𝑦   
+
+> Base
+> Predictor g
+> Flow
+> Refiner ℎ
+
+1     
+
+> Flow
+> DRIFT
+> 4K steps 8K steps 12K steps Mode = 2 Mode = 4 Mode = 8
+> Ground
+> Truth
+
+2
+
+> DRIFT
+
+Figure 2: (1) : Overview of DRIFT , which combines a base predictor with a generative refinement module for continuous decoding conditioned on VLM embedding z. (2) : Toy experiments on a synthetic 2D dataset projected into a high-dimensional space with a fixed, random, column-orthogonal projection matrix, following [ 24 ]. A 3-layer MLP is trained to model the velocity field in the projected space. The projection matrix is unknown to the model, and only used for visualizing the output. 
+
+(2-Left) : DRIFT achieves faster convergence than flow matching. (2-Right) : As the underlying distribution becomes increasingly multimodal, DRIFT more accurately recovers the target distribution. where Dt(·) is the decoding function that converts the embedding zai to the answer token xai in text, and {za<i } are text tokens from previously generated answer xa<i , i.e . za = Et(xa).
+
+Decoding Continuous Outputs . For many vision tasks, Xa involves a continuous output. For simplicity, we consider a single continuous output yi = xai ∈ Rc at slot i with dimension c, though the formulation can be easily extended to multiple variables. Without loss of clarity, we drop the subscript i and the superscript a hereafter. To decode a continuous y, a separate decoding function 
+
+g(z) → y is often needed. When tokenization is applied to y, g can re-use the discrete decoder Dt.In direct regression , a special token xs representing the continuous output is introduced, and g is realized as either a simple MLP. The decoder g is activated only when xs is generated. When using 
+
+diffusion or flow match heads, a noise or time dependent version of g will be learned to model the conditional probability p(y|z), again, with the help of special tokens xs.This continuous decoding function g can be provided as part of the modern VLMs, often in the form of tokenization or a simple MLP. For example, Qwen3-VL [ 2] have incorporated visual grounding into pre-training by representing numerical quantities as discrete text tokens. When g is not presented, we implement g with an MLP that is joint learned with DRIFT. 
+
+Flow Matching . Flow matching [ 27 ] or diffusion [ 8] heads can be used for continuous decoding. Their formulations differ slightly. Here we provide a brief introduction to flow matching since it is most relevant to our method. Conditional flow matching learns a velocity field vθ (y(t), t, z ) ≜
+
+dy (t)/dt , typically a neural network with parameters θ, that transports samples from a known noise distribution to a target distribution p(y|z). With target y(t = 1) ∈ Rc, noise y(t = 0) ∈ Rc ∼N (0, I), and time t ∼ U (0 , 1) , the linear interpolant y(t) = (1 −t) y(t = 0) + t y (t = 1) has ground-truth velocity v∗ = y(t = 1) − y(t = 0) . The standard flow-matching loss is 
+
+LFM = E
+
+h
+
+∥vθ (y(t), t, z ) − v∗∥22
+
+i
+
+. (2) Training minimizes Eq. (2) with respect to the parameters θ in the veolocity field vθ (·). Inference predicts y(t = 1) by solving the ODE dy/dt = vθ (y(t), t, z ) given y(t = 0) and z.
+
+3.2 Design of DRIFT Problem Formulation . Our goal is to decode continuous output y ∈ Rc from VLM embedding z
+
+without modifying existing VLM architecture. Our key intuition is that a simple base predictor g,built on the learned VLM representation, can provide a strong initial estimation and such estimation can be further refined by a generative model. To this end, we propose learning a velocity field vθ (y(t), t, z ) that transports a Gaussian distribution 
+
+N (ˆ y ≜ g(z), σ I) centered at the coarse prediction ˆy ≜ g(z), towards the target conditional distribu-tion p(y|z). Here σ ∈ Rc scales the variance of the Gaussian and is learned from data. In contrast to standard flow matching, which transports N (0, I) to p(y|z), our approach, illustrated in Figure 2-1, initializes starting distribution using the coarse prediction ˆy, offering a strong prior over y
+
+4Parameterization . We parameterize the velocity field as 
+
+vθ (y(t), t, z ) = yθ (y(t), t, z ) − y(t)1 − t , (3) where yθ (·) aims to directly predict the target output y(t = 1) . This parameterization has been recently discussed for generation tasks and shows competitive performance to velocity prediction [24]. Predicting the target y allows us to add a skip connection to the base predictor g. This is given by 
+
+yθ (y(t), t, z ) = α g (z) + (1 − α) hθ (y(t), t, z ). (4) 
+
+hθ (·) is time-dependent and can be considered as the refinement module . It iteratively refines the residual between y and the coarse prediction ˆy. α is a learnable gating vector that selectively combines the outputs of the base predictor g and the refinement module hθ (·).
+
+Learning Target . We consider the following linear interpolant, also referred to as the bridge state ,
+
+y(t) = (1 − t)( σϵ + g(z)) + ty,  (5) where ϵ ∼ N (0, I). The target velocity is given by v∗ = dy (t)/dt = y − σϵ − ˆy. We follow the standard flow matching loss in Eq. 2. We sample t ∈ U (0 , 1) , construct y(t) by mixing a noise ϵ with a target output y, compute its velocity at t with the corresponding condition z following Eq. 3, and then minimizes the mean squared error (MSE) between the predicted velocity and the target flow 
+
+v∗. Our learnable parameters include: (1) θ in hθ (·), which models the residual error; (2) the gating vector α, which balances the coarse prediction and its refinement; and (3) the scaling vector σ, which controls the variance of the initial Gaussian distribution. It is worth noting that an alterative linear interpolant is y(t) = (1 − t)σϵ + t(y − g(z)) . When the based predictor g(·) is fixed, these two interpolants are mathematically equivalent. However, the equivalence no longer holds when g(·) is jointly learned. In that case, they present two conceptually different ways of modeling. Eq. 5 first “shifts” the Gaussian distribution to σϵ + g(z) and then model the transport from the shifted distribution to the target distribution. In contrast, the alternative interpolant here direct models the gaps between the initial Gaussian and the distribution of the residual error. Practically, Eq. 5 offers greater flexibility in modeling. For example, it allows the skip connection in our refinement module (Eq. 4). Empirically, we validate that Eq. 5 provides minor performance benefits in our ablation studies (see Section 4.4). 
+
+Joint Training with the Base Predictor . When the base predictor g is already provided as part of the VLM, we either keep its parameters frozen or update them, based on the setting. When such a predictor is unavailable, we instantiate g as an MLP regressor, supervise it with an additional MSE loss Lp (with the overall loss as LFM + Lp), and jointly optimize its parameters. A key challenge in this joint optimization setting is that the model can collapse to relying primarily on the flow matching model while ignoring the coarse predictor g. We find that stable learning requires applying gradient stopping to g(·) when computing the linear interpolant using Eq. 5. 
+
+Inference . At inference time, we sample Gaussian noise ϵ ∼ N (0, I) and initialize the trajectory as 
+
+y(0) = g(z) + σϵ . We then solve the ODE dy (t)/dt = vθ (y(t), t, z ) to obtain the final prediction 
+
+y(1) . Since our model is inherently generative and ODE integration typically requires only a small number of steps ( e.g . 10-20), when needed, we can efficiently draw multiple samples and average their predictions, which reduces prediction bias and often leads to slightly more accurate estimates. 
+
+3.3 Toy Experiments and Theoretical Justification 
+
+We present results of DRIFT and a vanilla flow matching model on several toy examples in Figure 2-2. DRIFT provides a more faithful characterization of the underlying data distribution by effectively disentangling its modes. In addition, we provide a detailed theoretical analysis in Appendix A, assuming a fixed base predictor 
+
+g(z). In summary, residual refinement strictly reduces prediction error compared with using the base predictor g(z) alone, as long as the bridge state y(t) carries information about the residual r = y − ˆy
+
+beyond what g(z) already captures. Intuitively, y(t) is a noisy interpolation between the initial prediction ˆy and the true target y, so it inherently contains a partial target signal that the refinement module h(y(t), t, z ) can exploit to better approximate r. Compared with applying flow matching directly to y, when the base predictor already captures the condition-dependent mean structure, both 5Method Base Model Action Decoder Libero [28] ↑ Simpler [25] ↑                                                                              
+
+> Spatial Object Goal Long AVG
+> Methods with VLA pretraining
+> OpenVLA* [20] Prismatic-7B [17] Tokenizer 83.1 88.5 76.4 54.1 75.5 7.7
+> π0[6] PaliGemma-3B [4] Flow 96.8 98.8 95.8 85.2 94.1 27.1
+> π0.5[5] PaliGemma-3B [4] Flow 98.8 98.2 98.0 92.4 96.9 57.1
+> Methods based on Adaptation
+> VLA-Adaptor [57] Qwen-2.5-0.5B [60] Diffusion 97.8 99.2 97.2 95.0 97.3 N/A VLM4VLA [69] Qwen3-VL-2B [2] MLP N/A N/A N/A 55.8 N/A 49.0 VLM4VLA [69] InternVL3.5-4B [55] MLP N/A N/A N/A 62.8 N/A 57.3 InternVLA [7] Qwen2.5-VL-3B [3] Diffusion 98.0 99.0 93.8 92.6 95.8 54.2 DRIFT OpenVLA-7B [20] DRIFT-Tokenizer 87.0 89.1 77.5 57.0 77.7 13.5 DRIFT Qwen3-VL-2B [2] DRIFT-MLP 98.8 99.2 97.0 96.4 97.9 61.5
+
+Table 1: Results on VLA Benchmarks. We report action success rates, where * indicates repro-duced results. DRIFT-MLP and DRIFT-Tokenizer use MLP and tokenization-based base predictors, respectively. Across Libero and Simpler benchmarks, DRIFT consistently improves upon OpenVLA and achieves state-of-the-art performance with the Qwen3-VL-2B backbone. the residual signal r and the residual velocity field have smaller second moments, and the bridge is confined to a narrower tube around the prior. The refinement module therefore only needs to learn a local correction rather than transport noise to the full target, which accounts for the faster convergence and improved accuracy of DRIFT. 
+
+## 4 Experiments and Results 
+
+We evaluate DRIFT on VLA (Section 4.1) and TVG (Section 4.2) benchmarks. We further demon-strate the generality of DRIFT in Section 4.3, including its extension to 2D spatial grounding and its integration with a world action model. Finally, we present ablation studies in Section 4.4. 
+
+4.1 Results of Vision-Language-Action Tasks 
+
+VLA tasks aim to predict robot actions conditioned on visual inputs and language instructions. Given an observation of the environment and a task description, a VLA model generates continuous control signals for robotic manipulation. The predicted actions are executed by the robot, after which new observations are collected and fed back into the model, resulting in a closed-loop control process. 
+
+Experiment Design . We instantiate DRIFT individually with Qwen3-VL-2B-Instruct [ 2] and Open-VLA [ 20 ] as VLM backbones. Qwen3-VL is a recent MLLM pretrained on large-scale multimodal corpora, but it does not provide a dedicated base predictor for VLA tasks. We use this model to study how large-scale pretraining benefits continuous action decoding and to evaluate the joint optimization of the base predictor and flow-matching-based refinement. OpenVLA, in contrast, is a VLA model that predicts actions through tokenization. We include this model to demonstrate how DRIFT can refine predictions on top of an existing base predictor. 
+
+Experiment Protocol . We evaluate DRIFT on Libero-Spatial, Libero-Object, Libero-Goal, Libero-Long [ 28 ], and Simpler [ 25 ] with WidowX robot arm. Both Libero and Simpler are simulation based benchmarks, with a focus on tabletop object manipulation tasks. We train DRIFT on the LIBERO training set for LIBERO experiments, and on the Bridge and Fractal splits of OXE [ 41 ]when evaluating the policy on Simpler with WidowX. On Libero, we run 50 trials for each of the 10 subtasks in every suite. On Simpler WidowX, we run 24 trials for each of 4 subtasks. We report the action success rate as our evaluation metric. 
+
+Implementation Details. We attach LoRA [ 15 ] adapters to the backbone VLM, including the vision encoder and the LLM, and jointly train DRIFT with the base predictor. Appendix B.2 provides full implementation details and hyperparameters. 
+
+Baselines . We compare against two groups of baselines: (1) models with large-scale robotic pretraining, including OpenVLA [ 20 ], π0 [6 ], and π0.5 [5] and (2) methods based on adaptation such as VLA-Adaptor [57], VLM4VLA [69], and InternVLA [7]. 
+
+Results . The results are presented in Table 1. With OpenVLA as the base model, DRIFT achieves consistent improvement across different sub-tasks on Libero and Simpler. Particularly, DRIFT raises the Libero average from 75.5% to 77.7% and Simpler from 7.7% to 13.5%. With Qwen3-VL-2B, 6Method # Train Charades-STA [12] ↑ ActivityNet-Captions [21] ↑                                                                                                                                                       
+
+> R@0.3 R@0.5 R@0.7 mIoU R@0.3 R@0.5 R@0.7 mIoU
+> Non-generalist (Specialist) Models
+> UniVTG [26] 4.2M 44.1 25.2 10.0 27.1 ––––SeViLA [64] 129M ––––31.6 19.0 10.1 23.0 PSVL [39] –46.2 31.3 14.2 31.2 44.7 30.1 14.7 29.6 LT-ZVG [19] –52.9 37.2 19.3 36.0 47.6 32.6 15.4 31.8
+> Generalist (LLM-based) Models
+> Video-LLaMA [68] 2.7M 25.2 10.6 3.4 16.8 21.9 10.8 4.9 16.5 Video-ChatGPT [35] 100K 27.2 6.2 1.9 19.7 19.5 10.6 4.8 14.2 Valley [34] 100K 28.4 1.8 0.3 21.4 30.6 13.7 8.1 21.9 VideoChat2 [23] 2M 38.0 14.3 3.8 24.6 40.8 27.8 9.3 27.9 Momentor [45] 10M 42.6 26.6 11.6 28.5 42.9 23.0 12.4 29.3 VTimeLLM [16] 170K 51.0 27.5 11.4 31.2 44.0 27.8 14.3 30.4 TimeChat [47] 125K –32.2 13.4 –––––HawkEye [58] 715K 50.6 31.4 14.5 33.7 49.1 29.3 10.7 32.7 ChatVTG [46] 100K 52.7 33.0 15.9 34.9 40.7 22.5 9.4 27.2 ED-VTG [44] 136K 59.5 39.3 19.8 40.2 52.1 33.1 16.0 35.2 ET-Chat [32] 164K 65.7 45.9 20.0 42.3 24.1 12.7 6.2 18.9 DRIFT (ET-Chat) 100K 67.2 44.8 20.6 43.8 57.9 35.8 14.1 37.3
+
+Table 2: Results on Temporal Video Grounding. We evaluate the zero-shot generalization capability of DRIFT on the Charades-STA [ 12 ] and ActivityNet Captions [ 21 ] test splits, and compare against existing baselines. We report Recall@1 at IoU thresholds ∈ 0.3, 0.5, 0.7 together with mean IoU (mIoU). Baseline results are taken from ED-VTG [ 44 ], except for ET-Chat, whose results are reproduced using the released checkpoint under the same evaluation protocol. “# Train” denotes the size of the temporal grounding adaptation corpus. DRIFT outperforms ED-VTG, the strongest generalist baseline, on both datasets, with the largest gains observed on R@1@0.3 and mIoU metrics. DRIFT reaches 97.9% average success rate on Libero and 61.5% on Simpler, achieving new state-of-the-art performance on both benchmarks. We outperform the VLM4VLA with Qwen3-VL-2B by a clear margin, demonstrating the effectiveness of DRIFT. Yet, we see a major gap between DRIFT initialized with OpenVLA and Qwen3-VL, which reveals that the pretraining of the VLM has a strong effect on the downstream task. The general improvement in the vision understanding of Qwen3-VL provides strong action representation helpful for DRIFT, and thus yields better results. 
+
+4.2 Results of Temporal Video Grounding 
+
+TVG aims to localize the temporal segment in a video that corresponds to a natural language query. Given a video and a text description, the model predicts continuous start and end timestamps indicating when the described event occurs. 
+
+Experiment Design . We adopt ET-Chat [32 ] as the VLM backbone, following the ED-VTG [ 44 ]protocol for fair comparison with prior generalist baselines. ET-Chat natively localizes events by cosine-matching a generated ⟨vid ⟩ token’s hidden state to frame embeddings; we replace this matching head with an MLP that regresses (tstart , t end ) from the same hidden state, providing the base prediction that DRIFT refines. The MLP, flow refiner, and LoRA adapters are jointly trained on TimeLens-100K [ 70 ]; Charades-STA and ActivityNet-Captions training splits are unseen, so all results are cross-dataset zero-shot. 
+
+Experiment Protocol . We follow the protocol used by ED-VTG [ 44 ], whose standard splits enable direct comparison with the broader TVG literature. We train on TimeLens-100K [ 70 ]. We evaluate on the Charades-STA [ 12 ] and ActivityNet-Captions [ 21 ] test splits, and report Recall@1 at IoU thresholds τ ∈ { 0.3, 0.5, 0.7} (R1@ τ ) and mean IoU (mIoU). 
+
+Implementation Details. Our implementation follows ET-Chat’s native video pipeline at 1 FPS, freezes the visual encoder and frame compressor, LoRA-tunes the LLM attention projections, and trains the residual-flow head jointly with the adapters. Further implementation details and hyperpa-rameters can be found in Appendix B.3. 
+
+Baselines. We report results for a strong set of generalist zero-shot baselines on Charades-STA and ActivityNet Captions, while additionally including specialist models for reference. The most relevant comparison is the vanilla ET-Chat baseline evaluated under the same protocol, since DRIFT builds upon ET-Chat as its backbone. Among all baselines, ED-VTG achieves the best performance. 7Method refcoco refcoco+ refcocog AVG Qwen-VL [2] 89.6 81.8 85.5 85.6 Qwen-VL (w/ DRIFT) 91.7 85.8 87.9 88.5 
+
+Table 3: Results on Spatial Grounding. In-tegrating DRIFT into Qwen3-VL-2B improves performance on RefCOCO benchmarks. Method Spatial Object Goal Long AVG FastWAM [65] 97.6 99.4 95.6 95.0 96.9 FastWAM (w/ DRIFT) 99.2 99.0 98.2 96.2 98.2 
+
+Table 4: Results with World Action Models. 
+
+Integrating DRIFT with FastWAM improves per-formance on the Libero benchmarks. DRIFT          
+
+> Flow
+> MLP
+> Prompt: put the yellow and white mug in the microwave
+> and close it.
+> Prompt: put the white mug on the left plate and put the
+> yellow and white mug on the right plate.
+> Prompt: Localize the video moment according to
+> the query 'a person reads a book'.
+> 0.0s 18.7s
+> 2.5s 9.3s
+> 2.9s 23.7s
+> 17.8s 0.1s
+> Prompt: Localize the video moment according to
+> the query 'person take a drink from their water
+> bottle'.
+> 19.4s 33.0s
+> 16.0s 31.7s
+> 25.8s 14.3s
+> 15.7s 25.2s
+> Ground
+> Truth MLP Flow DRIFT
+> DRIFT
+> Flow
+> MLP
+
+Figure 3: Qualitative Results. Left: Integrating a base predictor and a flow-based refiner enables DRIFT to generate more accurate and stable action trajectories, improving action precision and overall task success rates. Right: Through iterative refinement of the coarse prediction, DRIFT produces sharper and more accurate event temporal boundaries. 
+
+Results. Table 2 reports the VTG results. DRIFT (ET-Chat) outperforms ED-VTG, the strongest ED-VTG-reported generalist baseline, on 7 of 8 IoU/mIoU columns; the only exception is ActivityNet-Captions R@0.7, where DRIFT trails ED-VTG by 1.9%. On Charades-STA, where vanilla ET-Chat already exceeds ED-VTG by 6.2% at R@0.3, DRIFT adds +1 .5% R@0.3 ( 65 .7% → 67 .2% ) and 
+
++1 .5% mIoU ( 42 .3% → 43 .8%), with R@0.5 within ±1% of ET-Chat. On ActivityNet-Captions, vanilla ET-Chat is weaker (R@0.3 24.1%, mIoU 18.9%); DRIFT lifts these to 57.9% and 37.3% respectively, surpassing ED-VTG on R@0.3, R@0.5, and mIoU. 
+
+4.3 Further Demontration 2D Spatial Grounding . We further adapt DRIFT to 2D spatial grounding tasks. Specifically, we attach DRIFT to the Qwen3-VL-2B model. We then train and evaluate the model on the RefCOCO series datasets [ 18 , 36 , 63 ]. As shown in Table 3, DRIFT consistently improves the performance of Qwen3-VL by a clear margin across all benchmarks, demonstrating the versatility and generality of our framework. Further details are provided in the Appendix B.4. 
+
+World Action Model . We further explore adapting DRIFT to recent world action models. Specifically, we integrate DRIFT with FastWAM [ 65 ]. Unlike the other models considered in this paper, FastWAM already employs a flow matching based decoder for predicting continuous actions. In this setting, we introduce an additional base predictor using MLP and jointly optimize it together with FastWAM’s original flow decoder. We train the model following FastWAM’s training recipe, and present the results in Table 4. DRIFT consistently improves FastWAM on the Libero benchmark suite, further demonstrating the generality of our framework. Additional details are provided in the Appendix B.5. 
+
+Qualitative Results . Figure 3-left visualizes actions generated by different decoders on Libero-Long tasks. In VLA settings, even small variations in the predicted action can lead to task failure. For 8(a) Decoder             
+
+> Decoder LL MLP 88.2 ±0Diffusion 92.23 ±0.64 Flow 93.67 ±0.35 DRIFT 96.33 ±0.23 (b) Co-training Effect
+
+Decoder LL MLP 88.2 MLP as base 93.0 DRIFT 96.4 (c) DRIFT design Direct Flow DRIFT v-pred x-pred v-pred x-pred w/ skip w/ Lp N/A N/A N/A 93.8 w/o Lp N/A N/A N/A 93.6 w/o skip w/ Lp 92.4 91.2 91.0 92.2      
+
+> w/o Lp91.0 91.2 93.2 93.4
+
+Table 5: Ablation Studies on Libero-Long. (a) DRIFT outperforms MLP, diffusion, and flow-based decoders. (b) Joint training improves the action representations. (c) The best-performing configuration uses DRIFT with x-prediction and a skip connection. example, the grasping angle of the cup can prevent successful placement into the microwave (top example), while slight deviations in the release position can cause failures when placing the cup onto the plate (bottom example). By progressively refining the coarse prediction from the base predictor, DRIFT generates more accurate actions and consequently improves task success rates. Similarly, Figure 3-right compares predictions from different decoders on TVG tasks. Exact temporal boundaries are often ambiguous. Through iterative refinement, DRIFT produces sharper temporal boundaries, leading to improved localization accuracy and overall performance. 
+
+4.4 Ablation Study 
+
+We conduct an extensive ablation study of DRIFT on VLA on Libero-Long with Qwen3-VL-2B as the base model. Implementation details are the same as the training setup as in Section 4.1. 
+
+Decoder Structure and Prediction Variance. We compare DRIFT against MLP regression, Flow Matching [ 27 ], and Diffusion [ 42 ] decoders. Table 5(a) summarizes the results, averaged across three runs. Both Flow Matching and Diffusion provide strong generative baselines for continuous decoding. Nevertheless, DRIFT consistently achieves clear improvements over both approaches. 
+
+DRIFT Learns Improved Action Representations . Table 5(b) shows the effects of jointly training the base predictor with the flow matching based refinement module. A standalone MLP baseline achieves 88.2% on Libero-Long, while the same MLP, when co-trained as the base predictor within DRIFT, improves to 93.0%. Incorporating the full DRIFT decoder further boosts performance to 96.4%. We hypothesize that joint training encourages the VLM to learn more informative action representations, thereby improving the performance of the base predictor itself. 
+
+Model Design . Finally, we compare the main design choices inside DRIFT on Libero-Long with Qwen3-VL-2B, using the same setup as Section 4.1 except for a shorter 30K-step training schedule. We vary (1) the linear interpolant: yt = (1 − t)ϵ + t(y − ˆy) (Direct Flow) vs. our design (DRIFT) 
+
+yt = (1 − t)( ϵ + ˆ y) + ty in Eq. 5, (2) velocity prediction ( v-pred) vs. signal prediction ( x-pred), (3) skip connection vs. no skip connection, and (4) with or without the base predictor loss Lp. When without Lp loss, we allow the gradients from refinement module to back-propagate to the base predictor. Table 5(c) presents the design comparison. Among the valid configurations, the best result is our current design, x-prediction, skip-connection variant with Lp, which reaches 93.8%. Without the skip connection, the same interpolant with x-pred reaches 93.4%, still outperforming the Direct Flow alternatives at 91.2%. The effect of Lp is modest: with the skip connection, it changes 93.6% to 93.8%, while in the no-skip setting, the best score is obtained without it. 
+
+## 5 Conclusion 
+
+In this paper, we presented DRIFT, a general framework for adapting pretrained VLMs to continuous decoding tasks. DRIFT introduces a lightweight residual flow adapter that augments a base predictor with a flow-matching-based refinement module. It progressively refines an initial coarse prediction by modeling residual errors around a strong prior. This residual formulation simplifies generative modeling, improves optimization and learning efficiency, and enables effective continuous decoding across diverse tasks and architectures. Building on this, we develop a general adaptation framework and training strategy, supported by theoretical analysis of its optimization advantages. Through extensive experiments on visual grounding and robotic control tasks spanning MLLMs, VLAs, 9and WAMs, we demonstrate consistent improvements over strong regression- and generative-based baselines. We hope our work can shed light on post-training strategies for extending VLMs beyond discrete token generation toward more precise and expressive continuous outputs. 
+
+Limitation and Future Work . DRIFT relies on the presence of a sufficiently informative base predictor, and thus assumes that the underlying VLM already encodes representations relevant to the target continuous decoding task. In settings where such priors are weak or unavailable, the benefits of residual refinement may diminish. Further, our VLA experiments are limited to simulation environments. While such benchmarks are standard in VLA research, extending DRIFT to real-world robotic systems and studying sim-to-real transfer remain important directions for future work. 
+
+## References 
+
+[1] Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, Antoine Miech, Iain Barr, Yana Hasson, Karel Lenc, Arthur Mensch, Katherine Millican, Malcolm Reynolds, Roman Ring, Eliza Rutherford, Serkan Cabi, Tengda Han, Zhitao Gong, Sina Samangooei, Marianne Monteiro, Jacob L Menick, Sebastian Borgeaud, Andy Brock, Aida Nematzadeh, Sahand Sharifzadeh, Mikoł aj Bi´ nkowski, Ricardo Barreira, Oriol Vinyals, Andrew Zisserman, and Karén Simonyan. Flamingo: a visual language model for few-shot learning. In Advances in Neural Information Processing Systems , volume 35, pages 23716–23736. Curran Associates, Inc., 2022. [2] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 , 2025. [3] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-vl technical report. 
+
+arXiv preprint arXiv:2502.13923 , 2025. [4] Lucas Beyer, Andreas Steiner, André Susano Pinto, Alexander Kolesnikov, Xiao Wang, Daniel Salz, Maxim Neumann, Ibrahim Alabdulmohsin, Michael Tschannen, Emanuele Bugliarello, et al. Paligemma: A versatile 3b vlm for transfer. arXiv preprint arXiv:2407.07726 , 2024. [5] Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, Danny Driess, Adnan Esmail, Michael Robert Equi, Chelsea Finn, Niccolo Fusai, Manuel Y. Galliker, Dibya Ghosh, Lachy Groom, Karol Hausman, brian ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke, Devin LeBlanc, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Allen Z. Ren, Lucy Xiaoyang Shi, Laura Smith, Jost Tobias Springenberg, Kyle Stachowicz, James Tanner, Quan Vuong, Homer Walke, Anna Walling, Haohuan Wang, Lili Yu, and Ury Zhilinsky. 
+
+π0.5: a vision-language-action model with open-world generalization. In 9th Annual Conference on Robot Learning , 2025. [6] Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Lucy Xiaoyang Shi, James Tanner, Quan Vuong, Anna Walling, Haohuan Wang, and Ury Zhilinsky. π0: A vision-language-action flow model for general robot control. In RSS , 2025. [7] Xinyi Chen, Yilun Chen, Yanwei Fu, Ning Gao, Jiaya Jia, Weiyang Jin, Hao Li, Yao Mu, Jiangmiao Pang, Yu Qiao, et al. Internvla-m1: A spatially guided vision-language-action framework for generalist robot policy. arXiv preprint arXiv:2510.13778 , 2025. [8] Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. 
+
+The International Journal of Robotics Research , 44(10-11):1684–1704, 2025. [9] Christopher Clark, Jieyu Zhang, Zixian Ma, Jae Sung Park, Mohammadreza Salehi, Rohun Tripathi, Sangho Lee, Zhongzheng Ren, Chris Dongjoo Kim, Yinuo Yang, et al. Molmo2: Open weights and data for vision-language models with video understanding and grounding. arXiv preprint arXiv:2601.10611 , 2026. 10 [10] Matt Deitke, Christopher Clark, Sangho Lee, Rohun Tripathi, Yue Yang, Jae Sung Park, Mohammadreza Salehi, Niklas Muennighoff, Kyle Lo, Luca Soldaini, et al. Molmo and pixmo: Open weights and open data for state-of-the-art vision-language models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 91–104, 2025. [11] Chaoyou Fu, Yuhan Dai, Yongdong Luo, Lei Li, Shuhuai Ren, Renrui Zhang, Zihan Wang, Chenyu Zhou, Yunhang Shen, Mengdan Zhang, et al. Video-mme: The first-ever comprehensive evaluation benchmark of multi-modal llms in video analysis. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 24108–24118, 2025. [12] Jiyang Gao, Chen Sun, Zhenheng Yang, and Ram Nevatia. TALL: Temporal activity localization via language query. In Proceedings of the IEEE International Conference on Computer Vision (ICCV) , pages 5267–5275, 2017. [13] Lisa Anne Hendricks, Oliver Wang, Eli Shechtman, Josef Sivic, Trevor Darrell, and Bryan Russell. Localizing moments in video with natural language. In Proceedings of the IEEE International Conference on Computer Vision (ICCV) , 2017. [14] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In 
+
+Advances in Neural Information Processing Systems (NeurIPS) , volume 33, pages 6840–6851, 2020. [15] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Liang Wang, Weizhu Chen, et al. Lora: Low-rank adaptation of large language models. Iclr , 1(2):3, 2022. [16] Bin Huang, Xin Wang, Hong Chen, Zihan Song, and Wenwu Zhu. VTimeLLM: Empower LLM to grasp video moments. In CVPR , 2024. [17] Siddharth Karamcheti, Suraj Nair, Ashwin Balakrishna, Percy Liang, Thomas Kollar, and Dorsa Sadigh. Prismatic vlms: Investigating the design space of visually-conditioned language models. In International Conference on Machine Learning (ICML) , 2024. [18] Sahar Kazemzadeh, Vicente Ordonez, Mark Matten, and Tamara Berg. Referitgame: Referring to objects in photographs of natural scenes. In Proceedings of the 2014 conference on empirical methods in natural language processing (EMNLP) , pages 787–798, 2014. [19] Dahye Kim, Jungin Park, Jiyoung Lee, Seongheon Park, and Kwanghoon Sohn. Language-free training for zero-shot video grounding. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV) , pages 2539–2548, January 2023. [20] Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair, Rafael Rafailov, Ethan Foster, Grace Lam, Pannag Sanketi, Quan Vuong, Thomas Kollar, Benjamin Burchfiel, Russ Tedrake, Dorsa Sadigh, Sergey Levine, Percy Liang, and Chelsea Finn. OpenVLA: An open-source vision-language-action model. In CoRL , 2024. [21] Ranjay Krishna, Kenji Hata, Frederic Ren, Li Fei-Fei, and Juan Carlos Niebles. Dense-captioning events in videos. In Proceedings of the IEEE international conference on computer vision , pages 706–715, 2017. [22] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. BLIP-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In Proceedings of the 40th International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pages 19730–19742. PMLR, 23–29 Jul 2023. [23] Kunchang Li, Yali Wang, Yinan He, Yizhuo Li, Yi Wang, Yi Liu, Zun Wang, Jilan Xu, Guo Chen, Ping Luo, et al. Mvbench: A comprehensive multi-modal video understanding benchmark. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,pages 22195–22206, 2024. [24] Tianhong Li and Kaiming He. Back to basics: Let denoising generative models denoise. arXiv preprint arXiv:2511.13720 , 2025. 11 [25] Xuanlin Li, Kyle Hsu, Jiayuan Gu, Oier Mees, Karl Pertsch, Homer Rich Walke, Chuyuan Fu, Ishikaa Lunawat, Isabel Sieh, Sean Kirmani, Sergey Levine, Jiajun Wu, Chelsea Finn, Hao Su, Quan Vuong, and Ted Xiao. Evaluating real-world robot manipulation policies in simulation. In 
+
+Proceedings of The 8th Conference on Robot Learning , volume 270 of Proceedings of Machine Learning Research , pages 3705–3728. PMLR, 06–09 Nov 2025. [26] Kevin Qinghong Lin, Pengchuan Zhang, Joya Chen, Shraman Pramanick, Difei Gao, Alex Jin-peng Wang, Rui Yan, and Mike Zheng Shou. UniVTG: Towards unified video-language temporal grounding. In ICCV , 2023. [27] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matthew Le. Flow matching for generative modeling. In The Eleventh International Conference on Learning Representations , 2023. [28] Bo Liu, Yifeng Zhu, Chongkai Gao, Yihao Feng, Qiang Liu, Yuke Zhu, and Peter Stone. Libero: Benchmarking knowledge transfer for lifelong robot learning. Advances in Neural Information Processing Systems , 36:44776–44791, 2023. [29] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. Advances in neural information processing systems , 36:34892–34916, 2023. [30] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow. In The Eleventh International Conference on Learning Representations , 2023. [31] Xu Liu, Junfeng Hu, Yuan Li, Shizhe Diao, Yuxuan Liang, Bryan Hooi, and Roger Zimmermann. Unitime: A language-empowered unified model for cross-domain time series forecasting. In 
+
+Proceedings of the ACM Web Conference 2024 , WWW ’24, page 4095–4106, New York, NY, USA, 2024. Association for Computing Machinery. ISBN 9798400701719. doi: 10.1145/ 3589334.3645434. [32] Ye Liu, Zongyang Ma, Zhongang Qi, Yang Wu, Ying Shan, and Chang Wen Chen. E.t. bench: Towards open-ended event-level video-language understanding. In Advances in Neural Information Processing Systems (NeurIPS) , 2024. [33] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In International Conference on Learning Representations .[34] Ruipu Luo, Ziwang Zhao, Min Yang, Zheming Yang, Minghui Qiu, Zhongyu Wei, Yanhao Wang, and Cen Chen. Valley: Video assistant with large language model enhanced ability. 
+
+ACM Trans. Multimedia Comput. Commun. Appl. , February 2026. ISSN 1551-6857. doi: 10.1145/3796716. [35] Muhammad Maaz, Hanoona Rasheed, Salman Khan, and Fahad Shahbaz Khan. Video-ChatGPT: Towards detailed video understanding via large vision and language models. In Proceedings of the Annual Meeting of the Association for Computational Linguistics (ACL) , 2024. [36] Junhua Mao, Jonathan Huang, Alexander Toshev, Oana Camburu, Alan L. Yuille, and Kevin Murphy. Generation and comprehension of unambiguous object descriptions. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , June 2016. [37] Davide Moltisanti, Michael Wray, Walterio Mayol-Cuevas, and Dima Damen. Trespassing the boundaries: Labeling temporal bounds for object interactions in egocentric video. In 
+
+Proceedings of the IEEE International Conference on Computer Vision (ICCV) , Oct 2017. [38] Fangzhou Mu, Sicheng Mo, and Yin Li. Snag: Scalable and accurate video grounding. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 18930–18940, 2024. [39] Jinwoo Nam, Daechul Ahn, Dongyeop Kang, Seong Jong Ha, and Jonghyun Choi. Zero-shot natural language video localization. In ICCV , 2021. 12 [40] Andreea-Maria Oncescu, João F. Henriques, Yang Liu, Andrew Zisserman, and Samuel Albanie. QuerYD: A video dataset with high-quality text and audio narrations. In IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , 2021. [41] Abby O’Neill, Abdul Rehman, Abhiram Maddukuri, Abhishek Gupta, Abhishek Padalkar, Abraham Lee, Acorn Pooley, Agrim Gupta, Ajay Mandlekar, Ajinkya Jain, et al. Open x-embodiment: Robotic learning datasets and rt-x models: Open x-embodiment collaboration 0. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 6892–6903. IEEE, 2024. [42] William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4195–4205, 2023. [43] Adam Polyak, Amit Zohar, Andrew Brown, Andros Tjandra, Animesh Sinha, Ann Lee, Apoorv Vyas, Bowen Shi, Chih-Yao Ma, Ching-Yao Chuang, et al. Movie gen: A cast of media foundation models. arXiv preprint arXiv:2410.13720 , 2024. [44] Shraman Pramanick, Effrosyni Mavroudi, Yale Song, Rama Chellappa, Lorenzo Torresani, and Triantafyllos Afouras. Enrich and detect: Video temporal grounding with multimodal LLMs. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , 2025. [45] Long Qian, Juncheng Li, Yu Wu, Yaobo Ye, Hao Fei, Tat-Seng Chua, Yueting Zhuang, and Siliang Tang. Momentor: Advancing video large language model with fine-grained temporal reasoning. In ICML , 2024. [46] Mengxue Qu, Xiaodong Chen, Wu Liu, Alicia Li, and Yao Zhao. Chatvtg: Video temporal grounding via chat with video dialogue large language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops , pages 1847–1856, June 2024. [47] Shuhuai Ren, Linli Yao, Shicheng Li, Xu Sun, and Lu Hou. TimeChat: A time-sensitive multimodal large language model for long video understanding. In CVPR , 2024. [48] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 10684–10695, June 2022. [49] Gunnar A Sigurdsson, Gül Varol, Xiaolong Wang, Ali Farhadi, Ivan Laptev, and Abhinav Gupta. Hollywood in homes: Crowdsourcing data collection for activity understanding. In European Conference on Computer Vision , pages 510–526. Springer, 2016. [50] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. In 
+
+International Conference on Learning Representations (ICLR) , 2021. [51] Xiaolong Sun et al. Moment quantization for video temporal grounding. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , October 2025. [52] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. [53] Team Wan, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, et al. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 , 2025. [54] Alex Jinpeng Wang, Linjie Li, Kevin Qinghong Lin, Jianfeng Wang, Kevin Lin, Zhengyuan Yang, Lijuan Wang, and Mike Zheng Shou. COSMO: COntrastive streamlined MultimOdal model with interleaved pre-training. arXiv preprint arXiv:2401.00849 , 2024. [55] Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin Jing, Shenglong Ye, Jie Shao, et al. Internvl3. 5: Advancing open-source multimodal models in versatility, reasoning, and efficiency. arXiv preprint arXiv:2508.18265 , 2025. 13 [56] Yi Wang, Yinan He, Yizhuo Li, Kunchang Li, Jiashuo Yu, Xin Ma, Xinhao Li, Guo Chen, Xinyuan Chen, Yaohui Wang, Conghui He, Ping Luo, Ziwei Liu, Yali Wang, Limin Wang, and Yu Qiao. InternVid: A large-scale video-text dataset for multimodal understanding and generation. In International Conference on Learning Representations (ICLR) , 2024. [57] Yihao Wang, Pengxiang Ding, Lingxiao Li, Can Cui, Zirui Ge, Xinyang Tong, Wenxuan Song, Han Zhao, Wei Zhao, Pengxu Hou, et al. Vla-adapter: An effective paradigm for tiny-scale vision-language-action model. In Proceedings of the AAAI conference on artificial intelligence ,volume 40, pages 18638–18646, 2026. [58] Yueqian Wang, Xiaojun Meng, Jianxin Liang, Yuxuan Wang, Qun Liu, and Dongyan Zhao. HawkEye: Training video-text LLMs for grounding text in videos. arXiv:2403.10228 , 2024. [59] Linhui Xiao, Xiaoshan Yang, Xiangyuan Lan, Yaowei Wang, and Changsheng Xu. Towards visual grounding: A survey. IEEE Transactions on Pattern Analysis and Machine Intelligence ,2025. [60] An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, et al. Qwen2. 5 technical report. arXiv e-prints , pages arXiv–2412, 2024. [61] Ganlin Yang, Tianyi Zhang, Haoran Hao, Weiyun Wang, Yibin Liu, Dehui Wang, Guanzhou Chen, Zijian Cai, Junting Chen, Weijie Su, Wengang Zhou, Yu Qiao, Jifeng Dai, Jiangmiao Pang, Gen Luo, Wenhai Wang, Yao Mu, and Zhi Hou. Vlaser: Vision-language-action model with synergistic embodied reasoning. In The Fourteenth International Conference on Learning Representations , 2026. [62] Seonghyeon Ye, Yunhao Ge, Kaiyuan Zheng, Shenyuan Gao, Sihyun Yu, George Kurian, Suneel Indupuru, You Liang Tan, Chuning Zhu, Jiannan Xiang, et al. World action models are zero-shot policies. arXiv preprint arXiv:2602.15922 , 2026. [63] Licheng Yu, Patrick Poirson, Shan Yang, Alexander C Berg, and Tamara L Berg. Modeling context in referring expressions. In European conference on computer vision , pages 69–85. Springer, 2016. [64] Shoubin Yu, Jaemin Cho, Prateek Yadav, and Mohit Bansal. Self-chained image-language model for video localization and question answering. In NeurIPS , 2023. [65] Tianyuan Yuan, Zibin Dong, Yicheng Liu, and Hang Zhao. Fast-wam: Do world action models need test-time future imagination? arXiv preprint arXiv:2603.16666 , 2026. [66] Xiang Yue, Yuansheng Ni, Kai Zhang, Tianyu Zheng, Ruoqi Liu, Ge Zhang, Samuel Stevens, Dongfu Jiang, Weiming Ren, Yuxuan Sun, et al. Mmmu: A massive multi-discipline multimodal understanding and reasoning benchmark for expert agi. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 9556–9567, 2024. [67] Abhay Zala, Jaemin Cho, Satwik Kottur, Xilun Chen, Barlas O˘ guz, Yashar Mehdad, and Mohit Bansal. Hierarchical video-moment retrieval and step-captioning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2023. [68] Hang Zhang, Xin Li, and Lidong Bing. Video-LLaMA: An instruction-tuned audio-visual language model for video understanding. In EMNLP (Demo) , 2023. [69] Jianke Zhang, Xiaoyu Chen, Yanjiang Guo, Yucheng Hu, and Jianyu Chen. VLM4VLA: Revis-iting vision-language-models in vision-language-action models. In The Fourteenth International Conference on Learning Representations , 2026. [70] Jun Zhang, Teng Wang, Yuying Ge, Yixiao Ge, Xinhao Li, Ying Shan, and Limin Wang. Timelens: Rethinking video temporal grounding with multimodal llms. arXiv preprint arXiv:2512.14698 , 2025. [71] Brianna Zitkovich, Tianhe Yu, Sichun Xu, Peng Xu, Ted Xiao, Fei Xia, Jialin Wu, Paul Wohlhart, Stefan Welker, Ayzaan Wahid, et al. Rt-2: Vision-language-action models transfer web knowledge to robotic control. In Conference on Robot Learning , pages 2165–2183. PMLR, 2023. 14 A A Statistical Perspective on Residual Refinement 
+
+A.1 Notation and Setup 
+
+Let z ∈ Z denote the conditional representation produced by the MLLM encoder and y ∈ Rc the continuous target. A base predictor g(z) outputs the point estimate ˆy ≜ g(z), and the residual is 
+
+r ≜ y − g(z). Unless otherwise stated, the theoretical discussion assumes a continuous-valued base predictor g(z) ∈ Rc. The token-based base predictor is treated as a practical variant evaluated empirically. In DRIFT, we sample noise ϵ ∼ N (0, I) and construct the prior-shifted bridge 
+
+yt = (1 − t) g(z) + σϵ  + ty, t ∈ [0 , 1] , (6) where σ ∈ Rc 
+
+> +
+
+are noise scales. Let X ≜ (yt, t, z ) denote the input to the refinement network h. The refinement network learns the mapping h : X 7 → r, and the final prediction is ¯y = g(z) + h(X).We define the unweighted risk and weighted risk of any measurable predictor h as                       
+
+> R(h)≜E∥h(X)−r∥22
+> =E∥g(z) + h(X)−y∥22
+> =E∥¯y−y∥22
+> ,L(h)≜E
+> ∥h(X)−r∥22
+> (1 −t)2
+> 
+> .(7)
+
+The weighted form L(h) arises from the equivalence between velocity matching and signal prediction in flow matching (cf. Eqs. (2) and (3) in the main text). We write w(t) ≜ 1/(1 − t)2.For direct flow matching (direct FM), the bridge is ˜yt = (1 − t)σϵ + ty , the input is ˜X ≜ (˜ yt, t, z ),and a predictor H : ˜X 7 → y is trained with weighted risk LFM (H) ≜ Ew(t)∥H( ˜X) − y∥22
+
+.The direct MLP baseline corresponds to setting h ≡ 0, so that the final output is simply g(z).
+
+A.2 Assumptions Definition 1 (Assumptions A) . The following conditions are assumed throughout. 
+
+A1 Truncated time sampling. There exists τ ∈ (0 , 1) such that t ∈ [0 , 1 − τ ], which ensures 
+
+1 ≤ w(t) ≤ τ −2.
+
+A2 Bounded targets and outputs. There exist constants Br , B y , B h, B H > 0 such that almost surely 
+
+∥r∥2 ≤ Br , ∥y∥2 ≤ By , ∥h(X)∥2 ≤ Bh, ∥H( ˜X)∥2 ≤ BH .
+
+A3 Finite complexity. The refinement function class H and the direct FM class F have finite empirical Rademacher complexities Rn(H) and Rn(F), respectively. 
+
+A1 avoids the weight divergence as t → 1; in practice this is handled by truncated time sampling or numerical clipping. A2 states that training targets and network outputs are bounded, which can equivalently be stated as sub-Gaussian tail bounds. A3 ensures that empirical risk minimization yields nontrivial generalization bounds. 
+
+A.3 Advantage over Direct MLP 
+
+We first introduce the Bayes residual predictor 
+
+m(X) ≜ E[r | X], (8) which is the mean-squared-error-optimal prediction of the residual given the bridge state. If m(X)̸ ≡
+
+0, then the bridge state carries information about the residual beyond what g(z) already captures, and the refinement network can exploit this to reduce risk. 
+
+Lemma 2 (Orthogonal decomposition of squared loss) . Let m(X) = E[r | X]. Then for any measurable h,
+
+R(h) = R(m) + E∥h(X) − m(X)∥22
+
+, (9) 
+
+L(h) = L(m) + Ew(t)∥h(X) − m(X)∥22
+
+. (10) 15 Proof. We prove the unweighted case; the weighted case follows identically since w(t) is X-measurable. Write 
+
+h(X) − r =  h(X) − m(X) +  m(X) − r.
+
+Expanding the squared norm: 
+
+∥h(X) − r∥22 = ∥h(X) − m(X)∥22 + ∥m(X) − r∥22 + 2 ⟨h(X) − m(X), m (X) − r⟩.
+
+Taking expectations, it suffices to show the cross term vanishes. Since h(X)−m(X) is X-measurable, 
+
+E⟨h(X) − m(X), m (X) − r⟩ | X = h(X) − m(X), E[m(X) − r | X] = 0 ,
+
+because E[m(X) − r | X] = m(X) − E[r | X] = 0 by definition. By the tower property, the unconditional cross term is also zero, giving R(h) = R(m) + E ∥h(X) − m(X)∥22.
+
+Theorem 3 (Population-level improvement over direct MLP) . Direct MLP corresponds to the zero residual predictor h ≡ 0. Then 
+
+R(0) − inf  
+
+> h
+
+R(h) = E∥m(X)∥22
+
+, (11) 
+
+L(0) − inf  
+
+> h
+
+L(h) = Ew(t)∥m(X)∥22
+
+. (12) 
+
+In particular, whenever m(X)̸ ≡ 0, we have inf h R(h) < R(0) , i.e., DRIFT strictly improves over direct MLP at the population level. Proof. By Theorem 2 with h ≡ 0:
+
+R(0) = R(m) + E∥m(X)∥22
+
+.
+
+Since inf h R(h) = R(m) (the Bayes predictor attains the infimum), we obtain Eq. (11). The weighted case is analogous: L(0) = L(m) + E[w(t)∥m(X)∥22] and inf h L(h) = L(m).
+
+Interpretation. The improvement gap E[∥m(X)∥22] measures how much residual structure the bridge state can explain. Direct MLP stops at the coarse prediction g(z); DRIFT further leverages the bridge state to refine the residual. As long as the bridge state carries any predictive information about the residual, DRIFT achieves strictly lower risk. 
+
+Theorem 4 (Finite-sample sufficient condition for improvement over direct MLP) . Under Assump-tions A, let S = {(Xi, r i, t i)}ni=1 be an i.i.d. training sample. Define the empirical risk minimizer 
+
+ˆh ∈ arg min h∈H ˆL(h) where ˆL(h) ≜ 1
+
+> n
+
+Pni=1 w(ti)∥h(Xi) − ri∥22, and the best-in-class predictor 
+
+h⋆ 
+
+> H
+
+∈ arg min h∈H L(h) with approximation error App H ≜ L(h⋆
+
+> H
+
+) − L (m) ≥ 0.Then there exists a constant C > 0 such that, with probability at least 1 − δ,
+
+L(ˆh) − L (h⋆
+
+> H
+
+) ≤ Cτ −2
+
+"
+
+(Br + Bh)Rn(H) + ( Br + Bh)2
+
+r log(2 /δ )
+
+n
+
+#
+
+. (13) 
+
+Furthermore, since w(t) ≥ 1,
+
+R(0) − R (ˆh) ≥ E∥m(X)∥22
+
+ − App H − Cτ −2
+
+"
+
+(Br + Bh)Rn(H) + ( Br + Bh)2
+
+r log(2 /δ )
+
+n
+
+#
+
+.
+
+(14) 
+
+Therefore, whenever 
+
+E∥m(X)∥22
+
+ > App H + Cτ −2
+
+"
+
+(Br + Bh)Rn(H) + ( Br + Bh)2
+
+r log(2 /δ )
+
+n
+
+#
+
+, (15) 
+
+we have R(ˆh) < R(0) , i.e., DRIFT with finite-sample ERM strictly outperforms direct MLP. Proof. The proof proceeds in three steps. 
+
+Step 1: Uniform deviation bound. Define the per-sample loss ℓh(X, r, t ) = w(t)∥h(X) − r∥22. By 
+
+A1 and A2 , 1 ≤ w(t) ≤ τ −2 and ∥h(X) − r∥2 ≤ Bh + Br , so 0 ≤ ℓh ≤ τ −2(Bh + Br )2.16 For fixed (r, t ), the map u 7 → ϕr,t (u) = w(t)∥u − r∥22 is Lipschitz in u with constant at most 
+
+2τ −2(Bh + Br ). By the vector-valued Rademacher contraction inequality, 
+
+Rn
+
+ {ℓh : h ∈ H}  ≤ C1τ −2(Bh + Br )Rn(H),
+
+where C1 is an absolute constant. The standard Rademacher generalization bound then gives, with probability at least 1 − δ,
+
+sup 
+
+> h∈H
+
+L(h) − ˆL(h) ≤ C2τ −2
+
+"
+
+(Br + Bh)Rn(H) + ( Br + Bh)2
+
+r log(2 /δ )
+
+n
+
+#
+
+. (16) 
+
+Step 2: Excess risk of ERM. Since ˆh minimizes empirical risk, ˆL(ˆh) ≤ ˆL(h⋆
+
+> H
+
+). Applying Eq. (16) to both ˆh and h⋆
+
+> H
+
+:
+
+L(ˆh) ≤ ˆL(ˆh) + ∆ n ≤ ˆL(h⋆
+
+> H
+
+) + ∆ n ≤ L (h⋆
+
+> H
+
+) + 2∆ n,
+
+where ∆n denotes the right-hand side of Eq. (16). Absorbing the factor of 2 into the constant C
+
+yields Eq. (13). 
+
+Step 3: Converting to improvement over direct MLP. By Theorem 2, R(ˆh) − R (m) = E ∥ˆh(X) −
+
+m(X)∥22. Since w(t) ≥ 1,
+
+E∥ˆh(X) − m(X)∥22
+
+ ≤ Ew(t)∥ˆh(X) − m(X)∥22
+
+ = L(ˆh) − L (m).
+
+Decomposing the right-hand side: 
+
+L(ˆh) − L (m) =  L(ˆh) − L (h⋆
+
+> H
+
+) +  L(h⋆
+
+> H
+
+) − L (m) =  L(ˆh) − L (h⋆
+
+> H
+
+) + App H.
+
+Hence R(ˆh) − R (m) ≤ App H + ( RHS of Eq. (13) ).From Theorem 3, R(0) − R (m) = E[∥m(X)∥22]. Therefore 
+
+R(0) −R (ˆh) =  R(0) −R (m)− R(ˆh)−R (m) ≥ E∥m(X)∥22
+
+−App H −(RHS of Eq. (13) ),
+
+which gives Eq. (14). When Eq. (15) holds, the right-hand side is strictly positive. 
+
+A.4 Comparison with Direct Flow Matching 
+
+We next compare DRIFT with direct full-target flow matching. The purpose of this subsection is not to claim that residualization changes the unrestricted population optimum. In fact, the two objectives are Bayes-equivalent after a deterministic shift of the bridge state. The advantage suggested by the teaser visualization is instead geometric and statistical: after the base predictor removes the predictable component of the target, the flow refiner learns a smaller residual correction and its bridge remains localized around the coarse anchor. This distinction is important when the target y has already been normalized to a bounded range such as [−1, 1] c; worst-case range bounds alone do not explain the advantage, but residual second moments and bridge radii still can. 
+
+Proposition 5 (Bayes equivalence of DRIFT and direct FM) . With unrestricted measurable function classes, 
+
+inf  
+
+> h
+
+L(h) = inf  
+
+> H
+
+LFM (H). (17) 
+
+Proof. By definition, the DRIFT bridge and the direct FM bridge satisfy 
+
+yt = ˜ yt + (1 − t)g(z),
+
+so given (t, z ), the states yt and ˜yt differ by a deterministic shift. For any residual predictor h, define the full-target predictor Hh( ˜X) ≜ h(X) + g(z), where X =(˜ yt + (1 − t)g(z), t, z ). Then 
+
+Hh( ˜X) − y = h(X) + g(z) − y = h(X) − r, 
+
+so ∥Hh( ˜X) − y∥22 = ∥h(X) − r∥22. Multiplying by w(t) and taking expectations gives LFM (Hh) = 
+
+L(h).17 Conversely, for any full-target predictor H, define hH (X) ≜ H( ˜X) − g(z), where ˜X = ( yt − (1 −
+
+t)g(z), t, z ). Then 
+
+hH (X) − r = H( ˜X) − g(z) − (y − g(z)) = H( ˜X) − y, 
+
+so L(hH ) = LFM (H). This loss-preserving bijection implies Eq. (17). 
+
+Interpretation. Since the unrestricted population optima coincide, DRIFT should not be presented as having a lower Bayes risk than direct FM. The relevant comparison is instead about the target that the learned generative component has to model. Direct FM learns the full target transport, whereas DRIFT assigns the predictable component to the base predictor and asks the flow network to learn the remaining residual transport. 
+
+Theorem 6 (Lower-variance residual transport) . Let 
+
+μ(z) ≜ E[y | z], r ≜ y − g(z),
+
+and assume that ϵ is independent of (y, z ) with E[ϵ] = 0 . Define the direct-FM target velocity and the residual-FM target velocity as 
+
+v⋆ 
+
+> dir
+
+≜ y − σϵ, v⋆ 
+
+> res
+
+≜ y − g(z) − σϵ = r − σϵ. 
+
+Then the signal targets satisfy 
+
+E ∥y∥22 = E[Tr Cov( y | z)] + E ∥μ(z)∥22, (18) 
+
+E ∥r∥22 = E[Tr Cov( y | z)] + E ∥μ(z) − g(z)∥22. (19) 
+
+The corresponding velocity targets satisfy 
+
+E ∥v⋆
+
+> dir
+
+∥22 = E ∥y∥22 + E ∥σϵ ∥22, (20) 
+
+E ∥v⋆
+
+> res
+
+∥22 = E ∥r∥22 + E ∥σϵ ∥22. (21) 
+
+Consequently, 
+
+E ∥v⋆
+
+> dir
+
+∥22 − E ∥v⋆
+
+> res
+
+∥22 = E ∥y∥22 − E ∥r∥22 = E ∥μ(z)∥22 − E ∥μ(z) − g(z)∥22. (22) 
+
+Thus, whenever the base predictor explains more conditional-mean energy than the zero predictor, 
+
+E ∥μ(z) − g(z)∥22 < E ∥μ(z)∥22, (23) 
+
+the residual correction target and the residual velocity target have smaller second moment than their direct-FM counterparts. Moreover, 
+
+Cov( r | z) = Cov( y | z), (24) 
+
+so residualization does not remove the irreducible conditional uncertainty of the target distribution; it removes only the condition-dependent mean structure that the base predictor already captures. Proof. We first prove the two signal-target identities. By the conditional second-moment decomposi-tion, 
+
+E∥y∥22 | z = Tr Cov( y | z) + ∥ E[y | z]∥22 = Tr Cov( y | z) + ∥μ(z)∥22.
+
+Taking expectation over z gives Eq. (18). For the residual target, since g(z) is deterministic given z,
+
+E[r | z] = E[y − g(z) | z] = μ(z) − g(z), Cov( r | z) = Cov( y | z).
+
+Applying the same conditional second-moment decomposition to r gives 
+
+E∥r∥22 | z = Tr Cov( y | z) + ∥μ(z) − g(z)∥22,
+
+and taking expectation over z gives Eq. (19). For the velocity targets, expand the squared norms: 
+
+E ∥y − σϵ ∥22 = E ∥y∥22 + E ∥σϵ ∥22 − 2 E⟨y, σϵ ⟩,
+
+and 
+
+E ∥r − σϵ ∥22 = E ∥r∥22 + E ∥σϵ ∥22 − 2 E⟨r, σϵ ⟩.
+
+Because ϵ is independent of (y, z ) and has zero mean, both cross terms vanish. This proves Eqs. (20) and (21). Subtracting the residual identity from the direct identity yields Eq. (22). The last claim follows from the fact that subtracting a deterministic function of z does not change the conditional covariance given z.18 Normalized-output implication. The comparison above does not require ∥r∥2 to be uniformly smaller than ∥y∥2. Even when y is normalized to [−1, 1] c, the direct decoder still has to learn the condition-dependent mean transport μ(z), while the residual decoder only has to learn μ(z) − g(z).If g(z) is a useful base predictor, then E ∥μ(z) − g(z)∥22 can be much smaller than E ∥μ(z)∥22 despite both targets living in bounded ranges. 
+
+Theorem 7 (Localization of the residual bridge) . For a fixed t ∈ [0 , 1] , define the residual-bridge radius around the coarse anchor and the direct-FM bridge radius around the noise origin as 
+
+ρres (t) ≜ E ∥yt − g(z)∥22, ρdir (t) ≜ E ∥˜yt∥22.
+
+Then 
+
+ρres (t) = (1 − t)2 E ∥σϵ ∥22 + t2 E ∥r∥22, (25) 
+
+ρdir (t) = (1 − t)2 E ∥σϵ ∥22 + t2 E ∥y∥22. (26) 
+
+Therefore, if E ∥r∥22 ≤ η E ∥y∥22 for some η < 1, then 
+
+ρres (t) ≤ ρdir (t) − t2(1 − η) E ∥y∥22. (27) 
+
+Moreover, for any radius a > 0,
+
+P ∥yt − g(z)∥2 > a  ≤ (1 − t)2 E ∥σϵ ∥22 + t2 E ∥r∥22
+
+a2 . (28) 
+
+Proof. Using the DRIFT bridge, 
+
+yt − g(z) = (1 − t)σϵ + t(y − g(z)) = (1 − t)σϵ + tr. 
+
+Expanding the squared norm and using the independence and zero mean of ϵ gives 
+
+E ∥yt − g(z)∥22 = (1 − t)2 E ∥σϵ ∥22 + t2 E ∥r∥22,
+
+which proves Eq. (25). Similarly, the direct FM bridge satisfies 
+
+˜yt = (1 − t)σϵ + ty, 
+
+so the same expansion gives Eq. (26). Substituting E ∥r∥22 ≤ η E ∥y∥22 into Eq. (25) and comparing with Eq. (26) gives Eq. (27). Finally, Eq. (28) follows from Markov’s inequality applied to the nonnegative random variable ∥yt − g(z)∥22.
+
+Teaser interpretation. Theorem 7 formalizes the qualitative picture in which residual refinement stays in a smaller tube around the coarse anchor, while direct generative decoding must transport noise toward the full target region. The statement is intentionally about the correction and the bridge geometry , not about artificially reducing the final conditional output diversity. At the Bayes optimum, the final conditional distribution should still match the true target distribution; DRIFT changes which part of the mapping is learned by the deterministic coarse prediction and which part is left to the generative refiner. 
+
+## B Implementation Details 
+
+B.1 DRIFT Architecture 
+
+Figure 4 illustrates the architecture of DRIFT. DRIFT consists of two main components: a Base Predictor and a Flow Refiner. The Base Predictor first produces a coarse continuous estimate ˆy from the MLLM representation. The Flow Refiner then iteratively predicts the remaining residual from ˆy
+
+to the ground-truth target. The Flow Refiner contains three components: embedders, self-attention layers, and an output head. The embedders map the condition representation, the flow time t, and the bridge state yt into a shared hidden space. The self-attention layers aggregate information across these embedded tokens. Finally, the output head maps the updated representation to the flow prediction, which is combined with the ˆy
+
+through the skip connection to produce the final prediction. 19 Flow Refiner      
+
+> 𝑦 "
+> Linear Linear Linear
+> noise 𝑡 z!
+> Self -Attention
+> +
+> 𝑦
+> Linear
+> Sampler
+> 𝑦 !
+> mix
+> Base Predictor
+> MLP Tokenizer Or
+> z!z!
+> 𝑦 "𝑦 "
+
+DRIFT Figure 4: The overview of the DRIFT’s structure. 
+
+B.2 VLA Implementation Details Training Data. We follow the InternVLA-M1 [ 7] to prepare the training data. For the experiments on Libero [ 28 ], we train on the Spatial, Object, Goal, and Long suites. Spatial, Object, Goal, and Long contain 432, 454, 428, and 379 training trajectories, respectively, and yield 53K, 67K, 52K, and 101K training samples, respectively. We normalize the action trajectories with the max and min values. For the experiments on Simpler [ 25 ] WidowX, we follow the setting used in [ 7 ] and train the model on the Bridge and Fractal splits of Open X-Embodiment (OXE) [ 41 ]. Bridge and Fractal contain 60K and 87K training trajectories, respectively, and yield 1.28M and 3.4M training samples, respectively. We normalize the action trajectories with the 99th percentile value for the trajectories. 
+
+Base VLMs. We use Qwen3-VL-2B-Instruct [ 2] and OpenVLA [ 20 ] as the base models. For OpenVLA, when training and evaluating on Simpler, we use the checkpoint pretrained on OXE. When training and evaluating on each Libero suite, we use the corresponding Libero-finetuned OpenVLA checkpoint. During DRIFT adaptation, we add LoRA [ 15 ] adapters to both the vision encoder and the LLM backbone. We use LoRA rank 32, α= 64 for Libero experiments and rank 128, 
+
+α= 256 for Simpler experiments. 
+
+Special Tokens. We add one additional special token. For Qwen3-VL-2B-Instruct, we use the special token <think> , which already exists in the tokenizer but is not used during pre-training. For OpenVLA, we add a special token by extending the tokenizer, and we use both the added special token and the action tokens in the OpenVLA output as special tokens. We extract the hidden state of the special token from the last LLM layer as the condition zs.
+
+Base Predictor. When applying DRIFT to Qwen3-VL, we train a learnable MLP as the Base Predictor, which directly predicts a continuous action ˆy. We optimize this Base Predictor with MSE loss. When applying DRIFT to OpenVLA, we use OpenVLA’s tokenizer as the Base Predictor. The tokenizer discretizes each continuous value into 256 bins represented by 256 action tokens. During training, we sample the action from the multinomial distribution predicted by the model and use it as 
+
+ˆy. We optimize the tokenizer-based Base Predictor with negative log-likelihood loss. 
+
+Flow Refiner. The Flow Refiner uses 4 self-attention layers with 8 heads and a hidden dimension of 768. We optimize the Flow Refiner with MSE loss between the target velocity v∗ and the predicted velocity vθ (y(t), t, z ).
+
+Training Hyper-parameters. We leverage both the main view and the wrist view to train DRIFT with Qwen3-VL-2B [ 2], and DRIFT learns to predict the next 8 and 4 consecutive actions in the future for the Libero and Simpler settings, respectively. We only use the main view when training DRIFT with OpenVLA [ 20 ], and DRIFT predicts one future action to match the original setting of OpenVLA. We train DRIFT with batch size 16 and learning rate 4 × 10 −5 for 30K steps on Spatial, Object, and Goal, and for 60K steps on Long. For Simpler WidowX, we train with batch size 128, learning rate 4 × 10 −5, and 50K steps. We use cosine learning-rate decay with 10% warmup steps. All the experiments are trained with AdamW [33] optimizer on 8*H100 in 8-16 hours. 20 Inference and Evaluation. We use K = 10 forward-Euler steps and one stochastic noise sample per query. We evaluate DRIFT on Libero-Spatial, Libero-Object, Libero-Goal, Libero-Long, and Simpler WidowX. On Libero, we run 50 trials for each of the 10 subtasks in every suite. On Simpler WidowX, we run 24 trials for each of 4 subtasks. We report the success rate as the metric. 
+
+B.3 TVG Implementation Details 
+
+We provide the implementation details for DRIFT on Temporal Video Grounding (TVG). We evaluate DRIFT under the ED-VTG protocol with ET-Chat as the MLLM backbone. 
+
+Training Data. We train the TVG variant of DRIFT on TimeLens-100K [ 70 ]. TimeLens-100K contains approximately 20 K source videos and 100 K query–segment temporal grounding annotations. Its source videos are collected from a mixture of video-language datasets, including CosMo-Cap [ 54 ], InternVid-VTime [ 56 ], DiDeMo [ 13 ], QuerYD [ 40 ], and HiREST [ 67 ]. The temporal-grounding annotations are MLLM-generated end-to-end: an MLLM first identifies temporally distributed events in each video and then produces grounding queries with timestamp pairs. We use TimeLens-100K only as the training corpus and evaluate on the ED-VTG benchmarks, Charades-STA [ 12 ] and ActivityNet-Captions [ 21 ]. The TimeLens-100K training annotations are distinct from the evaluation annotations used in these benchmarks. 
+
+Base VLMs. We use ET-Chat [ 32 ] as the backbone. We freeze the ET-Chat visual encoder and frame compressor, apply LoRA to the LLM attention projections, and train the LoRA adapters jointly with the Flow Refiner. We add three temporal special tokens, <CT> , <VALUE> , and </CT> , and train the LLM with its standard next-token objective to emit these markers. We use LoRA rank 32 , α = 64 ,and dropout 0.05 .
+
+Input and Condition Representation. We follow the ET-Chat video pipeline: videos are sampled at 1 FPS, encoded with EVA-CLIP ViT-G/14, compressed by ET-Chat’s frame compressor, and then fed into Phi-3-Mini-4K-Instruct (3.8B) as the LLM backbone. The frame compressor consists of a Q-Former with learnable queries, a context aggregator, and a projector. For temporal grounding, the target text marks each continuous boundary with <CT><VALUE></CT> . We use the LLM hidden states at the <VALUE> positions as condition zs;
+
+Base Predictor. The coarse prediction is produced by a small MLP head over the <VALUE> hidden states. The prior head predicts the temporal segment in center-width coordinates, applies a 1.2×
+
+width expansion factor, and converts the result to start-end coordinates. 
+
+Flow Refiner. The Flow Refiner uses the 2-layer self-attention described above with GELU acti-vations, nhead = 16 , hidden dimension equal to LLM’s hidden_size /2. It represents each temporal segment in center-width coordinates and predicts the velocity in residual center-width coordinates. 
+
+Training Hyper-parameters. We train DRIFT on TimeLens-100K with per-device batch size 1,learning rate 5 × 10 −4 for 4 epochs with AdamW optimization on 8 A100 GPUs. The training run takes approximately 10 hours. The training objective uses flow MSE on the velocity. 
+
+Inference and Evaluation. The start and end timestamps are normalized to [−1, 1] by the video duration during training. At inference time, we unnormalize the prediction back to seconds and clip the final (ts, t e) to the valid range [0 , duration ]. We use K = 10 forward-Euler steps. Integration is performed in center-width coordinates; the result is converted back to start-end coordinates and then clipped to the valid video-time range. ET-Chat [ 32 ] is instruction-tuned on E.T. Instruct 164K. According to the ET-Chat paper, its TVG samples are drawn from DiDeMo, TACoS, QueryD, and NaQ. ET-Chat does not report ActivityNet-Captions performance in the original paper, so we obtain the ET-Chat baseline in Table 2 by running the released checkpoint under the ED-VTG evaluation protocol. We report Recall@1 at different IoU thresholds and mean IoU. Recall@1 at IoU threshold τ measures the fraction of queries whose top-1 predicted interval has IoU greater than τ with the ground-truth interval. mIoU is the mean IoU over all evaluated queries. 21 B.4 Spatial Grounding Implementation Details Training Data. We use the training set of the RefCOCO [ 18 ], RefCOCO+ [ 36 ], and Ref-COCOg [ 63 ], which contains 120K, 120K, and 80K training samples, respectively. All the bounding boxes’ coordinates are normalized between 0 and 1, and with the bounding box format of [cx,cy,w,h]. 
+
+Base VLM. We use Qwen3-VL-2B-Instruct as the base model. We add the LoRA [ 15 ] adaptor with rank 32, α= 64, on both the vision encoder and the LLM backbone. 
+
+Special Tokens. We add one additional special token <think>, which already exists in the tokenizer but was never used during training in the Instruct version of the model. We extract the hidden state of the special token from the last layer of the LLM as condition c.
+
+Base Predictor. We train a learnable MLP as the base predictor, which directly predicts ˆy. We apply MSE loss to update the base predictor. 
+
+Flow Refiner. We use 8-layer self-attention, with 8 heads and hidden dimension of 768 in the flow refiner. We optimize the Flow Refiner with MSE loss between the target velocity v∗ and the predicted velocity vθ (y(t), t, z ).
+
+Training Hyper-parameters. We train DRIFT with batch size 64 and learning rate 4 × 10 −5 for 1 epoch (about 5K steps). We use cosine-decay learning rate scheduling and with 3% warmup steps. All the experiments are trained with AdamW optimizer on 8*A100 in 2 hours. 
+
+Inference and evaluation K = 10 forward-Euler steps; one stochastic noise sample per query (deterministic). Following the setting used in the Qwen3-VL, we evaluate the validation set of DRIFT on RefCOCO, RefCOCO+, and RefCOCOg, and report the Accuracy@1 as the metric. 
+
+B.5 FastWAM VLA Implementation Details Training Data. Following the training setting of the FastWAM [ 65 ], we use all the splits (Spatial, Object, Goal, and Long) in Libero to train the model. In total, it has 272K training samples. 
+
+Base VLM. We use the same architecture for the video generator (VideoDiT) and the action generator (ActionDiT) as the FastWAM. We follow FastWAM’s implementation to initialize the model before the training. 
+
+Base Predictor. We use a 2-layer Qformer, with 16 learnable queries, 8 heads, hidden dimension 1024, to aggregate the information from the embedded text embedding and the vision token encoded by the VAE [ 53 ], and then we apply a mean operation on the query tokens from the Qformer. We send the averaged query token to MLP to predict the ˆy.
+
+Flow Refiner. We use the ActionDiT in the FastWAM structure as the Flow Refiner, and we optimize the Flow Refiner with MSE loss between the target velocity v∗ and the predicted velocity 
+
+vθ (y(t), t, z ).
+
+Training, Inference and Evaluation. We use the same training and evaluation setting as FastWAM. We evaluate DRIFT on Libero-Spatial, Libero-Object, Libero-Goal, and Libero-Long. On Libero, we run 50 trials for each of the 10 subtasks in every suite. We report the success rate as the metric. All the experiments are trained on 8*H200 in 24 hours. 
+
+## C Additional Visualization 
+
+Figure 5 presents additional visualizations on TVG, comparing the start and end timestamps predicted by different modules. Samples 1–4 show that DRIFT achieves more accurate temporal boundaries by iteratively refining the coarse prediction using the flow refiner. Samples 5–6 illustrate error patterns shared by all decoders. These errors are mainly caused by ambiguous or inaccurate annotations: in 22 Prompt: Localize the video moment according to the                       
+
+> query 'person walking around drinking from glass’.
+> 5.2s 17.1s
+> 9.9s 15.9s
+> 3.1s 15.5s
+> 18.5s 4.3s
+> Prompt: Localize the video moment according to
+> the query 'person open the bag’.
+> 22.3s 28.9s
+> 9.8s 23.3s
+> 30.3s 15.7s
+> 14.0s 31.0s
+> Ground
+> Truth MLP Flow DRIFT
+> Prompt: Localize the video moment according to
+> the query 'person puts on some shoes’.
+> 11.8s 24.3s
+> 16.4s 22.2s
+> 7.6s 18.9s
+> 11.2s 23.0s
+> Prompt: Localize the video moment according to
+> the query 'person fixing their hair’.
+> 22.4s 31.0s
+> 13.5s 28.7s
+> 32.3s 20.0s
+> 20.7s 30.6s
+> Prompt: Localize the video moment according to
+> the query 'a person sits on a bed’.
+> 10.2s 11.2s
+> 3.8s 13.6s
+> 17.0s 5.7s
+> 0.4s 5.2s
+> Prompt: Localize the video moment according to
+> the query 'person take a bite of a sandwich’.
+> 7.8s 13.1s
+> 3.9s 14.1s
+> 18.1s 4.0s
+> 1.0s 6.4s
+
+## 2
+
+## 4
+
+## 6
+
+## 1
+
+## 3
+
+## 5Figure 5: Additional visualization on TVG. Action Decoder Libero-Long Flow 94.2 DRIFT (w/ rand Base Predictor) 94.0 DRIFT 96.4 Table 6: With a random base predictor (0% accuracy), DRIFT falls back to flow matching and shows a similar performance. Sample 5, the action takes a bite of the sandwich lasts only about two seconds, but the ground-truth boundary annotates it as a five-second interval; in Sample 6, the query sits on a bed is ambiguous, as it can refer either to the action of sitting down or to the state of already being seated. These cases suggest that further improving TVG performance may require both more carefully curated training and validation annotations, as well as models that are better able to handle ambiguous natural-language queries. 
+
+## D Additional ablation 
+
+We follow the setting used in section 4.4 for the following experiment. 
+
+Corrupted Base Predictor . In Table 6, we construct a deliberately weak predictor. Specifically, we train DRIFT without applying the auxiliary loss Lp to the base predictor (MLP), while also stopping gradients from the refinement module to the base predictor. The base predictor thus remains untrained throughout optimization and achieves 0% accuracy on Libero-Long. Under this setting, DRIFT effectively degenerates to a flow matching model and achieves comparable performance. 23

@@ -1,0 +1,1157 @@
+Title: Stateful Visual Encoders for Vision-Language Models
+
+URL Source: https://arxiv.org/pdf/2606.04433v1
+
+Published Time: Thu, 04 Jun 2026 00:53:28 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# Stateful Visual Encoders for Vision-Language Models 
+
+Zirui Wang 1 2 Junwei Yu 1 2 Adam Yala 1 2 3 David M. Chan 2 Joseph E. Gonzalez 2 Trevor Darrell 1 2 
+
+## Abstract 
+
+Vision-language models (VLMs) are increasingly used in multi-image, multi-turn agentic settings where decisions depend on visual changes. However, in existing open-weight VLMs, visual comparisons happen only inside the language model, while the visual encoder itself remains 
+
+stateless : each image is encoded independently, without access to the prior visual context. As a result, small but task-critical changes may be at-tenuated before the language model has a chance to compare them, especially when those changes do not affect the high-level semantics of the scene. We introduce a Stateful Visual Encoder , which conditions each visual representation on prior visual features. Under supervised finetuning, VLMs equipped with stateful encoders achieve consistent improvements on controlled tasks involving cross-image spatial aggregation, multi-object visual differencing, and visual trajectory behavior cloning. These improvements are consistent across input resolutions, language model sizes, and VLM backbones. Finally, we validate our model on real-world tasks, including longitudinal radiology, fine-grained image comparison, and remote sensing, where stateful consistently improve generalist VLM baselines and can match or surpass specialized models in selected domains. Project page: 
+
+https://statefulvisualencoders. github.io/ 
+
+## 1. Introduction 
+
+Vision-language models (VLMs) are increasingly used in in-teractive and comparative visual tasks, where a model must observe, track, and analyze visual changes across images to make grounded decisions. Despite such dynamic behavior, the dominant architecture of open-weight VLMs remains inherited from static image-language modeling: each image is passed independently through a visual encoder, and the 
+
+> 1
+
+Voio, Inc. 2UC Berkeley 3UCSF. Correspondence to: Zirui Wang <zwcolin@berkeley.edu >.
+
+Preprint. June 4, 2026. Embed                   
+
+> Layer 1
+> Layer 𝑛
+> LLM
+> Embed
+> Layer 1
+> Laye r𝑛
+> ×𝑛
+> Proj .
+> ℎ!
+> ℎ!
+> ×𝑛
+> ℎ!ℎ"
+> ℎ"|!
+> ℎ"|!
+> Proj .
+> Stateless Visual Encoder
+> ℎ"
+> ℎ"
+> ℎ!
+> ×𝑛
+> ℎ!
+> ℎ"
+> ℎ!
+> ×𝑛
+
+Figure 1. Stateful visual encoders condition each image’s visual representation on features from the previous image within the vision backbone, enabling early cross-image comparison inside the visual encoder. The left-to-right direction ensures that the current image can attend only to past visual features, matching interactions where future observations may not yet be available. 
+
+resulting visual tokens are compared only later by the lan-guage model. Thus, while the overall VLM may process a sequence of images, its visual encoder remains stateless. This stateless encoding is limiting because visual changes are often subtle, for example, a chest X-ray finding may newly appear or partially resolve, a small structure may appear in a satellite image, or an edited image may differ only in a localized attribute. These subtle changes are often critical to task performance. Yet visual encoders used in modern VLMs (Qwen Team, 2026; Bai et al., 2025a; Zeng et al., 2025; Wang et al., 2025b; Kamath et al., 2025) are typ-ically pretrained for language-aligned (Radford et al., 2021; Zhai et al., 2023) or self-supervised representations (Caron et al., 2021; Tong et al., 2024) and applied to each image independently. As a result, per-image encoding can unin-tentionally suppress the fine-grained differences needed for comparison. To address this, we add cross-image interaction (i.e., Fig. 1) directly into the visual encoder, conditioning the current vi-sual representation on features from previous images before passing tokens to the language model. Using controlled 1
+
+> arXiv:2606.04433v1 [cs.CV] 3 Jun 2026 Stateful Visual Encoders for Vision-Language Models
+
+synthetic tasks that require strict visual comparisons (Wang et al., 2025c; Qiu et al., 2021; Wang et al., 2026), we evalu-ate design choices for architecting (§3.3), initializing, and optimizing cross-image interactions (§3.4). We study several lightweight variants, including extending self-attention con-text, adding cross-attention from current visual features to the prior features, augmenting this interaction with an FFN, and using adaptive normalization to condition visual fea-tures. To preserve compatibility with pretrained VLMs, we initialize added interaction modules from nearby pretrained weights when possible, zero-initialize output branches to avoid disrupting the original feature distribution at the start of finetuning, and stop gradients through the prior features during cross-image retrieval. We validate the effectiveness of SVEs both on synthetic domains, where we demonstrate that SVEs consistently im-prove task performance beyond what can be explained by simply adding parameters or compute, and on three real-world domains: detecting visual differences in radiology scans (Hu et al., 2025) (§5.1), performing fine-grained image comparison on edits derived from real-world/web images (Ye et al., 2025) (§5.2), and identifying changes in remote-sensing images (Liu et al., 2022a) (§5.3). Compared to naive finetuning, SVE-based encoders consistently improve model performance on these tasks and can match or surpass specialized models in selected domains. Furthermore, these gains scale robustly across image resolutions ( 256 2–768 2), model sizes (0.8B–9B), and diverse VLM families, includ-ing Qwen3.5, Qwen3-VL, GLM-4.6V-Flash, InternVL3.5, and Gemma-3 (§3.5). Overall, our contributions can be summarized as follows: (1) We introduce the Stateful Visual Encoder (SVE) , a simple architectural extension that injects cross-image interactions inside the visual encoder of open-weight VLMs without replacing the visual backbone or retraining the full model from scratch. (2) We develop a practical SVE finetuning strategy, including initialization and optimization choices that stabilize finetuning and improve state-dependent visual representations in the SFT regime. (3) We demonstrate the effectiveness and generality of SVEs across controlled visual comparison tasks, image resolutions, model sizes, and VLM families, and further validate it on real-world comparison tasks in radiology, image editing, and remote sensing. 
+
+## 2. Related work 
+
+Image Difference Encoders. Specialized change-detection models compare images inside the visual en-coder (Park et al., 2019; Chen et al., 2021; Bandara and Patel, 2022; Dong et al., 2025). However, unlike our SVE, these architectures are designed for specific change detec-tion tasks, rather than studied as general-purpose visual encoders for VLMs. 
+
+Video Visual Encoders. Beyond pairwise change mod-eling, video encoders learn spatiotemporal representations from frame sequences. Representative video encoders in-clude I3D (Carreira and Zisserman, 2017), MViT (Fan et al., 2021), Video Swin (Liu et al., 2022b), TimeSformer (Berta-sius et al., 2021), and ViViT (Arnab et al., 2021), with recent video foundation models and MLLMs such as Video-MAE (Tong et al., 2022), InternVideo2 (Wang et al., 2024), and VideoPrism (Zhao et al., 2024) scaling this direction through video-text supervision, masked modeling, and long-context spatiotemporal tokenization. Recent video-aware encoders, such as Perception Encoder (Bolya et al., 2026) and OneVision-Encoder (Tang et al., 2026), further train visual backbones for both image and video understanding. SVEs instead target image-based VLMs that receive multi-ple images in context, such as sparse observations, before-after pairs, and interaction states. Rather than training a spatiotemporal visual backbone, a SVE introduces causal cross-image conditioning into the existing image encoder: features of the current image condition on those from the previous image, while future images remain unavailable. This matches interactive settings while preserving the exist-ing VLM visual interface. 
+
+Multi-Image Encoding in VLMs. Recent VLMs (Liu et al., 2023c; 2024; Li et al., 2023; Bai et al., 2025a; Dai et al., 2023; Alayrac et al., 2022; Bai et al., 2025b) have shown strong multimodal reasoning abilities (Qin et al., 2025; Bigverdi et al., 2025), but multi-image state rea-soning remains challenging. Most multi-image VLMs adopt late fusion: methods such as MANTIS (Jiang et al., 2024), LLaVA-NeXT-Interleave (Li et al., 2024), LLaVA-OneVision (Li et al., 2025a), Idefics3 (Lauren c¸ on et al., 2024), and VILA (Lin et al., 2024) encode images inde-pendently and leave cross-image comparison to the lan-guage model. Long-video and streaming VLMs add mem-ory banks, token compression, or KV-cache mechanisms after visual encoding (He et al., 2024; Zhang et al., 2025; Diko et al., 2025; Shi et al., 2026; Xu et al., 2025). SVE addresses a complementary bottleneck: the current image can retrieve and integrate prior visual features inside the visual backbone before serialization to the LLM. 
+
+## 3. Stateful Visual Encoders 
+
+Background. Modern vision-language models (VLMs) typically consist of a visual encoder fV , a vision-language connector W , and a large language model (LLM) fL. Given an image I preprocessed into a sequence of N image patches, the visual encoder maps patches into visual features 
+
+Z = fV (I) ∈ RN ×dV , where dV is the hidden dimension of the visual encoder. The connector WP roj then maps these visual features into the LLM embedding space as 2Stateful Visual Encoders for Vision-Language Models #!                    
+
+> (Curr. feature )
+> #!"#
+> (Prev. feature)
+> Block View
+> (Stateless )
+> Block View
+> (Stateful Visual Encoder Designs )
+> Self -Ext
+> Self -Attention
+> +
+> FeedForward
+> +
+> K, V
+> (Concat)
+> Q
+> #!
+> (Curr. feature )
+> Self -Attn
+> Self -Attention
+> +
+> FeedForward
+> +
+> Q, K, V
+> FeedForward
+> +
+> #!
+> (Curr. feature )
+> #!"#
+> (Prev. feature)
+> Cross -Attention
+> Cross+ FFN (Ours)
+> Self -Attention
+> K, V
+> +
+> Q
+> +
+> FeedForward
+> +
+> I!
+> Patch
+> Embed
+> ViT
+> Block
+> N x
+> Proj .
+> LLM
+> #!#!"#
+> Multi -Head SDPA
+> LN FFN
+> W1
+> W2
+> WQWKWV
+> LN K, VLN Q
+> WO
+> VLM
+> Layer View
+> (Cross+ FFN (Ours))
+> Cross -Attention  FeedForward
+> FeedForward
+> +
+> #!
+> (Curr. feature )
+> #!"#
+> (Prev. feature)
+> Cross -Attention
+> Cross
+> Self -Attention
+> K, V
+> +
+> Q
+> +
+> Pool  MLP
+> FeedForward
+> +
+> #!
+> (Curr. feature )
+> #!"#
+> (Prev. feature)
+> AdaLN -Zero
+> Self -Attention
+> +
+> Scale & Shift
+> %!, '!
+> Scale
+> Scale & Shift
+> (! ("%", '"
+> Scale
+> +Weight Clone
+> Zero Initialization
+> Detach (stop_grad)
+> Residual Add
+
+Figure 2. Design study and implementation recipe for SVE . We compare several ways to condition current visual tokens Zt on past tokens Zt−1. The layer view expands the winning Cross-Attn + FFN design and shows its implementation recipe: stop-gradient on the past feature pathway, cloned initialization from the same ViT block, and zero initialization. Activations and positional embeddings in the layer view are omitted for simplicity. 
+
+H = WP roj (Z) ∈ RM ×dL , where dL is the LLM hidden dimension and M is the number of visual tokens passed to the LLM. 
+
+Overview. As shown in Fig. 2, we study four state-ful encoder designs. Self-Ext extends the pretrained self-attention key-value set with features from the previous im-age. AdaLN-Zero pools features from the previous image to modulate the self-attention and feed-forward layers through adaptive normalization (Perez et al., 2018; Peebles and Xie, 2023). Cross inserts a full token-level cross-attention layer before each pretrained self-attention layer, with queries from all visual tokens of the current image and keys/values from all visual tokens of the previous image. Cross+FFN further adds a feed-forward block after the inserted cross-attention layer. We summarize the block form, added parameters, and added compute of each design in §E. We use controlled multi-image comparison tasks (§3.1, §3.2) to select the final design (§3.3). We then ablate the recipe needed to exploit past visual features without destabilizing training (§3.4), and test generality across resolutions, model sizes, and model backbones (§3.5). Finally, we provide feature analysis on stateful visual representation in §4, detailed evaluation pro-tocol in §C and training configurations in §D. 
+
+3.1. Task Setup Cross-Image Spatial Aggregation. Image-text aligned visual encoders such as CLIP (Radford et al., 2021) and SigLIP (Zhai et al., 2023) can struggle to expose fine-grained spatial or attribute information needed for down-stream tasks (Chen et al., 2024; Pantazopoulos et al., 2024; Bianchi et al., 2024). To isolate this failure mode in a con-trolled setting, we construct a spatial aggregation task that requires localizing small visual changes across semanti-cally rich computer-use backgrounds from AgentNet/Open-CUA (Wang et al., 2025c). We overlay random red dots across image sequences and ask the model to predict cross-image geometric quantities, including normalized Euclidean distance and convex-hull area (Fig. 3, top). We report mean absolute error (MAE) and root mean square error (RMSE) on a held-out set. Additional details on data formatting are available in §B.1. 
+
+Multi-Object Visual Differencing. Spatial aggregation tests geometry but not whether a model can identify which object changed in a cluttered scene. Using the CLEVR-Multi-Change engine (Johnson et al., 2017; Qiu et al., 2021), we create scene pairs with 30–40 objects and 4 subtle changes, including movement, insertion, deletion, and re-placement (Fig. 3, bottom left). The model must describe the changed object and change type. We report exact-match accuracy for categorical change prediction, and BLEU (Pa-pineni et al., 2002), CIDEr (Vedantam et al., 2015), ME-TEOR (Banerjee and Lavie, 2005), SPICE (Anderson et al., 2016), and ROUGE-L (Lin, 2004) for generated descrip-tions. Additional details on data formatting are available in §B.2. 
+
+Visual Trajectory Behavioral Cloning. To test state tracking in interactive settings, we train models to imitate heuristic-solver demonstrations from VisGym (Wang et al., 2026). Each trajectory contains a task instruction followed by interleaved visual observations and solver actions, and the model predicts the next action from the interaction his-tory. We use four VisGym tasks: Patch Reassembly, 3D Mental Rotation (Cube), Matchstick Rotation, and 3D Men-tal Rotation (Objaverse), which require fine-grained per-3Stateful Visual Encoders for Vision-Language Models (a) + (b) "What is the normalized Euclidean distance between the red dots across the two images?"               
+
+> (a) + (b) + (c) "What is the area of the triangle formed by the red dots across the three images?"
+> (a) + (b) + (c) + (d) "What is the area of the convex hull formed by the red dots across the four images?"
+> (a) + (b) + (c) + (d) + (e) "What is the area of the convex hull formed by the red dots across the five images?"
+> (a) Google homepage
+> (dot upper right)
+> (b) Google homepage
+> (dot lower left)
+> (c) Google search results
+> (dot left middle)
+> (d) Google Sheets dashboard
+> (dot center right)
+> (e) Spreadsheet open
+> (dot left middle)
+
+VLM 0.1521       
+
+> Task 1: Cross -image Spatial Aggregation Dot Distance/Area Over Rich Backgrounds
+> Task 2: Multi -object Visual Differencing
+> CLEVR -Multi -Change (30 -40 Objects)
+> Task 3: Visual Trajectory Behavioral Cloning
+> VisGym
+> The small blue rubber sphere was moved. The small
+> purple metal cylinder was moved. The large yellow metal
+> cylinder was removed. The large cyan rubber cube was
+> replaced with a large green rubber sphere.
+
+VLM       
+
+> (1) Patch Reassembly (2) 3D Mental Rotation (Cube)
+> (3) Matchstick Rotation (4) 3D Mental Rotation ( Objaverse )
+
+VLM                          
+
+> (1) (’place’, (0, 3, 2)), [Obs ], (’place’, (1, 0, 1)), (’place’, (2, 1, 3)), [Obs ], …, (’stop’, ‘stop’)
+> (2) (’rotate’, [89.6, 48.5, 74.6]), [Obs ], (’rotate’, [ -5.7, 88.2, 9.9]), [Obs ], …, (’stop’, ’stop’)
+> (3) (’move’, [ -15.3, 109.4, -4.7]), [Obs ], (’move’, [ -23.8, 16.5 ,-0.7]), [Obs ], …, (’stop’, ’stop’)
+> (4) (’rotate’, [ -3.7, -91.2, 95.9]), [Obs ], (’rotate’, [15.8, -70.2, 5.6]), [Obs ], …, (’stop’, ’stop’)
+
+Figure 3. Controlled tasks for studying stateful visual representations in vision-language models. We present 3 tasks where we train and evaluate models with: cross-image spatial aggregation (top); multi-object visual differencing (bottom left); visual trajectory behavioral cloning (bottom right). Details are in §3.1. 
+
+ception, partial state tracking, and task-specific dynamics (Fig. 3, bottom right). We report perplexity on a held-out set. Additional details on data formatting are available in §B.3. 
+
+3.2. Training Setup Initialization. Unless otherwise specified, we initial-ize all new parameters inside the visual encoder of a pre-trained Qwen3.5-4B (Qwen Team, 2026) model. For each added cross-attention layer, we copy the input projections from the corresponding pretrained self-attention layer in the same visual-encoder block, i.e., W cross  
+
+> Q
+
+, W cross  
+
+> K
+
+, W cross  
+
+> V
+
+←
+
+W self  
+
+> Q
+
+, W self  
+
+> K
+
+, W self  
+
+> V
+
+, and zero-initialize the output projec-tion W cross  
+
+> O
+
+= 0. For the added FFN in Cross+FFN, we similarly copy the first linear layer and zero-initialize the second, i.e., W cross 1 ← W self 1 and W cross 2 = 0 (Fig. 2, right). This gives the added modules a layer-matched fea-ture basis while preserving the pretrained visual encoder’s initial behavior (Kingma and Dhariwal, 2018; Bachlechner et al., 2021; Zhang et al., 2023). 
+
+Conditioning. For cross-attention variants at each layer, the current visual features Zt provide queries and the prede-cessor visual features Zt−1 provide keys and values: Qt =
+
+ZtW cross  
+
+> Q
+
+and (Kt, V t) = ( Zt−1W cross  
+
+> K
+
+, Z t−1W cross  
+
+> V
+
+). For the first image, we fall back to using Z1 as the key-value source. For Self-Ext, the key-value source is expanded from 
+
+Zt to [Zt; Zt−1]. For AdaLN-Zero, pooled predecessor vi-sual features provide the conditioning vector, with a zero vector used for the first image. 
+
+Optimization. During training, we apply stop-gradient to the predecessor branch in all cross-attention variants rem-iniscent of BYOL and SimSiam (Grill et al., 2020; Chen and He, 2021): Kt−1 = stop grad (Zt−1)W cross  
+
+> K
+
+and 
+
+Vt−1 = stop grad (Zt−1)W cross  
+
+> V
+
+(Fig. 2, right). Gradi-ents therefore update the current-image query branch and state-conditioning parameters, but not the features from the previous image used as context. We provide SFT hyperpa-rameters in Tab. 16. 
+
+3.3. Results 
+
+We compare the stateless baseline with four SVE variants (Fig. 2, left & middle). 
+
+Cross-image spatial aggregation. Tab. 1 shows that Cross+FFN performs best across all spatial aggregation tasks, with the largest gain occurring in Dot-Distance, sug-gesting that explicit state conditioning is especially useful 4Stateful Visual Encoders for Vision-Language Models 
+
+Table 1. Cross-image spatial aggregation results . We report MAE/RMSE on dot-distance and area estimation tasks; all values are 
+
+×10 −2. Tri., Quad., and Pent. denote triangular, quadrilateral, and pentagon area estimation. Colored badges show absolute change from the stateless baseline: indicates improvement and indicates degradation. Method Dot Distance Tri. Area Quad. Area Pent. Area Average (2-Img) (3-Img) (4-Img) (5-Img) MAE ↓ RMSE ↓ MAE ↓ RMSE ↓ MAE ↓ RMSE ↓ MAE ↓ RMSE ↓ MAE ↓ RMSE ↓
+
+Baseline ( Stateless ) 1.17 1.51 0.85 1.22 1.11 1.64 1.47 2.03 1.15 1.60 
+
+Stateful 
+
+Self-Ext. 1.55 .38 2.18 .67 1.16 .31 1.72 .50 1.35 .24 1.84 .20 1.71 .24 2.35 .32 1.44 .29 2.02 .42 
+
+AdaLN-Zero 1.23 .06 1.60 .09 0.89 .04 1.26 .04 1.12 .01 1.49 .15 1.42 .05 2.05 .02 1.17 .02 1.60 .00 
+
+Cross 0.97 .20 1.23 .28 0.79 .06 1.15 .07 1.03 .08 1.36 .28 1.34 .13 1.84 .19 1.03 .12 1.39 .21 
+
+Cross+FFN 0.56 .61 0.72 .79 0.50 .35 0.77 .45 0.76 .35 1.02 .62 1.04 .43 1.34 .69 0.72 .43 0.96 .64 
+
+Table 2. Results on visual differencing and trajectory behavioral cloning . For CLEVR, PPL, B4, C, M, S, R-L, and Acc denote perplexity, BLEU-4, CIDEr, METEOR, SPICE, ROUGE-L, and change accuracy. For VisGym, MSR, PR, MRC, and MRO denote the Patch Reassembly, 3D Mental Rotation (Cube), Matchstick Rotation, and 3D Mental Rotation (Objaverse). Colored badges show absolute change from the stateless baseline: indicates improvement and indicates degradation. Method CLEVR-Multi-Change (30–40 Objects) VisGym (Perplexity) PPL ↓ B4 ↑ C ↑ M ↑ S ↑ R-L ↑ Acc ↑ MSR ↓ PR ↓ MRC ↓ MRO ↓
+
+Baseline ( Stateless ) 1.229 90.5 529.5 93.5 79.0 92.3 91.1 2.162 2.074 1.204 1.205 Self-Ext. 1.226 .003 92.0 1.5 538.1 8.6 95.2 1.7 80.0 1.0 93.4 1.1 92.5 1.4 2.292 .130 2.132 .058 1.218 .014 1.218 .013 
+
+AdaLN-Zero 1.230 .001 90.9 .40 531.8 2.3 93.8 .30 79.1 .10 92.4 .10 91.4 .30 2.152 .010 2.069 .005 1.201 .003 1.207 .002 
+
+Cross 1.225 .004 88.5 2.0 515.0 14.5 91.5 2.0 77.8 1.2 90.2 2.1 89.3 1.8 2.145 .017 2.009 .065 1.201 .003 1.205 .000 
+
+Cross+FFN 1.219 .010 92.7 2.2 543.9 14.4 95.4 1.9 80.1 1.1 93.9 1.6 92.7 1.6 2.111 .051 1.944 .130 1.193 .011 1.203 .002 
+
+for precise cross-image localization. Self-Ext. performs 
+
+worse than the stateless baseline, suggesting that simply expanding the self-attention key-value set can disrupt the pretrained visual encoder. AdaLN-Zero is more stable but remains close to the baseline, indicating that pooled feature conditioning from the previous image is too compressed for fine-grained spatial retrieval. By contrast, Cross improves over the baseline, and Cross+FFN improves further, sug-gesting token-level retrieval and the added FFN both help transform cross-attended features before they are passed back into the visual block. 
+
+Multi-object visual differencing and visual trajectory behavioral cloning. Tab. 2 further validates this design choice on visual differencing ( e.g., CLEVR-Multi-Change (30–40 objects)) and behavioral cloning ( e.g., VisGym). On CLEVR, Cross+FFN improves over the stateless base-line across perplexity, change accuracy, and all language-generation metrics, including CIDEr from 529 .5 to 543 .9
+
+and accuracy from 91 .1 to 92 .7. On VisGym, it also im-proves all four trajectory behavioral cloning tasks. Other variants are less consistent or less effective. 
+
+3.4. Ablations 
+
+We ablate the main components of the Cross+FFN recipe in Tabs. 3 and 4. Overall, Cross+FFN benefits from ex-plicit cross-image access, WQ,K,V, 1 cloning, WO, 2 zero-initialization, the H1 (K, V ) fallback, stop grad (K, V ),and positional embeddings in the cross-attention pathway. 
+
+Capacity-controlled baseline. Self+FFN uses the same added pathway as Cross+FFN but does not attend to fea-tures from the previous image. We use this to rule out the possibility that gains come merely from added parameters or FLOPs rather than statefulness. Although it improves over the stateless baseline with the rest of our recipe, it re-mains below Cross+FFN on all tasks but patch reassembly in VisGym, the only task where visual comparison is not strictly required (Wang et al., 2026). 
+
+WQ,K,V, 1 clone. Removing WQ,K,V, 1 cloning gives gen-erally weaker results, suggesting that copying the input-side cross-attention weights and the first FFN layer from its fol-lowing self-attention block provides a useful layer-matched feature basis. 
+
+WO, 2 zero-init. Removing WO, 2 zero-initialization causes the largest degradation. This supports the role of zero ini-tialization in preserving the pretrained encoder’s feature distribution at the start of finetuning. Without it, the newly added cross-attention and FFN branches can immediately perturb visual features in large magnitude before they en-ter the following pretrained self-attention and FFN layers, placing those layers off-distribution. 
+
+Z1 (K, V ) fallback. Removing the Z1 (K, V ) fallback 5Stateful Visual Encoders for Vision-Language Models 
+
+Table 3. Spatial aggregation ablations . We ablate the Cross+FFN recipe and report MAE/RMSE; all values are ×10 −2. Colored badges show absolute change from Cross+FFN: indicates improvement and indicates degradation. Method Dot Dist. Tri. Area Quad. Area Pent. Area Average MAE ↓ RMSE ↓ MAE ↓ RMSE ↓ MAE ↓ RMSE ↓ MAE ↓ RMSE ↓ MAE ↓ RMSE ↓
+
+Cross+FFN 0.56 0.72 0.50 0.77 0.76 1.02 1.04 1.34 0.72 0.96 
+
+Capacity-controlled baseline 
+
+Self+FFN 0.62 .06 0.79 .07 0.54 .04 0.80 .03 0.84 .08 1.12 .10 1.07 .03 1.42 .08 0.77 .05 1.03 .07 
+
+Ablations w/o WQ,K,V, 1 clone 0.53 .03 0.71 .01 0.52 .02 0.85 .08 0.80 .04 1.05 .03 1.12 .08 1.45 .11 0.74 .02 1.02 .06 
+
+w/o WO, 2 zero-init 1.13 .57 1.49 .77 0.85 .35 1.35 .58 1.17 .41 1.57 .55 1.56 .52 2.23 .89 1.18 .46 1.66 .70 
+
+w/o Z1 (K, V ) fallback 0.64 .08 1.31 .59 0.57 .07 0.86 .09 0.81 .05 1.09 .07 1.11 .07 1.49 .15 0.78 .06 1.19 .23 
+
+w/o stop grad (K, V ) 0.64 .08 0.83 .11 0.60 .10 0.92 .15 0.89 .13 1.19 .17 1.14 .10 1.54 .20 0.82 .10 1.12 .16 
+
+w/o pos-embed 0.58 .02 0.76 .04 0.59 .09 0.90 .13 0.89 .13 1.19 .17 1.15 .11 1.50 .16 0.80 .08 1.09 .13 
+
+Baseline ( Stateless ) 1.17 .61 1.51 .79 0.85 .35 1.22 .45 1.11 .35 1.64 .62 1.47 .43 2.03 .69 1.15 .43 1.60 .64 
+
+Table 4. Visual differencing and trajectory behavioral cloning ablations . We ablate the Cross+FFN recipe on CLEVR and VisGym. For CLEVR, PPL, B4, C, M, S, R-L, and Acc denote perplexity, BLEU-4, CIDEr, METEOR, SPICE, ROUGE-L, and change accuracy. For VisGym, MSR, PR, MRC, and MRO denote the Patch Reassembly, 3D Mental Rotation (Cube), Matchstick Rotation, and 3D Mental Rotation (Objaverse) tasks. Bold/underline indicate best/second-best results. Colored badges show absolute change from Cross+FFN: indicates improvement and indicates degradation. Method CLEVR-Multi-Change (30–40 Objects) VisGym PPL ↓ B4 ↑ C ↑ M ↑ S ↑ R-L ↑ Acc ↑ MSR ↓ PR ↓ MRC ↓ MRO ↓
+
+Cross+FFN 1.219 92.7 543.9 95.4 80.1 93.9 92.7 2.111 1.944 1.193 1.203 
+
+Capacity-controlled baseline 
+
+Self+FFN 1.223 .004 91.6 1.1 537.2 6.7 94.8 .60 79.9 .20 93.0 .90 91.6 1.1 2.126 .015 1.938 .006 1.198 .005 1.204 .001 
+
+Ablations w/o WQ,K,V, 1 clone 1.223 .004 92.2 .50 538.7 5.2 94.9 .50 79.9 .20 93.4 .50 92.5 .20 2.161 .050 1.933 .011 1.202 .009 1.207 .004 
+
+w/o WO, 2 zero-init 1.238 .019 91.0 1.7 534.8 9.1 94.2 1.2 78.3 1.8 92.8 1.1 91.0 1.7 2.319 .208 2.636 .692 1.221 .028 1.220 .017 
+
+w/o Z1 (K, V ) fallback 1.221 .002 92.2 .50 541.0 2.9 95.1 .30 80.0 .10 93.3 .60 91.8 .90 2.140 .029 1.972 .028 1.201 .008 1.205 .002 
+
+w/o stop grad (K, V ) 1.219 .000 93.0 .30 544.4 .50 95.4 .00 80.1 .00 94.0 .10 92.6 .10 2.143 .032 1.943 .001 1.203 .010 1.205 .002 
+
+w/o pos-embed 1.224 .005 91.8 .90 537.3 6.6 94.5 .90 79.5 .60 93.2 .70 92.0 .70 2.112 .001 1.947 .003 1.201 .008 1.207 .004 
+
+Baseline ( Stateless ) 1.229 .010 90.5 2.2 529.5 14.4 93.5 1.9 79.0 1.1 92.3 1.6 91.1 1.6 2.162 .051 2.074 .130 1.204 .011 1.205 .002 
+
+replaces the first-image key-value source with a learned null embedding, suggesting the stateful pathway should attend to real visual features if possible. 
+
+stop grad (K, V ). Removing stop grad (K, V )
+
+weakens spatial aggregation and gives mixed results on visual differencing. This supports treating keys and values from previous image features as a stable retrieval context, rather than allowing them to co-adapt directly through the current image’s cross-attention update. 
+
+pos-embed. Removing positional embeddings from the cross-attention degrades performance across the evaluated tasks, with especially large drops on spatial aggregation and visual differencing. This suggests that preserving positional information in cross-image attention is important for state-dependent visual understanding. 
+
+3.5. Generality 
+
+We next evaluate the generality of SVEs ( i.e., the Cross+FFN recipe). Specifically, we study whether the SVE design remains effective across different (1) input res-olutions; (2) language model sizes; and (3) VLM back-bones when compared to stateless baselines. We use the 
+
+multi-object visual differencing task to train and evaluate all variants with two primary findings: (1) SVEs are ro-bust across input resolutions and model sizes. As shown in Fig. 4, SVEs consistently outperform a stateless base-line from 256 2 to 768 2 input resolution and from 0.8B to 
+
+9B model size. Notably, smaller SVE models can match or even outperform much larger stateless baselines. (2) SVEs generalize across VLM architectures. As shown in Tab. 5, SVEs consistently improve over stateless baselines across diverse VLM families, including Qwen3-VL (Bai et al., 2025a), Qwen3.5 (Qwen Team, 2026), GLM-4.6V-Flash (Zeng et al., 2025), InternVL3.5 (Wang et al., 2025b), 6Stateful Visual Encoders for Vision-Language Models 256 
+
+> 384
+> 512
+> 640
+> 768
+
+1.25 
+
+1.30 
+
+PPL 
+
+> 256
+> 384
+> 512
+> 640
+> 768
+
+80 
+
+90 
+
+BLEU-4 
+
+> 256
+> 384
+> 512
+> 640
+> 768
+
+450 
+
+500 
+
+550 
+
+CIDEr 
+
+> 256
+> 384
+> 512
+> 640
+> 768
+
+85 
+
+90 
+
+95 
+
+METEOR 
+
+> 256
+> 384
+> 512
+> 640
+> 768
+
+80 
+
+90 
+
+ROUGE-L 
+
+> 256
+> 384
+> 512
+> 640
+> 768
+
+80 
+
+90 
+
+ACC% 
+
+0.8B 2B 4B 9B 
+
+1.225 
+
+1.250 
+
+1.275 
+
+0.8B 2B 4B 9B 
+
+80 
+
+90 
+
+0.8B 2B 4B 9B 
+
+450 
+
+500 
+
+550 
+
+0.8B 2B 4B 9B 
+
+85 
+
+90 
+
+95 
+
+0.8B 2B 4B 9B 
+
+80 
+
+90 
+
+0.8B 2B 4B 9B 
+
+85 
+
+90 
+
+Input resolution 
+
+Model size 
+
+Baseline Cross+FFN 
+
+Figure 4. SVE (Cross+FFN) generalizes across input resolutions and model sizes. We compare SVE (blue) with its stateless baseline (yellow) on multi-object visual differencing across input resolutions (top) and model sizes (bottom). SVE consistently improves over the stateless baseline, especially when the baseline is weaker, while both approaches approach the task ceiling at higher resolutions and scales. 
+
+Table 5. SVE generalizes across different VLM backbones. We compare SVE with its stateless baseline on multi-object visual differencing across VLM backbones. PPL, B4, C, M, S, R-L, and Acc denote perplexity, BLEU-4, CIDEr, METEOR, SPICE, ROUGE-L, and change accuracy. indicates improvement over the corresponding stateless baseline. Backbone Backbone features CLEVR-Multi-Change (30–40 Objects) Connector design Distinct feature PPL ↓ B4 ↑ C ↑ M ↑ S ↑ R-L ↑ Acc ↑                                                                                         
+
+> Qwen3-VL-4B (Bai et al., 2025a) MLP merger M= 4 /N DeepStack (Meng et al., 2024) 1.268 .004 82.5 2.5 482.1 15.1 88.6 1.3 58.7 1.0 86.8 1.5 87.3 .70
+> Qwen3.5-4B (Qwen Team, 2026) MLP merger M= 4 /N Gated DeltaNet (Yang et al., 2025) 1.219 .010 92.7 2.2 543.9 14.4 95.4 1.9 80.1 1.1 93.9 1.6 92.7 1.6
+> GLM-4.6V-Flash (Zeng et al., 2025) MLP merger M= 4 /N SwiGLU (Shazeer, 2020) FFN 1.236 .005 92.4 .70 542.0 3.8 95.0 .40 64.5 .40 93.6 .40 92.2 .10
+> InternVL3.5-4B (Wang et al., 2025b) MLP merger M= 4 /N LayerScale (Touvron et al., 2021) 1.332 .026 68.2 1.7 389.5 11.5 77.8 1.1 49.9 1.2 76.3 1.2 77.4 1.8
+> Gemma-3-4B (Kamath et al., 2025) Pool to M= 256 ∀NLocal-global Attn. (Beltagy et al., 2020) 1.316 .083 68.4 8.0 387.0 45.6 78.0 5.9 49.9 4.9 76.3 5.9 77.9 7.9
+
+and Gemma-3 (Kamath et al., 2025). These models dif-fer substantially in visual encoders, vision–language con-nectors, attention mechanisms, and language backbones, suggesting that SVEs are not tied to a particular VLM archi-tecture. 
+
+## 4. Feature Analysis of Stateful Representations 
+
+We further analyze the learned visual features to understand state-dependent visual signals that lead to the gains of SVE. We compare Cross+FFN against a capacity-controlled state-less baseline with the same architecture, trainable parameter count, training data, and optimization setup. The only differ-ence is the source of the temporal cross-attention keys and values: SVE reads from the features of the previous image, whereas the stateless control reads features from the cur-rent image itself, which is equivalently self-attention. This comparison isolates whether the model learns to use past visual context, rather than merely benefiting from additional parameters or computation. Let Zt(Y ) = fV (It | Y ) ∈ RN ×dV denote the visual repre-sentation of the current image It when the state-conditioning source is Y , where N is the number of spatial visual tokens and dV is the visual hidden dimension. To measure context sensitivity, we compare the representation induced by the true predecessor (previous image) It−1 with the representa-tion induced by a different predecessor I′
+
+> t−1
+
+:
+
+smin (It, I t−1, I ′
+
+> t−1
+
+) = min n∈{ 1,...,N } cos  Zt(It−1)n, Z t(I′
+
+> t−1
+
+)n
+
+
+
+As shown in Fig. 5(a), the stateless control is invariant to predecessor swaps by construction, since there is no cross-image operation during visual encoding. In contrast, SVE produces substantially lower minimum token similarity, in-dicating that the representation of It depends on the preced-ing visual state with our introduced cross-image encoding module. We next examine whether these context-dependent fea-ture changes are useful for downstream change under-standing. Let asve  
+
+> i
+
+and astateless  
+
+> i
+
+denote the per-example Change-Acc scores of SVE and the stateless control on test example i. We define the set of non-tied examples as D = i : asve 
+
+> i
+
+̸ = astateless  
+
+> i
+
+, and compute the decided-example win rate 
+
+WinRate = 1
+
+|D| 
+
+X
+
+> i∈D
+
+1asve  
+
+> i
+
+> a stateless 
+
+> i
+
+ .
+
+As shown in Fig. 5(b), although many examples are ties due to the strength of the capacity-controlled baseline, SVE wins 7Stateful Visual Encoders for Vision-Language Models 0.5 0.6 0.7 0.8 0.9 1.0 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> count
+> (a) Representation depends on context
+
+min n cos( fV(It | It 1)[ n], fV(It | I t 1)[ n])   
+
+> Stateful
+> Stateless
+> (Capacity Controlled)
+> Stateless
+> (Capacity Controlled)
+> Stateful
+> 0%
+> 25%
+> 50%
+> 75%
+> 100%
+> % win rate (119 pairs)
+> 33.6%
+> 66.4%
+> (b) Win rate when models disagree
+> 012 23
+> horizontal token position
+> 0
+> 12
+> 23
+> vertical token position (c) Cross-image read is sparse
+
+fV(It | It 1)[ n] fV(It | It)[ n] 2/dV
+
+> 0 1.7×10
+
+Figure 5. Stateful encoding feature analysis. We compare SVE feature with the stateless baseline. (a) SVE produces context-dependent visual features, while the stateless baseline remains unchanged. (b) When the two models disagree, SVE wins the baseline by a large margin on CLEVR-Change. (c) Cross-image feature updates are spatially sparse. 
+
+Table 6. Medical-Diff-VQA evaluation results. We include caption-ing metrics i.e., BLEU-4 (B4), METEOR (M), ROUGE-L (R-L), and CIDEr (C) as well as evaluations based on RATE (Agrawal et al., 2025). Method B4 M R-L C Finding-level F1 Change Acc. Micro Macro Qwen3.5 4B (SFT) 47.9 40.6 62.7 145.1 31.55 11.95 86.83 +SVE (Ours) 49.6 40.9 66.3 178.9 32.20 12.45 89.21 
+
+substantially more often among the non-tied cases. This indicates that the state-dependent representation changes are not merely incidental feature shifts, but are predictive of improved visual change understanding. Finally, Fig. 5(c) analyzes the spatial structure of the cross-image update. For each test pair, we compare the SVE representation with the true predecessor against a masked-predecessor fallback, where the temporal cross-attention reads the current image itself: 
+
+∆n = 1
+
+dV
+
+∥Zt(It−1)n − Zt(It)n∥22 .
+
+We visualize the average ∆n over test pairs on the post-merger spatial grid. The resulting heatmap is sparse: most positions have near-zero update magnitude, while a small number of tokens absorb most of the cross-image change. This supports the interpretation that SVE performs selective cross-image reading, preserving the pretrained visual repre-sentation for most tokens while updating localized features relevant to state comparison. Together, these results show that SVE learns visual features that are context-dependent, task-relevant, and spatially selective. 
+
+## 5. Validating SVE in Real-world Tasks 
+
+We validate the effectiveness of SVEs and our training recipe on three real-world comparison settings: detecting visual differences in radiology scans (Hu et al., 2025) (§5.1), per-forming fine-grained image comparison on edits derived from real-world/web images (Ye et al., 2025) (§5.2), and identifying changes in remote-sensing images (Liu et al., 2022a) (§5.3). We provide additional details on data format-ting in §B.4, §B.5, §B.6, training configurations in §D, and evaluation setup in §C. 
+
+5.1. Longitudinal Radiology 
+
+We first validate SVEs in longitudinal radiology, where clinically meaningful diagnostics often require fine-grained comparison across time. We use the Medical-Diff-VQA dataset (Hu et al., 2025), which provides 16,347 paired chest X-ray images from the same patient together with annotations describing medical changes between the two studies. A SVE enables a VLM to better capture subtle longitudinal changes and therefore provides more grounded diagnostics (Fig. 6, top), and achieves gains in standard captioning metrics (Tab. 6, left). We further introduce a structured evaluation based on the RATE framework (Agrawal et al., 2025) to measure whether models capture clinically meaningful changes across 27 chest-related finding types ( e.g. , lung opacity, pneumotho-rax, calcification) in Tab. 6 (right). We evaluate each X-ray pair by comparing the model’s predicted checklist of added or resolved findings against the reference, then report Mi-cro/Macro F1 and whether it correctly detected any clinical change (additional details in §F). SVEs outperform the state-less baseline across all three metrics. 
+
+5.2. Fine-grained Image Comparison 
+
+To test whether a SVE enables better image comparison in VLMs on real-world web images, we use ImgEdit (Ye et al., 2025), which consists of source images, edited images, and edit instructions. Given a source–edited image pair, the model predicts the instruction that transformed the source image into the edited image. This setting is directly relevant 8Stateful Visual Encoders for Vision-Language Models Reference :                                                            
+
+> Replace person located slightly off -center in the upper -middle section of the image with a large rock
+> Qwen 3.5 4B (SFT):
+> Remove the person standing on the rocky outcrop with arms raised, located in the central lower -
+> middle of the image .
+> Qwen 3.5 4B (SFT) +SVE (Ours):
+> Replace person positioned in the upper -central area of the image with a large rock
+> Reference :
+> Some detached houses appear beside the road on
+> the bareland .
+> Qwen 3.5 4B (SFT):
+> The scene is the same as before .
+> Qwen 3.5 4B (SFT) +SVE (Ours):
+> Abuilding appears at the top of the scene .
+> Reference :
+> The main image has additional findings of lung opacity, and atelectasis than the reference
+> image. the main image is missing the finding of cardiomegaly than the reference image .
+> Qwen 3.5 4B (SFT):
+> The main image has additional findings of atelectasis , and cardiomegaly than the reference
+> image. the main image is missing the findings of pleural effusion, and lung opacity than the
+> reference image.
+> Qwen 3.5 4B (SFT) +SVE (Ours):
+> The main image has additional findings of atelectasis, and lung opacity than the reference
+> image. the main image is missing the finding of cardiomegaly than the reference image.
+
+Figure 6. Comparison of SVE vs. stateless baselines on real-world tasks. We show qualitative examples from longitudinal radiology (top), fine-grained image comparisons (bottom left), and remote sensing (bottom right). Text in green and red indicates correct and incorrect change descriptions compared to the reference, respectively. 
+
+Table 7. ImgEdit evaluation results under MLLM-as-a-judge. We report pairwise preference counts against the baseline and reference instruction. Baseline Base Win Tied SVE Win Reference 296 758 346 
+
+Qwen3.5 4B (SFT) 171 1020 209 
+
+to edit verification (Ma et al., 2024), image-editing reward modeling (Luo et al., 2025; Wu et al., 2025), and image-difference understanding (Baraldi et al., 2025; Li et al., 2025b; Di et al., 2025), all of which require models to compare before–after images and reason about whether the observed visual difference matches, explains, or refines a requested change (Fig. 6, bottom-left). We train and evaluate SVEs against the stateless baseline on a subset of seven change categories (200 images each): add, adjust, background change, content memory, content understanding, remove, and replace (Ye et al., 2026). We ex-clude categories where shortcut solutions exist, such as style change, where the style may reveal the target instruction without requiring comparison. Results are in Tab. 7. Here, we opt out of traditional reference-based metrics be-cause the reference edit instruction is not guaranteed to match the actual transformation. Instead, we evaluate the output using a strong MLLM judge (Claude-Opus-4.7 (An-thropic, 2026)), and report pairwise preferences for SVEs 
+
+Table 8. LEVIR-CC evaluation results in comparison with prior methods. S∗ 
+
+> m
+
+(Liu et al., 2023b) averages BLEU-4 (B4), METEOR (M), ROUGE-L (R-L), and CIDEr (C). 
+
+Method B4 M R-L C S∗
+
+> m
+
+Specialist models & architectures 
+
+Capt-Diff (Park et al., 2019) 47.41 34.47 65.64 110.57 64.52 Capt-Rep (Park et al., 2019) 53.15 36.58 69.73 121.22 70.17 Capt-Att-Dual-Att (Park et al., 2019) 53.56 37.16 69.19 124.42 71.08 DUDA (Park et al., 2019) 57.79 37.15 71.04 124.32 72.58 MCCFormer-S (Qiu et al., 2021) 56.36 39.60 69.46 120.39 71.45 MCCFormer-D (Qiu et al., 2021) 56.38 39.91 70.44 124.44 72.79 RSICCFormer-C (Liu et al., 2022a) 62.41 38.70 73.60 132.62 76.83 PSNet (Liu et al., 2023a) 62.11 38.80 73.60 132.62 76.78 Chg2Cap (Chang and Ghamisi, 2023) 62.98 39.42 74.34 136.25 78.25 SEN (Zhou et al., 2024) 64.09 39.59 71.50 125.02 75.05 Diffusion-RSCC (Yu et al., 2025) 60.90 37.80 71.50 125.60 73.95 CTMTNet (Shi et al., 2024) 64.69 39.49 74.54 134.94 78.42 PromptCC (Liu et al., 2023b) 63.54 38.82 73.72 136.44 78.13 SAGE-CC (Wang et al., 2025a) 65.50 39.92 74.77 137.50 79.42 SACNet (Yang et al., 2026) 65.57 40.30 75.68 138.34 79.97 
+
+Generalist VLMs 
+
+Qwen3.5 4B (SFT) 60.70 39.42 76.03 142.26 79.60 +SVE (Ours) 61.33 39.91 76.26 144.35 80.46 
+
+against both the stateless baseline and the original reference instruction, where the SVE is preferred over both. 
+
+5.3. Remote Sensing 
+
+Remote sensing change captioning requires models to com-pare before-after aerial or satellite images of the same ge-ographic region and describe how the scene has changed in the later image, such as newly constructed buildings, 9Stateful Visual Encoders for Vision-Language Models 
+
+removed infrastructure, or altered land use (Fig. 6, bottom-right). This task is a natural fit for SVEs because the task-relevant signal often lies in small, localized differences be-tween the two images, while the surrounding geographic context remains largely unchanged. To this end, we train and evaluate SVEs on LEVIR-CC (Liu et al., 2022a), a standard remote sensing change captioning dataset. We use standard captioning metrics and S∗ 
+
+> m
+
+following prior work (Liu et al., 2023b), and present results in Tab. 8. SVEs improve over the stateless baseline, and moreover, SVEs outperforms all prior specialist models and architectures. 
+
+## 6. Conclusion 
+
+We presented the Stateful Visual Encoder (SVE), a simple yet effective method for introducing cross-image interaction into the visual encoder of a VLM. SVEs consistently outper-form stateless baselines across both synthetic datasets and real-world applications, from longitudinal radiology to re-mote sensing, and scales robustly across resolutions, model sizes, and architectures. Overall, our results show that mak-ing the visual encoder state-aware can substantially improve multi-image reasoning while preserving the pretrained VLM interface, offering a practical path toward VLMs that better track, compare, and reason over dynamic visual contexts. 
+
+Acknowledgements We thank Kate Saenko, Mayank Mishra, Sanjay Sriram Subramanian, Kumar Krishna Agrawal, Lisa Dunlap, Natalia Harguindeguy, Baifeng Shi, XuDong Wang and Fangzhou Zhao for their discussion and/or support in developing this project. Authors, as part of their affiliation with UC Berkeley, were supported by gifts from Accenture, AMD, Anyscale, Broadcom, Cisco, Google, IBM, Intel, Intesa Sanpaolo, Lambda, Lightspeed, Mibura, Microsoft, NVIDIA, Qualcomm, Samsung SDS, and SAP. 
+
+## References 
+
+Kumar Krishna Agrawal, Longchao Liu, Long Lian, Michael Nercessian, Natalia Harguindeguy, Yufu Wu, Peter Mikhael, Gigin Lin, Lecia V Sequist, Florian Fin-telmann, et al. Pillar-0: A new frontier for radiology foundation models. arXiv preprint arXiv:2511.17803 ,2025. Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, An-toine Miech, Iain Barr, Yana Hasson, Karel Lenc, Arthur Mensch, Katherine Millican, Malcolm Reynolds, et al. Flamingo: a visual language model for few-shot learning. 
+
+Advances in neural information processing systems , 35: 23716–23736, 2022. Peter Anderson, Basura Fernando, Mark Johnson, and Stephen Gould. Spice: Semantic propositional image caption evaluation. In European conference on computer vision , pages 382–398. Springer, 2016. Anthropic. Introducing claude opus 4.7. https://www. anthropic.com/news/claude-opus-4-7 ,April 2026. Accessed: 2026-05-16. Anurag Arnab, Mostafa Dehghani, Georg Heigold, Chen Sun, Mario Lu ˇci ´c, and Cordelia Schmid. Vivit: A video vision transformer. In Proceedings of the IEEE/CVF international conference on computer vision , pages 6836– 6846, 2021. Thomas Bachlechner, Bodhisattwa Prasad Majumder, Henry Mao, Gary Cottrell, and Julian McAuley. Rezero is all you need: Fast convergence at large depth. In Uncertainty in artificial intelligence , pages 1352–1361. PMLR, 2021. Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report. 
+
+arXiv preprint arXiv:2511.21631 , 2025a. Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wen-bin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-vl technical report, 2025b. URL https://arxiv.org/abs/2502.13923 .Wele Gedara Chaminda Bandara and Vishal M. Patel. A transformer-based siamese network for change detection. In IEEE International Geoscience and Remote Sensing Symposium (IGARSS) , 2022. Satanjeev Banerjee and Alon Lavie. METEOR: An auto-matic metric for MT evaluation with improved correla-tion with human judgments. In Jade Goldstein, Alon Lavie, Chin-Yew Lin, and Clare Voss, editors, Proceed-ings of the ACL Workshop on Intrinsic and Extrinsic Evaluation Measures for Machine Translation and/or Summarization , pages 65–72, Ann Arbor, Michigan, June 2005. Association for Computational Linguistics. URL 
+
+https://aclanthology.org/W05-0909/ .Lorenzo Baraldi, Davide Bucciarelli, Federico Betti, Mar-cella Cornia, Nicu Sebe, and Rita Cucchiara. What changed? detecting and evaluating instruction-guided image edits with multimodal large language models. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 16217–16226, 2025. Iz Beltagy, Matthew E Peters, and Arman Cohan. Long-former: The long-document transformer. arXiv preprint arXiv:2004.05150 , 2020. 10 Stateful Visual Encoders for Vision-Language Models 
+
+Gedas Bertasius, Heng Wang, and Lorenzo Torresani. Is space-time attention all you need for video understand-ing? In Icml , volume 2, page 4, 2021. Lorenzo Bianchi, Fabio Carrara, Nicola Messina, and Fab-rizio Falchi. Is clip the main roadblock for fine-grained open-world perception? In 2024 International Confer-ence on Content-Based Multimedia Indexing (CBMI) ,pages 1–8. IEEE, 2024. Mahtab Bigverdi, Zelun Luo, Cheng-Yu Hsieh, Ethan Shen, Dongping Chen, Linda G Shapiro, and Ranjay Krishna. Perception tokens enhance visual reasoning in multi-modal language models. In Proceedings of the Com-puter Vision and Pattern Recognition Conference , pages 3836–3845, 2025. Daniel Bolya, Po-Yao Huang, Peize Sun, Jang Hyun Cho, Andrea Madotto, Chen Wei, Tengyu Ma, Jiale Zhi, Jathushan Rajasegaran, Hanoona Bangalath, et al. Percep-tion encoder: The best visual embeddings are not at the output of the network. Advances in Neural Information Processing Systems , 38:60884–60937, 2026. Mathilde Caron, Hugo Touvron, Ishan Misra, Herv ´e J ´egou, Julien Mairal, Piotr Bojanowski, and Armand Joulin. Emerging properties in self-supervised vision transform-ers. In Proceedings of the IEEE/CVF international con-ference on computer vision , pages 9650–9660, 2021. Joao Carreira and Andrew Zisserman. Quo vadis, action recognition? a new model and the kinetics dataset. In 
+
+proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , pages 6299–6308, 2017. Shizhen Chang and Pedram Ghamisi. Changes to captions: An attentive network for remote sensing change caption-ing. IEEE Transactions on Image Processing , 32:6047– 6060, 2023. Boyuan Chen, Zhuo Xu, Sean Kirmani, Brain Ichter, Dorsa Sadigh, Leonidas Guibas, and Fei Xia. Spatialvlm: En-dowing vision-language models with spatial reasoning capabilities. In Proceedings of the IEEE/CVF Confer-ence on Computer Vision and Pattern Recognition , pages 14455–14465, 2024. Hao Chen, Zipeng Qi, and Zhenwei Shi. Remote sensing image change detection with transformers. IEEE Transac-tions on Geoscience and Remote Sensing , 60:1–14, 2021. Xinlei Chen and Kaiming He. Exploring simple siamese representation learning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pages 15750–15758, 2021. Wenliang Dai, Junnan Li, Dongxu Li, Anthony Tiong, Junqi Zhao, Weisheng Wang, Boyang Li, Pascale N Fung, and Steven Hoi. Instructblip: Towards general-purpose vision-language models with instruction tuning. Advances in neural information processing systems , 36:49250–49267, 2023. Zonglin Di, Jing Shi, Yifei Fan, Hao Tan, Alexander Black, John Collomosse, and Yang Liu. Difftell: A high-quality dataset for describing image manipulation changes. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 24580–24590, 2025. Anxhelo Diko et al. ReWind: Understanding long videos with instructed learnable memory. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. Sijun Dong, Libo Wang, Bo Du, and Xiaoliang Meng. ChangeCLIP: Remote sensing change detection with mul-timodal vision-language representation learning. ISPRS Journal of Photogrammetry and Remote Sensing , 220: 53–69, 2025. Haoqi Fan, Bo Xiong, Karttikeya Mangalam, Yanghao Li, Zhicheng Yan, Jitendra Malik, and Christoph Feichten-hofer. Multiscale vision transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 6824–6835, 2021. Jean-Bastien Grill, Florian Strub, Florent Altch ´e, Corentin Tallec, Pierre Richemond, Elena Buchatskaya, Carl Do-ersch, Bernardo Avila Pires, Zhaohan Guo, Mohammad Gheshlaghi Azar, et al. Bootstrap your own latent-a new approach to self-supervised learning. Advances in neural information processing systems , 33:21271–21284, 2020. Bo He, Hengduo Li, Young Kyun Jang, Menglin Jia, Xuefei Cao, Ashish Shah, Abhinav Shrivastava, and Ser-Nam Lim. MA-LMM: Memory-augmented large multimodal model for long-term video understanding. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. Xinyue Hu, Lin Gu, Qiyuan An, Mengliang Zhang, liangchen liu, Kazuma Kobayashi, Tatsuya Harada, Ronald Summers, and Yingying Zhu. Medical-Diff-VQA: A Large-Scale Medical Dataset for Difference Visual Question Answering on Chest X-Ray Images. Phys-ioNet , February 2025. doi: 10.13026/e6dd-cn74. URL 
+
+https://doi.org/10.13026/e6dd-cn74 . Ver-sion 1.0.1. Dongfu Jiang, Xuan He, Huaye Zeng, Cong Wei, Max Ku, Qian Liu, and Wenhu Chen. MANTIS: Interleaved multi-image instruction tuning. Transactions on Machine Learn-ing Research (TMLR) , 2024. 11 Stateful Visual Encoders for Vision-Language Models 
+
+Justin Johnson, Bharath Hariharan, Laurens Van Der Maaten, Li Fei-Fei, C Lawrence Zitnick, and Ross Girshick. Clevr: A diagnostic dataset for compositional language and elementary visual reasoning. In Proceed-ings of the IEEE conference on computer vision and pattern recognition , pages 2901–2910, 2017. Gemma Team Aishwarya Kamath, Johan Ferret, Shreya Pathak, Nino Vieillard, Ramona Merhej, Sarah Per-rin, Tatiana Matejovicova, Alexandre Ram’e, Morgane Rivi `ere, Louis Rouillard, Thomas Mesnard, Geoffrey Cideron, Jean-Bastien Grill, Sabela Ramos, Edouard Yvinec, Michelle Casbon, Etienne Pot, Ivo Penchev, Gael Liu, Francesco Visin, Kathleen Kenealy, Lucas Beyer, Xiaohai Zhai, Anton Tsitsulin, R ´obert Istvan Busa-Fekete, Alex Feng, Noveen Sachdeva, Benjamin Coleman, Yi Gao, Basil Mustafa, Iain Barr, Emilio Parisotto, David Tian, Matan Eyal, Colin Cherry, Jan-Thorsten Peter, Danila Sinopalnikov, Surya Bhupatiraju, Rishabh Agarwal, Mehran Kazemi, Dan Malkin, Ravin Kumar, David Vilar, Idan Brusilovsky, Jiaming Luo, Andreas Steiner, Abe Friesen, Abhanshu Sharma, Ab-heesht Sharma, Adi Mayrav Gilady, Adrian Goedecke-meyer, Alaa Saade, Alexander Kolesnikov, Alexei Ben-debury, Alvin Abdagic, Amit Vadi, Andr’as Gyorgy, Andr ´e Susano Pinto, Anil Das, Ankur Bapna, Antoine Miech, Antoine Yang, Antonia Paterson, Ashish Shenoy, Ayan Chakrabarti, Bilal Piot, Boxi Wu, Bobak Shahriari, Bryce Petrini, Charlie Chen, Charline Le Lan, Christo-pher A. Choquette-Choo, Cj Carey, Cormac Brick, Daniel Deutsch, Danielle Eisenbud, Dee Cattle, Derek Cheng, Dimitris Paparas, Divyashree Shivakumar Sreepathihalli, Doug Reid, Dustin Tran, Dustin Zelle, Eric Noland, Er-win Huizenga, Eugene Kharitonov, Frederick Liu, Gagik Amirkhanyan, Glenn Cameron, Hadi Hashemi, Hanna Klimczak-Pluci’nska, Harman Singh, Harsh Mehta, Har-shal Tushar Lehri, Hussein Hazimeh, Ian Ballantyne, Idan Szpektor, Ivan Nardini, Jean Pouget-Abadie, Jetha Chan, Joe Stanton, J. Michael Wieting, Jonathan Lai, Jordi Orbay, Joe Fernandez, Joshua Newlan, Junsong Ji, Jyotinder Singh, Kat Black, Kathy Yu, Kevin Hui, Kiran Vodrahalli, Klaus Greff, Linhai Qiu, Marcella Valentine, Marina Coelho, Marvin Ritter, Matt Hoffman, Matthew Watson, Mayank Chaturvedi, Michael Moyni-han, Min Ma, Nabila Babar, Natasha Noy, Nathan Byrd, Nick Roy, Nikola Momchev, Nilay Chauhan, Oskar Bun-yan, Pankil Botarda, Paul Caron, Paul Kishan Ruben-stein, Phil Culliton, Philipp Schmid, Pier Giuseppe Sessa, Ping mei Xu, Piotr Sta ´nczyk, Pouya Dehghani Tafti, Rakesh Shivanna, Renjie Wu, Renke Pan, Reza Ardeshir Rokni, Rob Willoughby, Rohith Vallu, Ryan Mullins, Sammy Jerome, Sara Smoot, Sertan Girgin, Shariq Iqbal, Shashir Reddy, Shruti Sheth, Siim P ˜oder, Sijal Bhat-nagar, Sindhu Raghuram Panyam, Sivan Eiger, Susan Zhang, Tianqi Liu, Trevor Yacovone, Tyler Liechty, Uday Kalra, Utku Evci, Vedant Misra, Vincent Rose-berry, Vladimir Feinberg, Vlad Kolesnikov, Woohyun Han, Woosuk Kwon, Xi Chen, Yinlam Chow, Yuvein Zhu, Zichuan Wei, Zoltan Egyed, Victor Cotruta, Minh Giang, Phoebe Kirk, Anand Rao, Jessica Lo, Erica Mor-eira, Luiz Gustavo Martins, Omar Sanseviero, Lucas Gon-zalez, Zach Gleicher, Tris Warkentin, Vahab S. Mirrokni, Evan Senter, Eli Collins, Joelle Barral, Zoubin Ghahra-mani, Raia Hadsell, Yossi Matias, D. Sculley, Slav Petrov, Noah Fiedel, Noam Shazeer, Oriol Vinyals, Jeffrey Dean, Demis Hassabis, Koray Kavukcuoglu, Cl ´ement Farabet, Elena Buchatskaya, Jean-Baptiste Alayrac, Rohan Anil, Dmitry Lepikhin, Sebastian Borgeaud, Olivier Bachem, Armand Joulin, Alek Andreev, Cas-sidy Hardin, Robert Dadashi, and L’eonard Hussenot. Gemma 3 technical report. ArXiv , abs/2503.19786, 2025. URL https://api.semanticscholar. org/CorpusID:277313563 .Durk P Kingma and Prafulla Dhariwal. Glow: Generative flow with invertible 1x1 convolutions. Advances in neural information processing systems , 31, 2018. Hugo Lauren c¸ on, Andr ´es Marafioti, Victor Sanh, and L ´eo Tronchon. Building and better understanding vision-language models: Insights and future directions. In Con-ference on Language Modeling (COLM) , 2024. Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Yanwei Li, Ziwei Liu, and Chunyuan Li. LLaVA-OneVision: Easy visual task transfer. Transactions on Machine Learning Research (TMLR) , 2025a. Feng Li, Renrui Zhang, Hao Zhang, Yuanhan Zhang, Bo Li, Wei Li, Zejun Ma, and Chunyuan Li. LLaVA-NeXT-Interleave: Tackling multi-image, video, and 3d in large multimodal models. arXiv preprint arXiv:2407.07895 ,2024. Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In 
+
+International conference on machine learning , pages 19730–19742. PMLR, 2023. Ming Li, Xin Gu, Fan Chen, Xiaoying Xing, Longyin Wen, Chen Chen, and Sijie Zhu. Superedit: Rectifying and fa-cilitating supervision for instruction-based image editing. In Proceedings of the IEEE/CVF International Confer-ence on Computer Vision , pages 19206–19215, 2025b. Chin-Yew Lin. ROUGE: A package for automatic evalu-ation of summaries. In Text Summarization Branches 
+
+12 Stateful Visual Encoders for Vision-Language Models 
+
+Out , pages 74–81, Barcelona, Spain, July 2004. Asso-ciation for Computational Linguistics. URL https: //aclanthology.org/W04-1013/ .Ji Lin, Hongxu Yin, Wei Ping, Pavlo Molchanov, Moham-mad Shoeybi, and Song Han. VILA: On pre-training for visual language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. Chenyang Liu, Rui Zhao, Hao Chen, Zhengxia Zou, and Zhenwei Shi. Remote sensing image change captioning with dual-branch transformers: A new method and a large scale dataset. IEEE Transactions on Geoscience and Remote Sensing , 60:1–20, 2022a. doi: 10.1109/TGRS. 2022.3218921. Chenyang Liu, Jiajun Yang, Zipeng Qi, Zhengxia Zou, and Zhenwei Shi. Progressive scale-aware network for remote sensing image change captioning. In IGARSS 2023-2023 IEEE International Geoscience and Remote Sensing Sym-posium , pages 6668–6671. IEEE, 2023a. Chenyang Liu, Rui Zhao, Jianqi Chen, Zipeng Qi, Zhengxia Zou, and Zhenwei Shi. A decoupling paradigm with prompt learning for remote sensing image change caption-ing. IEEE Transactions on Geoscience and Remote Sens-ing , 61:1–18, 2023b. doi: 10.1109/TGRS.2023.3321752. Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. Advances in neural information processing systems , 36:34892–34916, 2023c. Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. Improved baselines with visual instruction tuning. In Pro-ceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 26296–26306, 2024. Ze Liu, Jia Ning, Yue Cao, Yixuan Wei, Zheng Zhang, Stephen Lin, and Han Hu. Video swin transformer. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 3202–3211, 2022b. Xin Luo, Jiahao Wang, Chenyuan Wu, Shitao Xiao, Xiyan Jiang, Defu Lian, Jiajun Zhang, Dong Liu, et al. Editscore: Unlocking online rl for image editing via high-fidelity re-ward modeling. arXiv preprint arXiv:2509.23909 , 2025. Yiwei Ma, Jiayi Ji, Ke Ye, Weihuang Lin, Zhibin Wang, Yonghan Zheng, Qiang Zhou, Xiaoshuai Sun, and Ron-grong Ji. I2ebench: A comprehensive benchmark for instruction-based image editing. Advances in Neural In-formation Processing Systems , 37:41494–41516, 2024. Lingchen Meng, Jianwei Yang, Rui Tian, Xiyang Dai, Zux-uan Wu, Jianfeng Gao, and Yu-Gang Jiang. Deepstack: Deeply stacking visual tokens is surprisingly simple and effective for lmms. Advances in Neural Information Pro-cessing Systems , 37:23464–23487, 2024. Georgios Pantazopoulos, Alessandro Suglia, Oliver Lemon, and Arash Eshghi. Lost in space: Probing fine-grained spatial understanding in vision and language resamplers. In Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 2: Short Papers) , pages 540–549, 2024. Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu. Bleu: a method for automatic evaluation of machine translation. In Pierre Isabelle, Eugene Char-niak, and Dekang Lin, editors, Proceedings of the 40th Annual Meeting of the Association for Computational Linguistics , pages 311–318, Philadelphia, Pennsylva-nia, USA, July 2002. Association for Computational Linguistics. doi: 10.3115/1073083.1073135. URL 
+
+https://aclanthology.org/P02-1040/ .Dong Huk Park, Trevor Darrell, and Anna Rohrbach. Robust change captioning. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) ,2019. William Peebles and Saining Xie. Scalable diffusion mod-els with transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4195– 4205, 2023. Ethan Perez, Florian Strub, Harm De Vries, Vincent Du-moulin, and Aaron Courville. Film: Visual reasoning with a general conditioning layer. In Proceedings of the AAAI conference on artificial intelligence , volume 32, 2018. Yiming Qin, Bomin Wei, Jiaxin Ge, Konstantinos Kallidromitis, Stephanie Fu, Trevor Darrell, and XuDong Wang. Chain-of-visual-thought: Teaching vlms to see and think better with continuous visual tokens. arXiv preprint arXiv:2511.19418 , 2025. Yue Qiu, Shintaro Yamamoto, Kodai Nakashima, Ryota Suzuki, Kenji Iwata, Hirokatsu Kataoka, and Yutaka Satoh. Describing and localizing multiple changes with transformers. In Proceedings of the IEEE/CVF Interna-tional Conference on Computer Vision , pages 1971–1980, 2021. Qwen Team. Qwen3.5: Towards native multimodal agents, February 2026. URL https://qwen.ai/blog? id=qwen3.5 .Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sas-try, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural lan-guage supervision. In International conference on ma-chine learning , pages 8748–8763. PmLR, 2021. 13 Stateful Visual Encoders for Vision-Language Models 
+
+Noam Shazeer. Glu variants improve transformer. arXiv preprint arXiv:2002.05202 , 2020. Baifeng Shi, Stephanie Fu, Long Lian, Hanrong Ye, David Eigen, Aaron Reite, Boyi Li, Jan Kautz, Song Han, David M. Chan, Pavlo Molchanov, Trevor Darrell, and Hongxu Yin. Attend before attention: Efficient and scal-able video understanding via autoregressive gazing, 2026. URL https://arxiv.org/abs/2603.12254 .Jingye Shi, Mengge Zhang, Yuewu Hou, Ruicong Zhi, and Jiqiang Liu. A multitask network and two large-scale datasets for change detection and captioning in remote sensing images. IEEE Transactions on Geoscience and Remote Sensing , 62:1–17, 2024. doi: 10.1109/TGRS. 2024.3485740. Feilong Tang, Xiang An, Yunyao Yan, Yin Xie, Bin Qin, Kaicheng Yang, Yifei Shen, Yuanhan Zhang, Chunyuan Li, Shikun Feng, et al. Onevision-encoder: Codec-aligned sparsity as a foundational principle for multimodal intel-ligence. arXiv preprint arXiv:2602.08683 , 2026. Shengbang Tong, Zhuang Liu, Yuexiang Zhai, Yi Ma, Yann LeCun, and Saining Xie. Eyes wide shut? exploring the visual shortcomings of multimodal llms. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 9568–9578, 2024. Zhan Tong, Yibing Song, Jue Wang, and Limin Wang. Videomae: Masked autoencoders are data-efficient learn-ers for self-supervised video pre-training. Advances in neural information processing systems , 35:10078–10093, 2022. Hugo Touvron, Matthieu Cord, Alexandre Sablayrolles, Gabriel Synnaeve, and Herv ´e J ´egou. Going deeper with image transformers. In Proceedings of the IEEE/CVF in-ternational conference on computer vision , pages 32–42, 2021. Ramakrishna Vedantam, C Lawrence Zitnick, and Devi Parikh. Cider: Consensus-based image description evalu-ation. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 4566–4575, 2015. Futian Wang, Mengqi Wang, Xiao Wang, Haowen Wang, and Jin Tang. Sam guided semantic and motion changed region mining for remote sensing change captioning. 
+
+arXiv preprint arXiv:2511.21420 , 2025a. Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin Jing, Shen-glong Ye, Jie Shao, et al. Internvl3. 5: Advancing open-source multimodal models in versatility, reasoning, and efficiency. arXiv preprint arXiv:2508.18265 , 2025b. Xinyuan Wang, Bowen Wang, Dunjie Lu, Junlin Yang, Tian-bao Xie, Junli Wang, Jiaqi Deng, Xiaole Guo, Yiheng Xu, Chen Henry Wu, et al. Opencua: Open foundations for computer-use agents. arXiv preprint arXiv:2508.09123 ,2025c. Yi Wang, Kunchang Li, Xinhao Li, Jiashuo Yu, Yinan He, Guo Chen, Baoqi Pei, Rongkun Zheng, Zun Wang, Yan-song Shi, et al. Internvideo2: Scaling foundation models for multimodal video understanding. In European con-ference on computer vision , pages 396–416. Springer, 2024. Zirui Wang, Junyi Zhang, Jiaxin Ge, Long Lian, Letian Fu, Lisa Dunlap, Ken Goldberg, XuDong Wang, Ion Stoica, David M Chan, et al. Visgym: Diverse, customiz-able, scalable environments for multimodal agents. arXiv preprint arXiv:2601.16973 , 2026. Thomas Wolf, Lysandre Debut, Victor Sanh, Julien Chau-mond, Clement Delangue, Anthony Moi, Pierric Cis-tac, Tim Rault, R ´emi Louf, Morgan Funtowicz, Joe Davison, Sam Shleifer, Patrick von Platen, Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu, Teven Le Scao, Sylvain Gugger, Mariama Drame, Quentin Lhoest, and Alexander M. Rush. Transformers: State-of-the-art natural language processing. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations , pages 38–45, Online, October 2020. Association for Compu-tational Linguistics. URL https://www.aclweb. org/anthology/2020.emnlp-demos.6 .Keming Wu, Sicong Jiang, Max Ku, Ping Nie, Minghao Liu, and Wenhu Chen. Editreward: A human-aligned reward model for instruction-guided image editing. arXiv preprint arXiv:2509.26346 , 2025. Yujie Xu et al. StreamingVLM: Real-time understanding for infinite video streams. arXiv preprint arXiv:2510.09608 ,2025. Songlin Yang, Jan Kautz, and Ali Hatamizadeh. Gated delta networks: Improving mamba2 with delta rule. In 
+
+International Conference on Learning Representations ,volume 2025, pages 29687–29707, 2025. Zhigang Yang, Huiguang Yao, Junzhen Wu, Linmao Tian, Weiping Ni, Qiang Li, and Qi Wang. Spatial-semantic alignment and change-aware network for remote sensing image change captioning. IEEE Transactions on Geo-science and Remote Sensing , 2026. Yang Ye, Xianyi He, Zongjian Li, Bin Lin, Shenghai Yuan, Zhiyuan Yan, Bohan Hou, and Li Yuan. Imgedit: A unified image editing dataset and benchmark, 2025. URL 
+
+https://arxiv.org/abs/2505.20275 .14 Stateful Visual Encoders for Vision-Language Models 
+
+Yang Ye, Xianyi He, Zongjian Li, Shenghai Yuan, Zhiyuan Yan, Bohan Hou, Li Yuan, et al. Imgedit: A unified image editing dataset and benchmark. Advances in Neural Information Processing Systems , 38, 2026. Xiaofei Yu, Yitong Li, Jie Ma, Chang Li, and Hanlin Wu. Diffusion-rscc: Diffusion probabilistic model for change captioning in remote sensing images. IEEE Transactions on Geoscience and Remote Sensing , 2025. Aohan Zeng, Xin Lv, Qinkai Zheng, Zhenyu Hou, Bin Chen, Chengxing Xie, Cunxiang Wang, Da Yin, Hao Zeng, Jiajie Zhang, et al. Glm-4.5: Agentic, reason-ing, and coding (arc) foundation models. arXiv preprint arXiv:2508.06471 , 2025. Xiaohua Zhai, Basil Mustafa, Alexander Kolesnikov, and Lucas Beyer. Sigmoid loss for language image pre-training. In Proceedings of the IEEE/CVF international conference on computer vision , pages 11975–11986, 2023. Haoji Zhang, Yiqin Wang, Yansong Tang, Yong Liu, Ji-ashi Feng, Jifeng Dai, and Xiaojie Jin. Flash-VStream: Memory-based real-time understanding for long video streams. In International Conference on Learning Repre-sentations (ICLR) , 2025. Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. In 
+
+Proceedings of the IEEE/CVF international conference on computer vision , pages 3836–3847, 2023. Long Zhao, Nitesh B. Gundavarapu, Liangzhe Yuan, Hao Zhou, Shen Yan, Jennifer J. Sun, Luke Friedman, Rui Qian, Tobias Weyand, Yue Zhao, Rachel Hornung, Florian Schroff, Ming-Hsuan Yang, David A. Ross, Huisheng Wang, Hartwig Adam, Mikhail Sirotenko, Ting Liu, and Boqing Gong. VideoPrism: A foundational vi-sual encoder for video understanding. In International Conference on Machine Learning (ICML) , 2024. Yaowei Zheng, Richong Zhang, Junhao Zhang, Yanhan Ye, and Zheyan Luo. Llamafactory: Unified efficient fine-tuning of 100+ language models. In Proceedings of the 62nd annual meeting of the association for computational linguistics (volume 3: system demonstrations) , pages 400– 410, 2024. Qing Zhou, Junyu Gao, Yuan Yuan, and Qi Wang. Single-stream extractor network with contrastive pre-training for remote-sensing change captioning. IEEE Transactions on Geoscience and Remote Sensing , 62:1–14, 2024. 15 Stateful Visual Encoders for Vision-Language Models 
+
+The appendix is organized as follows: • Appendix A discusses some limitations of our ap-proach. • Appendix B describes the training data formatting for all six task families used in our experiments, including controlled synthetic tasks and real-world comparison tasks. • Appendix C defines evaluation-time prompt construc-tion and the metric conventions used across tasks. • Appendix D reports the software environment, distributed-training setup, tokenized cache, task-specific hyperparameters, and hardware infrastructure. • Appendix E provides a table view of the SVE design space and the per-layer parameter and compute over-head of each variant. • Appendix F provides additional details for the finding-level Medical-Diff-VQA evaluation protocol. • Appendix G discusses AI use in the preparation of this work. 
+
+## A. Limitations 
+
+Although a SVE improves multi-image reasoning across controlled and real-world comparison tasks, several limita-tions remain. 
+
+Boundary of visual comparison. Our current formulation conditions each image on its immediate previous image at each visual-encoder layer. This still allows information to propagate diagonally across images over depth, so the effec-tive cross-image receptive field can grow with the number of layers. However, long-range evidence is accessed only indirectly through intermediate visual states, rather than by explicit attention to all prior images. This is suitable for before–after comparison and short visual trajectories, but may be insufficient when relevant evidence is distributed across many earlier observations. 
+
+Domains that benefit from capturing changes. Our real-world evaluations focus on image-pair or image-sequence comparison in radiology, image editing, and remote sensing. These domains cover diverse visual changes, but they do not fully capture the broader range of multimodal state tracking required in embodied agents, robotics, tactile interaction, audio-visual perception, or long-running computer-use envi-ronments. 
+
+Computational overhead. A SVE introduces additional cross-image computation inside the visual encoder (Tab. 17). This overhead is usually modest compared to scaling the language backbone, but it can become nontrivial as image resolution, sequence length, or the number of visual states increases. Scaling stateful visual encoding to very long visual histories will therefore require more efficient memory, retrieval, or sparse attention mechanisms. 
+
+## B. Training Data Formatting 
+
+This appendix documents the training data format for the six task families used to derive, train and evaluate SVE (§3, §5): 1. Cross-image Spatial Aggregation (§3.1; Dot Dis-tance/Area Over Rich Backgrounds (Wang et al., 2025c)); 2. Multi-object Visual Differencing (§ 3.1; CLEVR-Multi-Change (30–40 Objects) (Johnson et al., 2017; Qiu et al., 2021)); 3. Visual Trajectory Behavioral Cloning (§3.1; Vis-Gym (Wang et al., 2026)); 4. Longitudinal Radiology (§ 5.1; Medical-Diff-VQA (Hu et al., 2025)); 5. Fine-grained Image Comparison (§5.2; ImgEdit (Ye et al., 2025)); 6. Remote Sensing (§5.3; LEVIR-CC (Liu et al., 2022a)). For each task, we describe the data source, conversation structure, number of images, system prompt, filler turns, supervision masking, and task-specific features. We use LlamaFactory (LF) (Zheng et al., 2024) as the underlying in-frastructure for all experiments, and Transformers backbone (Wolf et al., 2020) for inference and evaluation. To ensure consistency and reproducibility, all experiments used seed 42 for data preparation, so the same data sequence applies to every model we train for any single task. 16 Stateful Visual Encoders for Vision-Language Models 
+
+Common formatting conventions 
+
+• Schema. All non-VisGym datasets are pre-converted to LF’s ShareGPT-style JSONL. Each line contains messages and images . The k-th 
+
+<image> tag binds to images[k] .• VisGym exception. VisGym uses the older ShareGPT conversation schema with {"from": "human"/"gpt", "value": ... } and embeds image paths inside conversation. • Image placement. Each <image> tag appears at the start of a user message, followed by a newline and task text. • History mask. With mask history=True ,only the final answer is supervised for single-shot datasets. Intermediate filler responses are masked out. • Template. All tasks use LF’s qwen3 5 chat tem-plate with enable thinking=false .
+
+B.1. Cross-image Spatial Aggregation Cross-image Spatial Aggregation 
+
+We use Dot Distance/Area Over Rich Backgrounds, where backghrounds are sampled from AgentNet (Wang et al., 2025c). This is a synthetic visual-numeric task where the model estimates a distance or area from red-dot locations across multiple screenshots. We downsam-ple backgrounds to 384 × 216 for efficient experimenta-tions. 
+
+Conversation format 
+
+[system] <task-specific system prompt> [user] <image> A red dot is placed on this screenshot. [assistant] I see the red dot on the screenshot. [user] <image> A red dot is placed on this screenshot. [assistant] I see the red dot on the screenshot. ... [user] <image> A red dot is placed on this screenshot. What is the {distance|area} formed by the red dots across the {two|three|four| five} images? [assistant] 0.2555 
+
+mask history: True . Only the final numeric answer is supervised. The filler response I see the red dot on the screenshot. is masked.                          
+
+> Table 9. Cross-image spatial aggregation summary. Sub-task Img. Quantity Train Eval
+> dot dist. 2Norm. Euclidean dist. 100k 1k
+> tri area 3Norm. triangle area 100k 1k
+> quad area 4Norm. convex-hull area 100k 1k
+> pent area 5Norm. convex-hull area 100k 1k
+> Total ––400k 4k
+
+17 Stateful Visual Encoders for Vision-Language Models 
+
+System prompts                                                                                                                    
+
+> 2 images. You are avisual distance estimator. You are shown two screenshots, each with ared dot. Your task is to estimate the normalized Euclidean distance between the red dots across the two images. The distance is normalized to [0, 1] where 0means the dots are at the same position and 1means they are at opposite corners. Output only the distance as adecimal number rounded to 4decimal places.
+> 3 images. You are avisual area estimator. You are shown three screenshots, each with ared dot. Your task is to estimate the normalized area of the triangle formed by the red dots across the three images. The area is normalized by the full image area, so it ranges from 0to 0.5. Output only the area as adecimal number rounded to 4decimal places.
+
+System prompts                                                                                                     
+
+> 4 images. You are avisual area estimator. You are shown four screenshots, each with ared dot. Your task is to estimate the area of the convex hull formed by the red dots across the four images. The area is normalized by the full image area. Output only the area as adecimal number rounded to 4decimal places.
+> 5 images. You are avisual area estimator. You are shown five screenshots, each with ared dot. Your task is to estimate the area of the convex hull formed by the red dots across the five images. The area is normalized by the full image area. Output only the area as adecimal number rounded to 4decimal places.
+
+B.2. Multi-object Visual Differencing Multi-object Visual Differencing 
+
+We use CLEVR-Multi-Change (30–40 Objects) (John-son et al., 2017; Qiu et al., 2021), a two-image change-captioning task where the model describes 4 simulta-neous object edits between a before and after CLEVR scene. The original CLEVR-Multi-Change dataset only involves 3–10 objects, which appear to be overly sim-ple for current VLMs. We instead use its underlying engine to generate a dataset involving 30–40 objects with a wider camera angle under 768 × 768 resolution. There is a total of 100,000 training samples and 1,000 test samples. 
+
+Conversation format 
+
+[user] <image> Here is an image of a scene with objects. [assistant] I see the scene. Please show me the next image. [user] <image> What changed between the two images? [assistant] A new large yellow metal cylinder is visible. The large cyan rubber cube gave up its position to alarge cyan metal cylinder. Someone replaced the large red rubber cylinder with alarge yellow metal sphere. A new small red rubber cube is visible. 
+
+mask history: True . Only the final change description is supervised. 
+
+B.3. Visual Trajectory Behavioral Cloning Schema difference 
+
+VisGym uses the older ShareGPT-conversations schema: 
+
+{"from": "human"/"gpt", "value": "..." }. The task description is placed in the first human turn, and each later human turn contains environment feedback plus the new visual observation. 
+
+18 Stateful Visual Encoders for Vision-Language Models 
+
+Table 10. Visual trajectory imitation task summary.                   
+
+> Sub-task Train Description
+> matchstick rotation 100k Move and rotate a blue stick to match a red target stick.
+> mental rotation 3d cube 100k Rotate acolored cube to match a target orientation.
+> mental rotation 3d objaverse
+> 100k Rotate an Objaverse object to match a target view.
+> patch reassembly 100k Place irregular pieces to fill a
+> 6×6board.
+> Combined train 400k Union of four sub-tasks.
+> Combined eval 4k 1k examples per sub-task.
+
+Visual Trajectory Behavioral Cloning 
+
+We use VisGym (Wang et al., 2026), an episodic multi-turn visual reasoning task. Each human turn provides an updated image observation, and each GPT turn is a real action rather than a filler response. We curate SFT data from oracle solver demonstrations that is avail-able in https://huggingface.co/datasets/ VisGym/visgym_data . Each turn contains an ob-servation of which the image resolution ranges from 
+
+336 × 336 to 256 × 128 , depending on the task. 
+
+Conversation format 
+
+[human] <image> {task description with action format} This is step 1. You are allowed to take K more steps. [gpt] <think>{reasoning}</think> <answer>(’place’, (0, 2, 4))</ answer> [human] <image> Environment feedback: Action executed successfully. This is step 2. You are allowed to take K-1 more steps. [gpt] <think>{reasoning}</think> <answer>(’place’, (1, 0, 1))</ answer> ... [human] <image> Environment feedback: ... This is step T. You are allowed to take 0 more steps. [gpt] <think>{reasoning}</think> <answer>(’stop’, ’stop’)</ answer> 
+
+mask history: False . All turns are supervised be-cause every turn is a real action instead of a filler re-sponse. 
+
+B.4. Longitudinal Radiology Task summary: Longitudinal Radiology 
+
+We use Medical-Diff-VQA (Hu et al., 2025), a medi-cal change-captioning task where the model compares a reference chest X-ray and a current chest X-ray from the same patient. We convert raw .dicom files to high resolution (e.g., 3056 × 2544 ) .png files. During train-ing, we downsize images to ∼ 768 2 due to memory overhead. 
+
+System prompt 
+
+You are a medical imaging expert. Given a reference chest X-ray and a current chest X-ray from the same patient, describe what findings have changed. 
+
+19 Stateful Visual Encoders for Vision-Language Models       
+
+> Table 11. Medical-Diff-VQA dataset summary. Property Value Train samples 130,335 Validation samples 12,573 Test samples 16,347 Images per sample 2
+
+Conversation format 
+
+[system] You are a medical imaging expert. Given a reference chest X-ray and a current chest X-ray from the same patient, describe what findings have changed. [user] <image> This is the reference (prior) chest X-ray. [assistant] Understood. Please provide the current chest X-ray. [user] <image> This is the current chest X-ray. What has changed compared to the reference image? [assistant] the main image has an additional finding of pneumothorax than the reference image. the main image is missing the findings of fracture, lung opacity, and pleural effusion than the reference image. 
+
+Target format: mostly templated finding-list descrip-tions, including no-change, additional findings, missing findings, or both. 
+
+mask history: True . Only the final diagnostic answer is supervised. 
+
+B.5. Fine-grained Image Comparison Task summary: Fine-grained Image Comparison 
+
+We use a subset of ImgEdit (Ye et al., 2025) and re-purpose it as a free-form image-pair or image-sequence comparison task. The model describes what changed be-tween the original image and edited version, or across a sequence of edits. During training, we downsize images to ∼ 384 2 due to memory overhead.       
+
+> Table 12. ImgEdit format summary. Property Value Train samples 301,142 Test samples 1,400 Images/sample 2 or 3 System prompts 3 variants
+
+System prompt variants (depending on change cate-gory)                                        
+
+> •You are given apair of images. Describe the edit made between them.
+> •You are given asequence of image edits. Describe all the changes made.
+> •You are given asequence of image edits. Describe all the changes made and identify the underlying editing rule.
+
+Pair-format conversation 
+
+[system] You are given a pair of images. Describe the edit made between them. [user] <image> Here is the original image. [assistant] I see the image. Please show me the edited version. [user] <image> What was edited between the two images? [assistant] Turn bread positioned in the central to lower right area into toasted 
+
+20 Stateful Visual Encoders for Vision-Language Models       
+
+> Table 13. LEVIR-CC dataset summary. Property Value Train captions 34,075 Validation captions 6,665 Full test captions 1,929 Images per sample 2
+
+Sequence-format conversation 
+
+[system] You are given a sequence of image edits. Describe all the changes made and identify the underlying editing rule. [user] <image> Here is the original image. [assistant] I see the image. Please show me the next version. [user] <image> Here is the next version. [assistant] I see the image. Please show me the next version. [user] <image> What was edited across all these versions? [assistant] All subsequent edits must incorporate a warm, earthy tone adjust the house’s color and texture adjust the brick patio area’s color and material 
+
+mask history: True . Only the final edit description is supervised. 
+
+Known dataset issue 
+
+Reference captions are derived from the instruction given to the editing model, not always from the visual edit that actually occurred. When the editing model fails to follow the instruction, the reference may describe a change that is not visually present. 
+
+B.6. Remote Sensing Task summary: Remote Sensing 
+
+We use LEVIR-CC (Liu et al., 2022a), a bitemporal remote-sensing change-captioning task where the model compares before and after satellite images of the same location. Images in this dataset have a fixed resolution of 256 × 256 .
+
+System prompt                   
+
+> You are an expert at detecting and describing changes between two images. Given abefore and after image, describe what has changed.
+
+Conversation format 
+
+[system] You are an expert at detecting and describing changes between two images. Given abefore and after image, describe what has changed. [user] <image> This is the before satellite image. [assistant] Understood. Please provide the after image. [user] <image> This is the after satellite image. Describe what has changed. [assistant] there is no difference .
+
+Target format: free-form change captions. Roughly half of training captions are no-change variants, while the rest describe changes. 
+
+## C. Evaluation metric conventions 
+
+At evaluation time, prompts are constructed to end imme-diately before the final assistant turn. Therefore, filler text contributes to training context but is not generated as part of the test-time answer. All test sets are held out from training, with no overlap in image-pair and target-answer keys. 
+
+C.1. Metric protocol by task 
+
+Each task uses an evaluation protocol matched to its output type and to the dominant convention in prior published work on the corresponding benchmark. Numeric tasks are evaluated as regression (as discrete text tokens), agentic tasks are evaluated through action likelihood, and captioning tasks are evaluated with standard image-captioning metrics. Details are in Tab. 14. 
+
+C.2. Caption-metric conventions 
+
+For captioning tasks, we distinguish between two metric conventions. The first is a lightweight sanity-check protocol based on common Python metric implementations. The second is the paper-aligned image-captioning protocol used by most prior work. In the paper-aligned protocol, captions are first processed 21 Stateful Visual Encoders for Vision-Language Models               
+
+> Task Reported metrics Protocol
+> Cross-image Spatial Aggregation
+> MAE, RMSE Numeric regression over parsed decimal outputs. We report errors for dot-distance and area-estimation subtasks, with all values scaled by 10 −2.
+> Multi-object Visual Differencing
+> PPL, B4, C, M, S, R-L, Acc Permutation-invariant per-change captioning. We report perplexity, BLEU-4, CIDEr, METEOR, SPICE, ROUGE-L, and change accuracy.
+> Visual Trajectory Behavioral Cloning
+> MSR, PR, MRC, MRO Agentic imitation evaluated by per-task perplexity. MSR, PR, MRC, and MRO denote Patch Reassembly, 3D Mental Rotation (Cube), Matchstick Rotation, and 3D Mental Rotation (Objaverse).
+> Longitudinal Radiology B4, M, R-L, C; finding-level F1, change accuracy Medical change captioning. We report standard captioning metrics and an adapted finding-level evaluation with micro/macro F1 and change accuracy.
+> Fine-grained Image Comparison
+> Base win, Reference win, tied, SVE win Reference-free MLLM-as-a-judge evaluation. The judge compares SVE against the stateless baseline and the reference editing instruction using pairwise preference counts.
+> Remote Sensing B4, M, R-L, C, S∗
+> mMulti-reference remote-sensing change captioning. S∗
+> m
+> denotes the average over BLEU-4, METEOR, ROUGE-L, and CIDEr.
+> Table 14. Evaluation protocol by task. We report the metric sets used in the main result tables: regression errors for spatial aggregation, captioning and accuracy metrics for CLEVR, perplexity for VisGym behavioral cloning, captioning and finding-level metrics for radiology, pairwise judge preferences for ImgEdit, and multi-reference captioning metrics for LEVIR-CC.
+
+with standard caption-tokenization conventions before com-puting BLEU, METEOR, ROUGE-L, CIDEr, and SPICE. This matters because tokenizer choice and METEOR im-plementation can shift absolute values, especially on short or templated text. For comparisons with prior published results, we cite the paper-aligned protocol. The lightweight protocol is used only as an auxiliary view and for metrics such as BERTScore and perplexity that are not part of the standard captioning suite. For perplexity, we compute token-weighted PPL under the same supervision mask used during training: 
+
+PPL = exp 
+
+ P  
+
+> i
+
+NLL i · ni
+
+P 
+
+> i
+
+ni
+
+
+
+,
+
+where ni is the number of supervised tokens for sample 
+
+i. For single-shot captioning datasets, this means only the final answer tokens are included. For Visual Trajectory Behavioral Cloning, all action-generating assistant turns are supervised and included. 
+
+C.3. CLEVR Multi-Change scoring 
+
+Multi-object Visual Differencing requires a specialized scor-ing protocol because the reference caption describes multi-ple simultaneous changes whose sentence order carries no semantic content. A model should receive the same credit whether it lists the correct changes in the original order or in a different order. We therefore score this task as permutation-invariant per-change captioning. First, each prediction and reference is split into individual change sentences. Each reference change is assigned a change type, such as addition, deletion, movement, or replacement. For each reference change, we construct a small set of valid lexical variants corresponding to the same underlying change. This accounts for the fact that the same edit can be described by several equivalent templates, such as “a new object is visible” and “an object has been added.” Next, we compute a pairwise similarity matrix between pre-dicted change sentences and reference changes. The score for each pair is the best similarity between the predicted sentence and the allowed reference variants for that change. We then use one-to-one bipartite matching to find the as-signment that maximizes total similarity. This makes the score invariant to the order in which changes are described. 
+
+## D. Training Configuration, Environment, and Infrastructure 
+
+This appendix complements the data-formatting appendix (§B) with the software environment, distributed-training setup, shared hyperparameters, task-specific training choices, evaluation infrastructure, and hardware used in our experiments. 22 Stateful Visual Encoders for Vision-Language Models 
+
+D.1. Software environment Software stack 
+
+All experiments use a single Python 3.12 environment with PyTorch, Transformers, Accelerate, FlashAtten-tion, LlamaFactory, and standard captioning-evaluation libraries. Training uses bf16 precision throughout.                     
+
+> Component Version / setting Role Python 3.12.13 Runtime environment PyTorch 2.10.0 + CUDA 12.8 Training backend Transformers 5.2.0 Model implementation Accelerate 1.11.0 Distributed training support FlashAttention 2.8.3 Efficient attention kernels LlamaFactory local editable checkout SFT framework pycocoevalcap latest available Captioning metrics Anthropic SDK 0.102.0 VLM-judge evaluation Weights & Biases latest available Training logs
+
+Table 15. Software environment. We use a fixed Python environ-ment with PyTorch, Transformers, LlamaFactory, FlashAttention, and standard captioning-evaluation libraries. 
+
+D.2. Distributed training 
+
+All full-finetuning experiments use single-node, 8-GPU FSDP training. We use full-parameter finetuning rather than LoRA in all results. 
+
+FSDP setup 
+
+• Parallelism. Single-node FSDP with 8 H100 GPUs. • Sharding. Full-shard FSDP over both the language-model decoder blocks and the vision-encoder blocks. • Checkpointing. Gradient checkpointing is enabled with non-reentrant checkpointing for compatibility with FSDP. The vision tower is sharded together with the language model because our method modifies the visual encoder and trains it end-to-end. We also keep the language model, vi-sual encoder, and multimodal projector trainable in all main experiments. 
+
+D.3. Tokenized cache 
+
+Training samples are tokenized and cached before training. The cache key includes the chat template, cutoff length, history-masking setting, and dataset identity. The same tokenized cache can be reused by the stateless baseline and SVE when the data-formatting settings match. This ensures that baseline and SVE runs consume identical text-image inputs. 
+
+D.4. Task-specific training settings 
+
+Refer to Tab. 16 for default hyperparameters we use for each task in training. 
+
+Rationale for task-specific differences 
+
+• Batch layout. Per-device batch size is set to the largest value that fits in GPU memory. • Training duration. Design-table tasks use short fixed-step training for fast ablations. Real-world tasks use epoch-based training. • History masking. Real-world multi-image cap-tioning tasks explicitly mask filler assistant turns; synthetic and agentic tasks either contain no filler or use every assistant turn as training signal. • SVE initialization. Controlled design tasks use zero initialization, while real-world tasks use a tiny nonzero output-projection initialization ( σ = 10 −4,compared to a standard Transformer-scale σ ≈ 2 ×
+
+10 −2) after ablations showed better optimization. 
+
+## E. Table view of different SVE designs 
+
+We provide a table view of different stateful visual encoder designs to complement Fig. 2. This table additionally pro-vides added parameters and compute for reference. 
+
+## F. Finding-level Medical-Diff-VQA Evaluation Details 
+
+In this section, we provide details of the evaluation pipeline of Medical-Diff-VQA results in Tab. 6. 
+
+Task setup. We evaluate VLMs on the Medical-Diff-VQA test split ( 16 ,347 paired chest X-rays). During evaluation, we prompt VLMs with instruction “This is the reference (prior) chest X-ray. . . . This is the current chest X-ray. What has changed compared to the reference image?” 
+
+Chest X-ray Finding Categories. We group the refer-ences of the Medical-Diff-VQA test into 27 finding cate-gories as shown in Tab. 18. 
+
+Parsing protocol. We describe how references and VLM free-form outputs are converted into a finding-level format for evaluation. Specifically, we parse both references and model outputs with a regular-expression pipeline. The ref-erences follow a templated structure with three direction categories: added , missing , and no change . For VLM out-puts that do not follow the template, which account for less than 2% of cases, the pipeline yields an empty tuple set, treating them as no change .23 Stateful Visual Encoders for Vision-Language Models 
+
+Table 16. Default SFT hyperparameters used for each training setup. Batch layout follows per-device batch size, accumulation steps, and number of ranks. 
+
+SFT Hyperparam. Spatial Aggr. Visual Diff. Traj. Imit. Long. Radiology Image Comp. Remote Sensing 
+
+Base model Qwen3.5-4B Qwen3.5-4B Qwen3.5-4B Qwen3.5-4B Qwen3.5-4B Qwen3.5-4B 
+
+Global batch 384 384 384 384 384 384 Batch layout 8×6×8 4×12 ×8 4×12 ×8 8×6×8 16 ×3×8 8×6×8
+
+Training length 500 steps 250 steps 250 steps 2 epochs 2 epochs 2 epochs Learning rate 1.5×10 −5 1.5×10 −5 1.5×10 −5 1.5×10 −5 1.5×10 −5 2.0×10 −5
+
+LR scheduler Cosine Cosine Cosine Cosine Cosine Cosine 
+
+mask history true true false true true true 
+
+SVE Wo, 2 std 0.0 0.0 0.0 0.0001 0.0001 0.0001 Precision bf16 bf16 bf16 bf16 bf16 bf16 
+
+Trainable modules Full Full Full Full Full Full FSDP Full shard Full shard Full shard Full shard Full shard Full shard 
+
+Table 17. Stateful visual encoder design space and per-layer overhead . Let X ∈ RN ×d denote current-image tokens and Y ∈ RK×d
+
+denote predecessor-state tokens. Each original visual encoder layer is abstracted as FFN θ (SA θ (X)) . S ELF EXT . reuses the pretrained self-attention module with an expanded attention mask, while C ROSS and C ROSS +FFN introduce separate state-conditioning modules. ADA LN-Z ERO conditions the original block through pooled predecessor-state modulation. Orange denotes predecessor-state information, and purple denotes newly initialized state-conditioning parameters/modules. We report additions beyond the original stateless block, ignoring residual connections, normalization layers, positional embeddings, softmax costs and bias terms. For parameter counts, one newly added attention module contains WQ, W K , W V , W O ∈ Rd×d, and one newly added FFN has shape d → dff → d. For S ELF 
+
+EXT ., added compute counts only the extra current-to-predecessor score and value-attention terms induced by the expanded mask. 
+
+Design Block form Added Added params. compute Self-Ext. FFN θ (SA θ (Q = X, KV = [ X; Y ])) 0 2N Kd 
+
+AdaLN-Zero c = Pool( Y ), (γ1, β 1, α 1, γ 2, β 2, α 2) = gϕ(c),α2 ⊙ FFN θ ((1 + γ2) ⊙ [α1 ⊙ SA θ ((1 + γ1) ⊙ X + β1)] + β2) 6d2 Kd + 6 d2
+
++ 6 N d 
+
+Cross FFN θ (SA θ (QKV = CA ϕ(Q = X, KV = Y ))) 4d2 2( N + K)d2
+
++ 2 N Kd 
+
+Cross+FFN FFN θ (SA θ (QKV = FFN ψ (CA ϕ(Q = X, KV = Y )))) 4d2
+
++ 2 dd ff 
+
+2( N + K)d2
+
++ 2 N Kd 
+
++ 2 N dd ff 
+
+Direction Matched phrase Parsed tuple 
+
+added additional finding(s) of ⟨X1, X 2, . . . ⟩ (Xi, added )
+
+missing missing the finding(s) of ⟨X1, X 2, . . . ⟩ (Xi, missing )
+
+no change nothing has changed none 
+
+Metric definitions. For each test pair n ∈ { 1, . . . , N } we form a 54 -dimensional binary gold vector g(n) ∈ { 0, 1}54 
+
+indexed by the 27 × 2 (finding, direction) labels parsed from the reference, and an analogous prediction vector 
+
+p(n) parsed from the model output. Per label i we accu-mulate TP i, FP i, FN i across all N pairs and let F1,i =2TP i/(2TP i + FP i + FN i). The metrics are calculated as follows: 
+
+Micro F1 = 2 P54  
+
+> i=1
+
+TP i
+
+2 P54  
+
+> i=1
+
+TP i + P54  
+
+> i=1
+
+FP i + P54  
+
+> i=1
+
+FN i
+
+,
+
+Macro F1 = 154 
+
+> 54
+
+X
+
+> i=1
+
+F1,i ,
+
+Change Acc. = 1
+
+N
+
+> N
+
+X
+
+> n=1
+
+⊮
+
+h
+
+g(n) = 0 ⇔ p(n) = 0
+
+i
+
+.
+
+No-change pairs do not contain finding-level annotations in the reference: the label is “nothing has changed” . We therefore represent these cases with an all-zero finding vec-tor, indicating that no added or missing findings are present. We calculate finding-level F1 on the 14,030 pairs whose 24 Stateful Visual Encoders for Vision-Language Models 
+
+Table 18. Finding categories used in evaluation. We list the 27 evaluated finding categories grouped by anatomy. Numbers in parentheses indicate counts in the test set. Anatomy Findings (test set count) Lungs atelectasis (6,210), lung opacity (6,193), edema (3,499), pneumonia (3,257), consolidation (2,293), emphysema (616), infection (479), granuloma (140), contusion (69) Pleura pleural effusion (5,075), pneumothorax (1,027), pleural thickening (419), blunting of the costophrenic angle (371) Cardiac cardiomegaly (3,671), vascular congestion (1,889), heart failure (283), hilar congestion (67) Mediastinum / Aorta / Hernia hernia (159), pneumomediastinum (98), tortuosity of the thoracic aorta (53), tortuosity of the descending aorta (5) Chest wall / Skeletal calcification (833), fracture (746), scoliosis (202), hematoma (69) Adjacent / Other air collection (56), gastric distention (11) 
+
+Table 19. Per-anatomy Micro F1 of finding-level evaluation under greedy decoding. Anatomy # findings Stateless SVE ∆
+
+Lungs 9 31.56 32.17 +0 .61 
+
+Pleura 4 41.10 42.03 +0 .93 
+
+Cardiac 4 24.72 25.42 +0 .70 
+
+Mediastinum / Aorta / Hernia 4 7.18 12.32 +5 .13 
+
+Chest wall / Skeletal 4 8.89 8.51 −0.37 
+
+Adjacent / Other 2 0.00 0.00 0.00 
+
+references identify at least one specific change. Change Ac-curacy reports the complementary pair-level binary metric: whether the model correctly recognizes that the patient is stable. 
+
+Per-anatomy breakdown Table 19 decomposes the Mi-cro F1 by the anatomical grouping of Table 18 to provide detailed analysis of SVE versus stateless baseline. 
+
+## G. AI Use Disclosure 
+
+The authors used AI-based tools to assist with code gen-eration, editing, and writing during the preparation of this paper. Specifically, AI assistance was used to help draft and revise portions of the manuscript for clarity, grammar, and organization, and to support the development, debugging, and refinement of code used in the research workflow. All AI-generated or AI-assisted content, code, analyses, and in-terpretations were reviewed, verified, and, where necessary, modified by the authors. The authors take full responsibility for the accuracy, integrity, originality, and final content of the paper, including any code or text developed with AI assistance. 25
