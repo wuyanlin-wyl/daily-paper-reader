@@ -6,71 +6,77 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-08
-- 运行时间：2026-06-08 21:53:21 UTC
+- 最新运行日期：2026-06-09
+- 运行时间：2026-06-09 20:42:55 UTC
 - 运行状态：成功
-- 本次总论文数：17
-- 精读区：6
+- 本次总论文数：19
+- 精读区：8
 - 速读区：11
 
 ### 今日简报（AI）
-今日收录17篇论文，精读6篇，其中《MedSIGHT》与《MS-DKC》分别以10分、9分领跑。最值得关注的是医学大语言模型的可视化理解与医疗图像分割模型的设计框架。建议优先阅读精读论文，尤其关注如何通过知识卡片提升模型适应性。
-- 详情：[/202606/08/README](/202606/08/README)
+今天共处理19篇论文，精读2篇高分工作，重点涵盖放射学比较推理与计算病理学多模态智能体。最值得关注的方向是《A Vision-language Framework for Comparative Reasoning in Radiology》和《A Multi-modal Agentic Co-pilot for Evidence Grounded Computational Pathology》。建议优先精读这两篇论文，它们分别展示了医学影像跨模态推理与智能体协作的前沿方法，对临床辅助诊断极具参考价值。
+- 详情：[/202606/09/README](/202606/09/README)
 
 ### 精读区论文标签
-1. [MedSIGHT: Towards Grounded Visual Comprehension in Medical Large Vision-Language Models](/202606/08/2606.06760v1-medsight-towards-grounded-visual-comprehension-in-medical-large-vision-language-models)  
-   标签：评分：10.0/10、query:vlmmed
-   evidence：MedSIGHT：医学大视觉语言模型中的接地视觉理解与分割
-2. [MS-DKC: A Dataset Knowledge Card Framework for Designing and Adapting Medical Image Segmentation Models](/202606/08/2606.06103v1-ms-dkc-a-dataset-knowledge-card-framework-for-designing-and-adapting-medical-image-segmentation-models)  
+1. [A Vision-language Framework for Comparative Reasoning in Radiology](/202606/09/2606.06407v2-a-vision-language-framework-for-comparative-reasoning-in-radiology)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：医学图像分割数据集分析框架
-3. [Attention Consistent Longitudinal Medical Visual Question Answering Guided by Vision Foundation Models](/202606/08/2606.06534v1-attention-consistent-longitudinal-medical-visual-question-answering-guided-by-vision-foundation-models)  
+   evidence：用于放射学比较推理的视觉语言框架
+2. [A Multi-modal Agentic Co-pilot for Evidence Grounded Computational Pathology](/202606/09/2606.08093v1-a-multi-modal-agentic-co-pilot-for-evidence-grounded-computational-pathology)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：基于注意力和视觉基础模型的纵向医学视觉问答
-4. [MMBU: A Massive Multi-modal Biomedical Understanding Benchmark to Probe the Perception Capabilities of Vision-Language Models](/202606/08/2606.06696v1-mmbu-a-massive-multi-modal-biomedical-understanding-benchmark-to-probe-the-perception-capabilities-of-vision-language-models)  
+   evidence：用于证据驱动病理学的多模态智能体助手
+3. [CheXanatomy: Anatomy-Aware Vision-Language Modeling for Chest Radiographs](/202606/09/2606.08420v1-chexanatomy-anatomy-aware-vision-language-modeling-for-chest-radiographs)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：生物医学视觉语言感知能力基准
-5. [Be Fair! Can Machine Learning Engineering Agents Adhere to Fairness Constraints?](/202606/08/2606.04971v1-be-fair-can-machine-learning-engineering-agents-adhere-to-fairness-constraints)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：探索MLE代理在黑色素瘤分类中的公平性
-6. [DSU-Net: An Attention-Enhanced Dense Skip U-Net for Breast Lesion Segmentation in Mammographic Images](/202606/08/2606.06537v1-dsu-net-an-attention-enhanced-dense-skip-u-net-for-breast-lesion-segmentation-in-mammographic-images)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：注意力增强U-Net用于乳腺病变分割
+   evidence：通过下一个词预测对胸部X光片进行解剖感知的VLM分割
+4. [Active Source-free Domain Adaptation in Open-set Medical Image Segmentation via Decomposed Uncertainty and Prototype Discrepancy](/202606/09/2606.08749v1-active-source-free-domain-adaptation-in-open-set-medical-image-segmentation-via-decomposed-uncertainty-and-prototype-discrepancy)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：开放集医学分割中的主动无源域适应
+5. [A multi-agent system for spine MRI report generation from multi-sequence imaging](/202606/09/2606.08897v1-a-multi-agent-system-for-spine-mri-report-generation-from-multi-sequence-imaging)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：用于脊柱MRI报告生成的多智能体框架
+6. [PACT: Learning Diverse Diagnostic Strategies via Privileged Synthesis and Branch Consensus](/202606/09/2606.08938v1-pact-learning-diverse-diagnostic-strategies-via-privileged-synthesis-and-branch-consensus)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：基于LLM的医学诊断策略智能体
+7. [Baichuan-M4: A Clinical-Grade Medical Agent System for Continuous Care](/202606/09/2606.08982v1-baichuan-m4-a-clinical-grade-medical-agent-system-for-continuous-care)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：用于持续护理的临床级医疗智能体系统
+8. [Vision Language Model Helps Private Information De-Identification in Vision Data](/202606/09/2606.09132v1-vision-language-model-helps-private-information-de-identification-in-vision-data)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：视觉语言模型用于医学图像去标识
 
 ### 速读区论文标签
-1. [LLM-Guided Evolution for Medical Decision Pipelines](/202606/08/2606.07342v1-llm-guided-evolution-for-medical-decision-pipelines)  
+1. [UltraVR: A Diagnostic Ultra-Resolution Image-VQA Benchmark for Evidence-Grounded Reasoning](/202606/09/2606.05576v1-ultravr-a-diagnostic-ultra-resolution-image-vqa-benchmark-for-evidence-grounded-reasoning)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：LLM引导进化用于医疗决策流程和图像分类
-2. [Bridging Topology and Deep Representation Learning: A TDA-ViT Fusion Model for Four-Class Brain Tumor Classification](/202606/08/2606.00927v1-bridging-topology-and-deep-representation-learning-a-tda-vit-fusion-model-for-four-class-brain-tumor-classification)  
+   evidence：包含病理学的超分辨率图像VQA诊断基准
+2. [Phase Marginalization for Patch-Grid Instability in Vision Transformers](/202606/09/2606.08132v1-phase-marginalization-for-patch-grid-instability-in-vision-transformers)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：创新的ViT分割补丁网格相位边缘化方法
+3. [Self-Supervised Vision Transformers for CBCT-Based Detection of Temporomandibular Joint Osteoarthritis](/202606/09/2606.08364v1-self-supervised-vision-transformers-for-cbct-based-detection-of-temporomandibular-joint-osteoarthritis)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：自监督视觉变换器用于CBCT骨关节炎检测
+4. [Segmentation-Assisted Brain MRI Synthesis with Cross-Image Multi-Contrast Feature Memory Bank Retrieval Augmentation](/202606/09/2606.08421v1-segmentation-assisted-brain-mri-synthesis-with-cross-image-multi-contrast-feature-memory-bank-retrieval-augmentation)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：基于检索增强的脑MRI合成及分割辅助
+5. [Severity-Aware Curriculum Learning with Multi-Model Response Selection for Medical Text Generation](/202606/09/2606.05510v1-severity-aware-curriculum-learning-with-multi-model-response-selection-for-medical-text-generation)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：融合拓扑数据分析与Vision Transformer进行脑肿瘤MRI分类，医学图像分析中的创新机制
-3. [RCEM: Embedder Equipped with Query Rewriting Skill for Robust Conversational Search in Distributional Shift](/202606/08/2606.01697v1-rcem-embedder-equipped-with-query-rewriting-skill-for-robust-conversational-search-in-distributional-shift)  
+   evidence：使用LLM的医疗文本生成
+6. [From Risk Classification to Action Plan Remediation: A Guardrail Feedback Driven Framework for LLM Agents](/202606/09/2606.05805v1-from-risk-classification-to-action-plan-remediation-a-guardrail-feedback-driven-framework-for-llm-agents)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：面向RAG系统的对话检索模型
-4. [TGV-KV: Text-Grounded KV Eviction for Vision-Language Models](/202606/08/2606.03075v1-tgv-kv-text-grounded-kv-eviction-for-vision-language-models)  
+   evidence：LLM智能体的防护反馈框架
+7. [Thinking with Imagination: Agentic Visual Spatial Reasoning with World Simulators](/202606/09/2606.06476v1-thinking-with-imagination-agentic-visual-spatial-reasoning-with-world-simulators)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：视觉语言模型的文本引导KV缓存驱逐
-5. [Stateful Visual Encoders for Vision-Language Models](/202606/08/2606.04433v1-stateful-visual-encoders-for-vision-language-models)  
+   evidence：视觉语言模型的智能空间推理框架
+8. [TA-RAG: Tone-Aware Retrieval-Augmented Generation for Peer-Support Health Communication](/202606/09/2606.06794v1-ta-rag-tone-aware-retrieval-augmented-generation-for-peer-support-health-communication)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：为医学应用推进视觉语言模型的状态视觉编码器
-6. [DRIFT: A Residual Flow Adapter for Decoding Continuous Outputs in Vision-Language Models](/202606/08/2606.05758v1-drift-a-residual-flow-adapter-for-decoding-continuous-outputs-in-vision-language-models)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：适应VLM处理连续输出的通用框架，可应用于医学任务
-7. [Symb-xMIL: Symbolic Explanations for Multiple Instance Learning in Digital Pathology](/202606/08/2606.06224v1-symb-xmil-symbolic-explanations-for-multiple-instance-learning-in-digital-pathology)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：数字病理学的可解释多实例学习
-8. [DualGate-Net: A Prior-Gated Dual-Encoder Framework for Histopathology Cell Detection](/202606/08/2606.07222v1-dualgate-net-a-prior-gated-dual-encoder-framework-for-histopathology-cell-detection)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：基于SegFormer的组织病理学细胞检测，与使用Transformer的医学图像分割相关
-9. [Learning Label-Efficient Interpretable Medical Image Diagnosis via Semi-supervised Hypergraph Concept Bottleneck Model](/202606/08/2606.01698v1-learning-label-efficient-interpretable-medical-image-diagnosis-via-semi-supervised-hypergraph-concept-bottleneck-model)  
+   evidence：健康交流中的RAG框架
+9. [TechGraphRAG: An Agentic Graph-Augmented RAG Framework for Technical Literature Reasoning](/202606/09/2606.01613v1-techgraphrag-an-agentic-graph-augmented-rag-framework-for-technical-literature-reasoning)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：半监督概念瓶颈模型用于可解释医学诊断
-10. [Geometry-Preserving Unsupervised Alignment for Heterogeneous Foundation Models](/202606/08/2606.04385v1-geometry-preserving-unsupervised-alignment-for-heterogeneous-foundation-models)  
+   evidence：面向技术文献的智能图增强RAG框架
+10. [Video2LoRA: Parametric Video Internalization for Vision-Language Models](/202606/09/2606.04351v1-video2lora-parametric-video-internalization-for-vision-language-models)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：视觉语言模型与纯视觉模型的无监督对齐
-11. [Agent-Orchestrated Adaptive RAG: A Comparative Study on Structured and Multi-Hop Retrieval](/202606/08/2606.05658v1-agent-orchestrated-adaptive-rag-a-comparative-study-on-structured-and-multi-hop-retrieval)  
+   evidence：视觉语言模型的参数化视频内化
+11. [GRAMformer: Any-Order Modality Interactions via Volumetric Multimodal Cross-Attention](/202606/09/2606.06249v1-gramformer-any-order-modality-interactions-via-volumetric-multimodal-cross-attention)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：智能体编排的自适应RAG框架可迁移至医学分析
+   evidence：任意顺序模态交互的体积多模态交叉注意力
 
 
 <div class="dpr-home-promo-card">
