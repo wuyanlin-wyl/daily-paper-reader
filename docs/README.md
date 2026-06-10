@@ -6,77 +6,75 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-09
-- 运行时间：2026-06-09 20:42:55 UTC
+- 最新运行日期：2026-06-10
+- 运行时间：2026-06-10 21:48:39 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：8
+- 本次总论文数：17
+- 精读区：6
 - 速读区：11
 
 ### 今日简报（AI）
-今天共处理19篇论文，精读2篇高分工作，重点涵盖放射学比较推理与计算病理学多模态智能体。最值得关注的方向是《A Vision-language Framework for Comparative Reasoning in Radiology》和《A Multi-modal Agentic Co-pilot for Evidence Grounded Computational Pathology》。建议优先精读这两篇论文，它们分别展示了医学影像跨模态推理与智能体协作的前沿方法，对临床辅助诊断极具参考价值。
-- 详情：[/202606/09/README](/202606/09/README)
+今日17篇论文精选，6篇精读聚焦医学影像与病理AI前沿，其中两篇满分9.0论文分别关注CT深度感知基础模型和千兆像素病理切片高效推理。
+
+最值得关注的方向：深度感知的CT基础模型与可学习的令牌稀疏化方法，前者提升CT影像理解能力，后者大幅降低全切片图像推理计算成本。
+
+建议读者重点阅读精读列表中的两篇高分论文，它们分别代表了医学影像基础模型和计算病理学效率优化的最新突破，对临床AI部署有直接参考价值。
+- 详情：[/202606/10/README](/202606/10/README)
 
 ### 精读区论文标签
-1. [A Vision-language Framework for Comparative Reasoning in Radiology](/202606/09/2606.06407v2-a-vision-language-framework-for-comparative-reasoning-in-radiology)  
+1. [DALE-CT: Depth-Aware Foundation Models for Computed Tomography](/202606/10/2606.07775v1-dale-ct-depth-aware-foundation-models-for-computed-tomography)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：用于放射学比较推理的视觉语言框架
-2. [A Multi-modal Agentic Co-pilot for Evidence Grounded Computational Pathology](/202606/09/2606.08093v1-a-multi-modal-agentic-co-pilot-for-evidence-grounded-computational-pathology)  
+   evidence：结合语言模型的CT深度感知基础模型
+2. [Learnable Token Sparsification for Efficient Gigapixel Whole Slide Image Reasoning](/202606/10/2606.08641v1-learnable-token-sparsification-for-efficient-gigapixel-whole-slide-image-reasoning)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：用于证据驱动病理学的多模态智能体助手
-3. [CheXanatomy: Anatomy-Aware Vision-Language Modeling for Chest Radiographs](/202606/09/2606.08420v1-chexanatomy-anatomy-aware-vision-language-modeling-for-chest-radiographs)  
+   evidence：全切片图像VLM的可学习令牌稀疏化
+3. [Baichuan-M4: A Clinical-Grade Medical Agent System for Continuous Care](/202606/10/2606.08982v2-baichuan-m4-a-clinical-grade-medical-agent-system-for-continuous-care)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：通过下一个词预测对胸部X光片进行解剖感知的VLM分割
-4. [Active Source-free Domain Adaptation in Open-set Medical Image Segmentation via Decomposed Uncertainty and Prototype Discrepancy](/202606/09/2606.08749v1-active-source-free-domain-adaptation-in-open-set-medical-image-segmentation-via-decomposed-uncertainty-and-prototype-discrepancy)  
+   evidence：临床级医疗智能体系统，支持多智能体协调与检索
+4. [Experience Makes Skillful: Enabling Generalizable Medical Agent Reasoning via Self-Evolving Skill Memory](/202606/10/2606.09365v1-experience-makes-skillful-enabling-generalizable-medical-agent-reasoning-via-self-evolving-skill-memory)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：开放集医学分割中的主动无源域适应
-5. [A multi-agent system for spine MRI report generation from multi-sequence imaging](/202606/09/2606.08897v1-a-multi-agent-system-for-spine-mri-report-generation-from-multi-sequence-imaging)  
+   evidence：医学智能体的自进化技能记忆
+5. [A Controlled Audit of Pretraining Contamination in Public Medical Vision-Language Benchmarks](/202606/10/2606.10066v1-a-controlled-audit-of-pretraining-contamination-in-public-medical-vision-language-benchmarks)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：用于脊柱MRI报告生成的多智能体框架
-6. [PACT: Learning Diverse Diagnostic Strategies via Privileged Synthesis and Branch Consensus](/202606/09/2606.08938v1-pact-learning-diverse-diagnostic-strategies-via-privileged-synthesis-and-branch-consensus)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：基于LLM的医学诊断策略智能体
-7. [Baichuan-M4: A Clinical-Grade Medical Agent System for Continuous Care](/202606/09/2606.08982v1-baichuan-m4-a-clinical-grade-medical-agent-system-for-continuous-care)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：用于持续护理的临床级医疗智能体系统
-8. [Vision Language Model Helps Private Information De-Identification in Vision Data](/202606/09/2606.09132v1-vision-language-model-helps-private-information-de-identification-in-vision-data)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：视觉语言模型用于医学图像去标识
+   evidence：医学VLM预训练污染审计
+6. [Constrained Dominant Sets for Multimodal Document Question Answering](/202606/10/2606.07252v1-constrained-dominant-sets-for-multimodal-document-question-answering)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：基于约束主导集的多模态RAG检索器以优化证据选择
 
 ### 速读区论文标签
-1. [UltraVR: A Diagnostic Ultra-Resolution Image-VQA Benchmark for Evidence-Grounded Reasoning](/202606/09/2606.05576v1-ultravr-a-diagnostic-ultra-resolution-image-vqa-benchmark-for-evidence-grounded-reasoning)  
+1. [The Consistency Illusion: How Multi-Agent Debate Hides Reasoning Misalignment](/202606/10/2606.08457v1-the-consistency-illusion-how-multi-agent-debate-hides-reasoning-misalignment)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：包含病理学的超分辨率图像VQA诊断基准
-2. [Phase Marginalization for Patch-Grid Instability in Vision Transformers](/202606/09/2606.08132v1-phase-marginalization-for-patch-grid-instability-in-vision-transformers)  
+   evidence：用于医学问答的多智能体LLM系统
+2. [Shift-Dependent Asymmetry: Orthogonal Inverse Low-Rank Adaptation for Federated Medical Segmentation](/202606/10/2606.08687v1-shift-dependent-asymmetry-orthogonal-inverse-low-rank-adaptation-for-federated-medical-segmentation)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：创新的ViT分割补丁网格相位边缘化方法
-3. [Self-Supervised Vision Transformers for CBCT-Based Detection of Temporomandibular Joint Osteoarthritis](/202606/09/2606.08364v1-self-supervised-vision-transformers-for-cbct-based-detection-of-temporomandibular-joint-osteoarthritis)  
+   evidence：用于联邦医学分割的创新自适应方法
+3. [Reason Twice: Segmentation via Candidate Discovery and Comparative Reasoning](/202606/10/2606.09303v1-reason-twice-segmentation-via-candidate-discovery-and-comparative-reasoning)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：自监督视觉变换器用于CBCT骨关节炎检测
-4. [Segmentation-Assisted Brain MRI Synthesis with Cross-Image Multi-Contrast Feature Memory Bank Retrieval Augmentation](/202606/09/2606.08421v1-segmentation-assisted-brain-mri-synthesis-with-cross-image-multi-contrast-feature-memory-bank-retrieval-augmentation)  
+   evidence：使用多模态大语言模型的推理分割两阶段框架
+4. [vesselFM-CT: Segmenting All Blood Vessels in CT Images for System-Level Cardiovascular Analysis](/202606/10/2606.09400v1-vesselfm-ct-segmenting-all-blood-vessels-in-ct-images-for-system-level-cardiovascular-analysis)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：基于检索增强的脑MRI合成及分割辅助
-5. [Severity-Aware Curriculum Learning with Multi-Model Response Selection for Medical Text Generation](/202606/09/2606.05510v1-severity-aware-curriculum-learning-with-multi-model-response-selection-for-medical-text-generation)  
+   evidence：CT图像中所有血管的分割
+5. [Multi-planar 2D-U-Net Segmentation of 3D-CT Abdominal Organs augmented by Spatial Occurrence Maps](/202606/10/2606.07717v1-multi-planar-2d-u-net-segmentation-of-3d-ct-abdominal-organs-augmented-by-spatial-occurrence-maps)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：使用LLM的医疗文本生成
-6. [From Risk Classification to Action Plan Remediation: A Guardrail Feedback Driven Framework for LLM Agents](/202606/09/2606.05805v1-from-risk-classification-to-action-plan-remediation-a-guardrail-feedback-driven-framework-for-llm-agents)  
+   evidence：多平面2D U-Net分割结合空间图
+6. [DyCo-RL: Dynamic Cross-Modal Coordination for Visual Reasoning](/202606/10/2606.08035v1-dyco-rl-dynamic-cross-modal-coordination-for-visual-reasoning)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：LLM智能体的防护反馈框架
-7. [Thinking with Imagination: Agentic Visual Spatial Reasoning with World Simulators](/202606/09/2606.06476v1-thinking-with-imagination-agentic-visual-spatial-reasoning-with-world-simulators)  
+   evidence：MLLM中用于视觉推理的动态跨模态协调
+7. [One Stone, Three Birds: Self-adaptive Optimal Transport for Multi-VLM Selection, Adaptation, and Ensembling](/202606/10/2606.08126v1-one-stone-three-birds-self-adaptive-optimal-transport-for-multi-vlm-selection-adaptation-and-ensembling)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：视觉语言模型的智能空间推理框架
-8. [TA-RAG: Tone-Aware Retrieval-Augmented Generation for Peer-Support Health Communication](/202606/09/2606.06794v1-ta-rag-tone-aware-retrieval-augmented-generation-for-peer-support-health-communication)  
+   evidence：面向多VLM选择与集成的自适应最优传输
+8. [Late-Layer Fusion is Enough: Dual-Path Vision Token Routing for Multimodal Large Language Models under Visual Saturation](/202606/10/2606.09131v1-late-layer-fusion-is-enough-dual-path-vision-token-routing-for-multimodal-large-language-models-under-visual-saturation)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：健康交流中的RAG框架
-9. [TechGraphRAG: An Agentic Graph-Augmented RAG Framework for Technical Literature Reasoning](/202606/09/2606.01613v1-techgraphrag-an-agentic-graph-augmented-rag-framework-for-technical-literature-reasoning)  
+   evidence：多模态大语言模型的双路径视觉令牌路由
+9. [Weakly Supervised Incremental Segmentation via Semantic Anchors and Spatial Arbitration](/202606/10/2606.04060v1-weakly-supervised-incremental-segmentation-via-semantic-anchors-and-spatial-arbitration)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：面向技术文献的智能图增强RAG框架
-10. [Video2LoRA: Parametric Video Internalization for Vision-Language Models](/202606/09/2606.04351v1-video2lora-parametric-video-internalization-for-vision-language-models)  
+   evidence：使用语义锚点的创新增量分割方法
+10. [Cosine Misleads: Auxiliary Losses Reshape Vision Language Models, Not Their Latents](/202606/10/2606.05753v1-cosine-misleads-auxiliary-losses-reshape-vision-language-models-not-their-latents)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：视觉语言模型的参数化视频内化
-11. [GRAMformer: Any-Order Modality Interactions via Volumetric Multimodal Cross-Attention](/202606/09/2606.06249v1-gramformer-any-order-modality-interactions-via-volumetric-multimodal-cross-attention)  
+   evidence：对视觉语言模型中潜在视觉推理的批判性分析
+11. [QCFuse: Query-Aware Cache Fusion via Compressed View for Efficient RAG Serving](/202606/10/2606.05875v1-qcfuse-query-aware-cache-fusion-via-compressed-view-for-efficient-rag-serving)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：任意顺序模态交互的体积多模态交叉注意力
+   evidence：RAG缓存融合提升服务效率
 
 
 <div class="dpr-home-promo-card">
