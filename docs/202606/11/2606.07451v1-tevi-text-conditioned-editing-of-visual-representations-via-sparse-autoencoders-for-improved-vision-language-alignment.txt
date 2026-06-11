@@ -1,0 +1,1185 @@
+Title: TEVI: Text-Conditioned Editing of Visual Representations via Sparse Autoencoders for Improved Vision-Language Alignment
+
+URL Source: https://arxiv.org/pdf/2606.07451v1
+
+Published Time: Mon, 08 Jun 2026 01:14:47 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+## TEVI: Text-Conditioned Editing of Visual Representations via Sparse Autoencoders for Improved Vision-Language Alignment 
+
+Sweta Mahajan ∗,1, Sukrut Rao ∗,1, Jiahao Xie 1, Alexander Koller 1,2, Bernt Schiele 11Max Planck Institute for Informatics, Saarland Informatics Campus, Saarbrücken, Germany 
+
+> 2
+
+Department of Language Science and Technology, Saarland University, Saarbrücken, Germany 
+
+{sweta.mahajan,sukrut.rao,schiele}@mpi-inf.mpg.de 
+
+> ∗Equal contribution
+
+Abstract 
+
+Vision-language models such as CLIP are highly useful for diverse tasks due to their shared image-text embedding space. Despite this, the image and text embeddings are of-ten poorly aligned, affecting downstream per-formance. Recent work has shown that this can be attributed to an information imbalance: images contain more information than their captions describe. In this work, we propose TEVI, a framework that uses captions as a signal for what to retain from image embed-dings. Specifically, we use sparse autoen-coders to disentangle image embeddings and train a masking module to selectively recon-struct the embedding based on a given caption. In a controlled setup with synthetic captions, we show that TEVI is effective at preserving caption-described attributes while discarding others. By applying TEVI to CLIP models trained on natural images, we further achieve improved retrieval performance across coarse-grained short-caption (MS COCO, Flickr) and fine-grained long-caption (IIW, DOCCI) bench-marks, with stronger gains on richer captions, and improved robustness on the RoCOCO benchmark. 
+
+1 Introduction 
+
+Vision-language models such as the CLIP fam-ily (Radford et al., 2021; Ilharco et al., 2021; Zhai et al., 2023; Tschannen et al., 2025) are trained using a contrastive loss to align images and text to a shared embedding space 1. Such models have been widely successful for a variety of multimodal applications, such as zero-/few-shot classification, cross-modal retrieval, and their embeddings serve as a vital bridge between vision and language for generative models such as text-to-image diffusion 
+
+> 1Throughout this work, we use “vision-language model” to refer to CLIP-like models with aligned image-text encoders, and not autoregressive multimodal models that generate text.
+
+models (Razzhigaev et al., 2023) and large multi-modal models (LMMs) (Liu et al., 2023). However, it has been shown that the learnt embedding space suffers from a modality gap (Liang et al., 2022), where image and text embeddings lie in different regions of the embedding space, often leading to poor downstream performance (Liang et al., 2022; Eslami and de Melo, 2025; Schrodi et al., 2025). While various possible causes have been dis-cussed (Eslami and de Melo, 2025; Schrodi et al., 2025), a recent work (Schrodi et al., 2025) hy-pothesizes that this is caused by an information imbalance —the fact that images contain more in-formation than their corresponding captions, which forces models to push their embeddings apart when minimizing training loss—and shows evidence for this hypothesis via systematically controlled exper-iments on the synthetic MAD dataset. However, de-spite finding that only a few embedding dimensions characterize the gap, removing these dimensions also significantly degrades performance. In this work, we explore whether captions could instead determine what information should be pre-served, by using text as a signal to modify CLIP im-age embeddings to preserve only what the caption describes. Specifically, we use sparse autoencoders (SAEs) (Bricken et al., 2023; Cunningham et al., 2024) to decompose image embeddings into con-stituent concepts, and train a conditioning module that selects SAE latents to be used for reconstruc-tion based on the conditioning. Through a con-trolled setup, we show that our proposed approach, text-conditioned e diting of v isual representations for i mage-text alignment ( TEVI ) (Fig. 1, left), can learn to preserve attributes presented in the text while discarding information about other attributes and improve cross-modal alignment. We then apply TEVI to CLIP (Radford et al., 2021; Ilharco et al., 2021), SigLIP (Zhai et al., 2023), SharedCLIP, and AlignCLIP (Eslami and de Melo, 2025) models trained on CC12M (Changpinyo et al., 2021), and       
+
+> arXiv:2606.07451v1 [cs.CV] 5 Jun 2026 A tractor is
+> moving dirt to
+> help build up a
+> retaining wall.
+> CLIP Text
+> Encoder
+> Conditioning
+> Module
+> CLIP Vision
+> Encoder
+> Image
+> Embedding
+> Text
+> Embedding
+> Text
+> Conditioned
+> Image
+> Embedding
+> A tractor is moving dirt to help build up a retaining wall. Image Original TEVI
+> Flickr30k
+> Two black and white dogs fighting with each other
+> Two white dogs look at one black dog on a paved walkway.
+> DOCCI
+> A low-angle view of a yellow rhombus-shaped road sign with a black illustration of the silhouette of a tortoise walking toward the left side of the image attached to the top of a gray metal pole
+> An outdoor medium shot, looking up at a yellow, weathered, diamond-shaped caution sign with a black horse and buggy facing the right
+> RoCOCO
+> a lady holding a atari with a big turkey in an open oven
+> A lady holding a pan with a big turkey in an open oven. 22 23 24
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> CLIP
+> SigLIP
+> AlignCLIP
+> Text-to-Image
+> 42 44
+> R@1
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> CLIP
+> SigLIP
+> AlignCLIP
+> Image-to-Text
+> Cosine Similarity
+> Original TEVI
+
+Fig. 1: TEVI: using captions to edit image embeddings. Left: An overview of our approach. We use text captions as a signal to modify image embeddings from CLIP (Radford et al., 2021). For details, see Fig. 2. Middle: Qualitative examples of top texts retrieved for an image by CLIP and TEVI. Right: TEVI helps improve cross-modal alignment as well as downstream retrieval performance. We report mean performance across datasets, for full results see Tabs. 1 and 2 and Fig. 6. 
+
+show that applying TEVI improves (Fig. 1, mid-dle and right) image-to-text and text-to-image re-trieval performance, both for coarse-grained short-caption (MS COCO (Lin et al., 2014), Flickr (Plum-mer et al., 2015)) and fine-grained long-caption retrieval (DOCCI (Onoe et al., 2024), IIW (Garg et al., 2024)). Notably, gains are larger on long-caption benchmarks which suggests that richer cap-tions provide a stronger signal for editing. Using the RoCOCO (Park et al., 2024) benchmark, which augments captions with linguistically perturbed al-ternatives, we also show that TEVI leads to stronger robustness against such perturbations. In summary, our contributions are as follows: • CLIP-Guided SAEs (CG-SAEs), a controlled setup with latents that encode predefined text concepts, to study their utility for preserving targeted concepts. • TEVI, a framework that uses text as a signal to selectively retain caption-described content in image embeddings, via a learnt mask over sparse autoencoder latents. We use CG-SAEs to show a proof-of-concept of our proposed approach through controlled experiments on MAD (Schrodi et al., 2025), and show that TEVI leads to improved retrieval, robust retrieval, and cross-modal alignment across diverse real-world datasets. 
+
+2 Related Work 
+
+Vision-Language Models (VLMs) (Radford et al., 2021; Zhai et al., 2023; Ilharco et al., 2021; Yu et al., 2022; Jia et al., 2021; Tschannen et al., 2025) learn a joint aligned embedding space be-tween images and texts. They typically consist of separate unimodal image and text encoders that each provide an embedding, and are trained using contrastive losses so that embeddings of similar image-text pairs are placed close to each other and dissimilar pairs are placed apart. Such models are useful for a diverse set of multimodal tasks such as cross-modal retrieval and zero-shot classifica-tion. Their embeddings are also used as a bridge between vision and language for text-to-image dif-fusion models (Razzhigaev et al., 2023) and large multimodal models (LMMs) (Liu et al., 2023). In this work, we focus on CLIP-family models. 
+
+Modality Gap (Schrodi et al., 2025; Liang et al., 2022; Eslami and de Melo, 2025; Mistretta et al., 2025; Shi et al., 2023) is a phenomenon observed in trained VLMs, where, despite the contrastive training objective, image and text embeddings lie in different regions of the embedding space. While initially attributed to the ‘cone effect’ at initial-ization (Liang et al., 2022), recent work (Schrodi et al., 2025) showed that a likely cause is the infor-mation imbalance between the two modalities, i.e., images contain more information than is described in their corresponding caption, which forces the model to push apart their embeddings to reduce the contrastive loss. Existing post hoc approaches to re-duce the modality gap (Liang et al., 2022; Schrodi et al., 2025) have been shown to come at the cost of degraded performance. Recently, AlignCLIP (Es-lami and de Melo, 2025) proposed to use an intra-modal separation loss during CLIP training to im-prove alignment and downstream performance. In contrast, we explicitly control the information im-balance post hoc by using text as a signal to edit image embeddings, and show that this is comple-mentary to methods such as AlignCLIP. SAE   
+
+> Encoder
+> Latents SAE
+> Decoder
+> Mask Masked
+> Latents
+> Edited
+> Image
+> Embedding
+> Image
+> Embedding
+> Masking MLP
+
+ℒfm
+
+> InfoNCE
+> A tractor is
+> moving dirt to
+> help build up a
+> retaining wall.
+> CLIP Text
+> Encoder
+
+λt,i
+
+> ""
+
+λv,i|iλv,i  
+
+> CLIP Vision
+> Encoder X=
+> ❄❄
+> A tractor is moving dirt to help build up a retaining wall.
+
+Fig. 2: Our proposed TEVI framework for obtaining text-conditioned image embeddings. We train a TopK SAE (Gao et al., 2025) over CLIP image embeddings, and then use an MLP trained using the InfoNCE loss to learn a mask over the SAE latents to obtain conditioned image embeddings. For details, see Secs. 4 and 5. 
+
+Cross-Modal Conditioning methods such as SmartCLIP (Xie et al., 2025b), FLAIR (Xiao et al., 2025), and FILIP (Yao et al., 2022) produce image embeddings conditioned on text for improved fine-grained retrieval, at the cost of a small increase in retrieval time. An orthogonal line of work (Xie et al., 2025a; Asokan et al., 2025) performs fine-grained alignment at training without conditioning at inference. Among the former methods, all except SmartCLIP train models from scratch. In contrast, TEVI is post-hoc: it adds a small module on top of pretrained CLIP, with the vision encoder kept frozen and only the text encoder fine-tuned. Simi-lar to SmartCLIP, TEVI learns a mask over vision embeddings conditioned on text, but in contrast, TEVI masks disentangled SAE latents instead of raw representations. 
+
+Sparse Autoencoders (SAEs) (Bricken et al., 2023; Cunningham et al., 2024; Gao et al., 2025; Rajamanoharan et al., 2024a,b; Bussmann et al., 2025) are a popular mechanistic interpretability tool to disentangle activations learnt by a deep network into constituent human understandable concepts. While originally used in the context of LLMs (Bricken et al., 2023; Cunningham et al., 2024), SAEs have recently been used to decompose concepts from CLIP vision embeddings (Rao et al., 2024; Zaigrajew et al., 2025) for use in downstream tasks such as constructing concept bottleneck mod-els (Rao et al., 2024). SAEs have also been used as a tool for steering models by performing edits to their latents (Farrell et al., 2025; Cywi´ nski and Deja, 2025; Pach et al., 2025; Joseph et al., 2025). In contrast to these works which apply SAE-based interventions for interpretability or steering, we use them for text-conditioned editing aimed at improv-ing cross-modal alignment. 
+
+3 Using SAEs to Edit Representations 
+
+In this section, we motivate our text-conditioned image editing approach. In Sec. 3.1, we first pro-vide a brief overview on CLIP (Radford et al., 2021) and sparse autoencoders (SAEs) (Bricken et al., 2023). Then, to test whether SAEs can be used to edit representations, we describe a con-trolled test on a synthetic setup in Sec. 3.2 and present our findings in Sec. 3.3. We then present our proposed TEVI in Sec. 4, and in Sec. 5, we show how we extend it to real data. 
+
+3.1 Background CLIP (Radford et al., 2021). Let D =
+
+{(vi, t i)}Ni=1 be a paired dataset of images vi and their corresponding texts ti. A CLIP model M =(fv, f t) consists of a vision and text encoder re-spectively which provide corresponding embed-dings (εv,i , ε v,t ), i.e. εv,i = fv(vi) ∈ Rd and 
+
+εt,i = ft(ti) ∈ Rd. The model is then trained with a contrastive InfoNCE loss (Oord et al., 2018): 
+
+LInfoNCE = − 12N
+
+> N
+
+X
+
+> i=1
+
+"
+
+log eˆεv,i ·ˆεt,i /τ 
+
+PNj=1 eˆεv,i ·ˆεt,j /τ 
+
++ log eˆεv,i ·ˆεt,i /τ 
+
+PNj=1 eˆεv,j ·ˆεt,i /τ 
+
+#
+
+(1) where τ is a learnable temperature hyperparameter and ˆx = x 
+
+> ∥x∥2
+
+. Eq. (1) pulls embeddings of cor-responding (positive) image-text pairs (εv,i , ε t,i )
+
+close to each other and pushes embeddings of other (negative) image-text pairs (εv,i , ε t,j ), i ̸ = j away from each other to learn a shared semantic embed-ding space. 
+
+Sparse Autoencoders (Bricken et al., 2023) 
+
+consist of a linear encoder WE ∈ Rd×d1 and de-coder WD ∈ Rd1×d where typically d1 ≫ d.The encoder maps an input x ∈ Rd to latents 
+
+z = ReLU (W TE (x − bpre ) + bE ), where bpre ∈
+
+Rd, b E ∈ Rd1 are learnt biases and z is a sparse dis-entangled concept representation of x. The decoder then reconstructs x using z, i.e. ˜x = W TD z + bpre .The SAE is trained with a combination of a recon-struction loss Lrecon = ∥x − ˜x∥2 and sparsity loss 
+
+Lsparse , i.e. 
+
+LSAE = Lrecon + λSAE Lsparse , (2) where λSAE is a hyperparameter. We use Lsparse =
+
+TopK (z) (Gao et al., 2025) where TopK (·) selects the top K activated latents in z for hyperparameter 
+
+K.
+
+3.2 Controlled Setup for Evaluating Representation Editing 
+
+To understand whether subselecting SAE latents be-fore reconstruction can effectively edit embeddings, we construct a controlled setup using synthetic data with known attributes, where we induce each SAE latent to represent a predefined attribute. In con-trast to a typical setup where SAEs automatically learn to disentangle concepts, this is designed to allow for targeted editing, and we refer to it as CLIP-guided SAE (CG-SAE). Let C = {cj }Sj=1 
+
+be a set of text concepts, and let (WE , W D) be an SAE to be trained on image embeddings of CLIP. Then, for an embedding εv,i ,
+
+zi = TopK (ReLU (W TE (εv,i − bpre ) + bE )) (3) 
+
+fεv,i = W TD zi + bpre (4) where zi = [ zi,r ]d1
+
+r=1 such that elements in zi out-side the top K elements are zeros. Recent work (Rao et al., 2024) showed that la-tents zi,r could be assigned meaningful concept names in cq ∈ C post hoc by selecting the text embedding that is closest to their corresponding decoder weight vector WD,r , i.e. 
+
+q = arg max 
+
+j cos( WD,r ; cj ) . (5) Inspired by this, for our conditioning, we propose to attempt the opposite—given C, we fix the rows of the decoder weights WD to be text embeddings of concepts cj ∈ C, i.e. 
+
+WD,r = ˆ εt,c r (6) where 1 ≤ r ≤ S and d1 = S, and then only train the SAE encoder. No thickthinning 
+
+> Thickening
+> Thinning
+> No swelling
+> Swelling
+> No fracture
+> Fracture
+> Large
+> Small
+> Gray
+> Red
+> Green
+> Blue
+> Cyan
+> Magenta
+> Yellow
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> ROC AUC Value  No swelling
+> No thickthinning
+> Thickening
+> Thinning
+> No swelling
+> Swelling
+> No fracture
+> Fracture
+> Large
+> Small
+> Gray
+> Red
+> Green
+> Blue
+> Cyan
+> Magenta
+> Yellow
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> ROC AUC Value  Swelling
+> Attribute Specificity of ‘Swelling’ SAE Latents
+
+Fig. 3: Attribute specificity of CG-SAE latents. We plot the area under the receiver operating characteristic (ROC) curve (AUC) for CG-SAE latents corresponding to the attribute val-ues ‘No swelling’ and ‘Swelling’. We find that the latents are highly attribute specific, with the AUC being close to 1 for the attribute the latent is assigned to, and 0 for unrelated attributes. This shows that our CG-SAE latents are highly disentangled, despite being assigned to a predefined concept. Interestingly, as can be expected, the AUC of attributes anti-correlated to the attribute assigned to the latent (e.g. ‘Swelling’ for the ‘No swelling’ latent) are close to 0. Results for the other latents are provided in the supplement. 
+
+Once trained, given an attribute set CA =
+
+{cq} ⊆ C, we select latents not present in the text, i.e. ¯C = C \ CA and set their activations to zero, i.e. 
+
+zp|q = [ zp]zp,c q′ =⃗0, ∀cq′ ∈ ¯C (7) The edited image embedding of an image vp condi-tioned on text tq is then given by ]εv,p |q, where 
+
+]εv,p |q = W TD zp|q + bpre . (8) We evaluate the following: (R1) if each CG-SAE latent indeed encodes the concept assigned to it, and (R2) if masking out specific attributes removes information about that attribute from the recon-structed embedding from the SAE. We present our findings in Sec. 3.3. Blue 
+
+> Thinning
+> Fracture
+> 4
+> Top Activating Images of SAE Latents
+
+Fig. 4: Qualitative examples of top activating images for the setup when the CG-SAE is trained with fixed semantics of latents. Each row corresponds to an SAE latent and is labelled with the predefined concept that is assigned to that latent (Sec. 3.2). The columns show examples of images that maximally activate these latents. We find that the SAE learns to disentangle the CLIP image features into concepts as specified by the fixed weight of the latent. Original Recon. Ablated               
+
+> 0
+> 25
+> 50
+> 75
+> 100
+> Accuracy (%)
+> Category
+> Thickthinning Swelling Fracture Scaling Colors Digit Thickthinning Swelling Fracture Scaling Colors
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Accuracy
+> Random Chance Original Attribute in Caption Attribute not in Caption 0.30.40.50.60.70.80.91.0
+> Cosine Similarity
+> 0
+> 10000
+> 20000
+> 30000
+> 40000
+> 50000
+> 60000
+> Frequency
+> Original TEVI
+
+Fig. 5: Left: Accuracy after ablating a single latent. Accuracy for ‘Thickthinning’ drops to random chance (dotted line) when editing image embeddings to discard information about that attribute (right group), while the other attributes continue to maintain high accuracy (Sec. 3). Middle: Effectiveness of conditioning. Attributes present in the conditioning text are preserved in the edited embedding, while attributes that are absent are classified at close to random chance accuracy (Sec. 4). Right: Impact on vision-language alignment. Pairwise image-text cosine similarities between positive pairs increase on applying TEVI (Sec. 4). 
+
+3.3 Results Experimental Setup. We use the synthetic MAD dataset (Schrodi et al., 2025), which consists of MNIST digits with colors and morphological transforms. Every image is characterized by six attributes—digit, color, thickthinning, swelling, scaling, and fracture—each of which can be one among a set of predefined options, which are 26 in total. For example, the ‘thickthinning’ attribute for an image could be ‘thickening’, ‘thinning’ or ‘nothickthinning’, depending on the transform ap-plied to the image. For each image, we create captions that contain the digit and three randomly selected attributes out of the remaining five to sim-ulate information imbalance (Schrodi et al., 2025). Following (Schrodi et al., 2025), we train CLIP models (Radford et al., 2021; Ilharco et al., 2021) consisting of a 6-layer ViT (Dosovitskiy et al., 2021) as the vision encoder and a 6-layer trans-former as the text encoder, with a shared embed-ding dimension of 18, for 200 epochs on using the AdamW (Loshchilov and Hutter, 2019) optimizer. Given the 26 possible attributes per image, the text encoder uses a tokenizer with a vocabulary of size 28, after accounting for the start and end tokens. Then, we train TopK SAE (Gao et al., 2025) on CLIP image embeddings with a latent dimension of 26 (equal to the number of attributes for the dataset). We assign each of the decoder weights as the normalized text embedding of one of the attribute values, so that each SAE latent represents one of the 26 attributes. For the SAE, we ablate across values of K, expansion factors, and learning rates, and select models based on reconstruction mean-squared accuracy and classification perfor-mance across the six attributes. 
+
+Concept Disentanglement (R1). We evaluate if our CG-SAE learns to disentangle image embed-dings into the fixed set of predefined concepts C.In Fig. 3, we show the area under the receiver op-erating characteristic (ROC) curve (AUC) across images in the dataset for the two latents assigned to the ‘swelling’ attribute. We find that the la-tents are able to disentangle the attributes well, with the AUC being close to 1 for the attribute value the latent is assigned to, 0.5 for unrelated attributes, and 0 for attribute values anti-correlated to the assigned attribute (i.e. ‘no swelling’, for the ‘swelling’ latent). We also show qualitative ex-amples of top activating images for a selection of latents in Fig. 4, and find that they are highly con-sistent, e.g. for the ‘blue’ latent, the top activating images are all digits of the color blue, while also being diverse in all other attributes. Editing Image Representations (R2). We evaluate if masking latents corresponding to a single attribute discards information about that attribute from the recon-structed representations. To do this, we pick a single attribute ‘thickthinning’, and set the three latents corresponding to it (‘thickening’, ‘thinning’, ‘nothickthinning’) to zero. This is similar to con-ditioning on all attributes q except ‘thickthinning’ (Eq. (7)). We then obtain edited embeddings for all images, and perform classification on all six attributes based on the cosine similarity with the text embeddings of the classes within the attribute, similar to zeroshot classification. For example, for ‘Thickthinning’, given an edited embedding εv,p |q,Pred thickthinning = arg max cos( εv,p |q; εt,j ), where 
+
+tj ∈ { thickening , thinning , nothickthinning }. We find (Fig. 5, left) that the classification accuracy of the edited embeddings on ‘thickthinning’ drops to near random chance while that of all other at-tributes remains close to that with the original em-bedding. This shows that our conditioning can be an effective way to remove information present in the image embeddings that is not in the text. Table 1: Fine-grained, long-caption retrieval performance on DOCCI (Onoe et al., 2024) and IIW (Garg et al., 2024). All the models are trained on CC12M dataset. We report R@1, R@5 and R@10 for both image-to-text and text-to-image retrieval. We see that TEVI improves retrieval performance across models and datasets. Model DOCCI (Onoe et al., 2024) IIW (Garg et al., 2024) I → T T → I I → T T → IR@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 CLIP ViT-B/16 20.38 42.36 53.52 7.16 16.96 22.86 50.98 77.94 88.89 16.88 32.66 41.46 +TEVI 24.20 48.68 60.06 8.55 19.98 26.80 55.72 81.21 88.72 19.37 36.44 45.47                                                                                                 
+
+> CLIP ViT-L/14 23.60 46.68 57.06 8.21 18.70 24.91 53.92 81.37 89.21 18.05 35.59 44.49 +TEVI 26.06 51.50 62.20 9.26 21.51 27.99 58.33 85.46 90.85 19.41 37.80 46.53
+> SigLIP ViT-B/16 20.68 41.84 53.70 7.41 17.17 22.77 48.20 76.14 85.13 16.94 33.07 41.42 +TEVI 24.52 48.60 59.58 8.47 20.02 26.47 57.68 81.86 88.89 19.08 36.88 46.61
+> SharedCLIP 19.02 41.06 52.68 7.16 17.52 23.88 51.14 79.08 87.09 17.10 33.78 43.04 +TEVI 22.54 45.54 57.10 7.95 18.62 25.31 57.51 81.54 89.05 18.17 34.86 44.02
+> AlignCLIP ViT-B/16 20.32 41.88 53.38 7.39 17.43 23.69 53.92 82.03 87.58 17.46 34.27 43.57 +TEVI 23.18 47.70 58.90 8.32 19.76 26.34 59.15 84.31 91.99 19.66 36.38 45.58
+
+4 TEVI: Learning to Mask Latents based on Conditioned Text 
+
+In Sec. 3.2, we showed that we could construct CG-SAEs for encoding and editing representations given predefined synthetic concepts. However, in practice, this is a restrictive assumption, since CLIP models are typically open vocabulary and a prede-fined set of concepts is not available. As a result, in this section, we relax this assumption and pro-pose TEVI, an approach to learn a mask over SAE latents z to obtain the text-conditioned image em-beddings. An overview of our approach is shown in Fig. 2. 
+
+4.1 Optimization Objective 
+
+Specifically, we keep the CLIP vision encoder and a trained SAE frozen, and train a small multi-layer perceptron (MLP) network consisting of linear transforms with ReLU activations fm : Rd → Rd1
+
+that maps text embeddings εt,i to a mask mi ∈
+
+[0 , 1] d1 , i.e. mi = σ(fm(εt,i )) where σ(·) is the sigmoid function. Then, the edited image embedding of an image 
+
+vp conditioned on text tq is given by εv,p |q, where 
+
+εv,p |q = W TD (zp ⊙ mq) + bpre (9) where ⊙ is the element-wise product. We train fm and fine-tune the CLIP text encoder 
+
+ft using the InfoNCE loss (Eq. (1)) to pull the edited embeddings towards their conditioning texts and away from other texts, i.e. 
+
+Lfm 
+
+> InfoNCE
+
+= − 12N
+
+> N
+
+X
+
+> i=1
+
+"
+
+log eˆεv,i |i·ˆεt,i /τ 
+
+PNj=1 eˆεv,i |i·ˆεt,j /τ 
+
++ log eˆεv,i |i·ˆεt,i /τ 
+
+PNj=1 eˆεv,j |j ·ˆεt,i /τ 
+
+#
+
+. (10) 
+
+4.2 Results Experimental Setup. We follow the setup from Sec. 3.3; however, we no longer fix the decoder weights of SAE and keep them learnable. We use 3-layer MLPs for the masking module. 
+
+Effectiveness of Conditioning. We evaluate the effectiveness of conditioning for TEVI on actual captions, by evaluating for attribute-wise classifi-cation. Since each caption has a random subset of attributes present in the image (Sec. 3.3), we bin the attributes for each image depending on whether the caption contains it, and report the classification accuracy across the two bins in Fig. 5 (middle). We find that the classification accuracy on attributes 
+
+present in the caption (orange) remains similar to the accuracy from the original embeddings (blue), while the accuracy from attributes absent from the caption (green) reach near random chance (dotted black line). This shows that TEVI is effective in performing conditioning such that the edited em-bedding preserves information present in the text while discarding the remaining attributes. 
+
+Vision-language Alignment. Following Eslami and de Melo (2025), we also evaluate the pair-wise image-text cosine similarities between pos-itive image-text pairs before and after conditioning and the plots are shown in Fig. 5 (right). We find that for TEVI, the pairwise similarities increase significantly after conditioning (blue) as compared to before (orange). 
+
+5 Using TEVI to Improve Cross-modal Retrieval 
+
+In Sec. 4, we showed the utility of our proposed TEVI on a synthetic setup. In this section, we extend to CLIP models trained on natural images with the goal of improving alignment and retrieval performance. Table 2: Coarse-grained, short-caption retrieval performance on MSCOCO (Lin et al., 2014) and Flickr30k (Plummer et al., 2015). All the models are trained on CC12M dataset. We report R@1, R@5 and R@10 for both image-to-text and text-to-image retrieval. We see that TEVI improves retrieval performance across models and datasets. Model MS COCO (Lin et al., 2014) Flickr30k (Plummer et al., 2015) I → T T → I I → T T → IR@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 CLIP ViT-B/16 32.98 59.02 70.04 21.38 45.30 57.03 59.66 83.73 90.14 42.46 70.33 79.31 +TEVI 35.66 61.82 72.94 23.12 47.03 58.67 64.20 85.70 91.12 44.75 72.10 81.22                                                                                                 
+
+> CLIP ViT-L/14 36.52 62.50 73.06 23.85 48.42 59.55 63.71 86.49 91.32 46.51 72.84 81.66 +TEVI 37.88 64.38 75.16 25.04 49.74 61.35 65.48 87.77 92.70 47.14 74.58 82.50
+> SigLIP ViT-B/16 33.88 60.30 70.62 22.06 46.21 57.70 62.23 85.40 91.42 44.69 70.61 79.33 +TEVI 36.24 61.20 72.82 22.37 46.60 58.66 62.82 86.19 91.62 43.77 71.56 80.73
+> SharedCLIP ViT-B/16 32.62 58.88 69.94 21.54 44.81 56.87 60.75 84.22 89.64 43.31 69.53 78.86 +TEVI 33.82 59.86 70.90 22.13 45.95 57.38 59.37 83.33 89.05 44.30 70.97 79.53
+> AlignCLIP ViT-B/16 32.70 58.92 70.46 21.79 44.55 56.41 57.49 82.35 89.94 41.91 70.01 78.97
+> +TEVI 34.42 60.30 71.48 21.35 44.39 55.72 61.24 83.53 89.15 42.31 70.33 78.92
+
+5.1 Optimization Objective 
+
+Despite its effectiveness in the synthetic setup, the objective from Eq. (10)) only uses edited im-age embeddings ˆεv,i |i conditioned on their own 
+
+corresponding positive captions, i.e. it does not model conditioning on negative captions. However, image-to-text and text-to-image retrieval involve selecting from a set of candidates, which would re-quire conditioning both positive and negative pairs. So, we modify the objective to incorporate negative conditioning during training: 
+
+Lfm 
+
+> InfoNCE
+
+= − 12N
+
+> N
+
+X
+
+> i=1
+
+"
+
+log eˆεv,i |i·ˆεt,i /τ 
+
+PNj=1 eˆεv,i |j ·ˆεt,j /τ 
+
++ log eˆεv,i |i·ˆεt,i /τ 
+
+PNj=1 eˆεv,j |i·ˆεt,i /τ 
+
+#
+
+(11) where e.g. eˆεv,j |j in the denominator of the first term from Eq. (10) is changed to eˆεv,i |j . Condi-tioning on negative captions is essential, without which the model performs poorly, which could be due to the fact that the model sees both positive and negative captions during inference. We discuss further in Sec. B.5. 
+
+5.2 Results Experimental Setup. Following previous works (Eslami and de Melo, 2025; Goel et al., 2022; Mu et al., 2022; Li et al., 2022), we use the CC12M dataset (Changpinyo et al., 2021) to train a CLIP (Radford et al., 2021) ViT-B/16 (Dosovitskiy et al., 2021), CLIP ViT-L/14, and a SigLIP (Zhai et al., 2023) ViT-B/16 model. To train the SAE, we ablate across values for the expansion factors and learning rates and select the best configura-tion based on the mean reconstruction accuracy and classification accuracy on the reconstructed features. We then train the masking module by sweeping across learning rates and selecting the configuration that is best for retrieval on the valida-tion split of CC3M (Sharma et al., 2018), to ensure generalization to different datasets. Full details are provided in the supplement in Sec. B.1. 
+
+Vision-Language Alignment. To evaluate the im-pact of TEVI on cross-modal alignment, we plot the cosine similarities between image and corre-sponding text embeddings, both before and af-ter editing. We find (Fig. 6) that alignment im-proves across datasets after applying TEVI (e.g. 0.417 →0.470 for MSCOCO). Further results on different models are provided in Sec. B.6. Note however that alignment is a diagnostic metric; with the primary goal being to improve downstream per-formance, which we discuss next. 
+
+Retrieval Performance. We evaluate the per-formance of TEVI for text-to-image and image-to-text retrieval across fine-grained long-caption (DOCCI (Onoe et al., 2024), IIW (Garg et al., 2024)) and coarse-grained short-caption (MS COCO (Lin et al., 2014), Flickr30k (Plummer et al., 2015)) retrieval benchmarks. We find (Tabs. 1 and 2) that TEVI consistently improves retrieval performance across nearly all datasets and mod-els, being particularly effective when used with long-captions. Qualitative examples are provided in Fig. 1 and Sec. B.8. 
+
+Applicability to Existing Methods. We addi-tionally compare against SharedCLIP and Align-CLIP (Eslami and de Melo, 2025), which recently proposed using intra-modal separation objectives during CLIP training to improve cross-modal align-ment and retrieval performance. Even though these training objectives already provide gains, we find (Tabs. 1 and 2) that our approach can additionally help these methods with consistent and significant improvement on fine-grained datasets and competi-Table 3: Robust retrieval performance of TEVI on the RoCOCO benchmark (Park et al., 2024) . We find that TEVI improves performance over the baseline across settings. Model COCO R@1 Rand-voca Same-concept Diff-concept Danger R@1 
+
+(↑)
+
+drop rate 
+
+(↓)
+
+RSMS 
+
+(↓)
+
+R@1 
+
+(↑)
+
+drop rate 
+
+(↓)
+
+RSMS 
+
+(↓)
+
+R@1 
+
+(↑)
+
+drop rate 
+
+(↓)
+
+RSMS 
+
+(↓)
+
+R@1 
+
+(↑)
+
+drop rate 
+
+(↓)
+
+RSMS 
+
+(↓)
+
+CLIP 33.26 21.26 12.00 46.90 21.74 11.52 43.36 22.12 11.14 43.98 22.92 10.34 39.74 +TEVI 36.00 26.14 9.86 33.98 25.74 10.26 37.12 25.60 10.40 35.70 27.12 8.88 31.00 0.1 0.2 0.3 0.4 0.5 0.6                    
+
+> Cosine Similarity
+> 0
+> 200
+> 400
+> 600
+> 800
+> Frequency
+> MS COCO
+> Original TEVI 0.10.20.30.40.50.60.7
+> Cosine Similarity
+> 0
+> 50
+> 100
+> 150
+> 200
+> Frequency
+> Flickr30k
+> Original TEVI 0.00.10.20.30.40.50.60.70.8
+> Cosine Similarity
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> 600
+> Frequency
+> DOCCI
+> Original TEVI 0.10.20.30.40.50.60.7
+> Cosine Similarity
+> 0
+> 20
+> 40
+> 60
+> 80
+> Frequency
+> IIW
+> Original TEVI
+
+Fig. 6: Cross-modal alignment across datasets using CLIP ViT-B/16. We find that the alignment between image-text pairs increases after applying TEVI. 
+
+tive performance on coarse-grained datasets. 
+
+Cost of Inference. Similar to other cross-modal conditioning methods (e.g. Xie et al., 2025b; Xiao et al., 2025), TEVI incurs an additional cost for retrieval, since every image is conditioned on ev-ery text. However, since we edit final embeddings post hoc using small modules, the overhead is rela-tively small, e.g. around 2.7% increase in FLOPS for 1000 image-text pairs. One could obtain fur-ther speedups for all such conditioning methods including TEVI by first performing coarse retrieval with the CLIP model and then fine-grained ranking, which we leave for future work. 
+
+Comparison to SmartCLIP. We compare TEVI against SmartCLIP (Xie et al., 2025b), which learns a text-conditioned mask on raw vision em-beddings. For a fair comparison, we train on a similar setup with CC12M. We find (Tab. 4, and Sec. B.7) that TEVI consistently outperforms it on fine-grained datasets and is competitive on coarse-grained datasets, highlighting the benefit of disen-tangling representations. Additionally, similar to Xie et al. (2025b), we obtain comparable zeroshot performance as the baseline; for details refer to Sec. B.4. 
+
+Robust Retrieval. We additionally evaluate TEVI for robust retrieval, using the RoCOCO (Park et al., 2024) benchmark. This augments the caption set of MS COCO (Lin et al., 2014) with perturbed cap-tions containing irrelevant concepts that alter their meaning, and should not be retrieved by the model. Specifically, it contains four sets—‘Rand-voca’, ‘Danger’, ‘Same-concept’, and ‘Diff-concept’— which replace words in the original caption with alternatives based on the set. For example, a word ‘umbrella’ might be replaced by another tool (e.g. ‘rope’) by ‘Same-concept’, and with an unrelated 
+
+Table 4: Retrieval comparison with SmartCLIP. TEVI out-performs on fine-grained datasets and is competitive on coarse-grained datasets. Full results in Sec. B.7. Model DOCCI I →T, T →I Flickr30k I →T, T →IR@1 R@5 R@1 R@5 R@1 R@5 R@1 R@5 CLIP 20.4 42.4 7.2 17.0 59.7 83.7 42.5 70.3 +TEVI 24.2 48.7 8.6 20.0 64.2 85.7 44.8 72.1 SmartCLIP 21.8 45.0 7.5 17.8 61.0 85.1 45.3 72.8 
+
+word (e.g. ‘pizza’) by ‘Diff-concept’. Following (Park et al., 2024), we report (Tab. 3) the drop rate (percentage drop in retrieval after augmenting captions), and Recall Score of Manip-ulated Samples (RSMS) (fraction of data where a perturbed entity was retrieved on top). We find that TEVI provides consistent improvements across these metrics on all data splits, showing its promise for improving model safety. Additional results on other backbones are provided in Sec. B.3. 
+
+6 Conclusion 
+
+In this work, we explored whether captions can guide what information is preserved in CLIP image embeddings, in order to improve cross-modal align-ment. We proposed a framework, TEVI, to use text as a signal to edit image embeddings, such that the resultant edited embedding is better aligned with the text. We first used a synthetic setup, where we could explicitly control the information imbalance, to show that text-conditioned editing preserves in-formation described in the caption. We then ap-plied TEVI to models trained on real-world data and showed its effectiveness for improving retrieval performance and cross-modal alignment, and its utility in complementing existing approaches such as AlignCLIP. We show TEVI is particularly help-ful for benchmarks with rich captions (DOCCI, IIW) and for retrieval robustness against linguistic perturbations (RoCOCO). Limitations 
+
+While our proposed TEVI framework shows strong benefits for a variety of CLIP models trained on CC12M, extending to large-scale models trained on billions of data points remains a challenge, likely owing to the complexity of training sufficiently large and diverse SAEs. Nevertheless, our work intends to provide a clear proof of concept. Scal-ing to models trained on large-scale data would be a fruitful direction for future research. In addi-tion, our work relies on SAEs for disentanglement, which may not always be accurate. As with all cross-modal conditioning-based methods, TEVI also requires conditioning every image on every text before retrieval, which incurs an additional computational cost. However, this could be partly addressed by performing coarse retrieval first and then reranking with TEVI, which we leave for fu-ture work. 
+
+Acknowledgements 
+
+Funded in part by the Deutsche Forschungsgemein-schaft (DFG, German Research Foundation) - GRK 2853/1 “Neuroexplicit Models of Language, Vi-sion, and Action” - project number 471607914. 
+
+References 
+
+Mothilal Asokan, Kebin Wu, and Fatima Albreiki. 2025. FineLIP: Extending CLIP’s Reach via Fine-Grained Alignment with Longer Text Inputs. In CVPR , pages 14495–14504. Trenton Bricken, Adly Templeton, Joshua Batson, Brian Chen, Adam Jermyn, Tom Conerly, Nick Turner, Cem Anil, Carson Denison, Amanda Askell, Robert Lasenby, Yifan Wu, Shauna Kravec, Nicholas Schiefer, Tim Maxwell, Nicholas Joseph, Zac Hatfield-Dodds, Alex Tamkin, Karina Nguyen, and 6 others. 2023. Towards Monosemanticity: Decom-posing Language Models With Dictionary Learning. 
+
+Transformer Circuits Thread .Bart Bussmann, Noa Nabeshima, Adam Karvonen, and Neel Nanda. 2025. Learning Multi-Level Features with Matryoshka Sparse Autoencoders. In ICML .Soravit Changpinyo, Piyush Sharma, Nan Ding, and Radu Soricut. 2021. Conceptual 12M: Pushing Web-Scale Image-Text Pre-training to Recognize Long-Tail Visual Concepts. In CVPR , pages 3558–3568. Hoagy Cunningham, Aidan Ewart, Logan Riggs, Robert Huben, and Lee Sharkey. 2024. Sparse Autoencoders Find Highly Interpretable Features in Language Mod-els. In ICLR .Bartosz Cywi´ nski and Kamil Deja. 2025. SAeUron: In-terpretable Concept Unlearning in Diffusion Models with Sparse Autoencoders. In ICML .Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. 2021. An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale. In ICLR .Sedigheh Eslami and Gerard de Melo. 2025. Mitigate the Gap: Investigating Approaches for Improving Cross-modal Alignment in CLIP. In ICLR .Eoin Farrell, Yeu-Tong Lau, and Arthur Conmy. 2025. Applying Sparse Autoencoders to Unlearn Knowl-edge in Language Models. In ICLR .Leo Gao, Tom Dupré la Tour, Henk Tillman, Gabriel Goh, Rajan Troll, Alec Radford, Ilya Sutskever, Jan Leike, and Jeffrey Wu. 2025. Scaling and Evaluating Sparse Autoencoders. In ICLR .Roopal Garg, Andrea Burns, Burcu Karagol-Ayan, Yonatan Bitton, Ceslee Montgomery, Yasumasa Onoe, Andrew Bunner, Ranjay Krishna, Ja-son Michael Baldridge, and Radu Soricut. 2024. Im-ageInWords: Unlocking Hyper-Detailed Image De-scriptions. In EMNLP , pages 93–127. Shashank Goel, Hritik Bansal, Sumit Bhatia, Ryan Rossi, Vishwa Vinay, and Aditya Grover. 2022. Cy-CLIP: Cyclic Contrastive Language-Image Pretrain-ing. In NeurIPS , volume 35, pages 6704–6719. Dan Hendrycks, Steven Basart, Norman Mu, Saurav Kadavath, Frank Wang, Evan Dorundo, Rahul Desai, Tyler Lixuan Zhu, Samyak Parajuli, Mike Guo, and 1 others. 2021. The Many Faces of Robustness: A Crit-ical Analysis of Out-of-Distribution Generalization. In ICCV .Dan Hendrycks, Kevin Zhao, Steven Basart, Jacob Stein-hardt, and Dawn Xiaodong Song. 2019. Natural Ad-versarial Examples. In CVPR , pages 15257–15266. Gabriel Ilharco, Mitchell Wortsman, Ross Wightman, Cade Gordon, Nicholas Carlini, Rohan Taori, Achal Dave, Vaishaal Shankar, Hongseok Namkoong, John Miller, Hannaneh Hajishirzi, Ali Farhadi, and Lud-wig Schmidt. 2021. OpenCLIP. Chao Jia, Yinfei Yang, Ye Xia, Yi-Ting Chen, Zarana Parekh, Hieu Pham, Quoc Le, Yun-Hsuan Sung, Zhen Li, and Tom Duerig. 2021. Scaling Up Visual and Vision-Language Representation Learning with Noisy Text Supervision. In ICML , pages 4904–4916. Sonia Joseph, Praneet Suresh, Ethan Goldfarb, Lorenz Hufe, Yossi Gandelsman, Robert Graham, Danilo Bzdok, Wojciech Samek, and Blake Aaron Richards. 2025. Steering CLIP’s Vision Trans-former with Sparse Autoencoders. arXiv preprint arXiv:2504.08729 .Alex Krizhevsky, Geoffrey Hinton, and 1 others. 2009. Learning Multiple Layers of Features from Tiny Im-ages. Technical Report, Computer Science Depart-ment, University of Toronto .Yangguang Li, Feng Liang, Lichen Zhao, Yufeng Cui, Wanli Ouyang, Jing Shao, Fengwei Yu, and Junjie Yan. 2022. Supervision Exists Everywhere: A Data Efficient Contrastive Language-Image Pre-training Paradigm. In ICLR .Victor Weixin Liang, Yuhui Zhang, Yongchan Kwon, Serena Yeung, and James Y Zou. 2022. Mind the Gap: Understanding the Modality Gap in Multi-Modal Contrastive Representation Learning. In 
+
+NeurIPS .Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence Zitnick. 2014. Microsoft COCO: Common Objects in Context. In ECCV , pages 740– 755. Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. 2023. Visual Instruction Tuning. In NeurIPS .Ilya Loshchilov and Frank Hutter. 2019. Decoupled Weight Decay Regularization. In ICLR .Marco Mistretta, Alberto Baldrati, Lorenzo Agnolucci, Marco Bertini, and Andrew D Bagdanov. 2025. Cross the Gap: Exposing the Intra-modal Misalign-ment in CLIP via Modality Inversion. In ICLR .Norman Mu, Alexander Kirillov, David Wagner, and Saining Xie. 2022. SLIP: Self-supervision meets Language-Image pre-training. In ECCV , pages 529– 544. Yasumasa Onoe, Sunayana Rane, Zachary Berger, Yonatan Bitton, Jaemin Cho, Roopal Garg, Alexander Ku, Zarana Parekh, Jordi Pont-Tuset, Garrett Tanzer, and 1 others. 2024. DOCCI: Descriptions of Con-nected and Contrasting Images. In ECCV , pages 291–309. Aaron van den Oord, Yazhe Li, and Oriol Vinyals. 2018. Representation Learning with Contrastive Predictive Coding. arXiv preprint arXiv:1807.03748 .Mateusz Pach, Shyamgopal Karthik, Quentin Bouniot, Serge Belongie, and Zeynep Akata. 2025. Sparse Au-toencoders Learn Monosemantic Features in Vision-language Models. In NeurIPS , volume 38, pages 95706–95742. Seulki Park, Daeho Um, Hajung Yoon, Sanghyuk Chun, and Sangdoo Yun. 2024. RoCOCO: Robustness Benchmark of MS-COCO to Stress-Test Image-Text Matching Models. In ECCV , pages 71–91. Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, and 1 others. 2019. PyTorch: An Impera-tive Style, High-Performance Deep Learning Library. In NeurIPS .Bryan A Plummer, Liwei Wang, Chris M Cervantes, Juan C Caicedo, Julia Hockenmaier, and Svetlana Lazebnik. 2015. Flickr30k Entities: Collecting Region-to-Phrase Correspondences for Richer Image-to-Sentence Models. In ICCV , pages 2641–2649. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sas-try, Amanda Askell, Pamela Mishkin, Jack Clark, and 1 others. 2021. Learning Transferable Visual Models from Natural Language Supervision. In ICML , pages 8748–8763. Senthooran Rajamanoharan, Arthur Conmy, Lewis Smith, Tom Lieberum, Vikrant Varma, János Kramár, Rohin Shah, and Neel Nanda. 2024a. Improving Dic-tionary Learning with Gated Sparse Autoencoders. In NeurIPS .Senthooran Rajamanoharan, Tom Lieberum, Nicolas Sonnerat, Arthur Conmy, Vikrant Varma, János Kramár, and Neel Nanda. 2024b. Jumping Ahead: Improving Reconstruction Fidelity with JumpReLU Sparse Autoencoders. arXiv preprint arXiv:2407.14435 .Sukrut Rao, Sweta Mahajan, Moritz Böhle, and Bernt Schiele. 2024. Discover-then-Name: Task-Agnostic Concept Bottlenecks via Automated Concept Discov-ery. In ECCV .Anton Razzhigaev, Arseniy Shakhmatov, Anastasia Maltseva, Vladimir Arkhipkin, Igor Pavlov, Ilya Ryabov, Angelina Kuts, Alexander Panchenko, An-drey Kuznetsov, and Denis Dimitrov. 2023. Kandin-sky: An Improved Text-to-Image Synthesis with Im-age Prior and Latent Diffusion. In EMNLP (Demos) .Benjamin Recht, Rebecca Roelofs, Ludwig Schmidt, and Vaishaal Shankar. 2019. Do ImageNet Classifiers Generalize to ImageNet? In ICML , pages 5389– 5400. PMLR. Simon Schrodi, David T Hoffmann, Max Argus, Volker Fischer, and Thomas Brox. 2025. Two Effects, One Trigger: On the Modality Gap, Object Bias, and In-formation Imbalance in Contrastive Vision-Language Models. In ICLR .Piyush Sharma, Nan Ding, Sebastian Goodman, and Radu Soricut. 2018. Conceptual Captions: ACleaned, Hypernymed, Image Alt-text Dataset for Automatic Image Captioning. In ACL , pages 2556– 2565. Peiyang Shi, Michael C Welle, Mårten Björkman, and Danica Kragic. 2023. Towards Understanding the Modality Gap in CLIP. In ICLR 2023 Workshop on Multimodal Representation Learning: Perks and Pitfalls .Michael Tschannen, Alexey Gritsenko, Xiao Wang, Muhammad Ferjad Naeem, Ibrahim Alabdulmohsin, Nikhil Parthasarathy, Talfan Evans, Lucas Beyer, Ye Xia, Basil Mustafa, and 1 others. 2025. SigLIP 2: Multilingual Vision-Language Encoders with Im-proved Semantic Understanding, Localization, and Dense Features. arXiv preprint arXiv:2502.14786 .Haohan Wang, Songwei Ge, Zachary Lipton, and Eric P Xing. 2019. Learning Robust Global Representations by Penalizing Local Predictive Power. In NeurIPS ,volume 32. Rui Xiao, Sanghwan Kim, Mariana-Iuliana Georgescu, Zeynep Akata, and Stephan Alaniz. 2025. FLAIR: VLM with Fine-grained Language-informed Image Representations. In CVPR .Chunyu Xie, Bin Wang, Fanjing Kong, Jincheng Li, Dawei Liang, Gengshen Zhang, Dawei Leng, and Yuhui Yin. 2025a. FG-CLIP: Fine-grained Visual and Textual Alignment. In ICML .Shaoan Xie, Lingjing Lingjing, Yujia Zheng, Yu Yao, Zeyu Tang, Eric P Xing, Guangyi Chen, and Kun Zhang. 2025b. SmartCLIP: Modular Vision-language Alignment with Identification Guarantees. In CVPR , pages 29780–29790. Lewei Yao, Runhui Huang, Lu Hou, Guansong Lu, Minzhe Niu, Hang Xu, Xiaodan Liang, Zhenguo Li, Xin Jiang, and Chunjing Xu. 2022. FILIP: Fine-grained Interactive Language-image Pre-training. In 
+
+ICLR .Jiahui Yu, Zirui Wang, Vijay Vasudevan, Legg Ye-ung, Mojtaba Seyedhosseini, and Yonghui Wu. 2022. CoCa: Contrastive Captioners are Image-Text Foun-dation Models. TMLR .Vladimir Zaigrajew, Hubert Baniecki, and Przemyslaw Biecek. 2025. Interpreting CLIP with Hierarchical Sparse Autoencoders. In ICML .Xiaohua Zhai, Basil Mustafa, Alexander Kolesnikov, and Lucas Beyer. 2023. Sigmoid Loss for Language Image Pre-Training. In ICCV , pages 11975–11986. TEVI: Text-Conditioned Editing of Visual Representations via Sparse Autoencoders for Improved Vision-Language Alignment 
+
+Appendix 
+
+In this appendix, we provide implementation details and additional results. Sec. A covers our controlled synthetic setup and Sec. B provides additional details and results for TEVI applied on CLIP models trained on CC12M. In Sec. C, we briefly discuss broader impact, and in Sec. D, we enumerate artifacts used. 
+
+(A) Controlled Synthetic Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13 (A.1) Implementation Details 
+
+(A.2) Additional Results for Concept Disentanglement with CG-SAE 
+
+(A.3) Additional Results for Effectiveness of Conditioning 
+
+(B) Evaluation on CLIP Models Trained with Natural Images . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 (B.1) Implementation Details 
+
+(B.2) Baseline Fine-tuning Comparison 
+
+(B.3) Additional Results on RoCOCO 
+
+(B.4) Zeroshot Classification Results 
+
+(B.5) Ablation without Negative Conditioning 
+
+(B.6) Cross-modal Alignment 
+
+(B.7) Comparison against SmartCLIP 
+
+(B.8) Additional Qualitative Examples 
+
+(C) Broader Impact . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 (D) Licenses of Artifacts Used . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 A Controlled Synthetic Setup 
+
+More implementation details about the method on the MAD dataset (Schrodi et al., 2025) is as fol-lows. This is in addition to the details provided in Sec. 3.3. 
+
+A.1 Implementation Details Dataset. The MAD dataset (Schrodi et al., 2025) is a synthetic dataset that consists of images of digits with colors and morphological trans-forms. Specifically, it consists of the following attributes: ‘Digit’: {0,1,2,3,4,5,6,7,8,9 }, ‘Thick-thinning’: {thickening, thinning, no thickthinning },‘Scaling’: {large, small }, ‘Fracture’: {fracture, no fracture }, ‘Swelling’: {swelling, no swelling }, and ‘Color’: {gray, red, green, blue, cyan, magenta, yellow }, which gives a total of 6 attribute cate-gories and an aggregate of 26 attribute values. The training dataset consists of 1.44 million images, and the test data consists of 240,000 images. For training CLIP models, captions are generated by using the digit and a random sample of three out of the remaining five attribute categories in the image, placed in a random order with a ‘-’ separator. 
+
+CLIP models. Following (Schrodi et al., 2025), we train the CLIP model using the AdamW (Loshchilov and Hutter, 2019) optimizer for 200 epochs with a batch size of 128 and a weight decay of 0.1. We sweep over learning rates of {10 −5, 5 × 10 −4, 5 × 10 −5} and pick the learn-ing rate 5 × 10 −4 and the final checkpoint with the lowest loss. We use the cosine annealing for the learning rate. For finetuning the text encoder along with the learnt mask, we sweep over learning rates {10 −2, 10 −3, 10 −4, 5 × 10 −4, 10 −5, 10 −6}
+
+and pick the learning rate 10 −6. Our code is based on the implementation from OpenCLIP (Ilharco et al., 2021) using PyTorch (Paszke et al., 2019). 
+
+SAE models. We use the TopK SAE implemen-tation of (Gao et al., 2025). This particular type of SAE chooses the top few ( = K) SAE latents to reconstruct the original CLIP embeddings and uses an auxiliary loss that approximates the reconstruc-tion error using the top few (=auxK) dead latents. For our setup, we use K as 12, auxK as 18, af-ter sweeping over these hyperparameters and we train the SAE for 200 epochs. We choose the SAE configuration using with the lowest reconstruction error. We sweep over learning rates {10 −1, 10 −2}
+
+and expansion factor 1, 2, 4 and pick 10 −2, 1 re-spectively for both the SAEs used for CG-SAE and TEVI. 
+
+Learnt masks. We use a 3-layer MLP with a hidden dimension of 256 and ReLU activations between linear layers. This MLP predicts values to mask the SAE latents. We sweep over learn-ing rates 0.1, 0.01 , and 0.001 , and choose 0.01 as the optimal learning rate. We train for 25 epochs with 5 warmup epochs using the AdamW opti-mizer (Loshchilov and Hutter, 2019). 
+
+A.2 Additional Results for Concept Disentanglement with CG-SAE 
+
+In this section, we provide full results for concept disentanglement from our CG-SAEs, as discussed in Sec. 3.3. In Figs. A3 and A4, we show AUC ROC plots for other attribute categories, to supple-ment the results provided for the ‘Swelling’ cat-egory in Fig. 3. In Figs. A1 and A2, we show top activating images for each latent, expanding on Fig. 4. Both quantitatively and qualitatively, we find that our CG-SAE effectively disentangles concepts and each latent activates highly only on the attribute value assigned to it. 0  
+
+> 1
+> 2
+> 3
+> 5
+> 6
+> 7
+> 8
+> 9
+> Top Activating Images of SAE Latents
+> Fig. A1: Qualitative examples of top activating images for all the digits of the CG-SAE latents. Each row corresponds to a CG-SAE latent and is labelled with the predefined concept that is assigned to that latent (Sec. 3.2). The columns show examples of images that maximally activate these latents. We find that the CG-SAE learns to disentangle the CLIP image features into concepts as specified by the fixed weight of the latent.
+
+Table A1: Effectiveness of conditioning with CG-SAE for the MAD dataset. For each attribute category (rows), we report the accuracy with the original embeddings (col. 1) and conditioned embeddings, where the attribute of that category is present in the caption (col. 2) and is absent from the caption (col. 3), averaged over five runs. We see that when the attribute is present in the caption, the accuracy is at par with the original embeddings. However, when the attribute is absent from the caption, the accuracy reaches close to random chance (col. 4), which shows that conditioning is effective in only preserving information about attributes present in the caption. Original ( ↑) Attribute in Caption ( ↑) Attribute not in Caption Random Chance Thickthinning 92.9 97.8 ± 1.3 35.4 ± 2.1 33.3 Swelling 96.2 96.6 ± 6.8 50.2 ± 0.1 30.0 Fracture 92.8 97.5 ± 3.0 50.5 ± 0.7 50.0 Scaling 99.7 99.9 ± 0.1 60.7 ± 3.4 50.0 Color 100.0 100.0 ± 0.0 34.2 ± 1.7 14.3 No thickthinning 
+
+> Thickening
+> No swelling
+> Swelling
+> No fracture
+> Large
+> Small
+> Gray
+> Red
+> Green
+> Cyan
+> Magenta
+> Yellow
+> Top Activating Images of SAE Latents
+
+Fig. A2: Qualitative examples of top activating images of the remaining CG-SAE latents. Each row corresponds to a CG-SAE latent and is labelled with the predefined concept that is assigned to that latent (Sec. 3.2). The columns show examples of images that maximally activate these latents. We find that the CG-SAE learns to disentangle the CLIP image features into concepts as specified by the fixed weight of the latent. 
+
+A.3 Additional Results for Effectiveness of Conditioning 
+
+In this section, we provide additional results on our method’s effectiveness of conditioning (Tabs. A1 and A2). Specifically, for robustness, we report results averaged across five runs, and find that the trends observed in Fig. 5 continue to hold. 
+
+B Evaluation on CLIP Models Trained with Natural Images 
+
+B.1 Implementation Details 
+
+In this section, we provide implementation details. Code will be made available on publication. 
+
+CLIP models. We train CLIP models using the AdamW (Loshchilov and Hutter, 2019) optimizer for 30 epochs with a batch size of 2048 and a weight decay of 0.1. We sweep over learning rates of {10 −3, 5 × 10 −4} and pick the learning rate 
+
+10 −3 and the final checkpoint with the lowest loss. We use cosine annealing for the learning rate. For fine-tuning the text encoder along with training the masking module, we sweep over learning rates 
+
+{10 −4, 10 −5, 10 −6}. Our code is based on the im-plementation from OpenCLIP (Ilharco et al., 2021; Eslami and de Melo, 2025) using PyTorch (Paszke et al., 2019). 
+
+SAE models. We use the TopK SAE implemen-tation of (Gao et al., 2025). This particular type of SAE chooses the top few ( = K) SAE latents to reconstruct the original CLIP embeddings and uses an auxiliary loss that approximates the recon-struction error using the top few (=auxK) dead la-tents. For our setup, we vary the sparsity (K) value across values {64 , 128 , 256 }, and discard the con-figuration where the SAE results in a large number of dead decoding vectors, and finally choose the sparsity value as 128, which gives the lowest re-construction error and highest zeroshot accurracy on the reconstructed features. We use auxK as 256, after sweeping over these hyperparameters and we train the SAE for 50 epochs. We sweep over learn-ing rates {10 −3, 5 × 10 −3, 10 −4, 5 × 10 −4}, and use an expansion factor of 32 for ViT-B/16 back-bones and 16 for ViT-L/14 backbones. We choose the SAE configuration using with the lowest recon-struction error and lowest number of dead nodes for different setups. 
+
+Learnt masks. We use a 3-layer MLP and ReLU activations between linear layers. This MLP predicts values to mask the SAE latents. We sweep over learning rates {10 −4, 10 −5, 10 −6}.We train for 3 epochs using the AdamW opti-mizer (Loshchilov and Hutter, 2019). 
+
+Baselines. For the results on SharedCLIP and Table A2: Effectiveness of conditioning with TEVI for the MAD dataset. For each attribute category (rows), we report the accuracy with the original embeddings (col. 1) and conditioned embeddings, where the attribute of that category is present in the caption (col. 2) and is absent from the caption (col. 3), averaged over five runs. We see that when the attribute is present in the caption, the accuracy is at par with the original embeddings. However, when the attribute is absent from the caption, the accuracy reaches close to random chance (col. 4), which shows that conditioning is effective in only preserving information about attributes present in the caption. Original ( ↑) Attribute in Caption ( ↑) Attribute not in Caption Random Chance Thickthinning 92.9 99.1 ± 0.7 54.3 ± 2.4 33.3 Swelling 96.2 98.3 ± 0.2 57.0 ± 2.7 30.0 Fracture 92.8 93.5 ± 0.9 59.1 ± 1.5 50.0 Scaling 99.7 95.2 ± 2.7 57.1 ± 3.5 50.0 Color 100.0 96.3 ± 1.9 22.6 ± 1.9 14.3 
+
+AlignCLIP in Tabs. 1 and 2, we take the check-points given by the authors (Eslami and de Melo, 2025) and apply TEVI on them. Note that these checkpoints were trained with a batch size of 512, and in contrast we train our own CLIP models with a batch size of 2048. As a result, the performance of AlignCLIP/SharedCLIP versus our CLIP mod-els cannot be directly compared. 
+
+Compute usage. We used H100 and A100 GPUs for training the CLIP models on CC12M, training the SAEs, and the masking module. The maximum number of GPU hours needed for training the CLIP model is upper bounded by 18 hours, and for train-ing the masking module is upper bounded by 15 hours. 
+
+Robust retrieval. Following (Park et al., 2024), in Tab. 3, we report the drop rate and the RSMS metric in addition to the retrieval metrics. Drop rate is calculated as (R@1 −Rp @1)  
+
+> R@1
+
+, where Rp is the retrieval score under the perturbed setting. RSMS calculates the percentage of newly added seman-tically perturbed captions that are retrieved in the first spot by the model. We note that, due to that use of SAE to decompose CLIP image features into concepts, our method is unable to work with altered images as given by the benchmark, where the orig-inal image is superimposed with a random patch from a different image. As a result, we only report image-to-text retrieval performance in Tab. 3. 
+
+B.2 Baseline Fine-tuning Comparison 
+
+TEVI involves training a masking module for a small number of extra epochs while also fine-tuning the text encoder. For a fairer comparison account-ing for this extra training budget, we report in Tabs. B1 and B2 the performance of CLIP models where the text encoder is fine-tuned for the same number of extra epochs. We find that TEVI nev-ertheless shows improved retrieval performance across datasets. 
+
+B.3 Additional Results on RoCOCO 
+
+In addition to the robust retrieval results provided in Tab. 3 on the CLIP ViT-B/16 backbone, here we provide additional results comparing TEVI against SigLIP and AlignCLIP. 
+
+B.4 Zeroshot Classification Results 
+
+Similar to SmartCLIP (Tab. 3 in Xie et al., 2025b), we find (Tab. B4) that the zeroshot classification performance is comparable to the baseline, pos-sibly since zeroshot does not use long captions with multiple attributes, unlike retrieval. Since our method is post hoc, one can achieve the best of both worlds by using the original CLIP embeddings for zeroshot classification. 
+
+B.5 Ablation without Negative Conditioning 
+
+As noted in Sec. 5.1, we use Eq. (11) when applying TEVI on CLIP models trained with CC12M, to ad-ditionally provide conditioning signal on negative captions. In Tabs. B5 and B6, we empirically vali-date this by performing an ablation study against models trained without negative conditioning, i.e. using Eq. (10), and find that the performance de-grades significantly. 
+
+B.6 Cross-modal Alignment 
+
+Similar to Fig. 6, Figs. B1 and B2 show cross-modal alignment for SharedCLIP and AlignCLIP across four downstream datasets before and after applying TEVI, and find that it similarly improves alignment. 
+
+B.7 Comparison against SmartCLIP 
+
+In Tabs. B7 and B8, we compare our approach against SmartCLIP (Xie et al., 2025b), applied on the same CLIP models trained on CC12M. We see that TEVI performs comparably on MS COCO and Flickr30k and outperforms on the fine-grained DOCCI and IIW datasets, possibly due to explicit disentanglement from SAEs. Table B1: Coarse-grained retrieval performance on MSCOCO (Lin et al., 2014) and Flickr30k (Plummer et al., 2015) as compared to fine-tuning CLIP. All the models are trained on CC12M dataset. We report R@1, R@5 and R@10 for both image-to-text and text-to-image retrieval. We see that TEVI improves retrieval performance across models and datasets in comparison to baseline finetuning as well. Model MS COCO (Lin et al., 2014) Flickr30k (Plummer et al., 2015) I → T T → I I → T T → IR@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 CLIP ViT-B/16 32.98 59.02 70.04 21.38 45.30 57.03 59.66 83.73 90.14 42.46 70.33 79.31 +TEVI 35.66 61.82 72.94 23.12 47.03 58.67 64.20 85.70 91.12 44.75 72.10 81.22 
+
+Fine-tuned 35.60 60.78 71.62 22.50 46.40 58.13 63.21 86.29 90.93 44.12 71.50 80.47 Table B2: Fine-grained retrieval performance on DOCCI (Onoe et al., 2024) and IIW (Garg et al., 2024) as compared to fine-tuning CLIP. All the models are trained on CC12M dataset. We report R@1, R@5 and R@10 for both image-to-text and text-to-image retrieval. We see that TEVI improves retrieval performance across models and datasets in comparison to baseline finetuning as well. Model DOCCI (Onoe et al., 2024) IIW (Garg et al., 2024) I → T T → I I → T T → IR@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 CLIP ViT-B/16 20.38 42.36 53.52 7.16 16.96 22.86 50.98 77.94 88.89 16.88 32.66 41.46 +TEVI 24.20 48.68 60.06 8.55 19.98 26.80 55.72 81.21 88.72 19.37 36.44 45.47 
+
+Fine-tuned 23.54 46.48 56.92 7.79 18.57 25.00 53.10 80.56 88.23 18.34 35.99 45.20 Table B3: Robust retrieval performance of TEVI on the RoCOCO benchmark (Park et al., 2024) . We find that TEVI improves performance over the baseline across settings. Model COCO R@1 Rand-voca Same-concept Diff-concept Danger R@1 
+
+(↑)
+
+drop rate 
+
+(↓)
+
+RSMS 
+
+(↓)
+
+R@1 
+
+(↑)
+
+drop rate 
+
+(↓)
+
+RSMS 
+
+(↓)
+
+R@1 
+
+(↑)
+
+drop rate 
+
+(↓)
+
+RSMS 
+
+(↓)
+
+R@1 
+
+(↑)
+
+drop rate 
+
+(↓)
+
+RSMS 
+
+(↓)
+
+SigLIP 33.66 21.98 11.68 44.16 22.38 11.28 42.12 22.66 11.00 41.84 24.98 8.68 31.96 +TEVI 36.46 26.32 10.14 33.58 26.14 10.32 35.90 27.06 9.40 32.74 29.14 7.32 24.28 
+
+AlignCLIP 32.86 21.46 11.40 43.66 22.72 10.14 40.96 21.94 10.92 41.20 23.44 9.42 37.52 +TEVI 34.70 22.32 12.38 43.70 22.58 12.12 44.16 22.74 11.96 44.48 25.48 9.22 35.20 
+
+Table B4: Zeroshot performance across benchmarks. We evaluate on ImageNet-V2 (Recht et al., 2019), ImageNet-Sketch (Wang et al., 2019), ImageNet-A (Hendrycks et al., 2019), ImageNet-O (Hendrycks et al., 2019), ImageNet-R (Hendrycks et al., 2021), and CIFAR-100 (Krizhevsky et al., 2009). Model IMN V2 Sketch -A -O -R CIF100 CLIP ViT-B/16 29.24 21.93 7.64 26.20 42.69 28.07 +TEVI 28.60 21.93 7.42 25.90 42.76 30.66 
+
+Table B5: Coarse-grained retrieval performance of CLIP ViT-B/16 when we do not use the negative conditioning on MSCOCO (Lin et al., 2014) and Flickr30k (Plummer et al., 2015) . All the models are trained on CC12M dataset. We report R@1, R@5 and R@10 for image-to-text and text-to-image retrieval. Model MS COCO (Lin et al., 2014) Flickr30k (Plummer et al., 2015) I → T T → I I → T T → IR@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 CLIP ViT-B/16 32.98 59.02 70.04 21.38 45.30 57.03 59.66 83.73 90.14 42.46 70.33 79.31 
+
+No neg. 10.28 26.24 36.48 9.65 23.77 32.84 26.04 53.65 63.81 22.47 46.07 56.82 Table B6: Fine-grained retrieval performance of CLIP ViT-B/16 when we do not use the negative conditioning on DOCCI (Onoe et al., 2024) and IIW (Garg et al., 2024). All the models are trained on CC12M dataset. We report R@1, R@5 and R@10 for image-to-text and text-to-image retrieval. Model DOCCI (Onoe et al., 2024) IIW (Garg et al., 2024) I → T T → I I → T T → IR@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 CLIP ViT-B/16 20.38 42.36 53.52 7.16 16.96 22.86 50.98 77.94 88.89 16.88 32.66 41.46 
+
+No neg. 5.54 14.50 20.88 3.07 8.29 11.90 17.65 38.56 52.12 7.80 19.44 26.82 
+
+B.8 Additional Qualitative Examples 
+
+We provide additional randomly sampled qualita-tive examples in Fig. B3. For each of the four datasets (DOCCI, IIW, Flickr30k, MS COCO), we provide examples of instances both where TEVI retrieves correctly and the baseline does not, and vice-versa. Note that some of the retrieved captions (e.g. by the baseline model for the first MS COCO example) appear correct but do not match the im-age as per the dataset, which shows the challenging Table B7: Fine-grained retrieval performance on DOCCI (Onoe et al., 2024) and IIW (Garg et al., 2024) as compared to SmartCLIP. All the models are trained on CC12M dataset. We report R@1, R@5 and R@10 for both image-to-text and text-to-image retrieval. Model DOCCI (Onoe et al., 2024) IIW (Garg et al., 2024) I → T T → I I → T T → IR@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 CLIP ViT-B/16 20.38 42.36 53.52 7.16 16.96 22.86 50.98 77.94 88.89 16.88 32.66 41.46 SmartCLIP 21.76 45.04 55.64 7.47 17.83 23.80 54.74 82.35 89.05 17.62 33.90 42.15 TEVI 24.20 48.68 60.06 8.55 19.98 26.80 55.72 81.21 88.72 19.37 36.44 45.47 
+
+Table B8: Coarse-grained retrieval performance on MSCOCO (Lin et al., 2014) and Flickr30k (Plummer et al., 2015) as compared to SmartCLIP. All the models are trained on CC12M dataset. We report R@1, R@5 and R@10 for both image-to-text and text-to-image retrieval. Model MS COCO (Lin et al., 2014) Flickr30k (Plummer et al., 2015) I → T T → I I → T T → IR@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 R@1 R@5 R@10 CLIP ViT-B/16 32.98 59.02 70.04 21.38 45.30 57.03 59.66 83.73 90.14 42.46 70.33 79.31 SmartCLIP 35.54 61.98 72.90 23.89 48.24 59.93 61.05 85.11 91.32 45.29 72.78 81.24             
+
+> TEVI 35.66 61.82 72.94 23.12 47.03 58.67 64.20 85.70 91.12 44.75 72.10 81.22
+
+nature of the benchmarks. 
+
+C Broader Impact 
+
+The use of vision-language models for multimodal tasks is widespread, from tasks like image retrieval to visual question answering to image generation. This makes it increasingly important that such mod-els work reliably. Lack of proper semantic align-ment can lead to biased outputs (Liang et al., 2022) or poor robustness to distribution shifts (Eslami and de Melo, 2025). Improved visual-textual alignment can enhance downstream performance of such mod-els and help alleviate the above mentioned draw-backs. Our work is fundamental research on ad-dressing vision-language alignment and deals with relatively small-scale models, and therefore has low direct risk. However, like many multimodal frameworks, our methods could be co-opted for malicious purposes if deployed without safeguards. 
+
+D Licenses of Artifacts Used 
+
+We adhere to the licenses provided by the artifacts we use in our work. OpenCLIP and RoCOCO are provided under the MIT license; SharedCLIP and AlignCLIP are released under the CC-BY-NC-ND-4.0 license; DOCCI, MS COCO, IIW are under the CC-BY-4.0 license; and SmartCLIP is released under the Apache 2.0 license. Flickr30k permits use for non-commercial research purposes. Our usage of all artifacts are in accordance with their allowed and intended use. No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+No thickthinning 
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Thickening 
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Thinning 
+
+Attribute Specificity of ‘Thickthinning’ SAE Latents No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+No fracture 
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Fracture 
+
+Attribute Specificity of ‘Fracture’ SAE Latents No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Large 
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Small 
+
+Attribute Specificity of ‘Scaling’ SAE Latents No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Gray 
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Red 
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Green 
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Blue 
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Cyan 
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Magenta 
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+0.00.20.40.60.81.0
+
+> ROC AUC Value
+
+Yellow 
+
+Attribute Specificity of ‘Colors’ SAE Latents Fig. A3: Attribute specificity of CG-SAE latents for attribute categories ‘Thickthinning’, ‘Fracture’, ‘Scaling’, and ‘Color’. We plot the area under the receiver operating characteristic (ROC) curve (AUC) for CG-SAE latents corresponding to the attribute values of each attribute category. We find that the latents are highly attribute-specific, with the AUC being close to 1 for the attribute the latent is assigned to, and 0.5 for unrelated attributes. For results for other attribute categories, see Fig. 3 and Fig. A4. No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+
+> 0.00.20.40.60.81.0
+> ROC AUC Value
+
+0
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+> 0.00.20.40.60.81.0
+> ROC AUC Value
+
+5
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+> 0.00.20.40.60.81.0
+> ROC AUC Value
+
+1
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+> 0.00.20.40.60.81.0
+> ROC AUC Value
+
+6
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+> 0.00.20.40.60.81.0
+> ROC AUC Value
+
+2
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+> 0.00.20.40.60.81.0
+> ROC AUC Value
+
+7
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+> 0.00.20.40.60.81.0
+> ROC AUC Value
+
+3
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+> 0.00.20.40.60.81.0
+> ROC AUC Value
+
+8
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+> 0.00.20.40.60.81.0
+> ROC AUC Value
+
+4
+
+> No thickthinning Thickening Thinning No swelling Swelling No fracture Fracture Large Small Gray Red Green Blue Cyan Magenta Yellow 0 1 2 3 4 5 6 7 8 9
+> 0.00.20.40.60.81.0
+> ROC AUC Value
+
+9
+
+Attribute Specificity of ‘Digit’ SAE Latents Fig. A4: Attribute specificity of CG-SAE latents for attribute category ‘Digit’. We plot the area under the receiver operating characteristic (ROC) curve (AUC) for CG-SAE latents corresponding to each digit attribute. We find that the latents are fairly attribute-specific, with the AUC being close to 1 for the attribute the latent is assigned to, and close to 0.5 for unrelated attributes. For results for other attribute categories, see Fig. 3 and Fig. A3. 0.1 0.2 0.3 0.4 0.5 0.6
+
+Cosine Similarity 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+> Frequency
+
+Image-Text Pairwise Cosine Similarity 
+
+Original TEVI 0.1 0.2 0.3 0.4 0.5 0.6 0.7
+
+Cosine Similarity 
+
+0
+
+50 
+
+100 
+
+150 
+
+200 
+
+> Frequency
+
+Image-Text Pairwise Cosine Similarity 
+
+Original TEVI 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8
+
+Cosine Similarity 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+> Frequency
+
+Image-Text Pairwise Cosine Similarity 
+
+Original TEVI 0.1 0.2 0.3 0.4 0.5 0.6 0.7
+
+Cosine Similarity 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+> Frequency
+
+Image-Text Pairwise Cosine Similarity 
+
+Original TEVI 
+
+Fig. B1: Cross-modal alignment with SharedCLIP on (1) MSCOCO (Lin et al., 2014), (2) Flickr30k (Plummer et al., 2015), (3) DOCCI (Onoe et al., 2024), (4) IIW (Garg et al., 2024). The alignment is measured by the cosine similarity between the positive image-text pairs, and the y-axis denotes the number of data points for each alignment score. We see the distribution after applying TEVI (blue) shifts to the right as compared to the baseline (orange), showing improved alignment. 0.1 0.2 0.3 0.4 0.5 0.6
+
+Cosine Similarity 
+
+0
+
+200 
+
+400 
+
+600 
+
+800 
+
+> Frequency
+
+Image-Text Pairwise Cosine Similarity 
+
+Original TEVI 0.1 0.2 0.3 0.4 0.5 0.6 0.7
+
+Cosine Similarity 
+
+0
+
+50 
+
+100 
+
+150 
+
+200 
+
+> Frequency
+
+Image-Text Pairwise Cosine Similarity 
+
+Original TEVI 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8
+
+Cosine Similarity 
+
+0
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+> Frequency
+
+Image-Text Pairwise Cosine Similarity 
+
+Original TEVI 0.1 0.2 0.3 0.4 0.5 0.6 0.7
+
+Cosine Similarity 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+> Frequency
+
+Image-Text Pairwise Cosine Similarity 
+
+Original TEVI 
+
+Fig. B2: Cross-modal alignment with AlignCLIP on (1) MSCOCO (Lin et al., 2014), (2) Flickr30k (Plummer et al., 2015), (3) DOCCI (Onoe et al., 2024), (4) IIW (Garg et al., 2024). The alignment is measured by the cosine similarity between the positive image-text pairs, and the y-axis denotes the number of data points for each alignment score. We see the distribution after applying TEVI (blue) shifts to the right as compared to the baseline (orange), showing improved alignment. Image Original TEVI 
+
+> Only TEVI correct
+
+The ramp of the utility trailer is black and has mesh over the thick black supports 
+
+A side view of a black Diamond T utility trailer placed on the side of a road next to a park with trees 
+
+A close up view of a limestone cave wall that extends up to a dark opening in the top right corner of the image 
+
+To the left of the black-and-white picture, there is a brown wall that is part of the cave and runs vertically 
+
+An outside overhead view of three sport balls 
+
+An outdoor top-down view of 2 white soccer balls sitting on a lawn of grass, The balls have a pentagon pattern all around, a blue and white design, some faded black marks, and the word "SELECT" at the center 
+
+> Only Original correct
+
+A side view of a white crayfish on top of a dark gray piece of a fossilized branch in an aquarium 
+
+The tail fin of another white-tipped re-shark is visible in the upper right corner between the middle and right large rocks 
+
+A vertical teal neon light is visible behind the cards 
+
+The blue light is surrounding the inner border of the square (a) DOCCI Image Original TEVI 
+
+> Only TEVI correct
+
+A yellow label with blue border is affixed to the side of the container with illegible writing 
+
+The stamp commemorates the 6th World Festival of Youth and Students, Moscow, 1957 
+
+These ornaments flank a vibrant red sign prominently displaying the whimsical message  NO Humbugging  written in an elegant silver cursive font, accompanied by decorative silver snowflakes scattered around the text 
+
+A close-up shot presents a round red wooden disk on which the words "BIG RED" are vertically stacked in the center in a large white all-caps serif font, with the scripted word "Deliciously" above those words in white and the word "Different!" below those words in white, all on a brown plank background 
+
+Shadows cover the statue 
+
+The figure is seen mostly in silhouette due to the lighting, and few details can be made out beyond its pose 
+
+> Only Original correct
+
+A vertically-oriented overhead image shows an orange and black Monarch butterfly next to a small, downy, white feather on green and tan grass 
+
+On the ground and behind the bird, dirt covers the ground, littered with pebbles and twigs 
+
+Centrally featured is the iconic black Apple logo, partially overlaid with a colorful Google logo sticker 
+
+In the center of the quadrants is a map of the racetrack with colored circles to indicate the positions of the characters (b) IIW Image Original TEVI 
+
+> Only TEVI correct
+
+A man at the beach holding a pail, standing next to a child. 
+
+Man and boy play with dog at sunset on a beach. 
+
+Young adults dressed casually walk around in a field. 
+
+Four people in a sandy area holding black trash bags. 
+
+A mother and her sons look at an information kiosk. 
+
+A little girl donates to the Salvation Army near a storefront with white, plastic containers. 
+
+> Only Original correct
+
+A small dog jumping on a street. A brown and white dog is running down a ramp. 
+
+A group of children sitting in chairs with monitors over them. 
+
+A large group of computer gamers are arranged in a row while playing games. 
+
+(c) Flickr30k Image Original TEVI 
+
+> Only TEVI correct
+
+A young man playing out side with a disc. 
+
+A guy gets ready to throw a Frisbee during a game. 
+
+a building and some signs and street light and phone lines 
+
+a black and white photo of a street signs and buildings 
+
+A red car on street with utility vehicles in background. 
+
+Three similar cars are stopped at traffic lights. 
+
+> Only Original correct
+
+some windows a fireplace books tables and a couch 
+
+A living room with windows, chairs, table, lamps, and a person sitting in a chair with a walker beside it. 
+
+An orange bowl filled with lots of noodles and beef. 
+
+A bowl of Asian Cuisine with beef, noodles and broccoli. (d) MS COCO Fig. B3: Additional qualitative examples. For each dataset, we show examples of both instances where TEVI retrieves correctly when the baseline does not, and vice-versa. All examples are sampled randomly.
