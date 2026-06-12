@@ -1,0 +1,822 @@
+Title: FLOWREADER: Min-Cost Flow Optimization for Multi-Modal Long Document Q   A
+
+URL Source: https://arxiv.org/pdf/2606.07235v2
+
+Published Time: Tue, 09 Jun 2026 02:11:50 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# FLOW READER : M IN -C OST FLOW OPTIMIZATION FOR 
+
+# MULTI -M ODAL LONG DOCUMENT Q&A 
+
+A P REPRINT 
+
+Ambuj Mehrish 
+
+Ca’ Foscari University of Venice 
+
+ambuj.mehrish@unive.it 
+
+Sebastiano Vascon 
+
+Ca’ Foscari University of Venice 
+
+sebastiano.vascon@unive.it 
+
+# ABSTRACT 
+
+Long, multimodal documents force retrieval-augmented systems to assemble answers from evidence 
+
+fragmented across text, tables, and slides broken across cells in a long table, spread over multiple slides, or split between a figure and its discussion. Top-k chunk retrieval treats each fragment independently and cannot represent how evidence connects. We introduce FLOW READER , which reframes evidence assembly as a min-cost flow problem on a multimodal node graph: a single scoring vector h controls source selection (via MMR), sink selection (via a length-aware answerability proxy), and the costs and capacities of every edge. The optimal flow is decomposed into candidate evidence paths, a compact non-redundant subset is selected by entropy-regularized replicator dynamics, and parallel VLM workers under a dual-process gate produce the answer with a single System-2 refinement pass triggered when answer consistency is low or the routed flow is strained. On VisDoMBench, 
+
+FLOW READER is best on the two subsets dominated by fragmented evidence PaperTab (58 .40 ,
+
++1 .30 over G 2-Reader) and SlideVQA (72 .93 , +0 .62 ) and competitive on SPIQA, FetaTab, and SciGraphQA. Macro-averaged across all five subsets, F LOW READER (65 .47 ) is within 0.74 of the strongest baseline (G 2-Reader, 66 .21 ). Overall, these results show that min-cost flow performs well on fragmented multimodal evidence, where top-k retrieval fails. It also provides a unified way to control scoring, routing, selection, and adaptive compute together. 
+
+# 1 Introduction 
+
+Large Language Models (LLMs) hallucinate [ 2 ], underperform on domain-specific tasks [ 58 , 73 ], and cannot easily be updated with new information [ 14 , 30 , 60 , 72 ]. Retrieval-Augmented Generation (RAG) addresses these issues by grounding generation in retrieved evidence [ 37 ], but retrieval-centered pipelines face three recurring bottlenecks. First, the retrieval unit often mismatches the true evidence unit [ 68 , 61 , 17 ]: chunking splits coherent evidence, and answers in long or visually-rich documents live in tables, charts, and slides that plain-text chunks poorly represent. Second, independently ranked fragments miss structural and multi-hop dependencies [ 39 , 27 ], dropping evidence that is weak in isolation but necessary in context. Third, fixed retrieval policies allocate the same budget to queries of very different complexity [ 4 , 24 , 33 ]. These failure modes are most acute when evidence is fragmented across modalities broken across cells in a long table, spread over multiple slides, or split between a figure and its discussion and a system has no mechanism to represent how the fragments connect. This work introduces FLOW READER , which reframes evidence assembly as a minimum-cost flow problem on a multimodal node graph. The graph structure is inherited from the offline construction of G 2-Reader [ 18 ], and incorporates established primitives such as dense +BM25 fusion, graph propagation, personalized PageRank, MMR, min-cost flow, and replicator dynamics for diversity selection. The contribution of proposed work is to recast multi-hop multimodal evidence assembly as a min-cost flow problem under a single shared parameterisation: one scalar score 
+
+h derived from these signals controls source selection, sink construction, and every edge cost and capacity in the Linear Program (LP). Prior multimodal RAG systems treat scoring, routing, and selection as three separate stages with independently tuned components; FLOW READER collapses them into one optimisation. As a result, the flow simultaneously encodes query relevance, structural propagation, and multi-hop transport, which prior multimodal RAG systems [ 21 , 61 , 67 , 18 ] and flat diversity-aware selectors [ 9 , 35 , 13 , 63 ] are unable to capture. The decomposed optimal 
+
+> arXiv:2606.07235v2 [cs.IR] 8 Jun 2026
+
+FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+flow subsequently informs both path selection (using entropy-regularized replicator dynamics on a quality–diversity payoff) and adaptive compute (through a dual-process gate on the routed flow’s residual, combined with answer-consistency across parallel VLM workers). This approach contrasts with iterative and dual-process methods that regulate fast-versus-slow reasoning based on external signals such as token-level uncertainty or learned critics [34, 4, 69, 10]. 
+
+Contributions: FLOW READER is built around three design choices. First, it casts evidence assembly as min-cost flow on a multimodal graph, replacing top-k chunk selection with routing from query-aligned sources to answer-bearing sinks. Second, a single node score h and answerability proxy a determine sources, sinks, edge costs, and capacities, reducing hyperparameters and avoiding separately tuned retrievers. Third, flow signals guide both evidence selection and adaptive compute: the decomposed flow supports entropy-regularized replicator-dynamics path selection, while a dual-process gate using σ and worker-answer consistency triggers one System-2 refinement pass when needed. Empirical evaluation demonstrates that this design achieves the largest improvements on the most fragmented VisDoMBench subsets, specifically PaperTab ( +1 .30 over G 2-Reader) and SlideVQA ( +0 .62 ), while maintaining competitive performance on other subsets, with a macro-average within 0.74 points of the strongest baseline. These findings establish min-cost flow as an effective approach for fragmented multimodal evidence, particularly when top-k retrieval methods are insufficient. 
+
+# 2 Related Work 
+
+Multimodal and graph-structured RAG. A growing line of work retrieves directly from page images rather than parsed text: ColPali [ 21 ] introduces late-interaction matching over visual tokens, and VisRAG [ 77 ], M3DocVQA [ 12 ], VisDoMRAG [ 61 ], and ViDoRAG [ 67 ] extend this to multi-page, multi-document QA with iterative or agentic readers; RAG-Anything [ 26 ] unifies textual, tabular, and visual modalities, and MinerU [ 66 ] provides layout-aware parsing. Standard benchmarks include VisDoMBench [ 61 ], SlideVQA [ 62 ], SPIQA [ 50 ], and UDA [ 32 ], which incorporates FeTaQA [ 45 ] and QASPER [ 16 ]. A complementary line replaces flat chunk stores with explicit graphs: GraphRAG [ 20 ] and LightRAG [ 25 ] build entity–relation graphs for query-focused summarisation, HippoRAG [ 27 ]runs Personalized PageRank over a schemaless KG, MMGraphRAG [ 65 ] adds multimodal nodes, and G 2-Reader [ 18 ]maintains a dual evolving graph consolidated via VLM message passing, with related constructions in long-horizon agent memory [11, 74, 53]. 
+
+Adaptive control and optimisation-based selection. Iterative and agentic systems interleave retrieval with reasoning — Self-Ask [ 51 ], ReAct [ 76 ], IRCoT [ 64 ], FLARE [ 34 ], Iter-RetGen [ 56 ], and Self-RAG [ 4] — while Adaptive-RAG [ 33 ], Auto-RAG [ 78 ], and MA-RAG [ 46 ] adapt depth and decomposition to query complexity; dual-process variants couple fast and slow components, with Speculative RAG [ 69 ] pairing a drafter with a verifier, DualRAG [ 10 ]alternating reasoning and aggregation, and Cog-RAG [ 31 ] mirroring top-down/bottom-up routing (see Liang et al. [40] for a System 1/System 2 survey). On the selection side, evidence assembly under coverage and diversity constraints has long been cast as combinatorial optimisation: ILP formulations [ 43 , 22 ] and submodular maximisation [ 41 , 42 ]dominate extractive summarisation, with MMR [ 9] and determinantal point processes [ 35 , 13 ] as diversity-aware alternatives, recently revisited for RAG context selection by SMART-RAG [ 38 ]; optimal transport offers a related linear-program view, with Word Mover’s Distance [ 36 ] and entropic OT [ 15 ] underlying OTExtSum [ 63 ] and the multimodal retriever MOTOR [ 55 ], while Stochastic RAG [ 79 ] and dynamic passage selectors [ 44 ] extend this within end-to-end RAG, and replicator dynamics provide a continuous, game-theoretic relaxation for maximal-clique selection on graphs [49, 8]. 
+
+# 3 Methodology 
+
+3.1 Overview 
+
+Given a query q and a multi-document corpus D, retrieval-augmented generation seeks an answer a⋆ grounded in supporting evidence Z ⊆ D , where Pθ is a parametric generator (an LLM or VLM). The quality of a⋆ therefore hinges on the construction of Z. We take the operational target of evidence retrieval to be a minimally sufficient subset of the corpus, 
+
+a⋆ = arg max 
+
+> a
+
+Pθ
+
+ a q, Z, Z⋆ = arg min 
+
+> Z
+
+|Z| s.t. Z | = q. (1) where Z | = q denotes that Z provides adequate support to answer q under its semantic and logical constraints. Direct optimization over the raw corpus is intractable for long, multimodal documents. FLOW READER approximates Z⋆
+
+by factorizing evidence construction across three structured stages on a single shared object, the Multi-Modal Graph 
+
+2FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+G = ( V, E ). The corpus is first compiled offline into G (§3.2), which encodes multimodal document elements and their evolved relations and remains fixed during inference. At query time, every node in G receives a multi-signal score 
+
+hi that captures its individual usefulness for q (§3.3). A min-cost flow problem is then solved on G to route a fixed evidence budget from query-aligned anchors to answer-bearing sinks (§3.4); decomposing the optimal flow yields a small set of multi-hop evidence chains Π⋆ = {π1, . . . , π k}, and the final retrieved evidence is 
+
+Z⋆ ≈ [
+
+> π∈Π⋆
+
+V (π), (2) where V (π) denotes the nodes traversed by chain π. A dual-process gate (Figure 1) inspects the flow’s saturation and the consistency of candidate answers and triggers a second, more deliberate routing pass only when the first is judged insufficient. This separation decouples how evidence is represented (G) from how relevance is scored (h), how chains are assembled (min-cost flow), and how compute is allocated (gating), giving a principled route from raw documents to a structurally coherent and minimally redundant evidence set. 
+
+3.2 Phase 1: Multi-Modal Graph Construction 
+
+We represent the corpus as a directed, weighted, heterogeneous graph G = ( V, E ) with V = Vtxt ∪ Vvis ∪ Vtbl and 
+
+E ⊆ V ×V , whose nodes partition into textual ( Vtxt ), visual ( Vvis ) and table ( Vtbl ) graph units and whose directed edges carry weights wij ∈ [0 , 1] encoding semantic affinity. Each node vi ∈ V is annotated with a tuple vi = ( si, K i, τ i, ei),where si is an LLM-generated summary, Ki a set of indexing keywords, τi ∈ { txt , vis , tbl } the modality tag, and 
+
+ei ∈ Rd (d=768 ) its embedding. To populate V and E, we follow the offline construction procedure of G2-Reader Du et al. [18]; further details are in Appendix A. 
+
+3.3 Phase 2: Multi-signal node scoring on G
+
+Given a query q with embedding q, we score every node vi ∈ V with a single scalar hi ∈ R≥0 that aggregates three complementary signals: query relevance ri, structural propagation ϕi, and locality diffusion ψi.
+
+Query relevance: We fuse a dense and a lexical score. The dense score is a rectified cosine between query and node embedding, rdense  
+
+> i
+
+= max  cos( q, ei), 0, and bi is a min–max-normalized BM25 Robertson and Walker [54] , Askari et al. [5] score over the textual fields si∥Ki. The fused relevance is ri = (1 − α) rdense  
+
+> i
+
++ α b i, with α ∈ [0 , 1] .Rectification suppresses spuriously anti-aligned neighbors, while BM25 preserves rare-keyword matches that dense encoders often miss. 
+
+Structural propagation. The relevance signal alone is myopic: a node with a moderate ri that sits on a tight cluster of high-relevance nodes is often a more useful evidence anchor than an isolated high-ri outlier. We therefore propagate 
+
+ri along G. Define a directional propagation weight on every edge, 
+
+puv = cuv 
+
+p1 − c 2 
+
+> uv
+
+, cuv = max  cos( eu, ev ), 0, (3) which is largest at moderate similarity and vanishes for both near-orthogonal and near-duplicate edges, encouraging propagation across genuinely informative jumps rather than trivial paraphrases. Forward-propagated scores are then computed by an anchored update, 
+
+ϕ(k+1)  
+
+> v
+
+= (1 − αϕ) rv + αϕ
+
+P 
+
+> u∈pred( v)
+
+puv ϕ(k)
+
+> u
+
+P 
+
+> u∈pred( v)
+
+puv + ε , (4) initialized at ϕ(0)  
+
+> v
+
+= rv and iterated to convergence. The first term anchors every node to its own relevance so that propagation cannot drift far from the query; the second term lifts nodes that lie downstream of relevant predecessors. 
+
+Locality diffusion and combined score. The propagation ϕi is local: it mixes information across one hop per iteration and so misses nodes that are several hops from any high-relevance neighbor yet still sit inside the query’s topical neighborhood. We capture this longer-range pull with a third score ψi, computed as a personalized PageRank vector [ 75 ]on G seeded at the top relevance nodes [ 28 ]; intuitively, ψi is the stationary visit frequency of a query-anchored random walker, rewarding nodes densely connected to the query’s region of G even when their own ri is moderate. The final score fuses the three signals on the simplex, hi = λr ri + λϕ ϕi + λψ ψi with λr + λϕ + λψ = 1 , and the vector 
+
+h = ( h1, . . . , h N ) is passed to Phase 3.3FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+Figure 1: FLOW READER pipeline. (1) A multimodal graph encodes text, table, and image nodes. (2) At query time, sources and sinks are selected and edge costs cuv are assigned. (3) System 1 solves a min-cost flow and decomposes the optimum into evidence paths {πk}. (4) A retrieval-grounded gate triggers a single System 2 refinement pass when low answer consistency, flow saturation, or insufficient coverage indicates the first pass is unreliable. 
+
+3.4 Phase 3: Evidence routing by min-cost flow on G
+
+Since hi scores nodes individually but not their combinations , we lift G to a flow network G⋆ and route a fixed evidence budget F from query-aligned anchors to answer-bearing sinks. 
+
+Sources and sinks: Two sets of nodes are required in G: sources , where flow enters, and sinks , where flow exits. Sources are defined as the nodes most aligned with the query, while sinks are those most likely to contain the answer. Selecting the top-kS nodes by hi often results in near-duplicates that cover the same fact. To address this, MMR is applied to balance score with mutual dissimilarity, producing a compact and diverse set S ⊆ V of query-aligned anchors. For sinks, a node serves as an effective endpoint when it is both query-aligned and information-dense. These criteria are combined into an answerability score ai = ri · ρi, where ρi ∈ [0 , 1] represents the normalized length of si
+
+as a proxy for density, with a small additive boost for τi = vis to ensure that figures and tables are not overshadowed by a text-heavy prior. Multiplying ri and ρi enforces both conditions: nodes that are long but irrelevant and those that are relevant but lack content are equally undesirable. The sink set T ⊆ V consists of the top-kT nodes according to ai.
+
+Flow network, edge cost, and capacity. We augment G with a supersource s⋆ connected by cost-0 arcs to every 
+
+u ∈ S and a supersink t⋆ reached by cost-0 arcs from every v ∈ T , giving G⋆ = ( V ∪ { s⋆, t ⋆}, E ⋆); this reduction lets a single LP route from many anchors to many sinks while keeping flow conservation simple. Each internal edge 
+
+(u, v ) ∈ E carries a cost cuv that says how reluctant the LP is to send flow along it and a capacity κuv that bounds how much flow can fit. We want flow to prefer edges that are semantically smooth and lead toward the answer, and to dilate edges between strong nodes so they carry more evidence; a natural cost combines edge similarity with endpoint quality: 
+
+cuv = 1 − max  cos( eu, ev ), 0 · hu+hv 
+
+> 2
+
+. (5) The first factor penalizes semantically incoherent transitions, while the second penalizes detours through low-scoring nodes. A high-similarity edge between two high-h nodes incurs minimal cost, whereas a low-similarity edge or one involving a weak node is costly. This aligns with the preferred multi-hop evidence chains. Capacity is determined by the same principle: a chain is only as strong as its weakest endpoint, so κuv = min( hu, h v ). For the augmenting arcs, 
+
+κs⋆u = hu for u ∈ S and κvt ⋆ = av for v ∈ T , ensuring that each anchor or sink can supply or absorb only as much evidence as its own score allows. 4FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT Flow Paths                                              
+
+> π1
+> π2
+> π3
+> π4
+> π5
+> Path Scoring
+> Path quality
+> qk
+> Pairwise non-overlap
+> dkl = 1 −
+> Jaccard( πk, π l)
+> qkscores
+> Weight Matrix
+> Weight matrix AAkl =
+> {q2
+> k,k=l
+> √qkqldkl ,k̸=l
+> π1π2π3π4π5
+> π5
+> π4
+> π3
+> π2
+> π1
+> 0
+> 1
+> Replicator Dynamics
+> Population Update
+> ˜x(t+1)
+> k=x(t)
+> k
+> (Ax(t))
+> k
+> (x(t))⊤Ax(t)
+> x(t+1) = (1 −ϵrd )˜x(t+1) +ϵrd
+> K1
+> t=0 t=T
+> Prune extinct paths
+> Π⋆={k:xk≥θextinct }
+> remove πkfor k/∈Π⋆
+> xk←xk
+> ∑
+> j∈Π⋆xj
+> ,k∈Π⋆
+> Selection
+> pruned
+> π1selected
+> π4selected
+
+Figure 2: RD path selection in F LOW READER . Candidate paths {(πk, b k)} from min-cost flow decomposition are combined into a quality–diversity weight matrix A via composite quality qk and pairwise Jaccard non-overlap dkl .Entropy-regularised replicator dynamics on A prunes paths below θextinct , yielding a compact non-redundant subset that is passed to parallel VLM workers. 
+
+Min-cost flow. With evidence budget F , the routing LP is 
+
+min  
+
+> f≥0
+
+X
+
+> (u,v )∈E⋆
+
+cuv fuv s.t. X
+
+> v
+
+fuv − X
+
+> v
+
+fvu = bu ∀u ∈ V ⋆, fuv ≤ κuv , (6) with supplies bs⋆ = F , bt⋆ = −F , and bu = 0 for all u ∈ V . Conservation forces every unit of evidence to traverse an honest chain inside G before being absorbed, while F caps total retrieval. The LP is feasible if P 
+
+> u∈S
+
+hu ≥ F and P 
+
+> v∈T
+
+av ≥ F ; we empirically observe this on every VisDoMBench query at F = 6 .0. We additionally compute the max-flow value f ⋆ 
+
+> max
+
+on G⋆ and define the saturation σ = min( f ⋆
+
+> max
+
+/F, 1) ∈ [0 , 1] , which captures how well-connected 
+
+G⋆ is for the query and is consumed by the gate in §3.5. The optimal flow f ⋆ admits a path-flow decomposition into weighted s⋆–t⋆ chains Stinzendörfer et al. [59] , Graf et al. [23] ; these are the candidate evidence chains scored and pruned in §3.5. In Section 3.5.2, we discuss answer synthesis using LLMs. 
+
+3.5 Path Selection and Answer Synthesis 
+
+The optimal flow f ⋆ from (6) can be broken down into a weighted set of s⋆ −t⋆ chains Π = {(πk, b k)}Kk=1 , where 
+
+bk is the flow on πk, and V (πk) ⊆ V its node support Stinzendörfer et al. [59] , Graf et al. [23] . Usually, K is large and many chains have overlapping nodes, so simply picking the top-k by their bk values waste computation on nearly identical chains. Instead, we choose a small, high-quality, non-overlapping set Π⋆ ⊆ Π by treating path selection as a single-step quality-diversity process on Π (see Sec 3.5.1). We report ablation studies concerning both modalities (greedy VS quality-diversity) in Table 2. 
+
+3.5.1 Replicator Dynamics for Diverse Set Selection 
+
+Given reasoning paths Π, we select a diverse and relevant, high-quality subset Π∗ ⊆ Π by searching for a weighted maximal clique in a relevance-diversity-driven graph. We construct GRD = ( V, E, ω ) where V = Π , K = |V |,
+
+E ⊆ V × V , and edge weights ωkl encode both pairwise diversity and individual relevance: 
+
+dkl = 1 − Jaccard (πk , π l) (7) ωkl =
+
+q2
+
+> k
+
+, k = l, 
+
+√qkql dkl , k̸ = l, (8) where qk = ˜bak(max i∈πk hi)b¯hcπk is a weighted geometric mean of three complementary quality signals [ 1, 19 ]: 
+
+˜bk = bk/max j bj the normalised flow of path k, max i∈πk hi the peak node score along the path, ¯hπk its length-weighted mean, and exponents a=0 .20 , b=0 .50 , c=0 .30 . Self-loops ( k = l) favor relevance for individual strong paths, while off-diagonal weights ( k̸ = l) promote diversity among comparably strong paths via the coupling √qkql dkl [29 , 8]. By design, a clique in this graph corresponds to a set of paths that are mutually diverse and individually relevant. To find such a clique, we cast the problem as max x∈∆K f = x⊤Ax + ϵrd H(x), where A = [ ωkl ], x ∈ ∆K is the population vector accounting for the likelihood of each path/nodes being part of the selected set, H(x) is the entropy regularizer for x to prevents collapse onto a single path (see D.1 and ablation studies in Table 2), and then 5FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+solve f with replicator dynamics (RD) [ 71 , 49 ]. The application of RD is a well-known result for weighted maximal clique search[ 48 , 49 ], and is well-suited here because it: (i) converges the support of x to a weighted maximal clique with theoretical guarantees when ϵrd = 0 [ 48 ], if ϵrd > 0 it boils down empirically to a quasi-clique notion, (ii) 
+
+determines subset size automatically, (iii) yields per-path importance scores, and (iv) incorporates prior knowledge through initialization. Specifically, we set x(0)  
+
+> i
+
+= qiP  
+
+> iqi
+
+and iterate the RD discrete dynamical system:     
+
+> ex(t+1)
+> k=x(t)
+> k
+>  Ax(t)
+> k
+>  x(t)⊤Ax(t)(9)
+
+x(t+1) = (1 − ϵrd )ex(t+1) + ϵrd 
+
+K 1 (10) until ∥x(t+1) − x(t)∥2 < ε . The update preserves x(t) ∈ ∆K ∀t. The selected subset is extracted from the support of the fixed point x(t): Π∗ = {i ∈ V | x(t) 
+
+> i
+
+> θ extinct }.
+
+3.5.2 Answer Synthesis 
+
+Each π ∈ Π⋆ is processed separately by a VLM worker, which returns a possible answer ˆaπ , following the idea of self-consistency decoding ], but here the chains π serve as a structured source of diversity instead of relying on softmax noise. An LLM judge then checks pairwise consistency across {ˆaπ } and summarizes it as a single value c ∈ [0 , 1] . The gate activates System 2 when worker responses are inconsistent, the routed flow exhibits low saturation, or no worker provides a supported answer. In all other cases, the consistent answer is delivered directly. Upon activation, System 2 modifies the flow graph according to the specific trigger: it adds semantic-bridge edges across the min-cut for low saturation, re-weights high-flow edges using VLM scoring for low consistency, or expands the source set for empty retrievals. The entire pipeline, including min-cost flow, decomposition, replicator dynamics, and VLM workers, is then re-solved once. Worker prompts remain unchanged; the additional VLM calls are directed exclusively to graph-edit scorers (Appendix C). Worker prompts and the consistency template are provided in Appendix F. 
+
+# 4 Experiments and Results 
+
+4.1 Experimental Setup and Baselines Setup and Baselines: We evaluate on VisDoMBench cite[ 61 ] following the protocol of G 2-Reader [ 18 ], covering five multimodal subsets: SPIQA, FetaTab, PaperTab, SciGraphQA, and SlideVQA. Documents are parsed with MinerU [ 66 ], embeddings come from nomic-embed-text [ 47 ], and answers are generated by Qwen3-VL-32B-Instruct [ 7 ] served via vLLM, 1 with accuracy scored by a GPT-4o-mini judge (prompt in Appendix F) and results averaged over three runs. We compare FLOW READER against four groups of baselines: (i) zero-shot single VLMs on raw PDF pages (GPT-5 [ 57 ], Qwen3-VL-32B-Instruct [ 7 ]); (ii) an OCR-then-retrieve pipeline with DeepSeek-OCR [ 70 ]; (iii) text-centric graph RAG (GraphRAG [ 20 ], LightRAG [ 25 ]); and (iv) multimodal RAG (MMGraphRAG [ 65 ], VisDoMRAG [ 61 ], RAGAnything [ 26 ], ViDoRAG [ 67 ], MA-RAG [ 46 ], and G 2-Reader [ 18 ], the strongest prior graph-based method); In Table 1, we additionally report results with disables System 2, to isolate the gate’s contribution. 
+
+Implementation: Min-cost flow is solved with OR-Tools 2 at demand F =6 .0, and paths are selected by replicator dynamics (Sec. 3.5). Hyperparameters ( F , ϵrd , θextinct , λr , λ ϕ, λ ψ ) are tuned on 50 queries sampled evenly across the five subsets and held fixed thereafter. For component ablations on ϕ, ψ, and score weighting, we use FetaTab (table-heavy, stresses propagation scoring) and SlideVQA (image-heavy, stresses cross-modal edges and image answerability) as complementary stress tests. 
+
+4.2 Main Results 
+
+Table 1 reports accuracy on the five VisDoMBench subsets, averaged over three runs. FLOW READER is best on the two subsets dominated by fragmented evidence: PaperTab ( 58 .40 , +1 .30 over G 2-Reader) and SlideVQA ( 72 .93 ,
+
++0 .62 ). On the remaining subsets it is competitive but not best, trailing VisDoMRAG by 1.21 points on SPIQA ( 74 .23 
+
+vs. 75 .44 ) and comparable G 2-Reader on FetaTab. Macro-averaged across all five subsets, FLOW READER scores 
+
+65 .47 , within 0.74 of the strongest baseline (G 2-Reader, 66 .21 ). From Table 1 we can observe that, the competing baselines demonstrate subset specialization: LightRAG ( 75 .00 SciGraphQA → 29 .63 SlideVQA), VisDoMRAG ( 75 .44 
+
+SPIQA → 56 .21 PaperTab), MMGraphRAG ( 72 .40 FetaTab → 54 .20 SlideVQA), and ViDoRAG ( 71 .71 SlideVQA →
+
+37 .86 SciGraphQA) each exhibit significant performance drops on at least one subset. F LOW READER achieves the highest scores on the two fragmented-evidence subsets (PaperTab 58.40, SlideVQA 72.93) and maintains performance 
+
+> 1https://docs.vllm.ai/projects/recipes/en/latest/Qwen/Qwen3.html
+> 2https://developers.google.com/optimization
+
+6FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+Table 1: Main results on the full VisDoMBench benchmark. All results are averaged over three runs, with “ ±” denoting standard deviation. 
+
+Model Type SPIQA FetaTab PaperTab SciGraphQA SlideVQA GPT-5 VLM 55.22 ± 0.09 63.94 ± 0.31 37.08 ± 0.12 64.08 ± 0.32 45.06 ± 0.10 
+
+Qwen3-VL-32B VLM 29.86 ± 0.08 37.39 ± 0.36 34.32 ± 0.27 23.06 ± 0.22 24.87 ± 0.24 
+
+Deepseek-OCR OCR 63.60 ± 0.40 70.32 ± 0.12 51.58 ± 0.24 61.91 ± 0.40 65.69 ± 0.12 
+
+RAGAnything RAG 67.69 ± 0.96 57.76 ± 0.24 42.02 ± 1.35 41.60 ± 2.60 52.18 ± 0.49 
+
+MA-RAG RAG 45.52 ± 0.22 27.70 ± 0.19 33.43 ± 0.45 29.32 ± 0.25 29.40 ± 0.21 
+
+GraphRAG Graph-RAG 62.65 ± 0.20 61.35 ± 0.19 42.90 ± 0.00 65.76 ± 0.38 21.68 ± 0.00 
+
+LightRAG Graph-RAG 73.88 ± 0.00 64.71 ± 0.38 51.02 ± 0.04 75.00 ± 0.01 29.63 ± 0.01 
+
+MMGraphRAG Graph-RAG 69.91 ± 0.23 72.40 ± 0.55 56.36 ± 0.58 64.11 ± 0.25 54.20 ± 0.15 
+
+VisDoMRAG Graph-RAG 75.44 ± 0.00 61.02 ± 0.50 56.21 ± 0.15 63.36 ± 0.14 69.03 ± 0.36 
+
+ViDoRAG Graph-RAG 68.18 ± 0.46 58.74 ± 0.38 43.67 ± 0.15 37.86 ± 0.14 71.71 ± 0.11 
+
+G2-Reader Graph-RAG 73.19 ± 0.21 66.89 ± 0.11 57.10 ± 0.21 61.56 ± 0.11 72.31 ± 0.00 
+
+FLOW READER Ours 74.23 ± 0.70 64.45 ± 0.37 58.40 ± 0.82 57.32 ± 0.39 72.93 ± 0.38 
+
+-w/o System 2 Ablation 74.11 ± 0.47 63.26 ± 0.28 57.95 ± 0.67 55.89 ± 0.30 72.36 ± 0.24 
+
+above 57 .32 on the remaining three, establishing a worst-case floor that surpasses all multimodal baselines. G2-Reader attains a similar floor ( 57 .10 ), but relies on a proprietary 1536 -dimensional encoder, in contrast to FLOW READER ’s open-source 768 -dimensional nomic-embed-text-v1.5 
+
+The largest margins arise where evidence is fragmented and flat retrievers must reassemble it from disjoint chunks. On PaperTab, answers live in long tables that retrieval splits apart; on SlideVQA, answers span multiple slides mixing text and figures. On these subsets FLOW READER leads flat-retrieval baselines by 16 to 43 points, surpassing RAGAnything by 16 .4 on PaperTab and 20 .8 on SlideVQA, and MA-RAG by 25 .0 and 43 .5 respectively. Against the closed-source baseline, FLOW READER with Qwen3-VL-32B-Instruct exceeds GPT-5 by 21 .32 on PaperTab and 27 .87 on SlideVQA, suggesting that in these regimes structured routing matters more than generator scale. SciGraphQA is the only subset in which FLOW READER underperforms, with a score of 57 .32 compared to LightRAG’s 
+
+75 .00 . This performance gap results from two upstream factors rather than the flow-routing pipeline. First, the open-source nomic-embed-text-v1.5 (768 -dim) underperforms relative to the proprietary text-embedding-3-small 
+
+(1536 -dim) used by LightRAG and G 2-Reader on the MTEB benchmark, 3 and the short, technical, numerically dense chart captions in SciGraphQA further exacerbate this gap compared to general-purpose retrieval. Second, the worker and synthesis prompts (Appendix F) are optimized for strict, entity-anchored extraction with exact-value matching. Although this design benefits PaperTab, FetaTab, and SlideVQA, it penalizes the descriptive free-text gold answers in SciGraphQA, where correct evidence is frequently paraphrased and thus not recognized by the LLM judge. Path l (sorted by qk)       
+
+> Path  k (sorted by  qk)
+> (a) Quality--diversity weight A
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Akl
+> 0.00 0.08 0.16 0.24
+> Population vector xk
+> Path  k (sorted by  qk)
+> θextinct
+> || = 11 retained paths
+> (b) Converged population vector x⋆
+
+(a) Replicator-dynamics population. (b) System 2 gain vs. trigger rate. 
+
+Figure 3: (a) Quality–diversity weight matrix A over K flow-decomposed paths (sorted by qk): diagonal entries encode path quality ( ωkk = q2
+
+> k
+
+), off-diagonals encode quality-weighted Jaccard non-overlap ( ωkl = √qkql dkl ); entropy-regularised replicator updates concentrate the converged population x⋆ on the support Π⋆ (|Π⋆| = 11 ) above 
+
+θextinct . (b) System 2 accuracy gain vs. trigger rate: SciGraphQA and FetaTab (upper-left) achieve the largest gains with the fewest System 2 calls. 
+
+> 3
+
+https://huggingface.co/spaces/mteb/leaderboard 
+
+7FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+Table 2: Ablation: Accuracy (%), mean ± std over 3 runs. Red bracketed values denote absolute change relative to the full FLOW READER result in Table 1.                                                                    
+
+> Configuration FetaTab PaperTab
+> Selector
+> Greedy top-k(k= 11 )62.21 ±0.98 (∆-2.24) 58.35 ±0.37 (∆-0.05)
+> Entropy regularization
+> ϵrd =0 (no smoothing) 58.85 ±0.19 (∆-5.60) 53.94 ±1.35 (∆-4.46)
+> Replicator initialization (x(0) )Quality-weighted, x(0)
+> k∝qk(default) 64.45 ±0.14 (∆0.00) 58.40 ±0.68 (∆0.00)
+> Flow-weighted, x(0)
+> k∝bk64.06 ±1.05 (∆-0.39) 57.58 ±1.26 (∆-0.82)
+> Mixed, x(0)
+> k∝qkbk63.26 ±1.31 (∆-1.19) 58.18 ±0.76 (∆-0.22)
+
+Table 3: Ablation: Accuracy (%) is reported as mean ± standard deviation over 3 independent runs.                                    
+
+> Configuration FeTaTab SlideVQA FLOW READER 64.45 ±0.37 (∆0.00) 72.93 ±0.38 (∆0.00)
+> Relevance only ( r; no ϕ,ψ, BM25) 63.30 ±1.07 (∆-1.15) 69.96 ±1.27 (∆-2.97)
+> No forward propagation ( ϕ= 0 )62.82 ±0.65 (∆-1.63) 70.60 ±0.35 (∆-2.33)
+
+4.3 Ablation Studies 
+
+Seed diversity via MMR. We observe during experiments that selecting the top-kS seeds based solely on raw cosine similarity causes sources to cluster within a single document region. As a result, every evidence path originates from the same neighborhood, the min-cut occurs trivially near the sources, and flow saturation remains uniformly high, regardless of the sufficiency of the evidence. In contrast, MMR penalizes each new seed for its similarity to previously selected seeds (Appendix B.1), distributing sources across semantically distinct regions of the graph. This approach enables min-cost flow to identify genuine multi-hop chains by routing across the document and merging evidence from text, tables, and figures through the precise intermediate nodes that form the reasoning path. Without seed diversity, 
+
+FLOW READER reduces to local retrieval with an unnecessary flow wrapper. With seed diversity, the network topology actively encodes the document’s reasoning structure. 
+
+Effect of System 2. Disabling System 2 (Table 1, last row) reduces FetaTab performance from 64 .45 to 63 .26 (∆−1.19 )and SlideVQA from 72 .93 to 72 .36 (∆−0.57 ), while PaperTab remains largely unaffected (58.40 to 57.95). This outcome aligns with the gate design illustrated in Figure 1: System 2 activates when chain-answer consistency is low or the LP residual is unsaturated, conditions that occur more frequently in multi-hop slide queries than in direct table lookups. 
+
+Effect of replicator dynamics. Substituting the entropy-regularised replicator with a greedy top-k approach over flow weights reduces FetaTab by 2.24 points ( 64 .45 to 62 .21 ) but has minimal impact on PaperTab. This outcome suggests that quality-diversity competition is most significant when paths share nodes. In contrast, removing the entropy term leads to a more substantial decline: FetaTab decreases by 5.60 (to 58 .85 ) and PaperTab by 4.46 (to 53 .94 ), as the population converges onto a single high-payoff path. The effect of initialization is less pronounced; employing a flow-weighted prior maintains FetaTab within one standard deviation and incurs only a 0.82 reduction on PaperTab. These results indicate that convergence is primarily determined by the payoff matrix. 
+
+Effect of node-scoring signals. Stripping ϕ, ψ, and BM25 to use relevance alone costs 1.15 points on FetaTab ( 64 .45 to 
+
+63 .30 ) and 2.97 on SlideVQA ( 72 .93 to 69 .96 ), showing that direct query–node similarity does not capture multi-hop structure. Disabling forward propagation alone ( ϕ = 0 ) costs 1.63 on FetaTab and 2.33 on SlideVQA: table queries often link headers to distant rows, and slide queries reach evidence through earlier text or layout. Together, these results show that System 2 helps most on multi-hop visual queries, entropy regularisation is essential for path diversity, and forward propagation is the most informative graph-based scoring signal. 
+
+Per-Query Complexity: F LOW READER vs. G 2-Reader. FLOW READER operates with a bounded VLM call budget: 
+
+15 .6 calls for S1-only and 30 .8 to 47 .3 for the full pipeline, as System 2 is triggered at most once per query. In contrast, G2-Reader’s large language model (LLM)-judged replanning loop is unbounded and can re-decompose sub-questions for up to R=3 rounds. As shown in Figure 3b, this budget allocation is effective. SciGraphQA ( +1 .43 at 28% )and FeTaTab ( +1 .19 at 26% ) achieve the largest performance gains with the fewest System 2 invocations. SPIQA’s near-flat curve ( +0 .12 at 22% ) indicates that the gating mechanism suppresses System 2 when first-pass evidence is 8FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+coherent. SlideVQA and PaperTab operate in the high-trigger regime ( 44% ), with smaller per-call gains, reflecting the fragmented nature of slide- and table-heavy evidence. These results demonstrate that selective gating, rather than uniform refinement, enables consistent gains within a bounded budget. 
+
+# 5 Limitations 
+
+Three aspects of the current design warrant further refinement. First, a single score h governs source selection, sink selection, edge costs, and capacities, which allows any upstream miscalibration to propagate through the linear program without an independent correction mechanism. Second, the flow budget F is uniformly set to 6.0 for all queries, resulting in inefficient allocation: easy queries are over-provisioned and difficult ones are under-provisioned; learning 
+
+F on a per-query basis could enhance computational efficiency. Third, convergence guarantees for RD rely on a clique-finding analogy; however, the entropy-regularised variant does not provide a formal maximal-clique guarantee and should be regarded as a continuous heuristic rather than a provably optimal selector. 
+
+# 6 Conclusion and Future Work 
+
+We introduced FLOW READER , which reconceptualizes evidence assembly for multimodal long-document question answering as a minimum-cost flow problem on a multimodal graph. In this framework, a single node score h governs sources, sinks, edge costs, and capacities. The optimal flow is decomposed and pruned using entropy-regularised replicator dynamics, while a retrieval-grounded dual-process gate initiates a single System-2 refinement pass only when necessary. On VisDoMBench, FLOW READER achieves the highest performance on the two subsets dominated by fragmented evidence, namely PaperTab ( 58 .40 , +1 .30 over G 2-Reader) and SlideVQA ( 72 .93 , +0 .62 ), and remains competitive on other subsets, with a macro-average within 0.74 of the strongest baseline. The most significant shortfall, observed on SciGraphQA, is attributable to the use of a smaller open-source encoder and strict entity-anchored prompts, rather than limitations in the routing pipeline. Future research directions include adapting graph construction under the System-2 gate, learning edge costs and path-quality exponents from answer supervision, and treating the flow budget 
+
+F as a query-dependent variable. These directions aim to move retrieval-augmented generation beyond fixed top-k
+
+heuristics toward a learned, structured process for assembling evidence within a controlled compute budget. 
+
+# Acknowledgements 
+
+This work was supported by the European Union’s Horizon Europe research and innovation programme under the Marie Skłodowska-Curie grant agreement No. 101205348 (CASPER). We acknowledge the EuroHPC Joint Undertaking for awarding access to the Leonardo supercomputer, hosted by CINECA (Italy) 4, and the CINECA award under the ISCRA Class C initiative, for the availability of high-performance computing resources and support. Views and opinions expressed are however those of the author(s) only and do not necessarily reflect those of the European Union or the European Research Executive Agency. Neither the European Union nor the granting authority can be held responsible for them. 
+
+# References 
+
+[1] Janos Aczél and Thomas L Saaty. Procedures for synthesizing ratio judgements. Journal of mathematical Psychology , 27(1):93–102, 1983. [2] Aisha Alansari and Hamzah Luqman. Large language models hallucination: A comprehensive survey. Computer Science Review , 61:100970, 2026. [3] Mario Angelelli and Boris Konopelchenko. Entropy driven transformations of statistical hypersurfaces. Reviews in Mathematical Physics , 33(02):2150001, 2021. [4] Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and Hannaneh Hajishirzi. Self-rag: Learning to retrieve, gener-ate, and critique through self-reflection. In The Twelfth International Conference on Learning Representations ,2023. [5] Arian Askari, Amin Abolghasemi, Gabriella Pasi, Wessel Kraaij, and Suzan Verberne. Injecting the bm25 score as text improves bert-based re-rankers. In European Conference on Information Retrieval , pages 66–83. Springer, 2023. 
+
+> 4https://www.hpc.cineca.it
+
+9FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+[6] John C Baez and Blake S Pollard. Relative entropy in biological systems. Entropy , 18(2):46, 2016. [7] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 , 2025. [8] IR Bomze, Marcello Pelillo, and Volker Stix. Approximating the maximum weight clique using replicator dynamics. IEEE Transactions on neural networks , 11(6):1228–1241, 2000. [9] Jaime Carbonell and Jade Goldstein. The use of mmr, diversity-based reranking for reordering documents and producing summaries. In Proceedings of the 21st annual international ACM SIGIR conference on Research and development in information retrieval , pages 335–336, 1998. [10] Rong Cheng, Jinyi Liu, Yan Zheng, Fei Ni, Jiazhen Du, Hangyu Mao, Fuzheng Zhang, Bo Wang, and Jianye Hao. Dualrag: A dual-process approach to integrate reasoning and retrieval for multi-hop question answering. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 31877–31899, 2025. [11] Prateek Chhikara, Dev Khant, Saket Aryan, Taranjeet Singh, and Deshraj Yadav. Mem0: Building production-ready ai agents with scalable long-term memory. arXiv preprint arXiv:2504.19413 , 2025. [12] Jaemin Cho, Debanjan Mahata, Ozan Irsoy, Yujie He, and Mohit Bansal. M3docvqa: Multi-modal multi-page multi-document understanding. In Proceedings of the IEEE/CVF International Conference on Computer Vision ,pages 6178–6188, 2025. [13] Sangwoo Cho, Logan Lebanoff, Hassan Foroosh, and Fei Liu. Improving the similarity measure of determinantal point processes for extractive multi-document summarization. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , pages 1027–1038, 2019. [14] Yun-Wei Chu, Kai Zhang, Christopher Malon, and Martin Renqiang Min. Reducing hallucinations of medical multimodal large language models with visual retrieval-augmented generation. arXiv preprint arXiv:2502.15040 ,2025. [15] Marco Cuturi. Sinkhorn distances: Lightspeed computation of optimal transport. Advances in neural information processing systems , 26, 2013. [16] Pradeep Dasigi, Kyle Lo, Iz Beltagy, Arman Cohan, Noah A Smith, and Matt Gardner. A dataset of information-seeking questions and answers anchored in research papers. In Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies , pages 4599–4610, 2021. [17] Kuicai Dong, Derrick Goh Xin Deik, Yi Quan Lee, Hao Zhang, Xiangyang Li, Cong Zhang, and Yong Liu. Mc-indexing: Effective long document retrieval via multi-view content-aware indexing. In Findings of the Association for Computational Linguistics: EMNLP 2024 , pages 2673–2691, 2024. [18] Yaxin Du, Junru Song, Yifan Zhou, Cheng Wang, Jiahao Gu, Zimeng Chen, Menglan Chen, Wen Yao, Yang Yang, Ying Wen, et al. g2-Reader: Dual Evolving Graphs for Multimodal Document Comprehension. arXiv preprint arXiv:2601.22055 , 2026. [19] Udo Ebert and Heinz Welsch. Meaningful environmental indices: a social choice approach. Journal of Environ-mental Economics and Management , 47(2):270–283, 2004. [20] Darren Edge, Ha Trinh, Newman Cheng, Joshua Bradley, Alex Chao, Apurva Mody, Steven Truitt, Dasha Metropolitansky, Robert Osazuwa Ness, and Jonathan Larson. From local to global: A graph rag approach to query-focused summarization. arXiv preprint arXiv:2404.16130 , 2024. [21] Manuel Faysse, Hugues Sibille, Tony Wu, Bilel Omrani, Gautier Viaud, Céline Hudelot, and Pierre Colombo. Colpali: Efficient document retrieval with vision language models. arXiv preprint arXiv:2407.01449 , 2024. [22] Dan Gillick and Benoit Favre. A scalable global model for summarization. In Proceedings of the workshop on integer linear programming for natural language processing , pages 10–18, 2009. [23] Lukas Graf, Tobias Harks, and Julian Schwarz. A decomposition theorem for dynamic flows. arXiv preprint arXiv:2407.04761 , 2024. [24] Hanghui Guo, Jia Zhu, Shimin Di, Weijie Shi, Zhangze Chen, and Jiajie Xu. Dior: Adaptive cognitive detection and contextual retrieval optimization for dynamic retrieval-augmented generation. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 2953–2975, 2025. [25] Zirui Guo, Lianghao Xia, Yanhua Yu, Tian Ao, and Chao Huang. Lightrag: Simple and fast retrieval-augmented generation. arXiv preprint arXiv:2410.05779 , 2(3), 2024. 10 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+[26] Zirui Guo, Xubin Ren, Lingrui Xu, Jiahao Zhang, and Chao Huang. Rag-anything: All-in-one rag framework. 
+
+arXiv preprint arXiv:2510.12323 , 2025. [27] Bernal J Gutiérrez, Yiheng Shu, Yu Gu, Michihiro Yasunaga, and Yu Su. Hipporag: Neurobiologically inspired long-term memory for large language models. Advances in neural information processing systems , 37:59532– 59569, 2024. [28] Taher H Haveliwala. Topic-sensitive pagerank. In Proceedings of the 11th international conference on World Wide Web , pages 517–526, 2002. [29] Saeed Hedayatian and Stefanos Nikolaidis. Soft quality-diversity optimization. arXiv preprint arXiv:2512.00810 ,2025. [30] Mahd Hindi, Linda Mohammed, Ommama Maaz, and Abdulmalik Alwarafy. Enhancing the precision and interpretability of retrieval-augmented generation (rag) in legal technology: A survey. IEEE Access , 2025. [31] Hao Hu, Yifan Feng, Ruoxue Li, Rundong Xue, Xingliang Hou, Zhiqiang Tian, Yue Gao, and Shaoyi Du. Cog-rag: Cognitive-inspired dual-hypergraph with theme alignment retrieval-augmented generation. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 31032–31040, 2026. [32] Yulong Hui, Yao Lu, and Huanchen Zhang. Uda: A benchmark suite for retrieval augmented generation in real-world document analysis. Advances in Neural Information Processing Systems , 37:67200–67217, 2024. [33] Soyeong Jeong, Jinheon Baek, Sukmin Cho, Sung Ju Hwang, and Jong C Park. Adaptive-rag: Learning to adapt retrieval-augmented large language models through question complexity. In Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) , pages 7036–7050, 2024. [34] Zhengbao Jiang, Frank F Xu, Luyu Gao, Zhiqing Sun, Qian Liu, Jane Dwivedi-Yu, Yiming Yang, Jamie Callan, and Graham Neubig. Active retrieval augmented generation. In Proceedings of the 2023 conference on empirical methods in natural language processing , pages 7969–7992, 2023. [35] Alex Kulesza and Ben Taskar. Determinantal point processes for machine learning. Foundations and Trends® in Machine Learning , 5(2-3):123–286, 2012. [36] Matt Kusner, Yu Sun, Nicholas Kolkin, and Kilian Weinberger. From word embeddings to document distances. In 
+
+International conference on machine learning , pages 957–966. PMLR, 2015. [37] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, et al. Retrieval-augmented generation for knowledge-intensive nlp tasks. Advances in neural information processing systems , 33:9459–9474, 2020. [38] Jiatao Li, Xinyu Hu, and Xiaojun Wan. Smart-rag: Selection using determinantal matrices for augmented retrieval. 
+
+arXiv preprint arXiv:2409.13992 , 2024. [39] Shilong Li, Yancheng He, Hangyu Guo, Xingyuan Bu, Ge Bai, Jie Liu, Jiaheng Liu, Xingwei Qu, Yangguang Li, Wanli Ouyang, et al. Graphreader: Building graph-based agent to enhance long-context abilities of large language models. In Findings of the Association for Computational Linguistics: EMNLP 2024 , pages 12758–12786, 2024. [40] Jintao Liang, Huifeng Lin, You Wu, Rui Zhao, Ziyue Li, et al. Reasoning rag via system 1 or system 2: A survey on reasoning agentic retrieval-augmented generation for industry challenges. In Proceedings of the 14th International Joint Conference on Natural Language Processing and the 4th Conference of the Asia-Pacific Chapter of the Association for Computational Linguistics , pages 1954–1966, 2025. [41] Hui Lin and Jeff Bilmes. Multi-document summarization via budgeted maximization of submodular functions. In 
+
+Human Language Technologies: The 2010 Annual conference of the North American chapter of the association for computational linguistics , pages 912–920, 2010. [42] Hui Lin and Jeff Bilmes. A class of submodular functions for document summarization. In Proceedings of the 49th annual meeting of the association for computational linguistics: human language technologies , pages 510–520, 2011. [43] Ryan McDonald. A study of global inference algorithms in multi-document summarization. In European conference on information retrieval , pages 557–564. Springer, 2007. [44] Siyuan Meng, Junming Liu, Yirong Chen, Song Mao, Pinlong Cai, Guohang Yan, Botian Shi, and Ding Wang. From ranking to selection: A simple but efficient dynamic passage selector for retrieval augmented generation. 
+
+arXiv preprint arXiv:2508.09497 , 2025. [45] Linyong Nan, Chiachun Hsieh, Ziming Mao, Xi Victoria Lin, Neha Verma, Rui Zhang, Wojciech Kry´ sci´ nski, Hailey Schoelkopf, Riley Kong, Xiangru Tang, et al. Fetaqa: Free-form table question answering. Transactions of the Association for Computational Linguistics , 10:35–49, 2022. 11 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+[46] Thang Nguyen, Peter Chin, and Yu-Wing Tai. Ma-rag: Multi-agent retrieval-augmented generation via collabora-tive chain-of-thought reasoning. arXiv preprint arXiv:2505.20096 , 2025. [47] Zach Nussbaum, John X. Morris, Brandon Duderstadt, and Andriy Mulyar. Nomic embed: Training a reproducible long context text embedder, 2024. [48] Massimiliano Pavan and Marcello Pelillo. Dominant sets and pairwise clustering. IEEE Transactions on Pattern Analysis and Machine Intelligence , 29(1):167–172, 2007. doi: 10.1109/TPAMI.2007.250608. [49] Marcello Pelillo. Replicator equations, maximal cliques, and graph isomorphism. Advances in Neural Information Processing Systems , 11, 1998. [50] Shraman Pramanick, Rama Chellappa, and Subhashini Venugopalan. Spiqa: A dataset for multimodal question answering on scientific papers. Advances in Neural Information Processing Systems , 37:118807–118833, 2024. [51] Ofir Press, Muru Zhang, Sewon Min, Ludwig Schmidt, Noah A Smith, and Mike Lewis. Measuring and narrowing the compositionality gap in language models. In Findings of the Association for Computational Linguistics: EMNLP 2023 , pages 5687–5711, 2023. [52] Yuri Pykh. Pairwise interactions origin of entropy functions. arXiv preprint arXiv:1506.05731 , 2015. [53] Preston Rasmussen, Pavlo Paliychuk, Travis Beauvais, Jack Ryan, and Daniel Chalef. Zep: a temporal knowledge graph architecture for agent memory. arXiv preprint arXiv:2501.13956 , 2025. [54] Stephen E Robertson and Steve Walker. Some simple effective approximations to the 2-poisson model for probabilistic weighted retrieval. In SIGIR’94: Proceedings of the Seventeenth Annual International ACM-SIGIR Conference on Research and Development in Information Retrieval, organised by Dublin City University , pages 232–241. Springer, 1994. [55] Mai A Shaaban, Tausifa Jan Saleem, Vijay Ram Kumar Papineni, and Mohammad Yaqub. Motor: Multimodal optimal transport via grounded retrieval in medical visual question answering. In International Conference on Medical Image Computing and Computer-Assisted Intervention , pages 459–469. Springer, 2025. [56] Zhihong Shao, Yeyun Gong, Yelong Shen, Minlie Huang, Nan Duan, and Weizhu Chen. Enhancing retrieval-augmented large language models with iterative retrieval-generation synergy. In Findings of the Association for Computational Linguistics: EMNLP 2023 , pages 9248–9274, 2023. [57] Aaditya Singh, Adam Fry, Adam Perelman, Adam Tart, Adi Ganesh, Ahmed El-Kishky, Aidan McLaughlin, Aiden Low, AJ Ostrow, Akhila Ananthram, et al. Openai gpt-5 system card. arXiv preprint arXiv:2601.03267 ,2025. [58] Peiyang Song, Pengrui Han, and Noah Goodman. Large language model reasoning failures. Transactions on Machine Learning Research .[59] Moritz Stinzendörfer, Philine Schiewe, and Fabricio Oliveira. A robust optimization approach to flow decomposi-tion. arXiv preprint arXiv:2410.21140 , 2024. [60] Penglei Sun, Yixiang Chen, Xiang Li, and Xiaowen Chu. The multi-round diagnostic rag framework for emulating clinical reasoning. arXiv preprint arXiv:2504.07724 , 2025. [61] Manan Suri, Puneet Mathur, Franck Dernoncourt, Kanika Goswami, Ryan A Rossi, and Dinesh Manocha. Visdom: Multi-document qa with visually rich elements using multimodal retrieval-augmented generation. In Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) , pages 6088–6109, 2025. [62] Ryota Tanaka, Kyosuke Nishida, Kosuke Nishida, Taku Hasegawa, Itsumi Saito, and Kuniko Saito. Slidevqa: A dataset for document visual question answering on multiple images. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 37, pages 13636–13645, 2023. [63] Peggy Tang, Kun Hu, Rui Yan, Lei Zhang, Junbin Gao, and Zhiyong Wang. Otextsum: Extractive text summarisa-tion with optimal transport. In Findings of the Association for Computational Linguistics: NAACL 2022 , pages 1128–1141, 2022. [64] Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal. Interleaving retrieval with chain-of-thought reasoning for knowledge-intensive multi-step questions. In Proceedings of the 61st annual meeting of the association for computational linguistics (volume 1: long papers) , pages 10014–10037, 2023. [65] Xueyao Wan and Hang Yu. Mmgraphrag: Bridging vision and language with interpretable multimodal knowledge graphs. arXiv preprint arXiv:2507.20804 , 2025. [66] Bin Wang, Chao Xu, Xiaomeng Zhao, Linke Ouyang, Fan Wu, Zhiyuan Zhao, Rui Xu, Kaiwen Liu, Yuan Qu, Fukai Shang, et al. Mineru: An open-source solution for precise document content extraction. arXiv preprint arXiv:2409.18839 , 2024. 12 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+[67] Qiuchen Wang, Ruixue Ding, Zehui Chen, Weiqi Wu, Shihang Wang, Pengjun Xie, and Feng Zhao. Vidorag: Visual document retrieval-augmented generation via dynamic iterative reasoning agents. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 9124–9145, 2025. [68] Zhitong Wang, Cheng Gao, Chaojun Xiao, Yufei Huang, Shuzheng Si, Kangyang Luo, Yuzhuo Bai, Wenhao Li, Tangjian Duan, Chuancheng Lv, et al. Document segmentation matters for retrieval-augmented generation. In 
+
+Findings of the Association for Computational Linguistics: ACL 2025 , pages 8063–8075, 2025. [69] Zilong Wang, Zifeng Wang, Long Le, Huaixiu Steven Zheng, Swaroop Mishra, Vincent Perot, Yuwei Zhang, Anush Mattapalli, Ankur Taly, Jingbo Shang, et al. Speculative rag: Enhancing retrieval augmented generation through drafting. arXiv preprint arXiv:2407.08223 , 2024. [70] Haoran Wei, Yaofeng Sun, and Yukun Li. Deepseek-ocr: Contexts optical compression. arXiv preprint arXiv:2510.18234 , 2025. [71] Jörgen W. Weibull. Evolutionary Game Theory . MIT Press, Cambridge, MA, 1995. [72] Peng Xia, Kangyu Zhu, Haoran Li, Tianze Wang, Weijia Shi, Sheng Wang, Linjun Zhang, James Zou, and Huaxiu Yao. Mmed-rag: Versatile multimodal rag system for medical vision language models. arXiv preprint arXiv:2410.13085 , 2024. [73] Rongwu Xu, Zehan Qi, Zhijiang Guo, Cunxiang Wang, Hongru Wang, Yue Zhang, and Wei Xu. Knowledge conflicts for llms: A survey. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , pages 8541–8565, 2024. [74] Wujiang Xu, Zujie Liang, Kai Mei, Hang Gao, Juntao Tan, and Yongfeng Zhang. A-mem: Agentic memory for llm agents. arXiv preprint arXiv:2502.12110 , 2025. [75] Mingji Yang, Hanzhi Wang, Zhewei Wei, Sibo Wang, and Ji-Rong Wen. Efficient algorithms for personalized pagerank computation: A survey. IEEE Transactions on Knowledge and Data Engineering , 36(9):4582–4602, 2024. [76] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan, and Yuan Cao. React: Synergizing reasoning and acting in language models. In The eleventh international conference on learning representations .[77] Shi Yu, Chaoyue Tang, Bokai Xu, Junbo Cui, Junhao Ran, Yukun Yan, Zhenghao Liu, Shuo Wang, Xu Han, Zhiyuan Liu, et al. Visrag: Vision-based retrieval-augmented generation on multi-modality documents. In The Thirteenth International Conference on Learning Representations .[78] Tian Yu, Shaolei Zhang, and Yang Feng. Auto-rag: Autonomous retrieval-augmented generation for large language models. arXiv preprint arXiv:2411.19443 , 2024. [79] Hamed Zamani and Michael Bendersky. Stochastic rag: End-to-end retrieval-augmented generation through expected utility maximization. In Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval , pages 2641–2646, 2024. 13 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+# A Constructing the Multi-Modal Graph 
+
+In this section, we describe offline construction procedure for the Multi-Modal Graph G = ( V, E ) summarized in §3.2. We follow the dual-graph indexing recipe introduced by G2-Reader [ 18 ] and adapt it to our notation; the operations below are identical in spirit to the Content Graph construction of that work. 
+
+Parsing and node generation. Each document is parsed with MinerU [ 66 ] into an ordered sequence of layout-aware chunks {c1, . . . , c N } covering text blocks, table cells, and figures. A single LLM call extracts the structured attributes of every node,  si, K i, τ i
+
+ = Analyze( ci), (11) producing a one-sentence summary, a small keyword set, and a modality tag. Embeddings are obtained jointly from the summary and keywords, 
+
+ei = Enc  si ∥ “keywords:” ∥ Ki
+
+, (12) where ∥ denotes string concatenation; this couples surface keyword cues with the semantic prior of the encoder. 
+
+Initial graph G(0) . We seed structural connectivity from layout: text nodes are linked within a sliding window of size 
+
+w=3 over reading order, and visual nodes are inserted but left initially unlinked, so that their adjacency is discovered purely from semantics during evolution. Edge weights in G(0) are initialized to the rectified cosine similarity 
+
+w(0)  
+
+> ij
+
+= max  cos( ei, ej ), 0. (13) 
+
+Iterative co-evolution. We refine G(0) for T =3 rounds of LLM-driven consolidation. At round t, every node vi
+
+retrieves its top-5 semantic neighbors N sem  
+
+> i
+
+by cosine similarity in {e(t−1)  
+
+> j
+
+}j̸ =i, unions them with its current structural neighbors N str ,(t−1)  
+
+> i
+
+, and updates its attributes and adjacency in a single call, 
+
+ s(t) 
+
+> i
+
+, K (t) 
+
+> i
+
+, N str ,(t)
+
+> i
+
+ = Evolve 
+
+
+
+s(t−1)  
+
+> i
+
+, K (t−1)  
+
+> i
+
+; s(t−1)     
+
+> jj∈N sem
+> i∪N str ,(t−1)
+> i
+
+
+
+. (14) The LLM is instructed to (i) distill the summary toward the document-intrinsic concept the node anchors, (ii) prune keywords that are redundant given the neighborhood, and (iii) keep only those neighbors that are causally or semantically related. Embeddings are then refreshed, e(t) 
+
+> i
+
+= Enc( s(t) 
+
+> i
+
+∥ · · · ∥ K(t) 
+
+> i
+
+), and edge weights are recomputed as w(t) 
+
+> ij
+
+=max(cos( e(t) 
+
+> i
+
+, e(t) 
+
+> j
+
+), 0) on the surviving edges. After T rounds we obtain the Multi-Modal Graph G = G(T ) = ( V, E ) with attributes {(si, K i, τ i, ei)}Ni=1 . The full prompt templates for Analyze and Evolve are given in Appendix D. 
+
+# B Maximal Marginal Relevance 
+
+B.1 Maximal Marginal Relevance for Seed Selection 
+
+To initialize the flow graph, we select a small set of seed nodes using maximal marginal relevance (MMR). The goal is to retain nodes that are individually strong while avoiding near-duplicate seeds that cover the same semantic region. Given the current seed set S, MMR greedily adds the next node by balancing two terms: a relevance score and a redundancy penalty. In our formulation, the relevance term is the node score hv , while redundancy is measured by the maximum cosine similarity between the candidate embedding ˆev and the embeddings of already selected seeds: 
+
+v∗ = arg max 
+
+> v / ∈S
+
+
+
+λMMR hv − (1 − λMMR ) max  
+
+> u∈S
+
+cos(ˆ ev , ˆeu)
+
+
+
+.
+
+Intuitively, MMR favors nodes that are both high-quality and complementary to the current set. The parameter 
+
+λMMR ∈ [0 , 1] controls the trade-off: larger values emphasize quality, while smaller values emphasize coverage and diversity. This simple greedy procedure produces a compact seed set that spans multiple relevant regions of the graph, which in turn improves downstream path discovery and reduces redundant flow allocation. 14 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+# C System 2 Refinement 
+
+When the gate fires, System 2 applies a trigger-specific edit to G⋆ and then re-solves the entire System 1 pipeline once. The three edits are: 
+
+(T1, low saturation) A VLM scorer ( bridge_scorer_prompt , Appendix D) is queried on each boundary pair (u, v )
+
+across the saturation min-cut; pairs scoring above 0.1 are added as new edges with cost and capacity assigned by the §3.4 formulas, and edges incident to cut nodes are re-weighted. 
+
+(T2, low consistency) A VLM scorer ( edge_scorer_prompt ) re-scores edges in the top-decile of System 1 flow. No edges are added. 
+
+(T3, no supported answer) Additional source arcs s⋆ → v are added for new seed nodes selected by BFS over the propagation score ϕ, and edges near sources are re-weighted. All three branches use a damped re-weighting rule pnew = (1 −λ) pold + λ ˆp with λ = 0 .6, bounded by min( εw, |∆p|)
+
+to prevent single-call noise from flipping edges. After the edit, System 2 re-solves the min-cost flow, re-decomposes paths, re-runs replicator dynamics (with an optional h-boost for nodes cited by System 1 workers), and re-reads the top paths via the same VLM workers as System 1. The worker prompt is unchanged; only the graph-edit scorers introduce additional VLM calls, bounding the System 2 overhead. 
+
+# D Entropy-Regularized Replicator Dynamics 
+
+D.1 Entropy-Regularized Replicator Dynamics 
+
+We view path selection as a quality–diversity game over the K candidate paths. Let x ∈ ∆K denote a distribution over paths, where ∆K is the probability simplex, and let A ∈ RK×K be the payoff matrix defined in Sec. 3.5. Classical replicator dynamics increase probability mass on paths whose payoff is above the population average. In our setting, this favors paths that are both individually strong and mutually non-overlapping. To avoid premature collapse onto a single path, we use an entropy regularizer on the population: 
+
+H(x) = −
+
+> K
+
+X
+
+> k=1
+
+xk log xk.
+
+This yields the entropy-regularized objective 
+
+max 
+
+> x∈∆K
+
+x⊤Ax + ϵrd H(x),
+
+where ϵrd > 0 controls the trade-off between exploitation of high-payoff paths and exploration across multiple plausible paths. This entropy-regularized view is closely related to free-energy and natural-gradient interpretations of replicator dynamics, where entropy acts as a smoothing force that improves stability and preserves exploration during optimization [6, 3, 52]. Intuitively, the payoff term promotes quality and diversity, while the entropy term smooths the trajectory of the dynamics and stabilizes the intermediate population over several candidate routes. The resulting fixed point is a mixed strategy that approximates a Nash equilibrium of the quality–diversity game. After convergence, paths with xk < θ extinct are pruned, and the surviving support is passed to the parallel VLM workers for answer synthesis. 
+
+# E Implementation Details and Hyperparameters 
+
+This appendix consolidates every infrastructure, model, and hyperparameter choice used in the reported experiments. All values were fixed once on a held-out development split of 50 queries (10 per VisDoMBench subset, sampled uniformly, no test labels seen) and reused without modification across every result in Tables 1–2, including ablations. Graphs are built once per corpus and cached. All accuracy figures are mean ± std over three runs; the only sources of run-to-run variation are vLLM’s batched bf16 decoding and the GPT-4o-mini judge – the rest of the pipeline (parsing, scoring, flow LP, replicator dynamics) is deterministic given a seed. 
+
+E.1 Per-Query Complexity: F LOW READER vs. G 2-Reader 
+
+15 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+Table 4: Infrastructure, models, and tooling. 
+
+Component Choice Notes 
+
+Generator (S1 worker, synthesiser, S2 scorer) Qwen3-VL-32B-Instruct [7] Served via vLLM, tensor-parallel 4, bf16 GPUs 4× A100 80 GB Single node Text/visual node embedder nomic-embed-text-v1.5 [47] 768-dim, matryoshka head off Document parser MinerU [66] v0.7.0a1 Min-cost flow solver Google OR-Tools 5 Network-simplex back-end Personalized PageRank networkx 3.2 Damping 0.85 , tol. 10 −6
+
+Accuracy judge GPT-4o-mini [57] Prompt: App. F, C.1 
+
+Table 5: FlowReader hyperparameters. Tuned on a 50 -query dev split (10 per subset), held fixed across all reported runs. 
+
+Group Parameter Value Role 
+
+Source / sink selection Max source nodes |S| 8 Source set size after MMR Max sink nodes |T | 8 Sink set size by top-ai
+
+Min edge weight rmin 0.22 Cosine threshold; weaker edges pruned BM25 blend α 0.50 Weight of lexical score in ri
+
+MMR trade-off λMMR 0.70 Quality vs. diversity in source MMR Visual bonus βv 0.05 Boost for τi=vis in ai
+
+Flow & paths Flow demand F 6.0 Total flow routed s⋆→t⋆
+
+Paths decomposed (max) 60 Flow decomposition budget Paths read (max) 11 Paths forwarded to VLM workers Node scoring (Section 3.3) Relevance weight λr 0.50 Direct query relevance Propagation weight λϕ 0.30 Forward propagation (§3.3) Diffusion weight λψ 0.20 Personalized PageRank (§3.3) Replicator dynamics Entropy coefficient ϵrd 0.20 Prevents premature collapse Convergence tol. ϵconv 10 −4 ℓ2 change in x(t)
+
+Max iterations 20 Hard cap Extinction threshold θextinct 5×10 −4 Min mass for path retention System 2 gate & edits Consistency threshold τ 0.65 Fires when c < τ 
+
+Saturation threshold ξ 0.60 Fires when σ < ξ 
+
+Bridge-edge accept score > 0.10 T1 (low-saturation) edge add T3 BFS depth 2 Source-set expansion radius Re-weight damping λ 0.6 pnew =(1 −λ)pold +λˆp
+
+Re-weight bound εw 0.30 Caps |∆p|
+
+Table 6: Decoding settings for every model call in the pipeline. 
+
+Stage Prompt (App. F) Temp. Top-p Notes 
+
+S1 path worker B.2 0.0 1.0 Greedy Answer synthesiser B.3 0.0 1.0 Greedy Pairwise consistency B.4 0.0 1.0 Greedy; YES/NO output S2 bridge / edge scorer D (T1, T2) 0.2 1.0 Mild diversity in proposals Offline graph evolution A.3 0.0 1.0 Greedy LLM-as-judge C.1 default 1.0 GPT-4o-mini, seed=0 where supported 
+
+16 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+Table 7: Per-query inference profile of FLOW READER vs. G 2-Reader. N = sub-questions in the planning DAG, R =replanning cap, WS1, W S2 = System 1 / System 2 call budgets, 1[gate] = indicator that the gate fires. 
+
+G2-Reader FLOW READER (ours) 
+
+Inference structure 
+
+Architecture Dual graph: content + agentic planning DAG Single content graph + flow network Path discovery LLM-generated DAG of sub-questions Min-cost flow LP (OR-Tools) at budget F =6 
+
+Path selection LLM-driven topological execution of N nodes Entropy-regularised replicator dynamics ( ≤ 11 
+
+paths) Refinement trigger Heuristic LLM judge over sub-question outputs Flow saturation σ + answer consistency c
+
+Refinement loop Iterative, up to R=3 rounds Single conditional pass (System 2 gate) 
+
+Per-query cost 
+
+Call count 1+1+ N +R(N +2)+1 WS1 + 1[gate] WS2
+
+A-priori bound None (unbounded in R) Yes: WS1 + WS2
+
+Worst case ( N =4 , R =3 ) Approx. 22 LLM calls 48 VLM calls 
+
+Measured average — 15.6 (S1) → 30.8–47.3 (S1+S2) 
+
+17 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+# F Prompts 
+
+All prompts used in FLOW READER are listed below in pipeline order. Slot-filled variables appear as {name} and string-substituted fields as $NAME$ .
+
+Phase A — Offline Graph Construction Executed once per document at prebuild time. 
+
+A.1 Text Node Analysis 
+
+Extracts verbatim entities, a one-sentence summary, and classification tags from each text chunk. Strict extraction rules prevent hallucination of unseen terms. 
+
+Your task is to extract ALL concrete entities that explicitly appear in the provided text. STRICT EXTRACTION RULES: 1. Extract EVERY entity present -- coverage must be exhaustive. 2. Only extract entities that appear verbatim or as clear noun phrases: named entities, technical terms, products, models, proper nouns, unique identifiers. 3. Do NOT invent, generalise, abstract, paraphrase, or add synonyms. 4. Do NOT extract raw mathematical formulas or LaTeX expressions (e.g. $x_{i}$, \alpha). Convert to plain text if needed (e.g. "variable x_i"). 5. Do NOT include special characters ($, \, {, }) in keywords. 6. When content contains no meaningful information (e.g. reference lists), the summary MUST contain exactly: "No meaningful information" OUTPUT FORMAT (JSON): {"keywords": [ // ALL verbatim entities, ordered most to least salient ], "summary": "One concise sentence summarising the content.", "tags": [ // Broad classification tags, not entities ] }
+
+A.2 Visual Node Analysis 
+
+Analyses images, charts, and tables via VLM. The text_content field concatenates the caption with all readable in-image text for BM25 search indexing. 
+
+Generate a structured analysis of the visual elements in the provided image (a figure or page from a scientific paper). Also provided: surrounding text context and caption. Instructions: 1) Visual Focus: use context only to aid understanding; the summary must be based primarily on visual evidence and the caption. 2) Keywords: extract EXACT in-image terms -- labels, legends, axis titles, category names, annotations, and readable data values. 3) Summary: when the caption includes an index (e.g. "Figure 1", "Table 2"), begin with "Figure X --" or "Table Y --". Describe only what is visually present and what the caption states. 4) Tags: at least three broad categories/themes. 5) text_content: COMBINE the full caption text AND a transcription of ALL readable in-image text (axis numbers, labels, annotations) into one raw string for search indexing. Output JSON: {"keywords": [ // exact in-image labels and readable text ], 
+
+18 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+"summary": "Figure X -- concise visual description.", "tags": [ // at least three broad category tags ], "text_content": "full caption + all readable in-image text" }Context: {context} Caption: {caption} 
+
+A.3 Graph Evolution 
+
+LLM agent that rewrites each node’s summary and establishes semantic links after inspecting its graph neighbours. Runs for multiple iterations to propagate cross-modal evidence. 
+
+You are an AI Graph evolution agent managing a knowledge base. Graph note: Content: {content} Summary: {context} Keywords: {keywords} {neighbor_number} neighbouring notes: {neighbors} Determine: 1. Which neighbours should be linked to this note? 2. Should the summary / keywords be updated to be more distinctive? 3. If so, provide updated summary (max 30 words) and keywords. Valid edge relationships (connect ONLY when one of these holds): Direct Reference/Citation Causal Relationship Part-Whole Relationship Conceptual Elaboration Temporal Sequence Contrastive/Comparative Hierarchical Relationship Contextual Dependency Do NOT connect notes that merely share common keywords or belong to the same broad domain without a specific logical relationship. Summary writing rules: DO -- describe only THIS note’s content, self-contained. DONT -- use comparative language ("unlike other notes..."). DONT -- reference other notes explicitly. Return JSON: {"suggested_connections": [<neighbour_ids>], "should_update": true, "new_summary": "...", "new_keywords": ["..."] }
+
+Phase B — Online Inference Executed at query time for each question. 
+
+B.1 Query Keyword Extraction 
+
+Extracts high-recall BM25 keywords from the query; pays special attention to figure/table/section references as single tokens. 
+
+Identify the essential keywords from the query for BM25 search. Ensure high recall by including all restrictive terms. 
+
+19 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+Guidelines: 1. Entities & Proper Nouns: people, organisations, locations, works. 2. Time & Numbers: ALWAYS extract specific years and dates. 3. Document References (CRITICAL): extract figure/table/section identifiers EXACTLY as they appear; treat "Fig. 5" as one token. 4. Specific subject nouns. 5. EXCLUDE: functional words, verbs, broad interrogatives (what, how, explain, difference, context). Examples: Q: "What movies did Karen David play in 2007 and 2008?" A: ["Karen David", "movies", "2007", "2008"] Q: "Look at Figure 20 and Fig.5 to analyse the accuracy trend." A: ["Figure 20", "Fig.5", "accuracy trend"] Q: "Compare results in Table 3 with Section 4.2." A: ["Table 3", "Section 4.2", "results"] Output ONLY a JSON array of strings. Question: {question} 
+
+B.2 Evidence Reading Worker 
+
+Per-path VLM worker that extracts a candidate answer from a single evidence path; called in parallel across all selected paths. 
+
+Read the evidence passages and images below, then answer the question. <text> $DOC$ </text> Question: $Q$ Rules: - Use only the provided text and images. - ENTITY ANCHOR (critical): verify the evidence explicitly mentions the question’s subject (people, films, datasets, models, places). If it describes a different entity, set status to "not_reported" --do NOT substitute a plausible fact from the wrong entity’s page. - Tables: match the exact row/column intersection requested. - Improvement/gain/delta questions: read ALL relevant rows and compute the difference. Report signed delta values (e.g. "+0.05"), not absolute values. - "Which season/episode/edition performed best": report the LABEL (e.g. "season two"), NOT the numeric value from its row. - Choice questions ("in A or B?", "X or Y?"): extract the raw metric for EACH named option, compare directly, name the winner. - DIRECTION / POLARITY (critical): locate exact values or explicit direction words; state the direction you read -- do NOT infer from expectation or general knowledge. - BOOLEAN (critical): restate the exact relevant fact from the evidence before deciding. Never answer from general knowledge. - Before "not_reported": scan once more for any partial signal. Reserve it for cases with clearly no overlapping content. Respond with ONLY one of these JSON objects: {"status":"supported","answer":"<exact answer>","evidence":"<key phrase>"} {"status":"not_reported","answer":"","evidence":""} 
+
+20 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+B.3 Answer Synthesis (Reasoner) 
+
+Synthesises all worker outputs and key evidence into a single final answer; handles entity anchoring, worker-refusal override, cross-path contradictions, and question-type formatting. 
+
+You are a helpful AI assistant that excels at question answering. Synthesise the following evidence paths extracted from a document graph. Each path contains: - Worker answer: quick preliminary extraction (may be wrong). - Key evidence: raw text from the most relevant nodes (ground truth). When a worker answer contradicts its key evidence, trust key evidence. QUESTION $Q$ EVIDENCE PATHS $PATHS$ Instructions: 0. ENTITY ANCHOR: only accept answers from paths whose key evidence explicitly mentions the question’s subject. Discard distractors. 1. Read EVERY evidence path -- do not skip low-weight paths. 2. Flow weight reflects graph topology, not answer quality. 3. WORKER-REFUSAL OVERRIDE (critical): if a worker refused but its key evidence actually contains the answer, extract it yourself. 4. Contradictory numbers: (a) key evidence overrides worker answer; (b) prefer most complete/specific path; (c) prefer structured text over image descriptions; (d) discard "not reported" before ranking; (e) discard wrong-entity paths first. 5. Semantically equivalent answers: use the more common/general form matching the document’s verbatim text. 6. Format by question type: CHOICE -- name the winning option (do not start with Yes/No). BINARY -- verify direction from evidence; start "Yes" or "No". DELTA -- signed delta value(s) only; not absolute values. VALUE -- exact number or fact. LABEL -- report the label, not numbers. LIST -- enumerate names/labels only. $ANS_LEN_GUIDE$ 7. Produce ONE concise factual answer; use the document’s exact words. 8. DELTA: if paths give target and baseline separately, subtract them yourself (e.g. "+0.2893"). 9. Output format (mandatory): <thought>[2-5 sentence reasoning]</thought> <output>your complete answer here</output> Nothing after </output>. 
+
+B.4 Consistency Check 
+
+Pairwise judge used to compute the consistency score that triggers System 2 when worker answers contradict each other. 
+
+You are comparing two partial answers to the same question. Question: $Q$ Answer A: $A$ Answer B: $B$ Do these answers CONTRADICT each other? Answer YES only if they give directly conflicting values or claims for the same thing (e.g. one says 42% and the other 38% for the same 
+
+21 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+metric, or one says Yes and the other says No). Answer NO if they address different aspects, are complementary, or if one is empty. Answer with exactly one word: YES or NO. 
+
+B.5 System 2 Bridge Scorer 
+
+Used in System 2 Trigger 1 to decide whether a new bridge edge between two passages across the min-cut is logically warranted for the question. 
+
+Given the question below, determine whether there is a logical reasoning connection between the two content passages. Question: $Q$ Passage A: $A$ Passage B: $B$ If a connection exists, rate its strength from 0.0 to 1.0. Respond in exactly this format (nothing else): EXISTS: YES or NO SCORE: <float between 0.0 and 1.0> 
+
+B.6 System 2 Edge Scorer 
+
+Used in all three System 2 triggers to rescore edge weights after graph modification. Rates the usefulness of an A →B reasoning step toward answering the question. 
+
+Does reading Passage A then Passage B form a useful reasoning step toward answering the question? Question: $Q$ Passage A: $A$ Passage B: $B$ Rate how useful this A->B reasoning step is for answering the question: 0.0 (useless or irrelevant) to 1.0 (directly helpful toward the answer). Respond with a single float between 0.0 and 1.0. 
+
+Phase C — Evaluation LLM-as-judge prompt used to score generated answers offline. 
+
+C.1 LLM Evaluation Judge 
+
+Flexible matching rules handle abbreviations, paraphrases, numeric equivalences, partial answers, and multi-gold alternatives uniformly across all datasets. 
+
+You are an expert evaluator assessing answers from a RAG system. Question: {question} Expected Answer: {gold_answers} 
+
+22 FLOW READER : Min-Cost Flow Optimization for Multi-Modal Long Document Q&A A P REPRINT 
+
+Generated Answer: {assistant_answer} Accuracy (0 or 1): 1 -- generated answer is factually correct and aligns with expected. 0 -- generated answer is factually incorrect or contradicts it. Matching rules (apply uniformly): - Ignore: capitalisation, punctuation, whitespace, articles, LaTeX markup, abbreviation vs. full form, synonyms, singular/plural. - Partial-match: all key facts present + non-contradictory extras -> 1. - Concise-match: terse label/number conveying the same key fact -> 1. Exception: gold lists multiple distinct claims, pred omits them -> 0. - Abstractive-elaboration: paraphrase that preserves subject-predicate-object roles -> 1; swapped roles -> 0. - Numeric: 0.82 = 82%; 6.3M = 6,300,000. Signed deltas must match. - List: all key items present in any order; extra items not penalised. - Multi-gold: if gold gives alternatives ("X || Y || Z"), one match -> 1. - Entity: answer must refer to the SAME entity as the question. "Not answerable" handling: Both indicate inability -> correct (1). Gold has content, pred says "Not answerable" -> incorrect (0). Gold says "Not answerable", pred has content -> incorrect (0). Output MUST be valid JSON only: {"accuracy": 0 or 1, "reasoning": "brief explanation (no LaTeX, no backslashes)" }
+
+23
