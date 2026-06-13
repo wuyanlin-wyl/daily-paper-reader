@@ -6,77 +6,79 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-12
-- 运行时间：2026-06-12 22:04:21 UTC
+- 最新运行日期：2026-06-13
+- 运行时间：2026-06-13 20:56:38 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今天重点精读了两篇满分论文，聚焦视觉语言模型的细粒度感知与医学推理监督。最值得关注《The Last Visible Pixel》对像素级感知的探测，以及《OpenMedReason》在医学推理中的科学监督方法。建议优先精读这两篇满分论文，深入理解其核心机制与实验设计。
-- 详情：[/202606/12/README](/202606/12/README)
+今日19篇论文聚焦视觉语言模型感知精度与策略优化，精读两篇高分研究均达9.0分。  
+最值得关注：细粒度感知探索《The Last Visible Pixel》与基于Token级动态优势重塑的感知强化策略《PRPO》。  
+建议优先精读这两篇论文，理解视觉模型如何捕捉微小细节并优化决策过程。
+- 详情：[/202606/13/README](/202606/13/README)
 
 ### 精读区论文标签
-1. [The Last Visible Pixel: Probing Fine-Scale Perception in Vision-Language Models](/202606/12/2606.07861v1-the-last-visible-pixel-probing-fine-scale-perception-in-vision-language-models)  
-   标签：评分：10.0/10、query:vl
-   evidence：针对VLM精细视觉感知的基准FineSightBench
-2. [OpenMedReason: Scientific Reasoning Supervision for Medical Vision-Language Models](/202606/12/2606.12169v1-openmedreason-scientific-reasoning-supervision-for-medical-vision-language-models)  
-   标签：评分：10.0/10、query:vlmmed
-   evidence：面向医学视觉语言模型的开源推理语料库
-3. [Unification of Closed-Open Industrial Detection Scenarios: New Large-Scale Benchmarks,Challenges and Baselines](/202606/12/2606.07953v1-unification-of-closed-open-industrial-detection-scenarios-new-large-scale-benchmarkschallenges-and-baselines)  
+1. [The Last Visible Pixel: Probing Fine-Scale Perception in Vision-Language Models](/202606/13/2606.07861v1-the-last-visible-pixel-probing-fine-scale-perception-in-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：面向大型视觉语言模型的新大规模多模态基准
-4. [Robust-U1: Can MLLMs Self-Recover Corrupted Visual Content for Robust Understanding?](/202606/12/2606.08063v1-robust-u1-can-mllms-self-recover-corrupted-visual-content-for-robust-understanding)  
+   evidence：视觉语言模型精细感知基准
+2. [PRPO: Perception-Reinforced Policy Optimization via Token-Level Dynamic Advantage Reshaping](/202606/13/2606.08708v1-prpo-perception-reinforced-policy-optimization-via-token-level-dynamic-advantage-reshaping)  
    标签：评分：9.0/10、query:vl
-   evidence：多模态大模型自恢复视觉理解
-5. [Are Reasoning Vision-Language Models Robust to Semantic Visual Distractions?](/202606/12/2606.08894v1-are-reasoning-vision-language-models-robust-to-semantic-visual-distractions)  
+   evidence：大视觉语言模型的强化学习
+3. [TABVERSE: Benchmarking Cross-Format Table Understanding in LLMs and VLMs](/202606/13/2606.09578v1-tabverse-benchmarking-cross-format-table-understanding-in-llms-and-vlms)  
    标签：评分：9.0/10、query:vl
-   evidence：VLM对语义视觉干扰鲁棒性的基准
-6. [Almieyar-Oryx-BloomBench: A Bilingual Multimodal Benchmark for Cognitively Informed Evaluation of Vision-Language Models](/202606/12/2606.05531v1-almieyar-oryx-bloombench-a-bilingual-multimodal-benchmark-for-cognitively-informed-evaluation-of-vision-language-models)  
+   evidence：视觉语言模型表格理解基准
+4. [++nnU-Net: Scaling nnU-Net with Prefix-Based Data Augmentation](/202606/13/2606.10713v1-nnu-net-scaling-nnu-net-with-prefix-based-data-augmentation)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：提出++nnU-Net用于医学分割，带数据增强
+5. [AVIS: Adaptive Test-Time Scaling for Vision-Language Models](/202606/13/2606.11576v1-avis-adaptive-test-time-scaling-for-vision-language-models)  
+   标签：评分：9.0/10、query:vl
+   evidence：提出AVIS自适应缩放机制用于视觉语言模型
+6. [Adapting Vision-Language Models from Iconic to Inclusive for Multi-Label Recognition Without Labels](/202606/13/2606.11626v1-adapting-vision-language-models-from-iconic-to-inclusive-for-multi-label-recognition-without-labels)  
+   标签：评分：9.0/10、query:vl
+   evidence：无标签下自适应VLM实现包容性多标签识别
+7. [MotionEnhancer: Leveraging Video Diffusion for Motion-Enhanced Vision-Language Models](/202606/13/2606.06853v1-motionenhancer-leveraging-video-diffusion-for-motion-enhanced-vision-language-models)  
    标签：评分：8.0/10、query:vl
-   evidence：基于Bloom分类法的双语多模态VLM基准
-7. [Learning Geometric Representations from Videos for Spatial Intelligent Multimodal Large Language Models](/202606/12/2606.05833v1-learning-geometric-representations-from-videos-for-spatial-intelligent-multimodal-large-language-models)  
-   标签：评分：8.0/10、query:vl
-   evidence：为多模态大模型学习几何表示
+   evidence：运动增强的视觉语言模型
 
 ### 速读区论文标签
-1. [Mechanistic Insights into Functional Sparsity in Multimodal LLMs via CoRe Heads](/202606/12/2606.05843v1-mechanistic-insights-into-functional-sparsity-in-multimodal-llms-via-core-heads)  
+1. [LARA: Latent Action Representation Alignment for Vision-Language-Action Models](/202606/13/2606.07100v1-lara-latent-action-representation-alignment-for-vision-language-action-models)  
    标签：评分：8.0/10、query:vl
-   evidence：多模态LLM中跨模态检索的功能稀疏性分析
-2. [VisualFLIP: Do Predictions Depend on Task-Critical Visual Evidence in Multimodal Reasoning?](/202606/12/2606.07872v1-visualflip-do-predictions-depend-on-task-critical-visual-evidence-in-multimodal-reasoning)  
+   evidence：用于机器人的视觉-语言-动作模型对齐
+2. [VisualFLIP: Do Predictions Depend on Task-Critical Visual Evidence in Multimodal Reasoning?](/202606/13/2606.07872v1-visualflip-do-predictions-depend-on-task-critical-visual-evidence-in-multimodal-reasoning)  
    标签：评分：8.0/10、query:vl
-   evidence：视觉语言模型基准
-3. [Look Less, Reason More: Block-wise Attention Skipping for Efficient Multimodal LLMs](/202606/12/2606.08511v1-look-less-reason-more-block-wise-attention-skipping-for-efficient-multimodal-llms)  
+   evidence：视觉语言模型的多模态推理基准
+3. [Robust-U1: Can MLLMs Self-Recover Corrupted Visual Content for Robust Understanding?](/202606/13/2606.08063v1-robust-u1-can-mllms-self-recover-corrupted-visual-content-for-robust-understanding)  
    标签：评分：8.0/10、query:vl
-   evidence：块级注意力跳跃实现高效多模态大模型
-4. [Two Bridges, One Pathway: From VLMs to Generalizable VLAs with Embodied Trajectory-Coupled Data](/202606/12/2606.08520v1-two-bridges-one-pathway-from-vlms-to-generalizable-vlas-with-embodied-trajectory-coupled-data)  
+   evidence：多模态大模型视觉自恢复
+4. [VideoWeaver: Evaluating and Evolving Skills for Agentic Long Video Generation](/202606/13/2606.08091v1-videoweaver-evaluating-and-evolving-skills-for-agentic-long-video-generation)  
    标签：评分：8.0/10、query:vl
-   evidence：提出使用ETC数据将VLM适应机器人控制的方法
-5. [Unveiling the Unknown: Open Vocabulary Object Detection with Scene Graphs](/202606/12/2606.05916v1-unveiling-the-unknown-open-vocabulary-object-detection-with-scene-graphs)  
+   evidence：代理长视频生成基准
+5. [When is 3D Worth It? A Resource-Performance Frontier for CNNs and Transformers in Lung CT](/202606/13/2606.06950v1-when-is-3d-worth-it-a-resource-performance-frontier-for-cnns-and-transformers-in-lung-ct)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：比较CNN和Vision Transformer在肺部CT上的表现
+6. [Look Less, Reason More: Block-wise Attention Skipping for Efficient Multimodal LLMs](/202606/13/2606.08511v1-look-less-reason-more-block-wise-attention-skipping-for-efficient-multimodal-llms)  
    标签：评分：7.0/10、query:vl
-   evidence：利用VLM知识的开放词汇检测
-6. [PAMF: Prior-Aware Multimodal Fusion for Incomplete Time Series Data](/202606/12/2606.06328v1-pamf-prior-aware-multimodal-fusion-for-incomplete-time-series-data)  
+   evidence：通过注意力跳过实现高效多模态大模型
+7. [Generalizing Geometry-Guided Mamba as a Plug-and-Play Context Module for CNN-based Semantic Segmentation](/202606/13/2606.08866v1-generalizing-geometry-guided-mamba-as-a-plug-and-play-context-module-for-cnn-based-semantic-segmentation)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：先验感知的多模态融合用于医疗时间序列
-7. [Deterministic access to global viral sequence data enables robust agentic scientific discovery](/202606/12/2606.06749v1-deterministic-access-to-global-viral-sequence-data-enables-robust-agentic-scientific-discovery)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：用于生物医学研究的智能体病毒数据检索
-8. [DaX: Learning General Pathology Representations Across Scales](/202606/12/2606.06983v1-dax-learning-general-pathology-representations-across-scales)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：组织学图像分析的病理视觉基础模型
-9. [Let It Be Simple: One-Step Action Generation for Vision-Language-Action Models](/202606/12/2606.05737v1-let-it-be-simple-one-step-action-generation-for-vision-language-action-models)  
-   标签：评分：6.0/10、query:vl
-   evidence：视觉-语言-动作模型的一步动作生成
-10. [Symb-xMIL: Symbolic Explanations for Multiple Instance Learning in Digital Pathology](/202606/12/2606.06224v1-symb-xmil-symbolic-explanations-for-multiple-instance-learning-in-digital-pathology)  
+   evidence：采用几何引导的语义分割上下文模块，可迁移至医学分割
+8. [An Effective Router for Vision-Language Model Selection](/202606/13/2606.08970v1-an-effective-router-for-vision-language-model-selection)  
+   标签：评分：7.0/10、query:vl
+   evidence：视觉语言模型选择路由器，使用多模态数据集
+9. [Multi-FRuGaL: Multimodal Flexible Redundancy-aware Decomposed Gated Learning for Cancer Diagnosis and Prognosis](/202606/13/2606.06867v1-multi-frugal-multimodal-flexible-redundancy-aware-decomposed-gated-learning-for-cancer-diagnosis-and-prognosis)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：数字病理学的可解释多实例学习
-11. [Benchmark Everything Everywhere All at Once](/202606/12/2606.06462v1-benchmark-everything-everywhere-all-at-once)  
-   标签：评分：6.0/10、query:vl
-   evidence：多模态大模型基准自动构建
-12. [FLOWREADER: Min-Cost Flow Optimization for Multi-Modal Long Document Q&A](/202606/12/2606.07235v2-flowreader-min-cost-flow-optimization-for-multi-modal-long-document-qa)  
+   evidence：用于癌症诊断的多模态冗余感知门控学习框架
+10. [DaX: Learning General Pathology Representations Across Scales](/202606/13/2606.06983v1-dax-learning-general-pathology-representations-across-scales)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：基于最小费用流的多模态检索增强生成用于长文档
+   evidence：病理视觉基础模型，与医学图像分析相关
+11. [HKVM-RAG: Key-Value-Separated Hypergraph Evidence Organization for Multi-Hop RAG](/202606/13/2606.07218v1-hkvm-rag-key-value-separated-hypergraph-evidence-organization-for-multi-hop-rag)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：多跳RAG使用超图证据组织
+12. [Constrained Dominant Sets for Multimodal Document Question Answering](/202606/13/2606.07252v2-constrained-dominant-sets-for-multimodal-document-question-answering)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：多模态RAG检索方法
 
 
 <div class="dpr-home-promo-card">

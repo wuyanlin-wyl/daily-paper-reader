@@ -1,0 +1,546 @@
+Title: HKVM-RAG: Key-Value-Separated Hypergraph Evidence Organization for Multi-Hop RAG
+
+URL Source: https://arxiv.org/pdf/2606.07218v1
+
+Published Time: Mon, 08 Jun 2026 00:50:23 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# HKVM-RAG: Key-Value-Separated Hypergraph Evidence Organization for Multi-Hop RAG 
+
+Mingyu Zhang 
+
+Faculty of Computing Harbin Institute of Technology 
+
+Harbin, China 25b903142@stu.hit.edu.cn 
+
+Ying Ma *
+
+Faculty of Computing Harbin Institute of Technology 
+
+Harbin, China y.ma@hit.edu.cn 
+
+Abstract —Multi-hop RAG poses a data-engineering problem beyond passage matching: under fixed retrieval budgets, a system must organize retrieved text into evidence units that expose answer chains. Dense retrievers score passages independently, while graph-based memories make associations explicit but often rely on pairwise or entity-centered keys that fragment multi-hop evidence. We present HKVM-RAG, a key-value-separated evidence-organization layer. It assembles answer-path hyperedges from cached passage-level LLM evidence tuples and uses them as retrieval keys, while retaining passage text as answer values. To isolate key-space design, our fixed-substrate protocol holds the tuple cache, candidate passages, reader, and evaluation budget constant across pairwise graph and hypergraph variants. Weighted hypergraph key-value retrieval improves over KG-PPR by +3.426 F1 on 2WikiMultiHopQA and +3.592 F1 on MuSiQue; HotpotQA shows that higher structured support coverage need not yield standalone answer-F1 gains. We therefore study WHG-KV as an evidence-control signal rather than a dense-retrieval replacement. Oracle and train-to-dev analyses identify support selection as repairable, and a dense-aware controller combines frozen ColBERTv2 and HKVM rank/score features using out-of-fold HKVM predictions. It reaches 88.846, 65.073, and 85.810 F1 on the three benchmarks, improving over ColBERTv2 by +11.084, +6.763, and +5.966 F1. Source-level ablations show that matched non-WHG structured signals do not match the WHG-KV gains. These results provide bounded evidence that key-value-separated hypergraph organization can serve as a reusable evidence-control mechanism for multi-hop RAG. 1
+
+Index Terms —retrieval-augmented generation, evidence index-ing, hypergraph retrieval, key-value memory, multi-hop question answering 
+
+I. I NTRODUCTION 
+
+Multi-hop RAG is not only a language-modeling problem; it is a data-engineering problem of organizing evidence un-der fixed retrieval budgets. Retrieval-augmented generation grounds model outputs in external evidence by coupling parametric language models with retrieved non-parametric knowledge [1]–[3]. Recent database-community discussions frame RAG as a data-management and system-design prob-lem involving retrieval, indexing, and evaluation infrastructure [29], [30]. In this paper, the system question is how passages, vector scores, extracted relations, and reproducible budgets 
+
+> *
+
+Corresponding author. 
+
+> 1
+
+Code and data are available at: https://github.com/Mingyu-Zh/ HKVM-RAG. (a) Dense Passage View (b) Pairwise KG Keys (c) HKVM Key -Value Memory          
+
+> Query
+> Passage scores
+> independent
+> values scored separately
+> Query
+> Pairwise
+> Key space
+> binary edges
+> same passages, pairwise keys
+> Key space
+> Value space
+> Query
+> higher -order key / one address
+> key -> retrieved passage values
+> passage text
+> remains the
+> value
+> higher -order key binds multi -hop evidence
+> fixed substrate: same evidence tuple cache + same candidate passages + same answer module
+> hAP = {e 1, b, e 2, e 3}
+> one answer -path hyperedge key
+> Mentions /
+> provenance
+> 𝒑 𝟏 𝒑 𝟐
+
+𝒆 𝟏   
+
+> 𝒑 𝟑
+> 𝒑 𝟏 𝒑 𝟐 𝒑 𝟑
+
+𝒆 𝟐 𝒆 𝟑 
+
+𝒃 
+
+𝒆 𝟏 𝒆 𝟐 𝒆 𝟑 𝒃       
+
+> 𝒑 𝟏 𝒑 𝟐 𝒑 𝟑
+> 𝒔 (𝒒 ,𝒑 𝟏 )𝒔 (𝒒 ,𝒑 𝟐 )
+> 𝒔 (𝒒 ,𝒑 𝟑 )
+
+Fig. 1. Conceptual comparison of three retrieval views under a fixed evidence substrate. (a) Dense retrieval scores passage values independently. (b) Pairwise KG retrieval uses binary entity-relation keys and maps graph nodes back to their source passages. (c) HKVM-RAG separates key-side evidence organization from value-side passage text: an answer-path hyperedge acts as one higher-order retrieval key that maps back to multiple passage values. The schematic illustrates the mechanism tested in the cached-extraction setting. 
+
+are arranged before answer generation. Recent RAG-memory systems extend this idea with explicit retrieval structures for questions whose evidence is distributed across multiple passages [4]–[6]. In multi-hop question answering benchmarks [7]–[9], the retriever must therefore do more than find in-dividually relevant passages. It must organize passages into evidence units that preserve how facts connect across hops. A system can fail even when the answer-bearing text is present in the corpus if the retrieved context does not expose the evidence chain needed by the reader. Two major retrieval routes address different parts of this problem. Lexical, dense, and late-interaction retrievers are strong matching models [10]–[13], but their scores do not explicitly encode the structured evidence units used by a multi-hop answer. Graph-based RAG and knowledge-graph mem-ory systems make associations explicit by indexing extracted entities and relations and traversing the resulting graph [4]– [6], [14], [15]. This structure is useful, but the retrieval keys remain primarily pairwise or entity-centered graph objects. When answer evidence is better represented as a group of connected facts, flattening that group into independent edges can weaken the retrieval signal. Hypergraph learning methods provide a natural represen-
+
+> arXiv:2606.07218v1 [cs.IR] 5 Jun 2026
+
+tation for higher-order relations [16]–[19], and recent RAG systems have begun to explore hypergraph-driven retrieval and memory [20], [21]. The remaining systems question is how to test such higher-order retrieval keys without changing the underlying evidence substrate at the same time. Improvements can become ambiguous when multiple experimental axes change together. Extraction design and model scale are two major confounds. Online filtering budgets and high-order re-lation schemas add further confounds. The result may reflect a stronger extraction pipeline rather than the key structure itself. This paper isolates the key-space question: given the same evidence tuple cache and candidate passages, does an answer-path hypergraph key space organize multi-hop evidence better than a pairwise graph key space? We propose HKVM-RAG, a structured evidence-indexing design for testing this mechanism. In HKVM-RAG, HKVM names an operational key-value memory abstraction rather than a biological claim: extracted entities, pairwise edges, answer-path hyperedges, and confidence weights form the retrieval-key side, while passage text remains the value side used for answer extraction. The system constructs answer-path hyperedges from LLM-extracted evidence tuples and uses them as retrieval keys over passage values. This design gives the paper two connected tests. The first asks whether hypergraph keys improve evidence organization over pairwise graph keys under a fixed extraction substrate. The second asks whether the resulting hypergraph key scores are useful as control signals alongside strong lexical and dense passage scores. Figure 1 contrasts the three retrieval views: dense scoring over separate passage values, query-seeded pairwise KG keys with provenance links to passages, and a single answer-path hyperedge key that maps back to multiple passage values. The evaluation follows this mechanism question rather than a leaderboard narrative. We ask four bounded ques-tions: whether answer-path hypergraph keys improve over pairwise graph keys under a shared tuple cache; whether standalone failures reflect extraction limits or support-selection errors; whether WHG-KV rank/score signals complement Col-BERTv2 in a train-to-dev controller; and whether the gain persists when the structured source or first-stage retriever is changed. The answers are correspondingly scoped. Weighted-HG-KV improves over a HippoRAG-style KG-PPR reference by +3.426 F1 on 2WikiMultiHopQA and +3.592 F1 on MuSiQue, but HotpotQA shows that standalone structure is not a dense-retrieval replacement. Oracle answer-path selection raises 2WikiMultiHopQA F1 from 79.299 to 90.884 and MuSiQue F1 from 39.925 to 74.330, identifying support selec-tion as a major bottleneck. A dense-aware controller reaches 88.846 F1 on 2WikiMultiHopQA, 65.073 F1 on MuSiQue, and 85.810 F1 on HotpotQA, while source-level diagnostics show that matched non-WHG sources do not match the gains. These results position HKVM-RAG as a lightweight evidence-organization component whose key-side signal can comple-ment lexical and dense retrievers under the tested protocol. The contributions are:  
+
+> •
+
+We formulate multi-hop RAG retrieval as fixed-budget evidence organization and instantiate HKVM-RAG as a key-value-separated framework with hypergraph key-side objects and passage values.  
+
+> •
+
+We define a controlled comparison protocol that isolates key-space design by holding the evidence tuple cache, candidate passages, reader, and evaluation budget fixed across pairwise graph and hypergraph rows.  
+
+> •
+
+We diagnose the standalone hypergraph failure mode with oracle gap decomposition and train-to-dev support scoring, identifying support selection and ranking as a major repairable bottleneck on MuSiQue under the current cached extraction substrate.  
+
+> •
+
+We introduce a dense-aware HKVM controller and report train-to-dev gains over ColBERTv2 and learned HKVM calibration, with source-level and first-stage diagnostics showing that the gain is WHG-KV-specific under the tested protocol rather than a generic effect of adding any structured prediction source. We release a reproducibility-oriented artifact that includes code, processing scripts, frozen manifests, prediction files, and redistributable processed outputs needed to verify the paper-facing tables and figures. II. R ELATED WORK 
+
+A. Lexical, Dense, and Multi-Hop Retrieval 
+
+We organize related work by the data state each line contributes to our controlled evidence-indexing view: passage scoring, graph-key memory, and hypergraph key-value mem-ory. Retrieval-augmented generation and retrieval-augmented language-model pre-training show that external evidence can improve knowledge-intensive NLP and open-domain question answering [1], [2]. Retrieval-reader architectures such as FiD fuse independently encoded retrieved passages during genera-tion [3]. At the retriever level, BM25 remains a robust lexical reference point [10], dense passage retrieval learns query and passage representations in a shared vector space [11], Contriever represents unsupervised dense retrieval [12], and ColBERTv2 uses late interaction to retain token-level match-ing signals [13]. At the systems layer, dense retrieval depends on approximate nearest-neighbor and vector-data infrastructure such as HNSW, FAISS, anisotropic vector quantization, and vector database systems [31]–[34]. Multi-hop retrieval systems such as MDR, Baleen, and IRCoT make evidence gathering iterative or reasoning-guided [22]–[24]. We include these sys-tems as strong matching and multi-hop retrieval context, while asking a complementary question: under the same extracted evidence substrate and answer budget, does changing the structured key space from pairwise KG edges to answer-path hyperedges improve passage organization? 
+
+B. Knowledge-Graph Memory for RAG 
+
+Graph-based RAG and KG-augmented reasoning meth-ods organize evidence through entity-relation graphs or KG traversal [14], [15]. This connects RAG evidence retrieval to a broader data-management setting in which querying knowledge graphs, including graph traversal and path-oriented access, is a long-standing problem [35]. Knowledge-graph memory systems make associations explicit by indexing ex-tracted entities and relations and then traversing the resulting graph. HippoRAG organizes LLM-extracted triples into aKG and uses personalized PageRank for associative retrieval [4]. HippoRAG 2 strengthens this line with passage nodes, query-to-triple linking, and online LLM triple filtering [5]. EcphoryRAG follows a related entity-centric route, where cue entities activate entity-centered engrams for associative search [6]. These systems support the premise that explicit structure can help multi-hop retrieval, but their retrieval keys remain pairwise or entity-centered graph units, often coupled with additional online filtering. HippoRAG 2 and EcphoryRAG are the closest contem-poraneous KG-memory systems to our setting [5], [6]. We position them as full-system KG-memory references, while our numeric matrix uses a controlled key-space isolation pro-tocol. HippoRAG 2 uses Llama-3.3-70B-Instruct, NV-Embed-v2, and online LLM triple filtering [5]; EcphoryRAG reports Phi4/Ollama, bge-m3 embeddings, 500 random questions per dataset, and dataset-specific context tuning [6]. These dif-ferences in models, splits, prompts, filtering policies, and context budgets would change several axes at once, so the main comparison isolates pairwise KG keys and answer-path hypergraph keys under a shared substrate. 
+
+C. Hypergraph Retrieval and Key-Value Memory 
+
+Hypergraph neural networks and representation-learning methods model higher-order relations that are not captured cleanly by independent pairwise edges [16]–[19]. Hyper-RAG and HGMem bring related hypergraph ideas into RAG and working memory [20], [21]. Our construction is narrower: answer-path hyperedges are assembled from the same evidence tuple cache used by the pairwise KG-PPR baseline, so the experiment tests whether changing the retrieval key space improves evidence organization under a fixed extraction sub-strate. We include Co-occurrence-HG as a Hyper-RAG-style matched source constructed from the same cached evidence tuples and candidate passages. This row tests whether ageneric co-occurrence hypergraph source is sufficient under the same controller protocol, while avoiding additional ex-traction, high-order schema, filtering, retrieval-pipeline, and answer-assembly differences. The memory framing is also scoped. End-to-end and key-value memory networks support multi-hop reads over exter-nal memory [25], [26], Modern Hopfield networks connect associative memory and attention [27], and cognitive key-value memory motivates separating retrieval keys from stored values [28]. HKVM-RAG adopts this separation operationally: graph or hypergraph objects form the traversal key side, while passages remain the value side used for answer extraction. We use these analogies to motivate retrieval organization, not to claim biological fidelity. III. P ROBLEM FORMULATION 
+
+Given a query q and a candidate passage set P = {pi}, the evidence-organization layer must rank passages and produce an answer context. We study this layer after candidate passage construction, rather than claiming a new full-corpus indexing stack. This makes key-space design a controlled intervention over fixed candidate passages, extracted evidence, and answer modules. A dense retriever assigns direct scores s(q, p i) to candidate passages, treating them primarily as separate values. Each passage pi is also processed by an LLM extractor to produce evidence tuples Ri = {(h, r, t, p i, c f , c s, c b)}. Let 
+
+R = S 
+
+> i
+
+Ri and let V be the entity strings that appear as tuple heads or tails. A pairwise graph baseline builds 
+
+G = ( V, E g ) from the relation components of R and retrieves by graph traversal over binary keys. HKVM-RAG builds a hypergraph H = ( V, E h) over the same vertices and the same extracted tuple cache, where each hyperedge connects a group of vertices and passage ids that participate in a candidate answer path. We distinguish memory keys from memory values. Nodes, pairwise edges, hyperedges, and their weights define the key space used for retrieval. Passage text remains the value side used for answer support. A pairwise key links two entities at a time, whereas an answer-path hyperedge can serve as one higher-order key that binds several entities and then maps score mass back to its associated passage values. All structured methods finally produce passage scores s(pi) and pass the top-ranked passages to the same answer module. The central comparison is therefore not between different answer modules, but between two structured key spaces over the same extracted evidence: pairwise KG-PPR and answer-path hypergraph traversal. IV. M ETHOD 
+
+A. Overview 
+
+HKVM-RAG is a structured evidence-organization pro-cedure over a fixed candidate-passage substrate. The unit of comparison is a query-specific evidence table containing candidate passage ids, dense prediction scores, extracted tuple fields, structured prediction scores, and final answer-module inputs. Figure 2 tracks these data states rather than presenting a separate end-to-end retrieval pipeline. First, an LLM creates a seed-invariant passage-level evidence tuple cache, where each tuple contains a local relation triple, its passage id, and confi-dence fields (h, r, t, p i, c f , c s, c b); the extractor does not emit direct high-order hyperedges. Second, HKVM consumes these tuple fields: entity heads and tails define key vertices, shared bridge vertices assemble answer-path hyperedge keys, passage ids define value addresses, and extractor confidence fields weight key-side objects before query-seeded diffusion maps key scores back to passage-value scores. Third, in the dense-aware setting, frozen ColBERTv2 predictions and frozen HKVM predictions are aligned by passage id into per-passage rank/score features, and a passage-level controller learns to reorder the final evidence context. Table III tests whether changing the key space from pairwise tuple components to answer-path hyperedges improves evidence organization under the same substrate. The controller setting tests whether the same hypergraph signal is more useful as a complement to dense candidates than as a standalone retriever. 
+
+B. Shared LLM Evidence Tuple Extraction 
+
+All structured methods start from a shared passage-level evidence tuple cache. The relation component is triple-only: the extractor emits local (h, r, t ) relation triples with passage ids and confidence fields, but does not emit direct high-order hyperedges. For each passage pi, the extractor returns a small set of evidence tuples 
+
+(h, r, t, p i, c f , c s, c b), (1) where h and t are entity strings, r is a relation phrase, and 
+
+cf , cs, and cb denote factual confidence, semantic salience, and bridge potential. The extraction schema is passage-level and does not ask the LLM to produce high-order hyperedges directly. This keeps the LLM output local and auditable, while leaving cross-passage grouping to the deterministic answer-path assembly step. Evidence tuple extraction is cached once and treated as seed-invariant. The three evaluation seeds reuse the same extracted tuples and do not trigger new LLM calls. This is important for the comparison because it makes the structured rows differ in key-space construction and traversal rather than in repeated stochastic extraction. 
+
+C. Answer-Path Hyperedge Assembly 
+
+Pairwise graph memory connects evidence units through binary relations, which can fragment a multi-hop evidence group into separate edges. HKVM-RAG constructs answer-path hyperedges from the shared evidence tuples by grouping local triple components that share a bridge vertex. The notation below shows the entity, relation, and passage components; the associated confidence fields are carried with the grouped tuples and later aggregated onto the hyperedge. For a bridge vertex 
+
+v, define 
+
+Gv = {(h, r, t, p, c f , c s, c b) ∈ R : v = h or v = t}. (2) If |Gv | ≥ 2 and the union of heads and tails contains at least three distinct vertices, HKVM-RAG creates a hyperedge 
+
+ev = ( Vv , P v ) , (3) where Vv = S  
+
+> (h,r,t,p,c f,c s,c b)∈Gv
+
+{h, t } and Pv = {p :(h, r, t, p, c f , c s, c b) ∈ Gv }. The hyperedge stores the con-nected vertices, the passage ids that can receive score mass, and aggregated extractor fields inherited from the grouped tuples. The final default setting constructs these hyperedges without dev-gold support and without direct LLM high-order relations. Direct high-order extraction was kept out of the default because the diagnostic cache showed passage-local relations rather than cross-passage evidence paths. Answer-path as-sembly therefore provides the high-order key structure while preserving a local, auditable LLM evidence-tuple substrate. 
+
+D. Weighted Hypergraph Key Traversal 
+
+Weighted-HG-KV scores hypergraph keys with extractor-derived confidence signals. For a hyperedge e, the default structured setting computes an LLM-confidence score 
+
+a(e) = λf cf (e) + λscs(e) + λbcb(e)
+
+λf + λs + λb
+
+, (4) where cf (e), cs(e), and cb(e) are inherited from the grouped tuples. The default uses λf = 0 .5, λs = 0 , and λb = 0 .5. The hyperedge weight is then 
+
+w(e) = 1 + ( β − 1) a(e), (5) with β = 3 .0. Thus factual confidence and bridge potential drive the default key weight, while semantic salience is re-tained in the cache and in the hyperedge fields for ablation rather than used as an active default weight. Weighted-KG-PPR uses the analogous confidence weighting on pairwise graph edges, which lets the experiments separate the effect of confidence weighting from the effect of changing the key structure. Retrieval starts by seeding vertices from query-entity matches and token overlap. Hypergraph diffusion alternates between vertex scores and hyperedge scores. At each step, a hyperedge receives the weighted average score of its incident vertices, and vertices receive normalized mass back from incident hyperedges. With diffusion parameter ρ = 0 .35 , one update can be written as 
+
+x(t+1)  
+
+> v
+
+= ρx (0)  
+
+> v
+
++ (1 − ρ) X
+
+> e∋v
+
+w(e)
+
+d(v)|e|
+
+X
+
+> u∈e
+
+x(t) 
+
+> u
+
+, (6) where d(v) is the number of incident hyperedges. The default system uses traversal depth T = 1 . Additional diffusion depth 
+
+T = 2 is reported as an ablation rather than as the default system. After diffusion, passage scores combine two sources: ver-tex evidence from evidence tuples and direct hyperedge-to-passage evidence from Pv . This maps key-side evidence or-ganization back to passage values, producing HKVM passage ranks and scores before the common answer module or the dense-aware controller is applied. 
+
+E. Pairwise Graph Reference 
+
+KG-PPR is the low-order structured reference. It uses the same evidence tuple cache and candidate-passage budget, but restricts retrieval structure to pairwise graph traversal over the local triple components. Each tuple contributes an undirected edge between its head and tail. Query seeds are constructed in the same way as for Weighted-HG-KV, and personalized PageRank is run with restart parameter α = 0 .5, 40 iterations, and tolerance 10 −7. Passage scores are obtained by summing the final scores of the tuple endpoints that occur in each passage. This reference isolates the effect of replacing pairwise keys with answer-path hypergraph keys. Static-HG removes confi-dence weighting from the same answer-path hypergraph, while Weighted-KG-PPR adds the same LLM-confidence weighting Frozen LLM evidence tuple cache (a) 
+
+⋯
+
+## ❄
+
+> 𝒆 ₁
+> 𝒆 ₂
+> 𝒃
+
+⋯              
+
+> 𝒉 :𝒆 ₁𝒓 :𝒃𝒐𝒓𝒏 _𝒊𝒏 𝒕 :𝒃
+> 𝒑 𝒊 :𝒑 𝟏
+> 𝒆 ₁𝒃
+> 𝒓
+> 𝒑 ₁
+> (factual)
+> S𝒄𝒉𝒆𝒎𝒂 :
+> (bridge) (salience)
+> (𝒉 ,𝒓 ,𝒕 𝒑 𝒊 𝒄 𝒇 ,𝒄 𝒔 ,𝒄 𝒃 )
+
+Tuple 
+
+field bus      
+
+> h, r, t ->
+> key vertices
+> pi->
+> value address
+> cf, c s, c b->
+> confidence
+> fields
+> LLM
+> extraction
+> candidate
+> passages
+> (shared with
+> CoIBERTv2)
+> ⋯
+
+frozen evidence 
+
+tuple cache   
+
+> evidence tuple
+> 0.91 0. 62 0. 84
+
+𝑐 ! 𝑐 " 𝑐 #
+
+(b) HKVM key -value evidence organization 
+
+Key space Query seed  
+
+> answer -path hyperedge
+> confidence fields ->
+> hyperedge key weight
+
+cf 0.91  
+
+> 0.84
+> 0.62
+> key weight
+> 𝒘 (𝒉 𝑨𝑷 )
+
+cb
+
+cs  
+
+> (factual)
+> (bridge)
+> (salience)
+> Weighted key scores ->passage -value scores
+
+Value 
+
+space 
+
+⋯ ⋯ ⋯     
+
+> addr: 001 addr: 002 addr: 003
+> #1 #2#3
+> illustrative HKVM passage scores
+> score
+> 0.63
+> score
+> 0.92 score
+> 0.28
+> HKVM
+> predictions
+> HKVM score
+> no direct high -order hyperedges
+> HKVM rank
+> passage  embs
+
+×
+
+(c) Dense -aware trained evidence controller            
+
+> ColBERTv2
+> late interaction
+> query embs
+> ColBERTv2
+> predictions
+> dense rank
+> dense score
+> dense
+> rank
+> dense
+> score
+> HKVM
+> rank
+> HKVM
+> score
+> Interactions
+> dense x HKVM
+> 𝒑 𝒊
+> 𝒑 𝟏
+> 𝒑 𝟐
+> 𝒑 𝟑
+> …
+> per -passage aligned features
+> 0.64
+> 0. 89
+> 0. 31
+> 2
+> 1
+> 3
+> 0.63
+> 0. 92
+> 0. 28
+> ……………
+> passage -level logistic ranker
+> 𝒘 𝟏
+> 𝒘 𝟐
+> 𝒘 𝒅
+> …
+> …
+> reordered evidence context
+> 1. 𝒑 𝟐 2. 𝒑 𝟏 3. 𝒑 𝟑 ⋯
+> Train
+> Support
+> labels
+
+…
+
+> same candidate
+> passages as
+> HKVM
+> 𝒑 𝟏
+> ____
+> __
+> 𝒑 𝟐
+> ___
+> ___
+> 𝒑 𝟑
+> ⋯
+
+𝒑 𝟏 𝒑 𝟐 𝒑 𝟑 
+
+𝒆 𝟐 
+
+𝒆 𝟏 𝒆 𝟑 𝒗 
+
+𝒑 𝟏 
+
+𝒑 𝟐 
+
+𝒑 𝟑 
+
+> Fixed
+> answer
+> module
+> 𝒆 𝟑
+
+𝒉 𝑨𝑷 = (𝑽 𝒗 , 𝑷 𝒗 )
+
+> Shared bridge
+> vertex V
+
+Fig. 2. HKVM-RAG data states and dense-aware evidence control. (a) A frozen LLM evidence tuple cache stores passage-level relation triples, passage ids, and confidence fields (cf , c s, c b); it does not directly extract high-order hyperedges. (b) HKVM assembles answer-path hyperedge keys from the tuple fields, weights them with extractor confidence, diffuses query-seeded key scores, and projects the result back to passage-value scores. (c) The dense-aware controller aligns frozen ColBERTv2 and HKVM rank/score predictions by passage id and trains a passage-level logistic ranker on train-side support labels to reorder the final evidence context for the fixed answer module. 
+
+to pairwise graph edges. These control rows make the method comparison about key structure and weighting rather than about extraction, passages, or answer-module changes. 
+
+F. Dense-Aware Evidence Controller 
+
+The standalone structured comparison shows whether hy-pergraph keys improve over pairwise graph keys, but it does not assume that hypergraph retrieval should replace dense re-trieval. The dense-aware controller instead treats ColBERTv2 and HKVM outputs as two frozen prediction bundles over the same candidate passage ids. For each query-passage row, we align the dense and HKVM predictions by passage id and form a per-passage feature vector containing ColBERTv2 rank and score, HKVM rank and score, reciprocal-rank features, nor-malized score features, and dense-HKVM interaction terms. These are inference-time ranking signals; the controller does not use dev labels at inference time and does not run a new dense encoder or a new LLM extraction pass. We use three names for the train-to-dev ranking stages. The train-derived support scorer is the first HKVM-only passage ranker trained from train-side support labels over cached structured outputs. The learned HKVM calibration scorer is the stronger HKVM-only calibration variant over candidate-evidence features. The dense-aware controller is the final passage-level ranker that adds dense rank/score features to the HKVM signals. All three stages are trained on train-side labels and evaluated on frozen development predictions. The controller is a passage-level logistic ranker trained on train-side support labels. To avoid train-side HKVM stacking artifacts, the final paper-facing run uses out-of-fold HKVM predictions for the controller’s train-side HKVM inputs. Each train example is predicted only by a model trained on the other folds, while dev evaluation uses the fixed learned HKVM calibration predictions. The final configuration uses 80 epochs, learning rate 0.01, L2 = 10 −4, negative ratio 8, top-10 candidate retrieval, and top-5 answer context. We report dense-only, HKVM-only, RRF fusion, and dense+HKVM controller variants to separate source-only evidence, simple list-fusion effects, and learned passage-level control. For the source-level controller ablation, the first-stage pre-diction source, train-to-dev split, controller family, and hy-perparameters are held fixed while the structured bundle is swapped. The primary ablation uses ColBERTv2 as the first-stage source and replaces only the structured prediction bun-dle supplied to the controller, using matched Co-occurrence-HG, Static-HG, Weighted-KG-PPR, or WHG-KV predictions over the same datasets and seeds. We then repeat the same diagnostic with BM25 and Contriever in the first-stage slot to test whether the WHG-KV ordering is tied to late-interaction ColBERTv2. The non-WHG train-side prediction files are generated from existing cached train extraction artifacts, with no new LLM extraction calls, and the dev-side prediction files reuse the same frozen structured outputs used by the main result matrix. TABLE I EVALUATION SPLITS USED IN THE MAIN RESULT MATRIX .        
+
+> Dataset Split Examples 2WikiMultiHopQA Dev full 12576 MuSiQue Dev answerable 2417 HotpotQA Dev distractor 7405
+
+V. E XPERIMENTAL SETUP 
+
+A. Evaluation Splits and Metrics 
+
+The experimental setup fixes data states before comparing evidence-organization choices, rather than ranking unrestricted retrieval systems. We evaluate on three public multi-hop QA benchmarks: 2WikiMultiHopQA [8], MuSiQue [9], and HotpotQA [7]. This is the same family of benchmarks used by HippoRAG [4], but we report our exact official development splits. Table I summarizes the exact splits: the full 2Wiki-MultiHopQA development set, the MuSiQue development answerable subset, and the HotpotQA development distractor set. No hidden-test or server-submission results are included in the current result matrix. Metrics are all-recall at 10 (AR@10), answer F1, and exact match (EM). AR@10 measures whether all gold supporting passages are present in the top-10 retrieved passages. F1 and EM are computed from the common extractive answer output. The fixed-substrate key-space comparison uses seed-13 unique-example paired bootstrap with 1,000 samples and 
+
+α = 0 .05 . Train-to-dev controller and source-level diagnostics use 5,000-sample paper-export paired bootstrap over frozen prediction files; the supplementary material reports the corre-sponding provenance and intervals by export family. 
+
+B. Matched-Budget Protocol 
+
+All methods share the same passage preprocessing and answer-module budget: 1,200-token chunks with 100-token overlap and top-10 retrieval. The extractive answer module receives the top five passages under a 3,000-token context budget. This setup evaluates evidence indexing and passage ordering within a controlled candidate-passage substrate; it is not intended to measure deployment-time corpus indexing throughput or full-corpus retrieval recall. The answer module and evaluation script are fixed across rows, so the main comparison concerns retrieval and memory organization rather than answer-module variation. 
+
+C. Methods 
+
+The main table includes BM25, Contriever, ColBERTv2, KG-PPR, Weighted-KG-PPR, Co-occurrence-HG, Static-HG, and Weighted-HG-KV. This covers lexical retrieval, dense retrieval, pairwise structured memory, matched co-occurrence hypergraph memory, unweighted answer-path hypergraph memory, and weighted hypergraph key memory within the same candidate-passage budget. ColBERTv2 is implemented as candidate-passage late interaction over the same candidate chunks, not as a separate corpus-level ColBERT index. The Co-occurrence-HG row is a Hyper-RAG-style matched base-line constructed from the same shared evidence tuple cache and candidate passages; it is included to control for generic co-occurrence hypergraph structure, not to reproduce the original Hyper-RAG pipeline. 
+
+D. Fairness and Reproducibility 
+
+Dense and structured rows were merged from compatible source runs because of PyTorch/CUDA compatibility con-straints. The merge happens at the prediction-table level: each row preserves the query id, passage id, method score, seed, split, and evaluation setting recorded in the source manifest. The comparison preserves identical data splits, candidate-passage budgets, evaluation metrics, answer-module settings, and seed set (13, 29, and 43). This controlled-workload design follows the same broad benchmarking principle used in database evaluation: fixed workloads and explicit evaluation states make system comparisons more interpretable [36]. The merged manifest records the source split and has no missing rows. This separation ensures that dense encoding does not share GPU memory or runtime state with structured key-space construction, making measured metrics independently attributable. 
+
+E. LLM Extraction Disclosure 
+
+Structured methods use DeepSeek V4 Flash with a deter-ministic relation-triple extraction schema: no direct high-order extraction, temperature 0.0, passage-level extraction units, and at most five evidence tuples per passage. Table II reports the fixed extraction scope used by the structured rows in the main result matrix; seeds 13, 29, and 43 reuse the same cached evidence tuples rather than regenerating extraction outputs. The train-side extraction scopes are used only for the train-to-dev support scorer, learned HKVM calibration, and dense-aware controller across 2WikiMultiHopQA, MuSiQue, and HotpotQA. Gold support is not sent to the extractor; train support labels are used only after cache construction to train the support scorer, learned HKVM calibration, and dense-aware controller. The tuple cache is intentionally shared and auditable, but it is sparser than our earlier heuristic OpenIE cache and is not claimed to improve the pairwise KG baseline by itself. The extractor is implemented behind a provider abstraction compatible with OpenAI-style endpoints; replacing the endpoint requires regenerating and reporting a new extraction manifest. We treat these cached evidence tuples as reproducibil-ity artifacts rather than as new benchmark labels. Released cache files will mark tuple records as AI-generated extraction outputs, preserve source-dataset attributions, and follow the redistribution limits imposed by dataset licenses and provider terms. The artifact plan below specifies the code, manifests, scripts, and hashes used to verify or regenerate the frozen result matrix. 
+
+F. Artifact Availability 
+
+The submission artifact reproduces the paper-facing ta-bles and figures from frozen manifests rather than from TABLE II LLM EXTRACTION SCOPE FOR FIXED -SUBSTRATE STRUCTURED EVALUATION . U NITS ARE PASSAGE -LEVEL CACHED EXTRACTOR INPUTS ;                     
+
+> DETAILED MANIFESTS AND EXCEPTION LOGS ARE PROVIDED WITH THE ARTIFACT .
+> Use Dataset split Examples Passage units Main 2Wiki dev full 12576 125760 Main MuSiQue dev ans. 2417 48325 Main HotpotQA dev dist. 7405 28091 Train 2Wiki train subset 10000 100000 Train MuSiQue train ans. 10000 199987 Train HotpotQA train subset 10000 99504
+
+fresh extraction runs, following database-community empha-sis on artifact availability and reproducibility [37]. Code, configs, scripts, results, manifests, and supplementary ma-terial are hosted on GitHub (https://github.com/Mingyu-Zh/ HKVM-RAG); benchmark data and frozen prediction files are hosted on Hugging Face (https://huggingface.co/datasets/ MingY-Zh/HKVM-RAG). The artifact includes open-source code, processing scripts, extraction schema, prompt templates, manifests, prediction files, random seeds, table and figure generation scripts, environment notes, and evaluation code. For dataset passages or provider-derived outputs that can-not be redistributed directly, the artifact provides regenera-tion scripts, hashes, and source-dataset pointers. The supple-mentary material ( supplemental_material.pdf in the GitHub repository) lists the paper-facing result families and artifact records used to verify the main tables. VI. R ESULTS 
+
+A. Fixed-Substrate Structured Memory Comparison 
+
+To test whether key-space design matters, we first hold extraction, passages, and answer generation fixed. Table III reports the complete method matrix. The primary compari-son is between the pairwise graph reference, KG-PPR, and the answer-path hypergraph key memory, Weighted-HG-KV. These rows share the same evidence tuple cache and differ in the retrieval key structure. Under this fixed substrate, answer-path hypergraph keys improve over the pairwise graph reference on the two datasets where standalone structure helps answer extraction. On 2WikiMultiHopQA, Weighted-HG-KV reaches 79.299 F1 and 78.650 EM, compared with 75.873 F1 and 75.358 EM for KG-PPR. On MuSiQue, it reaches 39.925 F1 and 39.222 EM, compared with 36.332 F1 and 35.540 EM. Table IV therefore reports paired-bootstrap intervals only for Weighted-HG-KV minus KG-PPR, while the lexical and dense rows in Table III remain contextual references. The intervals are strictly positive on 2WikiMultiHopQA and MuSiQue, supporting the fixed-substrate key-space claim. HotpotQA separates evidence coverage from answer utility. In the standalone matrix, Weighted-HG-KV improves AR@10 over KG-PPR (98.190 versus 95.381), but its F1 is lower (72.957 versus 73.645), and the paired-bootstrap F1 difference is negative with a confidence interval crossing zero. Thus denser structured retrieval does not automatically improve answer extraction when lexical and dense baselines are already strong; the HotpotQA controller results below test whether the same WHG-KV signal can still help learned evidence ordering. The remaining structured rows separate confidence weight-ing from key structure. Weighted-KG-PPR adds the same confidence weighting to pairwise KG-PPR and changes F1 by only +0.021 on 2Wiki, +0.046 on MuSiQue, and +0.050 on HotpotQA. Static-HG keeps the answer-path hypergraph key structure without the default weighting; compared with Static-HG, Weighted-HG-KV is higher by +1.201 and +2.211 F1 on 2Wiki and MuSiQue. This comparison is descriptive; the formal test remains Table IV, and HotpotQA again limits the interpretation because Weighted-HG-KV is 0.383 F1 below Static-HG. 
+
+B. Oracle Decomposition and Train-to-Dev Support Scoring 
+
+To interpret the standalone boundary, we next ask whether the hypergraph tuples lack useful evidence or whether the system selects the wrong support from them. Table V orga-nizes this diagnosis into a no-gold baseline, an oracle answer-path upper bound, and train-to-dev variants across the three benchmarks. The oracle row uses support information and is excluded from bolding. On 2WikiMultiHopQA, no-gold weighted hypergraph retrieval reaches 79.299 F1, while oracle answer-path selection raises F1 to 90.884. On MuSiQue, no-gold Weighted-HG-KV reaches 39.925 F1 and oracle answer-path selection raises it to 74.330. HotpotQA shows the same pattern: no-gold Weighted-HG-KV reaches 72.957 F1, while oracle answer-path selection reaches 91.111 F1. Thus the cached evidence tuples are not the hard ceiling; the bottleneck is selecting and ranking answer-supporting evidence. The train-to-dev group tests how much of this selection gap can be recovered without dev labels. The train-derived support scorer raises F1 from 79.299 to 87.212 on 2Wiki, from 39.925 to 54.252 on MuSiQue, and from 72.957 to 81.525 on HotpotQA, closing 68.3%, 41.6%, and 47.2% of the oracle-selection gaps. A learned HKVM calibration scorer then reaches 88.391 F1 on 2Wiki, 56.754 F1 on MuSiQue, and 82.929 F1 on HotpotQA. For 2Wiki and MuSiQue, the cali-bration step improves over the matched deterministic support-scorer control by +1.179 and +2.133 F1 with positive paired-bootstrap intervals; HotpotQA shows a descriptive +1.404 F1 calibration step before the final controller. These results mo-tivate testing WHG-KV as an evidence-control signal, while leaving mechanism attribution to the controller and source-ablation analyses below. They do not show that structural proxy features alone caused the improvement. 
+
+C. Dense-Aware HKVM Controller 
+
+To test complementarity rather than replacement, we next treat WHG-KV as a control signal over dense candidates. Table VI reports raw controller outcomes, and Table VII re-ports paired-bootstrap deltas for the final controller. On 2Wiki-MultiHopQA, learned HKVM calibration is already strong at TABLE III MAIN RESULTS UNDER MATCHED CANDIDATE -PASSAGE BUDGETS . H IGHER IS BETTER FOR ALL METRICS ; BOLD MARKS THE BEST F1 AND EM WITHIN EACH DATASET .
+
+2WikiMultiHopQA MuSiQue HotpotQA 
+
+Method AR@10 F1 EM AR@10 F1 EM AR@10 F1 EM BM25 99.253 71.873 71.310 41.746 46.045 45.345 99.851 81.835 81.648 
+
+Contriever 100.000 65.498 64.711 54.199 55.565 54.903 100.000 79.930 79.730 ColBERTv2 100.000 77.763 77.195 49.317 58.309 57.758 100.000 79.844 79.635 KG-PPR 98.108 75.873 75.358 32.478 36.332 35.540 95.381 73.645 73.315 Weighted-KG-PPR 98.108 75.894 75.374 32.727 36.378 35.581 95.381 73.695 73.369 Co-occurrence-HG 99.650 70.665 70.070 31.734 35.632 34.712 98.204 71.074 70.722 Static-HG 99.650 78.098 77.529 36.740 37.714 36.905 98.190 73.340 73.018 Weighted-HG-KV 99.650 79.299 78.650 38.643 39.925 39.222 98.190 72.957 72.586     
+
+> TABLE IV PAIRED -BOOTSTRAP SUPPORT FOR THE PRIMARY FIXED -SUBSTRATE KEY -SPACE COMPARISON . D IFFERENCES ARE WEIGHTED -HG-KV MINUS
+> KG-PPR ON SEED -13 UNIQUE EXAMPLES .
+
+Dataset ∆F1 95% CI 2Wiki +3 .426 [+2 .877 , +3 .984] 
+
+MuSiQue +3 .592 [+1 .917 , +5 .155] 
+
+HotpotQA −0.689 [−1.453 , +0 .071] 
+
+88.391 F1 versus 77.763 for ColBERTv2, so the dense-aware controller adds only a smaller gain over calibration (+0.455 F1) while preserving the large advantage over ColBERTv2 (+11.084 F1), with strictly positive intervals. MuSiQue gives the clearest dense/HKVM combination case. ColBERTv2 reaches 58.309 F1, learned HKVM calibration reaches 56.754 F1, and source-only controllers remain near those references at 58.247 and 56.760 F1. Combining the two signals in the dense-aware HKVM controller raises F1 to 65.073, improving over ColBERTv2 by +6.763 and over learned HKVM calibration by +8.319, with strictly positive intervals. HotpotQA follows the same train-to-dev cached-prediction protocol, but its interpretation is different. ColBERTv2 reaches 79.844 F1, learned HKVM calibration reaches 82.929 F1, RRF reaches 83.223 F1, and the dense-aware HKVM controller reaches 85.810 F1. The final controller improves over Col-BERTv2 by +5.966 F1 and over learned HKVM calibration by +2.881 F1, with paired-bootstrap intervals fully above zero. This does not reverse the standalone HotpotQA finding in Table III; instead, it separates two roles for the same signal: standalone WHG-KV is not the strongest retriever, but its rank/score outputs can still help reorder dense candidates. The simple-fusion control checks whether list mixing is enough. On 2WikiMultiHopQA, RRF improves over Col-BERTv2 by +8.800 F1, but remains below learned HKVM calibration, the HKVM-only controller, and the dense-aware controller. On MuSiQue, RRF improves over ColBERTv2 by only +0.110 F1, far below the dense-aware controller’s +6.763 F1. On HotpotQA, RRF reaches +3.379 F1, again below the dense-aware controller’s +5.966 F1. The controller gain is therefore best read as learned passage-level evidence control rather than generic list mixing. Across datasets, the controller results play three roles: 2Wiki is HKVM-favorable, MuSiQue is the clearest dense/HKVM combination case, and HotpotQA is a controller-mediated recovery case rather than a standalone structured-retrieval win. Out-of-fold HKVM training inputs address the main leakage concern. Each train example receives HKVM inputs from models trained on other folds, and dev evaluation uses frozen prediction files under the same train-to-dev protocol. This weakens a train-side stacking explanation. Together with the source-only controls, the result supports the narrower claim that dense and WHG-KV rank/score signals jointly carry useful passage-reordering information in this cached train-to-dev setting. 
+
+D. ColBERTv2 Source-Level Controller Ablation 
+
+To rule out a generic second-source stacking explana-tion, we keep the controller protocol fixed and replace only the structured source. Table VIII tests this under the pri-mary ColBERTv2 first-stage protocol: ColBERTv2 predic-tions, train-to-dev split, controller family, and hyperparame-ters are unchanged, while the structured source is swapped. Figure 3 then visualizes the corresponding source-effect trend together with the BM25 and Contriever first-stage diagnos-tics. On 2WikiMultiHopQA, ColBERTv2 already has 100.000 AR@10, but Static-HG and Weighted-KG-PPR improve over it by only +2.390 and +3.007 F1, while WHG-KV improves by +11.084 F1. On MuSiQue, Co-occurrence-HG, Static-HG, and Weighted-KG-PPR remain below ColBERTv2 at 56.399, 55.258, and 56.853 F1, whereas ColBERTv2 + WHG-KV reaches 65.073 F1 (+6.763). On HotpotQA, the best non-WHG structured source improves by only +0.569 F1, while WHG-KV improves by +5.966 F1. For the three primary ColBERTv2 source-level WHG-KV rows, paired-bootstrap F1 intervals ver-sus ColBERTv2 are fully positive: 2Wiki [+10 .722 , +11 .442] ,MuSiQue [+5 .813 , +7 .753] , and HotpotQA [+5 .479 , +6 .456] .WHG-KV is also above the best non-WHG source by +8.077 F1 on 2Wiki, +8.219 on MuSiQue, and +5.397 on Hot-potQA. Table IX then reports the corresponding BM25 and TABLE V EVIDENCE -SELECTION DIAGNOSIS AND CONTROLLER VALIDATION . T HE ORACLE ROW IS A DIAGNOSTIC UPPER BOUND AND EXCLUDED FROM BOLDING ; BOLD MARKS THE BEST NON -ORACLE RESULT WITHIN EACH DATASET .
+
+2WikiMultiHopQA MuSiQue HotpotQA 
+
+Variant F1 EM AR@10 F1 EM AR@10 F1 EM AR@10 
+
+No-gold structured baseline 
+
+No-gold WHG retrieval 79.299 78.650 99.650 39.925 39.222 38.643 72.957 72.586 98.190 
+
+Oracle diagnostic upper bound 
+
+Oracle answer-path selection 90.884 90.832 99.634 74.330 74.059 73.066 91.111 91.047 98.190 Oracle gold-support construction 91.357 91.333 99.634 77.305 77.120 71.163 93.275 93.248 98.177 
+
+Train-to-dev variants 
+
+Train-derived support scorer 87.212 86.967 98.378 54.252 53.662 50.228 81.525 81.269 96.016 Learned HKVM calibration 88.391 88.181 99.030 56.754 56.213 53.303 82.929 82.705 96.439 Dense-aware HKVM controller 88.846 88.658 100.000 65.073 64.722 64.115 85.810 85.627 100.000 
+
+TABLE VI DENSE -AWARE HKVM CONTROLLER OUTCOMES WITH OUT -OF -FOLD HKVM TRAINING SIGNALS . B OLD MARKS THE BEST F1 AND EM WITHIN EACH DATASET ; PAIRED -BOOTSTRAP DELTAS FOR THE FINAL CONTROLLER ARE REPORTED IN TABLE VII. 
+
+2WikiMultiHopQA MuSiQue HotpotQA 
+
+Variant F1 EM AR@10 F1 EM AR@10 F1 EM AR@10 
+
+Reference predictors 
+
+ColBERTv2 77.763 77.195 100.000 58.309 57.758 49.317 79.844 79.635 100.000 Learned HKVM calibration 88.391 88.181 99.030 56.754 56.213 53.303 82.929 82.705 96.439 
+
+Source-only controller controls 
+
+Controller dense-only 77.679 77.107 100.000 58.247 57.758 52.172 79.909 79.671 100.000 Controller HKVM-only 88.415 88.205 100.000 56.760 56.213 58.640 82.929 82.705 100.000 
+
+Dense-aware controller 
+
+Dense-aware HKVM controller 88.846 88.658 100.000 65.073 64.722 64.115 85.810 85.627 100.000 
+
+TABLE VII PAIRED -BOOTSTRAP F1 DIFFERENCES FOR THE DENSE -AWARE HKVM 
+
+> CONTROLLER
+
+. D IFFERENCES ARE DENSE -AWARE HKVM CONTROLLER MINUS THE LISTED COMPARATOR .                           
+
+> Dataset Comparator ∆F1 95% CI 2Wiki ColBERTv2 +11 .084 [+10 .740 ,+11 .437]
+> 2Wiki Learned HKVM +0 .455 [+0 .368 ,+0 .542]
+> MuSiQue ColBERTv2 +6 .763 [+5 .791 ,+7 .726]
+> MuSiQue Learned HKVM +8 .319 [+7 .327 ,+9 .293]
+> HotpotQA ColBERTv2 +5 .966 [+5 .491 ,+6 .452]
+> HotpotQA Learned HKVM +2 .881 [+2 .555 ,+3 .201]
+
+Contriever source-level runs as absolute Base/Non/WHG F1 values, because those runs test first-stage robustness and final combination strength rather than define a second full source-replacement table. The Co-occurrence-HG row is a matched Hyper-RAG-style source in our cached pipeline, not a reproduction of Hyper-RAG’s original high-order extraction system. 
+
+E. First-Stage Source Robustness Diagnostics 
+
+To test whether the pattern is tied to late-interaction Col-BERTv2, we repeat the source-level diagnostic with BM25 and Contriever first-stage sources. Table IX reports the absolute source-level F1 after replacing the first-stage source, while Figure 3 visualizes the corresponding source-effect profiles as 
+
+∆F1 trends. For each first-stage source, the non-WHG column selects the best complement among Co-occurrence-HG, Static-HG, and Weighted-KG-PPR. With ColBERTv2, BM25, and Contriever as first-stage sources, WHG-KV is the strongest structured complement by point estimate in every row of Table IX. Across the nine dataset–first-stage rows, WHG-KV improves F1 over the corresponding first-stage baseline by +4.971 to +23.119; all nine baseline-vs-WHG paired-bootstrap F1 intervals are fully positive, with lower bounds from +4.554 to +22.668. The absolute best WHG-KV pairing is dataset-dependent: ColBERTv2+WHG-KV is highest on 2WikiMultiHopQA and MuSiQue, while BM25+WHG-KV is highest on HotpotQA. These checks extend Table VIII; they are cached-prediction diagnostics, not hidden-test or full retrieval-backbone claims. VII. A BLATIONS AND DIAGNOSTICS 
+
+A. Diffusion Depth 
+
+The diagnostics below test whether the main evidence-indexing result depends on extra diffusion or post-hoc pruning. The default system uses T = 1 . Changing only traversal depth to T = 2 changes WHG-KV F1 from 79.299 to 80.128 on 2Wiki, from 39.925 to 39.843 on MuSiQue, and from 72.957 TABLE VIII PRIMARY COL BERT V2 SOURCE -LEVEL CONTROLLER ABLATION . E ACH NON -BASELINE ROW KEEPS THE COL BERT V2 FIRST -STAGE PREDICTIONS AND CONTROLLER PROTOCOL FIXED WHILE SWAPPING ONLY THE STRUCTURED PREDICTION SOURCE SUPPLIED TO THE CONTROLLER ; ∆F1 IS RELATIVE TO     
+
+> COL BERT V2ONLY WITHIN THE SAME DATASET . B OLD MARKS THE BEST F1 AND ∆F1.
+
+2WikiMultiHopQA MuSiQue HotpotQA 
+
+Variant F1 ∆F1 F1 ∆F1 F1 ∆F1 ColBERTv2 only 77.763 +0.000 58.309 +0.000 79.844 +0.000 + Co-occurrence-HG 77.343 -0.419 56.399 -1.911 79.418 -0.426 + Static-HG 80.153 +2.390 55.258 -3.051 80.161 +0.317 + Weighted-KG-PPR 80.769 +3.007 56.853 -1.456 80.413 +0.569 + WHG-KV 88.846 +11.084 65.073 +6.763 85.810 +5.966             
+
+> TABLE IX FIRST -STAGE SOURCE DIAGNOSTICS FOR THE SOURCE -LEVEL CONTROLLER . B ASE IS SOURCE -ALONE F1; N ON IS THE BEST ABSOLUTE F1 AMONG
+> CO-OCCURRENCE -HG, S TATIC -HG, AND WEIGHTED -KG-PPR COMPLEMENTS ; WHG IS THE ABSOLUTE F1 AFTER ADDING WHG-KV. B OLD MARKS THE HIGHEST WHG VALUE WITHIN EACH DATASET .
+
+2WikiMultiHopQA MuSiQue HotpotQA 
+
+First-stage source Base Non WHG Base Non WHG Base Non WHG ColBERTv2 77.763 80.769 88.846 58.309 56.853 65.073 79.844 80.413 85.810 BM25 71.873 78.539 88.325 46.045 45.872 58.083 81.835 82.618 86.806 
+
+Contriever 65.498 79.773 88.618 55.565 55.773 63.378 79.930 79.574 85.096 
+
+to 73.010 on HotpotQA. The extra diffusion step therefore helps 2Wiki, is neutral to slightly negative on MuSiQue, and does not change the standalone HotpotQA result. We report 
+
+T = 2 as an ablation rather than moving it into the default system. 
+
+B. Hyperedge Pruning 
+
+The pruning curve tests whether the full answer-path hyper-graph is over-generated. Keeping all answer-path hyperedges gives the best F1 on 2Wiki and MuSiQue, matching the main-system setting in Table III. HotpotQA reaches its best pruning-curve F1 at the 25% keep point (74.488), which is higher than full Weighted-HG-KV but still below BM25 and dense retrieval. We therefore interpret pruning as a diagnostic: dense answer-path structure can over-displace useful top passages under HotpotQA ceiling conditions, but post-hoc pruning does not turn HotpotQA into a main positive result. VIII. L IMITATIONS AND DISCUSSION 
+
+The main implication is that evidence organization can be studied as a controllable layer between candidate retrieval and answer generation. In this view, structure need not replace lexical or dense retrieval to be useful; it can provide a reusable signal for selecting and ordering answer-supporting context. This interpretation is deliberately tied to the fixed extraction substrate and evaluation protocol. HKVM-RAG depends on the quality, cost, and reproducibility of the LLM extraction cache. The current system uses a fixed DeepSeek V4 Flash evidence tuple cache with temperature 0.0 and a passage-level relation-triple schema, which makes the structured comparison reproducible across seeds. The same design also means that endpoint, prompt-schema, high-order extraction, or extraction-budget changes can alter the evidence substrate. The frozen passage, tuple, and prediction manifests make evidence trace-ability explicit, echoing the database provenance principle that output claims should be connected to their contributing source data [38]. The shared tuple cache was selected for controlled no-dev-gold comparison and confidence fields, not because it dominates denser heuristic OpenIE extraction; in prior diagnostics, pairwise KG-PPR was stronger with heuristic OpenIE than with the sparser LLM tuple cache. Such changes should be reported as new cache manifests rather than mixed with the current results. This framing also explains why HippoRAG 2 and EcphoryRAG are not direct numeric rows in the current matrix. They are closest related systems, but the paper’s controlled claim is key-space isolation rather than full-system performance ranking. HippoRAG 2 combines Llama-3.3-70B-Instruct, NV-Embed-v2, and online LLM triple filtering [5]; EcphoryRAG uses Phi4/Ollama, bge-m3 embeddings, 500 random questions per dataset, dataset-tuned final context size, and no exact public split/code path in our current audit [6]. Reproducing either system without aligned models, splits, prompts, and online filtering budgets would confound the structured-vs-KG comparison rather than isolate key-space design. The positive standalone-structured result is limited to the structured comparison on 2WikiMultiHopQA and MuSiQue. HotpotQA separates support coverage from answer utility: standalone Weighted-HG-KV improves AR@10 over KG-PPR but does not improve answer F1, while the dense-aware con-troller reaches 85.810 F1 and improves over both ColBERTv2 and learned HKVM calibration. This cautions that denser structured retrieval can increase support coverage without improving answer extraction by itself, while still providing Fig. 3. Source-effect diagnostics for dense-aware evidence control. The left panels plot ∆F1 relative to each dataset–first-stage baseline as the structured source is changed from no complement to Co-occurrence-HG, Static-HG, Weighted-KG-PPR, and WHG-KV. Colored curves denote ColBERTv2, BM25, and Contriever first-stage sources; endpoint labels mark the WHG-KV ∆F1. The right metric strip summarizes WHG-KV margins over the best non-WHG complement for F1, EM, and AR@10. These cached train-to-dev diagnostics support a WHG-KV-specific source effect, with AR@10 margins interpreted under the recall ceilings shown in Table VI. 
+
+useful rank/score signals for learned evidence control under the cached train-to-dev protocol. The dense-aware controller changes the comparison by using WHG-KV as a learned signal over first-stage candidates, not by making standalone structured retrieval stronger than dense or lexical retrieval. ColBERTv2 remains the primary paper-facing controller source. BM25 and Contriever reduce the concern that the ordering is unique to ColBERTv2 across 2Wiki, MuSiQue, and HotpotQA, but they remain cached-prediction train-to-dev diagnostics rather than a full retrieval-backbone study across all dense families or deployment set-tings. The controller metrics should therefore be read as dev-set mechanism evidence over frozen artifacts, not as hidden-test, official-server, or deployment-throughput results. Mechanism attribution must also stay narrow. The train-derived support scorer, learned HKVM calibration, and dense-aware controller improve F1 under the train-to-dev controls in Tables V and VI. However, the strongest calibration candidate uses base direct features rather than the full structural-proxy bundle, and explicit dense-HKVM interaction terms are not necessary for the MuSiQue gain. Thus the safe mechanism claim is learned evidence/key calibration over dense and WHG-KV rank/score signals, not that high-order structural proxy features or hand-crafted interaction terms alone caused the gain. The three datasets therefore support different parts of the story. On 2Wiki, the controller is high-performing, but learned HKVM calibration and the HKVM-only controller are already strong. MuSiQue remains the clearest evidence for dense-HKVM combination. HotpotQA protects against a standalone-retriever overclaim while supporting controller-mediated WHG-KV complementarity. Finally, the current evidence matrix is limited to development splits, and the memory framing is intentionally scoped to retrieval-key/value separation rather than biological reproduction. IX. C ONCLUSION 
+
+This paper studied multi-hop RAG as a fixed-budget evidence-organization problem rather than as only passage matching. HKVM-RAG treats answer-path hyperedges as key-side evidence-indexing objects while keeping passage text as the value side. Under this fixed substrate, answer-path hyper-graph keys improve over pairwise graph keys by +3.426 F1 on 2WikiMultiHopQA and +3.592 F1 on MuSiQue. HotpotQA, however, shows that better structured support coverage does not necessarily translate into standalone answer-F1 gains. The support-selection and controller experiments sharpen this conclusion. Oracle decomposition shows large support-selection headroom, train-to-dev support scoring recovers part of it, and the dense-aware controller reaches 88.846 F1 on 2WikiMultiHopQA (+11.084 over ColBERTv2), 65.073 F1 on MuSiQue (+6.763), and 85.810 F1 on HotpotQA (+5.966). Source-level and first-stage diagnostics show that the con-troller gain is WHG-KV-specific under the tested protocol, not a generic effect of adding any structured source. The con-tribution is therefore bounded but useful. The paper provides fixed-substrate evidence that answer-path hypergraph keys can improve evidence organization over pairwise KG keys, and cached train-to-dev diagnostics showing that WHG-KV can act as a dense-aware evidence-control signal. These findings can inform future evidence-organization benchmarks and end-to-end models that learn key-value-separated structures directly, while still requiring broader retriever-family coverage, answer-module sensitivity tests, and official evaluation settings under frozen extraction manifests. ACKNOWLEDGMENT 
+
+AI-generated content disclosure: The authors used Codex Desktop for implementation debugging, data-processing checks, generation of initial figure skeletons and plotting-script scaffolds, LaTeX compilation and format diagnostics, citation-format checking, and English-language polishing. All figures were subsequently refined and manually drawn as SVG by the authors, and all citations were retrieved and verified manually. The tool provided drafting and diagnostic support; it was not used for autonomous scientific decision-making, benchmark-label creation, hidden-result generation, or automatic final-claim selection. The authors reviewed and edited all generated text, code, figures, and analyses, and remain responsible for the correctness and originality of the final submission. REFERENCES [1] P. Lewis et al. , “Retrieval-augmented generation for knowledge-intensive NLP tasks,” in Advances in Neural Information Processing Systems , vol. 33, 2020, pp. 9459–9474. [2] K. Guu, K. Lee, Z. Tung, P. Pasupat, and M.-W. Chang, “Retrieval augmented language model pre-training,” in Proceedings of the 37th International Conference on Machine Learning , PMLR, vol. 119, 2020, pp. 3929–3938. [3] G. Izacard and E. Grave, “Leveraging passage retrieval with gener-ative models for open domain question answering,” in Proceedings of the 16th Conference of the European Chapter of the Association for Computational Linguistics: Main Volume , 2021, pp. 874–880, doi: 10.18653/v1/2021.eacl-main.74. [4] B. J. Gutierrez, Y. Shu, Y. Gu, M. Yasunaga, and Y. Su, “HippoRAG: Neurobiologically inspired long-term memory for large language mod-els,” in Advances in Neural Information Processing Systems , vol. 37, 2024. [5] B. J. Gutierrez, Y. Shu, W. Qi, S. Zhou, and Y. Su, “From RAG to mem-ory: Non-parametric continual learning for large language models,” in 
+
+Proceedings of the 42nd International Conference on Machine Learning ,PMLR, vol. 267, pp. 21497–21515, 2025. [6] Z. Liao, “EcphoryRAG: Re-imagining knowledge-graph RAG via hu-man associative memory,” arXiv:2510.08958, 2025. [7] Z. Yang, P. Qi, S. Zhang, Y. Bengio, W. W. Cohen, R. Salakhutdinov, and C. D. Manning, “HotpotQA: A dataset for diverse, explainable multi-hop question answering,” in Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing , 2018, pp. 2369– 2380, doi: 10.18653/v1/D18-1259. [8] X. Ho, A.-K. D. Nguyen, S. Sugawara, and A. Aizawa, “Constructing a multi-hop QA dataset for comprehensive evaluation of reasoning steps,” in Proceedings of the 28th International Conference on Computa-tional Linguistics , 2020, pp. 6609–6625, doi: 10.18653/v1/2020.coling-main.580. [9] H. Trivedi, N. Balasubramanian, T. Khot, and A. Sabharwal, “MuSiQue: Multihop questions via single-hop question composition,” Transactions of the Association for Computational Linguistics , vol. 10, pp. 539–554, 2022, doi: 10.1162/tacl a 00475. [10] S. E. Robertson, S. Walker, S. Jones, M. Hancock-Beaulieu, and M. Gatford, “Okapi at TREC-3,” in Proceedings of The Third Text REtrieval Conference (TREC 1994) , D. K. Harman, Ed., NIST Special Publication 500-225. Gaithersburg, MD, USA: National Institute of Standards and Technology, 1994, pp. 109–126, doi: 10.6028/NIST.SP.500-225.routing-city. [11] V. Karpukhin et al. , “Dense passage retrieval for open-domain ques-tion answering,” in Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing , 2020, pp. 6769–6781, doi: 10.18653/v1/2020.emnlp-main.550. [12] G. Izacard, M. Caron, L. Hosseini, S. Riedel, P. Bojanowski, A. Joulin, and E. Grave, “Unsupervised dense information retrieval with contrastive learning,” Transactions on Machine Learning Research , 2022. [Online]. Available: https://openreview.net/forum?id=jKN1pXi7b0 [13] K. Santhanam, O. Khattab, J. Saad-Falcon, C. Potts, and M. Zaharia, “ColBERTv2: Effective and efficient retrieval via lightweight late inter-action,” in Proceedings of the 2022 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies . Seattle, United States: Association for Compu-tational Linguistics, 2022, pp. 3715–3734, doi: 10.18653/v1/2022.naacl-main.272. [14] D. Edge, H. Trinh, N. Cheng, J. Bradley, A. Chao, A. Mody, S. Truitt, D. Metropolitansky, R. O. Ness, and J. Larson, “From local to global: A graph RAG approach to query-focused summarization,” arXiv:2404.16130, 2024. [15] J. Sun et al. , “Think-on-Graph: Deep and responsible reasoning of large language model on knowledge graph,” in International Conference on Learning Representations , 2024. [16] Y. Feng, H. You, Z. Zhang, R. Ji, and Y. Gao, “Hypergraph neural networks,” in Proceedings of the AAAI Conference on Ar-tificial Intelligence , vol. 33, no. 01, pp. 3558–3565, 2019, doi: 10.1609/aaai.v33i01.33013558. [17] N. Yadati, M. Nimishakavi, P. Yadav, V. Nitin, A. Louis, and P. Talukdar, “HyperGCN: A new method for training graph convolutional networks on hypergraphs,” in Advances in Neural Information Processing Systems ,vol. 32, 2019. [18] E. Chien, C. Pan, J. Peng, and O. Milenkovic, “You are AllSet: A multiset function framework for hypergraph neural networks,” in 
+
+International Conference on Learning Representations , 2022. [19] A. Antelmi, G. Cordasco, M. Polato, V. Scarano, C. Spagnuolo, and D. Yang, “A survey on hypergraph representation learning,” ACM Computing Surveys , vol. 56, no. 1, article 10, pp. 1–38, 2023, doi: 10.1145/3605776. [20] Y. Feng, H. Hu, S. Ying, X. Hou, S. Liu, M. Yang, J. Li, S. Du, N. Zheng, H. Hu, and Y. Gao, “Hyper-RAG: Combating LLM hallucina-tions using hypergraph-driven retrieval-augmented generation,” Nature Communications , 2026, doi: 10.1038/s41467-026-71411-1. [21] C. Zhou, C. Zhang, G. Yu, F. Meng, J. Zhou, W. Lam, and M. Yu, “HG-MEM: Hypergraph-based Working Memory to Improve Multi-step RAG for Long-Context Complex Relational Modeling,” arXiv:2512.23959, 2025, rev. 2026, doi: 10.48550/arXiv.2512.23959. [22] W. Xiong et al. , “Answering complex open-domain questions with multi-hop dense retrieval,” in International Conference on Learning Representations , 2021. [23] O. Khattab, C. Potts, and M. Zaharia, “Baleen: Robust multi-hop reasoning at scale via condensed retrieval,” in Advances in Neural Information Processing Systems , vol. 34, 2021, pp. 27670–27682. [24] H. Trivedi, N. Balasubramanian, T. Khot, and A. Sabharwal, “Interleav-ing retrieval with chain-of-thought reasoning for knowledge-intensive multi-step questions,” in Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics , 2023, pp. 10014–10037, doi: 10.18653/v1/2023.acl-long.557. [25] S. Sukhbaatar, A. Szlam, J. Weston, and R. Fergus, “End-to-end memory networks,” in Advances in Neural Information Processing Systems , vol. 28, 2015. [26] A. Miller, A. Fisch, J. Dodge, A.-H. Karimi, A. Bordes, and J. We-ston, “Key-value memory networks for directly reading documents,” in 
+
+Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing , 2016, pp. 1400–1409, doi: 10.18653/v1/D16-1147. [27] H. Ramsauer, B. Sch¨ afl, J. Lehner, P. Seidl, M. Widrich, L. Gruber, M. Holzleitner, T. Adler, D. Kreil, M. K. Kopp, G. Klambauer, J. Brandstetter, and S. Hochreiter, “Hopfield Networks is All You Need,” in 
+
+International Conference on Learning Representations , 2021. [Online]. Available: https://openreview.net/forum?id=tL89RnzIiCd [28] S. J. Gershman, I. Fiete, and K. Irie, “Key-value memory in the brain,” Neuron , vol. 113, no. 11, pp. 1694–1707.e1, 2025, doi: 10.1016/j.neuron.2025.02.029. [29] W. Fan, P. Wu, Y. Ding, L. Ning, S. Wang, and Q. Li, “To-wards retrieval-augmented large language models: Data management and system design,” in Proceedings of the 41st IEEE Interna-tional Conference on Data Engineering , 2025, pp. 4509–4512, doi: 10.1109/ICDE65448.2025.00341. [30] A. Khan, Y. Luo, W. Zhang, M. Zhou, and X. Zhou, “Retrieval-augmented generation (RAG): What is there for data management researchers?” SIGMOD Record , vol. 54, no. 4, pp. 33–42, 2025. [31] Y. A. Malkov and D. A. Yashunin, “Efficient and robust ap-proximate nearest neighbor search using hierarchical navigable small world graphs,” IEEE Transactions on Pattern Analysis and Machine Intelligence , vol. 42, no. 4, pp. 824–836, 2020, doi: 10.1109/TPAMI.2018.2889473. [32] J. Johnson, M. Douze, and H. J´ egou, “Billion-scale similarity search with GPUs,” IEEE Transactions on Big Data , vol. 7, no. 3, pp. 535– 547, 2021, doi: 10.1109/TBDATA.2019.2921572. [33] R. Guo, P. Sun, E. Lindgren, Q. Geng, D. Simcha, F. Chern, and S. Kumar, “Accelerating large-scale inference with anisotropic vector quantization,” in Proceedings of the 37th International Conference on Machine Learning , PMLR, vol. 119, 2020, pp. 3887–3896. [Online]. Available: https://proceedings.mlr.press/v119/guo20h.html [34] J. Wang, X. Yi, R. Guo, et al. , “Milvus: A purpose-built vector data management system,” in Proceedings of the 2021 International Conference on Management of Data , 2021, pp. 2614–2627, doi: 10.1145/3448016.3457550. [35] A. Khan, “Knowledge graphs querying,” SIGMOD Record , vol. 52, no. 2, pp. 18–29, 2023, doi: 10.1145/3615952.3615956. [36] O. Erling, A. Averbuch, J. Larriba-Pey, H. Chafi, A. Gubichev, A. Prat-P´ erez, M.-D. Pham, and P. A. Boncz, “The LDBC social network benchmark: Interactive workload,” in Proceedings of the 2015 ACM SIGMOD International Conference on Management of Data , 2015, pp. 619–630, doi: 10.1145/2723372.2742786. [37] M. Athanassoulis, P. Triantafillou, R. Appuswamy, et al. , “Artifacts availability & reproducibility: VLDB 2021 round table,” SIGMOD Record , vol. 51, no. 2, pp. 74–77, 2022, doi: 10.1145/3552490.3552511. [38] M. Herschel, R. Diestelk¨ amper, and H. Ben Lahmar, “A survey on provenance: What for? What form? What from?” The VLDB Journal ,vol. 26, no. 6, pp. 881–906, 2017, doi: 10.1007/s00778-017-0486-1.
