@@ -1,0 +1,3241 @@
+Title: Remember with Confidence: Uncertainty Quantification for Spatio-temporal Memory with Probabilistic Guarantees
+
+URL Source: https://arxiv.org/pdf/2606.08277v1
+
+Published Time: Tue, 09 Jun 2026 00:49:08 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Remember with Confidence: Uncertainty Quantification for Spatio-temporal Memory with Probabilistic Guarantees 
+
+Harry Zhang ∗
+
+MIT 
+
+harryz@mit.edu 
+
+Nicolas Gorlo ∗
+
+MIT 
+
+ngorlo@mit.edu 
+
+Luca Carlone 
+
+MIT 
+
+lcarlone@mit.edu 
+
+Abstract 
+
+Long-horizon robot operation requires spatio-temporal memory to record the environment state and recall it for downstream reasoning. Scene graphs and retrieval-augmented systems ground VLM descriptions to persistent 3D entities with rich semantic descriptions. However, VLM captions are noisy and viewpoint-inconsistent, and existing systems treat them as an oracle with no mechanism to detect unreliable stored descriptions. We introduce object-level semantic uncer-tainty for multi-view VLM memory: a score that measures object-centric cross-view semantic scatter of captions and identifies semantically unresolved objects. Then, we include our uncertainty scores in an advanced spatial-semantic memory system, that we dub UQ-DAAAM. UQ-DAAAM uses this score to actively re-fine uncertain objects under a fixed query budget by selecting high-quality views and fusing the resulting multi-view captions into a single object description. We also derive probabilistic guarantees showing that higher-quality candidate views (as selected by our approach) are more likely to reduce uncertainty. Our experi-ments show that uncertainty quantification can make embodied 4D memory sys-tems more reliable and more effective. In particular, on the OC-NaVQA bench-mark, UQ-DAAAM achieves substantially larger uncertainty reduction and better spatio-temporal question answering performance than baselines. 
+
+1 Introduction 
+
+Safe long-horizon robot operation benefits from a persistent semantic memory of objects, agents, and regions encountered over time, which can be queried later for downstream reasoning and decision-making. Recent work has shown that 3D scene graphs [12, 19, 14, 50, 23] can serve this role by grounding rich natural-language descriptions to persistent 3D entities observed by a robot. A parallel line of work [2, 51, 52] skips per-object 3D grounding and instead stores per-frame observations or captions in a retrieval database. Storing articulate captions has the advantage that the memory enabling the robot to reason about its spatio-temporal environment is directly interpretable by a human operator. In practice, semantic annotations of these systems come from vision-language models (VLMs), which produce open-vocabulary descriptions from camera images and possibly object masks. In the robot perception loop, VLMs convert raw visual observations into descriptions retrievable at query time that support downstream applications such as spatio-temporal question answering [12, 2] and task grounding [58, 32, 12]. However, VLM outputs are often noisy and semantically inconsistent across viewpoints [4, 7]. An object observed far away, from an occluded angle, or under difficult lighting conditions can result in a caption that confidently states incorrect attributes of the object. Existing memory systems treat 
+
+> ∗Equal contribution. Preprint.
+> arXiv:2606.08277v1 [cs.CV] 6 Jun 2026
+
+VLM annotations as an oracle [14, 2, 52], with no mechanism to detect if a stored description is unreliable. For instance, in a memory system like DAAAM [12], which assigns each object a small fixed set of representative views and stores their captions in its 4D scene graph representation: if those views happen to be poor, the resulting memory entry is silently incorrect. We address this gap with UQ-DAAAM , an uncertainty-aware extension of DAAAM that gives each object in DAAAM’s 4D scene graph an explicit semantic uncertainty score, and uses it for tar-geted refinement under a fixed budget of additional VLM queries. Our uncertainty metric measures 
+
+cross-view semantic scatter , the log-volume spanned by the per-view caption embeddings of an object, which represents how much the VLM’s descriptions disagree across views, following the volumetric semantic measurement framework of Lau et al. [26] and Zhang & Carlone [56]. This score identifies objects which descriptions are semantically unresolved and cannot yet be trusted for downstream reasoning. UQ-DAAAM then performs active refinement : it allocates the extra query budget preferentially to uncertain objects, selects additional views using DAAAM’s view-quality heuristic [12], which scores each (frame, object) pair by visibility and pixel coverage, and fuses the resulting multi-view descriptions into a consolidated object description with reduced uncertainty. We provide a probabilistic justification for the view selection policy and show that, under the as-sumption of first-order stochastic dominance, views with higher quality scores are more likely to reduce object uncertainty, giving a principled basis for using the existing quality heuristic to guide refinement. We also derive a closed-form expression for the one-step uncertainty change when adding a new view, which enables efficient online computation without re-solving DAAAM’s frame-assignment step. We evaluate UQ-DAAAM on the OC-NaVQA benchmark [12] for large-scale spatio-temporal ques-tion answering. UQ-DAAAM substantially outperforms other baselines on uncertainty reduction rate and downstream task performance, while keeping the underlying scene graph infrastructure and VLM unchanged. In summary, we contribute (i) an object-level uncertainty score over multi-view captions, (ii) a budgeted active-refinement and fusion strategy, (iii) a probabilistic guarantee linking DAAAM’s view-quality heuristic to one-step uncertainty reduction with a closed-form update, and (iv) an integrated system, UQ-DAAAM, which achieves state-of-the-art results on OC-NaVQA. 
+
+2 Related Work 
+
+Spatio-temporal robot memory. 3D scene graphs [3, 42, 18, 19, 12] and retrieval-augmented memory systems [2, 51, 52] provide structured representations for long-horizon robot operation, with open-vocabulary semantics attached via VLM features [21, 50, 23] or per-object VLM cap-tions [14]. DAAAM [12] combines both, by annotating a 4D scene-graph with localized VLM captions from a sparse set of representative view. Across all these systems, VLM outputs are treated as oracle annotations [14, 2, 43, 11, 17]; the few exceptions apply confidence only at the task-output level [40, 41], not per-node memory. We instead quantify and reduce semantic uncertainty at the ob-ject level, enabling the system to detect and resolve unreliable memory entries before they propagate to downstream reasoning. 
+
+Uncertainty quantification. Classical uncertainty quantification (UQ) methods such as MC Dropout [10], Deep Ensembles [25], and conformal prediction [1, 5] address epistemic or aleatoric uncertainty but do not directly apply to multimodal large language models (MLLMs), where token-level confidence is poorly aligned with semantic correctness [8, 26, 7]. Recent MLLM uncertainty work falls into three groups: input-level approaches that model uncertainty in multimodal embed-dings [47–49]; output-level approaches that estimate uncertainty from response inconsistency via entropy, self-consistency, or embedding-space dispersion [37, 9, 34, 26, 7]; and methods based on conformal prediction or external verification [38, 45, 22]. Orthogonally, hallucination mitiga-tion methods improve training data or model architectures [29, 53, 46, 54], but residual uncertainty remains pervasive [4]. Our uncertainty is represented at the object level and captures semantic dis-agreement across views, following the theoretical framework of UMPIRE [26] and FUSE [56]. 2UQ from initial views UQ from refined views      
+
+> 4D Scene Graph
+> Choose refinement view via
+> Observe tframes of object j
+> Under budget B, keep acquiring new views to decrease uncertainty from candidate views, accumulating evidence
+> Uncertainty Reduction Probabilistic Guarantee
+> Description Fusion
+> “A dark gray, cylindrical chimney with a slightly tapered top and a smooth surface.”
+> 4D Scene Graph
+
+Figure 1: Overview of UQ-DAAAM. Starting from DAAAM’s 4D scene graph, we first compute an object-level uncertainty score from the captions associated with the initial selected views. If an object is uncertain, additional refinement views are chosen from the feasible set using the view-quality heuristic qij , supported by our probabilistic guarantee. Refinement continues under a fixed budget, reducing the uncertainty. Captions from all views are fused into a single description. 
+
+3 Problem Formulation 
+
+We study semantic memory construction for embodied agents. Given an RGB-D stream F =
+
+{f1, . . . , f n}, an object-centric perception system [12] yields object observations (or fragments )
+
+O = {o1, . . . , o m} tracked across frames. The system constructs a structured semantic memory grounded in a geometric reconstruction of the spatio-temporal environment by associating each oj
+
+with natural-language descriptions from a selected view set Vj ; since descriptions can vary across views, the initial memory may leave some objects semantically ambiguous. We define an object-level uncertainty score uj = U(oj , Vj ) to quantify this ambiguity. Under a fixed additional query budget, active refinement then acquires further views for uncertain objects, allocating queries to the fragments and viewpoints most likely to resolve remaining ambiguity for downstream reasoning. 
+
+4 Method 
+
+Background. We build upon DAAAM [12], which constructs 4D scene graphs in real time from an RGB-D stream. DAAAM tracks object fragments {oj }mj=1 across a rolling window of candidate frames {fi}ni=1 , maintaining a visibility matrix vij ∈ { 0, 1} and a heuristic view-quality score 
+
+qij ∈ [0 , 1] per (frame, fragment) pair. In DAAAM [12], qij is large when object j is centered and large in frame i, and vice versa. A binary linear program (BLP) assigns each fragment to asingle selected frame via a binary decision variable yij , maximizing P 
+
+> i,j
+
+qij yij subject to visibility and frame-budget constraints. The selected (frame, fragment) pairs are captioned by the localized captioning model, DAM [28]. A mapping backend builds a scene graph from the RGB-D sensor data and the annotated fragments. Each object forms a node in the scene graph. The captions then form a per-node description history. 
+
+From single-view to multi-view assignment. For object-level uncertainty quantification, we need a measure of view-dependent disagreement. A single caption per fragment provides no signal in that sense. We therefore relax the BLP so that each fragment is covered by multiple views rather than exactly one. Letting yij ∈ { 0, 1} indicate whether frame fi is one of the representative views for 
+
+oj , we replace the single-assignment constraint with Pni=1 yij = r ∀j ∈ [m], where r is a fixed per-object frame budget (we use r = 3 ), while retaining yij ≤ vij (only select view fi if oj is visible) and yij ≤ xi (only consider views under budget). The BLP objective function P 
+
+> i,j
+
+qij yij 
+
+is unchanged, optimizing for high-quality views. For each object oj , we run DAM on every view in 
+
+Vj = {fi : yij = 1 }, producing the multi-view caption set {cij }i∈V j used by the rest of the method. 34.1 Uncertainty Quantification 
+
+To quantify object-centric semantic uncertainty, we adapt the idea of volumetric semantic measure-ment [56, 26] to the multi-view robot memory construction setting of DAAAM. In our setting, each object is observed from multiple selected views, and each view yields a natural-language description produced by a VLM. Uncertainty should increase both when these view-conditioned descriptions are semantically inconsistent and when individual descriptions are internally less coherent. Our formu-lation therefore combines two signals: cross-view semantic scatter and per-view incoherence .
+
+Multi-view semantic evidence for an object. Consider an object fragment oj . Suppose DAAAM selects a set of representative views Vj = {fi1 , . . . , f ir } for this object, where r is the number of selected views. For each selected view fi ∈ V j , we query the VLM on the localized object crop and obtain a caption cij . We then embed each caption into a semantic vector space using a text encoder ϕ(·) and normalize the result: rij ≜ ϕ(cij )  
+
+> ∥ϕ(cij )∥2
+
+∈ Rd. Stacking the normalized caption embeddings column-wise gives the object-level semantic evidence matrix Rj ≜ [r1j , . . . , rrj ] ∈
+
+Rd×r . This matrix captures the semantic content of the object as perceived from the selected views. 
+
+Incoherence weighting. Following [56, 26], semantic diversity alone is insufficient for measuring uncertainty, since a set of captions could be similar but each incoherent. We therefore assign each caption cij an incoherence weight γij ≜ exp( α(1 −pij )) , where pij ∈ [0 , 1] is the average per-token probability and α ≥ 0 is a scaling hyperparameter. A more coherent caption yields smaller γij ; a less coherent one inflates it. The weights are collected in Γj ≜ diag( γ1j , . . . , γ rj ) ∈ Rr×r.
+
+Uncertainty measure via semantic scatter. To combine cross-view semantics and per-view inco-herence, we construct an incoherence-adjusted semantic evidence matrix Zj ≜ Rj Γj ∈ Rd×r .
+
+Equivalently, the ℓ-th column of Zj is the weighted embedding zij = γij rij .
+
+Definition 4.1 (Semantic scatter and uncertainty score) . For an object fragment oj , given incoherence-adjusted semantic evidence Zj , we define the semantic scatter matrix as Sj ≜
+
+Z⊤ 
+
+> j
+
+Zj + λIr = Γj R⊤ 
+
+> j
+
+Rj Γj + λIr , where λ > 0 is a small regularization constant. Our object-level uncertainty score is then defined as the log-determinant of the semantic scatter matrix 
+
+uj ≜ log det Sj . (1) The determinant of Z⊤ 
+
+> j
+
+Zj measures the squared volume spanned by Zj ’s column vectors. det( Sj ),the semantic volume generated by the weighted multi-view caption embeddings, becomes large when (i) the captions from different views point in different semantic directions (increasing cross-view dispersion), or (ii) one or more captions are highly incoherent, inflating their weighted contri-bution through Γj . Consequently, our uncertainty score uj increases when the object’s interpretation is unstable across views or unreliable within views. 2.
+
+4.2 Active View Selection 
+
+Assume a calibrated threshold value τ : if uj exceeds τ , then it implies that the agent is uncertain about the semantic interpretation of oj . We let the agent actively acquire additional views for the same object fragment in an online manner: it acquires further views until the uncertainty falls below 
+
+τ or a budget runs out. In the following discussion, we assume that the agent has already selected t
+
+views for object oj and is considering which additional view to acquire next. We denote u(t) 
+
+> j
+
+as the uncertainty score computed from the current t views. If u(t) 
+
+> j
+
+> τ , then the agent is uncertain about 
+
+oj based on the current evidence, and we wish to assign additional views to lower u(t+1)  
+
+> j
+
+.
+
+Active view selection as BOED. Let θj denote the latent semantic state of object oj , and let 
+
+V(t) 
+
+> j
+
+⊆ [n] denote the set of view indices selected for oj after t acquisitions, so that Z(t) 
+
+> j
+
+∈ Rd×t
+
+stacks the weighted embeddings {zij }i∈V (t)
+
+> j
+
+and S(t) 
+
+> j
+
+≜ (Z(t) 
+
+> j
+
+)⊤Z(t) 
+
+> j
+
++ λIt. We write D(t) 
+
+> j
+
+for the 
+
+> 2We provide a more extensive rationale behind object-level uncertainty in Section A
+
+4evidence accumulated after these t views, and define the feasible candidate views as the set of views where oj is visible in the rolling window but have not yet been selected: 
+
+C(t) 
+
+> j
+
+≜ { i ∈ [n] \ V (t) 
+
+> j
+
+: vij = 1 }. (2) In the language of Bayesian Optimal Experimental Design (BOED) [6], each candidate view fi is an experiment , θj is the latent parameter of interest , and the future VLM output from view i is the 
+
+experimental outcome . The exact BOED utility of view i is the expected reduction of uncertainty about θj that would result from acquiring view i and observing its caption embedding. 
+
+Definition 4.2 (Exact one-step BOED utility and acquisition rule) . The one-step utility of candidate view i is defined as the expected uncertainty reduction ∆j (i | D (t) 
+
+> j
+
+) ≜ E
+
+h
+
+u(t) 
+
+> j
+
+− u(t+1)  
+
+> j
+
+(i) D(t)
+
+> j
+
+i
+
+,
+
+where u(t+1)  
+
+> j
+
+(i) is the uncertainty score after acquiring view i. The next refinement view should therefore be chosen by 
+
+i⋆j ∈ arg max 
+
+> i∈C (t)
+> j
+
+∆j (i | D (t) 
+
+> j
+
+). (3) 
+
+One-step update via augmented scatter matrix. Given rij as the normalized VLM output em-bedding when presented with view i for object j, γij > 0 as its incoherence weight, and weighted candidate embedding zij ≜ γij rij ∈ Rd, we define the similarity vector b(t) 
+
+> ij
+
+≜ (Z(t) 
+
+> j
+
+)⊤zij ∈
+
+Rt. Denoting the semantic scatter matrix obtained via t currently collected views of object j as S(t) 
+
+> j
+
+,we can apply matrix algebra to write out the augmented scatter matrix after adding view i as 
+
+S(t+1)  
+
+> j
+
+(i) = 
+
+"
+
+S(t) 
+
+> j
+
+b(t)
+
+> ij
+
+(b(t) 
+
+> ij
+
+)⊤ γ2 
+
+> ij
+
++ λ
+
+#
+
+. (4) With this formulation, we can derive a closed-form expression for the one-step uncertainty update. For sake of clarity, we first define two intermediate random variables. 
+
+Definition 4.3 (Redundancy score and Schur score) . For any candidate view i ∈ C (t) 
+
+> j
+
+acquired for object j with t existing views, we define the redundancy score η(t) 
+
+> ij
+
+and Schur score s(t) 
+
+> ij
+
+as 
+
+η(t) 
+
+> ij
+
+≜ (b(t) 
+
+> ij
+
+)⊤(S(t) 
+
+> j
+
+)−1b(t) 
+
+> ij
+
+, s(t) 
+
+> ij
+
+≜ γ2 
+
+> ij
+
++ λ − η(t) 
+
+> ij
+
+. (5) The redundancy score η(t) 
+
+> ij
+
+measures how much newly acquired information is already known and is large when the new weighted caption embedding is well explained by the currently selected views. The Schur score s(t) 
+
+> ij
+
+is the Schur complement of S(t) 
+
+> j
+
+in S(t+1)  
+
+> j
+
+(i) and captures the amount of new information that view i would add after accounting for redundancy. 
+
+Theorem 4.4 (Closed-form one-step uncertainty update) . For any candidate view i ∈ C (t) 
+
+> j
+
+acquired for object j with t existing views, the one-step uncertainty update is given by 
+
+u(t+1)  
+
+> j
+
+(i) − u(t) 
+
+> j
+
+= log 
+
+
+
+s(t)
+
+> ij
+
+
+
+. (6) 
+
+Theorem 4.5 (Criterion for one-step uncertainty reduction) . For any candidate view i ∈ C (t) 
+
+> j
+
+ac-quired for object j with t existing views, we have the following uncertainty reduction criterion: 
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+⇐⇒ η(t) 
+
+> ij
+
+> γ 2 
+
+> ij
+
++ λ − 1.
+
+Intuitively, to reduce uncertainty, the redundancy (agreement with existing evidence) ηij of a new view needs to overcome both regularization and its own incoherence. 
+
+BOED-inspired proxy selection using the view-quality score. So far, our analysis suggests that for a candidate view i ∈ C (t) 
+
+> j
+
+, the exact one-step uncertainty reduction is u(t) 
+
+> j
+
+− u(t+1)  
+
+> j
+
+(i) = 
+
+− log s(t) 
+
+> ij
+
+, and the exact BOED utility is thus ∆j (i) ≜ E
+
+h
+
+− log s(t) 
+
+> ij
+
+D(t)
+
+> j
+
+i
+
+. However, evalu-ating ∆j (i) exactly would require querying the VLM on every feasible candidate view, since s(t)
+
+> ij
+
+depends on the future caption embedding and future incoherence weight. 5We avoid this cost by using the precomputed view-quality score qij already used in DAAAM as a cheap surrogate for expected informativeness. For a fixed object oj , we expect higher-quality views to result in smaller Schur scores, and thus larger one-step uncertainty reductions. Towards this end, we make the following assumption on the relationship between qij and s(t) 
+
+> ij
+
+.
+
+Assumption 4.6 (First-order stochastic dominance) . For each object oj , the conditional distribution of the random Schur score s(t) 
+
+> ij
+
+is stochastically nonincreasing in qij . That is, for any two candidates 
+
+i, i ′ ∈ C (t) 
+
+> j
+
+,
+
+qij ≥ qi′j =⇒ P
+
+
+
+s(t) 
+
+> ij
+
+≤ x D(t)
+
+> j
+
+
+
+≥ P
+
+
+
+s(t) 
+
+> i′j
+
+≤ x D(t)
+
+> j
+
+
+
+∀x > 0.
+
+Equivalently, conditional on the current evidence, a higher-quality view produces a Schur score that is smaller in the sense of first-order stochastic dominance (FOSD). 
+
+This assumption is natural because the Schur score s(t) 
+
+> ij
+
+decreases when the future caption is less incoherent (smaller γij ) and more explained by the current evidence (larger η(t) 
+
+> ij
+
+). Thus, a higher-quality view is assumed to shift the distribution of s(t) 
+
+> ij
+
+toward smaller values. 
+
+Proposition 4.7 (Monotonicity of BOED utility under FOSD and proxy acquisition) . Suppose the FOSD assumption holds for object oj . Then for any two candidates i, i ′ ∈ C (t) 
+
+> j
+
+, qij ≥ qi′j =⇒
+
+∆j (i) ≥ ∆j (i′). Consequently, any maximizer of qij over C(t) 
+
+> j
+
+is also a maximizer of the exact BOED utility ∆j (i) and candidate views can be ranked by qij , yielding the proxy acquisition rule: 
+
+i⋆j ∈ arg max 
+
+> i∈C (t)
+> j
+
+qij . (7) 
+
+Theorem 4.8 (Probabilistic guarantee of uncertainty reduction via heuristic) . Suppose that for two feasible candidate views i, i ′ ∈ C (t) 
+
+> j
+
+, qij ≥ qi′j and the corresponding Schur scores s(t) 
+
+> ij
+
+, s (t) 
+
+> i′j
+
+satisfies Assumption 4.6. Then 
+
+P
+
+
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+D(t)
+
+> j
+
+
+
+≥ P
+
+
+
+u(t+1)  
+
+> j
+
+(i′) < u (t) 
+
+> j
+
+D(t)
+
+> j
+
+
+
+.
+
+This gives us a probabilistic guarantee for using Equation (7) as the rule to select more frames via heuristic score qij to reduce uncertainty. 
+
+Overall active view refinement procedure. Backed by our theoretical analysis, for each object 
+
+oj with uj > τ , we allocate a per-object refinement budget B. We collect feasible additional views 
+
+C(t) 
+
+> j
+
+for oj via Equation (2). Next, we rank the candidates in C(t) 
+
+> j
+
+by the heuristic view-quality score 
+
+qij and select the top-B views. The VLM is then queried on these additional views sequentially, and each resulting caption is incorporated into the object’s multi-view semantic representation. After each update, the object-level uncertainty is recomputed. Refinement stops when the uncertainty falls below τ , the budget B is exhausted, or no feasible candidate views remain. Note that our refinement procedure can be understood as an “overt attention” process to reduce uncertainty. 
+
+4.3 Multi-view Descriptions Aggregation 
+
+After uncertainty-driven view selection, each object is associated with a small set of captions ob-tained from multiple views. We fuse these captions into a single object description using a con-strained LLM-based aggregation step. Captions are ordered by acquisition stage (initial views first, refinement views last) and the LLM is instructed to privilege later (refinement) captions when re-solving conflicts. When disagreement exists only among initial views, the fused caption preserves the alternatives using cautious language (e.g., “white or gray” ) rather than collapsing ambiguity prematurely. The LLM is further constrained to use only information present in at least one source caption, preventing hallucinated facts. The full prompt specification and output format are given in Section H; the overall UQ-DAAAM procedure is summarized in Section I. 6Descriptive Question Accuracy ↑ Position Error [m] ↓ Temporal Error [min] ↓                                                                                                            
+
+> Method Short Medium Long All Short Medium Long All Short Medium Long All DAAAM 0.679 0.753 0.690 0.711 22.07 41.69 53.47 41.75 3.669 0.914 1.438 1.792 DAAAM-RR 0.683 0.751 0.694 0.716 21.52 41.19 53.34 41.78 3.748 0.918 1.428 1.769 DAAAM-QR 0.715 0.760 0.748 0.738 17.83 29.47 57.26 40.14 2.284 0.905 1.408 1.734 DAAAM-NC [22] 0.681 0.755 0.692 0.713 21.88 41.53 53.39 41.62 3.648 0.912 1.434 1.783 DAAAM-LN [33] 0.682 0.756 0.694 0.714 21.74 41.45 53.31 41.55 3.623 0.910 1.430 1.776 DAAAM-Ent [24] 0.703 0.763 0.734 0.733 20.13 36.82 55.29 40.33 2.891 0.907 1.368 1.718 DAAAM-ES [7] 0.714 0.769 0.748 0.743 19.28 34.61 55.87 39.69 2.703 0.903 1.341 1.683 UQ-DAAAM (Ours) 0.731 0.778 0.786 0.761 15.46 25.35 58.94 37.84 1.948 0.910 1.275 1.589
+
+Table 1: Results on OC-NaVQA benchmark [12, 2]. All models use GPT-5-mini. 
+
+5 Experiments 
+
+In our implementation, we set r = 3 to gather diverse perspectives on each object to measure the semantic scatter as the uncertainty. We use a budget of B = 2 for refinement, and the uncertainty threshold τ is set to the top 20-th percentile of the object uncertainty distribution, selected on a held-out calibration dataset, from which we also derive the statistics to normalize the uncertainty scores. In the calculation of u, we use a small regularization constant of λ = 1 e − 8 to ensure numerical stability of the log-determinant. We set the temperature for caption generation to 1. For caption fusion, we use GPT-5-mini. Visualizations and analysis of qualitative results are in Section M. 
+
+5.1 Budgeted Refinement on OC-NaVQA 
+
+We evaluate UQ-DAAAM on spatio-temporal question answering (SQA) using the CODa dataset and the object-centric NaVQA (OC-NaVQA) benchmark introduced by DAAAM [12]. DAAAM motivates OC-NaVQA as a large-scale, long-horizon extension of NaVQA [2]: it re-annotates spa-tial queries with actual object positions, improves label quality with a custom 3D labeling tool, and evaluates over the full sequence context rather than a restricted observation window, resulting in settings of up to 35.8 minutes and 1.64 km of traveled distance. Following DAAAM, we use the same task categories and report the same three metrics: question accuracy , positional error , and temporal error . DAAAM uses these metrics both on the original NaVQA benchmark and on OC-NaVQA, where all methods are paired with the same reasoning model over the constructed memory. We adopt the same evaluation protocol so that improvements can be attributed to the memory representation and refinement strategy rather than changes in the reasoning backend. We report the main comparison at a fixed refinement budget in Table 1. Specif-ically, we compare: DAAAM : the original pipeline with no post hoc refinement; DAAAM-RR :after the initial DAAAM pass, additional feasible object-view queries are allocated uniformly at random on objects under the same extra budget; DAAAM-QR : after the initial DAAAM pass, the extra budget is allocated only for low-quality objects via DAAAM’s original view-quality score qij ,without uncertainty; UQ-DAAAM : our full method, which uses object-level uncertainty to prior-itize refinement and then updates memory with the additional multi-view semantic evidence. In addition, we compare against 4 different UQ methods implemented on top of DAAAM: DAAAM-NC [22], which uses neighborhood consistency; DAAAM-LN [33], which uses next-token log like-lihood as an uncertainty signal; DAAAM-Ent [24], which uses entropy as an uncertainty signal; and 
+
+DAAAM-ES [7], which uses evidence score as an uncertainty signal. The details for the baselines can be found in Section J. As the results show in Table 1, UQ-DAAAM outperforms the base-lines across all three metrics, with the largest gains in question accuracy and positional error. This demonstrates that uncertainty-aware refinement can more effectively allocate a fixed semantic-query budget to improve the quality. 
+
+5.2 Uncertainty Reduction 
+
+In addition to downstream task performance, we directly evaluate whether refinement achieves its immediate objective: reducing object-level semantic uncertainty. For each object oj , we compute its uncertainty before refinement, upre  
+
+> j
+
+, and after refinement, upost  
+
+> j
+
+. We focus in particular on the subset of objects that are initially marked as uncertain, i.e., Upre  
+
+> τ
+
+= { j ∈ [m] : upre  
+
+> j
+
+> τ }. We then measure how effectively each method reduces uncertainty within this set. 70.6 0.8 1.0     
+
+> UQ score (normalized)
+> 0
+> 50
+> 100
+> Count
+> DAAAM-RR
+> Before ( u0)
+> After ( u1)
+> 0.6 0.8 1.0
+> UQ score (normalized)
+> DAAAM-QR
+> Before ( u0)
+> After ( u1)
+> 0.6 0.8 1.0
+> UQ score (normalized)
+> UQ-DAAAM (Ours)
+> Before ( u0)
+> After ( u1)
+
+DAAAM-RR DAAAM-QR UQ-DAAAM URR 5.6% 34.2% 92.3% Mean ∆u -0.006 -0.036 -0.121 
+
+Figure 2: Uncertainty reduction comparison across refinement strategies. Top: Uncertainty reduction distributions. Bottom: URR and mean uncertainty reduction at fixed budget B = 2 .0.6 0.8 1.0     
+
+> UQ score (normalized)
+> 0
+> 50
+> 100
+> Count
+> B=1
+> Before ( u0)
+> After ( u1)
+> 0.6 0.8 1.0
+> UQ score (normalized)
+> B=2
+> Before ( u0)
+> After ( u1)
+> 0.6 0.8 1.0
+> UQ score (normalized)
+> B=3
+> Before ( u0)
+> After ( u1)
+
+B = 1 B = 2 B = 3 
+
+URR 68.9% 92.3% 94.4% Mean ∆u -0.079 -0.121 -0.169 Figure 3: Uncertainty reduction comparison across budgets. Top: per-budget uncertainty re-duction curves. Bottom: URR and mean uncer-tainty reduction. Budget Object View Fusion Threshold                                                                            
+
+> B=1 B=2 B=3 LQ CD UW Full Rqij Dir Best IO RO UC C10 20 30 40 Accuracy 0.742 0.761 0.774 0.748 0.737 0.752 0.761 0.741 0.761 0.754 0.754 0.728 0.739 0.747 0.761 0.748 0.761 0.767 0.770
+> Position [m] 38.46 37.84 36.99 38.63 39.25 38.47 37.84 39.18 37.84 38.39 38.41 40.12 39.47 38.89 37.84 39.31 37.84 37.21 37.09
+> Temporal [min] 1.712 1.589 1.539 1.651 1.703 1.638 1.589 1.681 1.589 1.624 1.631 1.762 1.714 1.668 1.589 1.674 1.589 1.558 1.551
+
+Table 2: Ablation study. Each group varies one design axis while holding others fixed. Our primary metric is the uncertainty reduction rate , defined as the percentage of initially uncertain objects whose uncertainty falls below the threshold after refinement: URR = { j∈U pre  
+
+> τ
+
+:upost  
+
+> j
+
+≤τ }
+
+|U pre  
+
+> τ
+
+|
+
+This metric directly captures how often refinement succeeds in converting an uncertain object into a semantically resolved one. We compare the same DAAAM-RR, DAAAM-QR, and UQ-DAAAM variants from Section 5.1; uncertainty-as-error-predictor results are deferred to Section J. The uncertainty-reduction results in Figure 2 show a clear advantage for UQ-DAAAM over both non-uncertainty-based refinement baselines. At a fixed budget B = 2 , UQ-DAAAM achieves a URR of 92.3%, compared to 34.2% for quality-based refinement and only 5.6% for random refine-ment. UQ-DAAAM shifts the post-refinement distribution markedly to the left, showing a much larger and more consistent reduction in uncertainty across objects. Overall, these results indicate that the proposed uncertainty-aware refinement is substantially more effective. 
+
+5.3 Ablations 
+
+We perform a comprehensive ablation study to separate the effect of uncertainty estimation, object selection, view refinement, and caption fusion. 
+
+Performance versus budget. We vary the additional refinement budget B and plot uncertainty reduction performance as a function of the number of extra caption queries. This reveals the refinement-efficiency regime in which UQ-DAAAM provides the largest gains. Results shown in Figure 3 suggest that increasing the refinement budget consistently improves uncertainty reduction, but with diminishing returns. As the per-object budget increases from B = 1 to B = 3 , the post-refinement uncertainty distribution shifts progressively leftward, indicating that additional queried views provide increasingly stronger semantic disambiguation. Notably, most of the gain is already achieved by B = 2 , suggesting that a small number of extra views is sufficient to resolve uncertainty for the majority of objects, while larger budgets provide smaller but still measurable additional ben-efit. The downstream OC-NaVQA results are consistent with the uncertainty-reduction analysis. As shown in “Budget” of Table 2, larger refinement budgets lead to better task performance, and all budgeted UQ-DAAAM variants outperform vanilla DAAAM. As the per-object refinement budget increases, all three metrics improve, with the largest gain from B = 1 to B = 2 , consistent with the uncertainty-reduction results. Overall, these results show that reducing object-level uncertainty translates into measurable downstream gains in spatio-temporal question answering. 
+
+Refinement object selection rule. We ablate the rule used to choose which objects receive addi-tional refinements (Table 2, “Object”): lowest-quality ( LQ ), highest cross-view disagreement via caption embedding dispersion ( CD ), uncertainty without incoherence weighting ( UW ), and full 8uncertainty ( Full ). Full leads across all metrics; UW comes closest, confirming that incoherence weighting adds a consistent but modest gain over dispersion alone, while CD trails, indicating that raw caption disagreement without visual grounding is a poor proxy for semantic unreliability. 
+
+Refinement view selection heuristic. Conditioned on the same object selected for refinement, we ablate the rule used to choose the next additional view. We compare three policies: selecting a random visible view ( R), selecting the visible view with the highest heuristic quality score qij ,and a direction-based heuristic [31] that prioritizes views according to the object’s viewing direc-tion ( Dir ). This comparison isolates whether refinement gains arise simply from better geometric visibility, from DAAAM’s original quality heuristic, or from choosing views that are expected to be semantically more informative. As shown under the “View” tab in Table 2, random view selection (R) noticeably degrades performance. Dir closely tracks qij , suggesting that geometric visibility already recovers most of the gain, but the quality-weighted score gives additional filtering. 
+
+Fusion strategy. We ablate how multi-view captions are consolidated into a final object descrip-tion in order to separate the effect of semantic fusion from the effects of uncertainty estimation and refinement. We compare five variants: no fusion, which uses the single best caption only ( Best ); initial-only fusion, which aggregates only captions from the initial selected views ( IO ); refined-only fusion, which aggregates only captions acquired during refinement ( RO ); unconstrained LLM fu-sion, which merges all captions without explicit conflict-handling rules ( UC ); and our constrained stage-aware fusion, which prefers refined captions when they conflict with initial ones while preserv-ing unresolved alternatives when disagreement remains within the initial set ( C). This comparison tests whether the gains of UQ-DAAAM come merely from acquiring more views, or from consoli-dating multi-view semantic evidence in a way that is conservative, conflict-aware, and aligned with the refinement process. As shown under the “Fusion” tab in Table 2, C achieves the best perfor-mance. The monotone improvement from IO → RO → UC → Best → C shows that each level of conflict-awareness and stage-sensitivity provides additional gain, and that the benefit of refinement is substantially eroded when captions are fused naively. 
+
+Refinement threshold. We ablate the effect of the uncertainty threshold used to trigger refine-ment, which determines how aggressively the system allocates additional semantic-query budget. Specifically, we use the 10th, 20th, 30th, and 40th quantiles of the object-level uncertainty distribu-tion as refinement thresholds, so that progressively lower thresholds cause a larger fraction of objects to be refined. This experiment exposes the tradeoff between semantic-query cost and downstream gain: stricter thresholds focus refinement on only the most uncertain objects, while more permissive thresholds increase coverage at the cost of additional queries. As shown under the “Threshold” tab in Table 2, performance improves substantially from the 10th to the 20th quantile, and continues to improve at the 30th quantile. The 40th quantile yields only marginal further gain, indicating di-minishing returns beyond the 30th percentile and confirming that the default 20 offers a favorable cost-performance tradeoff. 
+
+5.4 Memory and Runtime Details 
+
+Across 7 CODa sequences (98,866 frames), UQ-DAAAM runs at 13.5 Hz on a single RTX 4090, comfortably exceeding the 10 Hz sensor rate. The cross-view BLP solver adds a mean latency of only 1.49% of total frame processing time. Each object receives 3.44 ± 0.68 cross-view captions on average; uncertainty is computed via numpy.linalg.slogdet on CPU with negligible overhead. Of the 18,298 objects annotated across all sequences, 6,324 (34.6%) were selected for refinement, receiving 1.32 ± 0.47 additional views each. Active view selection reduced the mean UQ score from 
+
+0.56 to 0.32 , indicating substantially increased caption agreement. GPU memory remains within the 24 GB envelope of the RTX 4090, as the UQ and BLP components are CPU-only and the DAM-3B is shared between initial annotation and refinement. 
+
+6 Conclusion 
+
+We presented UQ-DAAAM, an uncertainty-aware extension of DAAAM for 4D spatial-temporal memory. Our key idea is to endow object-centric memory with an explicit notion of semantic uncer-tainty, so that the system can recognize when multi-view descriptions remain ambiguous and selec-9tively acquire additional evidence. To this end, we introduced an object-level uncertainty measure that combines cross-view semantic disagreement with per-view incoherence, a refinement strategy that allocates a query budget to uncertain objects and informative views, and a fusion mechanism that consolidates refined multi-view descriptions into stable object summaries. Experiments show that UQ-DAAAM improves uncertainty reduction and spatio-temporal reasoning over baselines. We show qualitative examples in Section M and list the limitations of the work in Section N. 
+
+References 
+
+[1] A.N. Angelopoulos and S. Bates. A gentle introduction to conformal prediction and distribution-free uncertainty quantification. arXiv preprint arXiv:2107.07511 , 2021. [2] A. Anwar, J. Welsh, J. Biswas, S. Pouya, and Y. Chang. ReMEmbR: Building and reasoning over long-horizon spatio-temporal memory for robot navigation. In IEEE Intl. Conf. on Robotics and Automation (ICRA) , 2025. [3] I. Armeni, Z. He, J. Gwak, A. Zamir, M. Fischer, J. Malik, and S. Savarese. 3D scene graph: A structure for unified semantics, 3D space, and camera. In Intl. Conf. on Computer Vision (ICCV) , pp. 5664–5673, 2019. [4] Z. Bai, P. Wang, T. Xiao, T. He, Z. Han, Z. Zhang, and M.Z. Shou. Hallucination of multimodal large language models: A survey. arXiv preprint arXiv:2404.18930 , 2024. [5] R.F. Barber, E.J. Candes, A. Ramdas, and R.J. Tibshirani. Conformal prediction beyond exchangeability. 
+
+The Annals of Statistics , 51(2):816–845, 2023. [6] K. Chaloner and I. Verdinelli. Bayesian experimental design: A review. Statistical science , pp. 273–304, 1995. [7] C. Chen, K. Liu, Z. Chen, Y. Gu, Y. Wu, M. Tao, Z. Fu, and J. Ye. Inside: Llms’ internal states retain the power of hallucination detection. arXiv preprint arXiv:2402.03744 , 2024. [8] S-H. Chou, S. Chandhok, J. Little, and L. Sigal. Mm-r3: On (in-) consistency of vision-language models (vlms). In Findings of the Association for Computational Linguistics: ACL 2025 , pp. 4762–4788, 2025. [9] S. Farquhar, J. Kossen, L. Kuhn, and Y. Gal. Detecting hallucinations in large language models using semantic entropy. Nature , 630(8017):625–630, 2024. [10] Y. Gal and Z. Ghahramani. Dropout as a bayesian approximation: Representing model uncertainty in deep learning. In Intl. Conf. on Machine Learning (ICML) , pp. 1050–1059. PMLR, 2016. [11] M.F. Ginting, D-K. Kim, X. Meng, A.M. Reinke, B.J. Krishna, N. Kayhani, O. Peltzer, D. Fan, A. Shaban, S-K. Kim, M. Kochenderfer, A. Agha-mohammadi, and S. Omidshafiei. Enter the mind palace: Reason-ing and planning for long-term active embodied question answering. In Conference on Robot Learning (CoRL) , 2025. [12] N. Gorlo, L. Schmid, and L. Carlone. Describe anything anywhere at any moment. In IEEE Conf. on Computer Vision and Pattern Recognition (CVPR) , 2026. [13] Y. Goyal, T. Khot, D. Summers-Stay, D. Batra, and D. Parikh. Making the v in vqa matter: Elevating the role of image understanding in visual question answering. In Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 6904–6913, 2017. [14] Q. Gu, A. Kuwajerwala, S. Morin, K.M. Jatavallabhula, B. Sen, A. Agarwal, C. Rivera, W. Paul, K. Ellis, R. Chellappa, C. Gan, C.M. de Melo, J.B. Tenenbaum, A. Torralba, F. Shkurti, and L. Paull. Concept-graphs: Open-vocabulary 3d scene graphs for perception and planning. In IEEE Intl. Conf. on Robotics and Automation (ICRA) , May 2024. [15] C. Guo, G. Pleiss, Y. Sun, and K.Q. Weinberger. On calibration of modern neural networks. In Intl. Conf. on Machine Learning (ICML) , pp. 1321–1330, 2017. [16] P. He, X. Liu, J. Gao, and W. Chen. Deberta: Decoding-enhanced bert with disentangled attention. arXiv preprint arXiv:2006.03654 , 2020. [17] D. Honerkamp, M. B¨ uchner, F. Despinoy, T. Welschehold, and A. Valada. Language-grounded dynamic scene graphs for interactive object search with mobile manipulation. IEEE Robotics and Automation Letters (RA-L) , 2024. 
+
+10 [18] N. Hughes, Y. Chang, and L. Carlone. Hydra: a real-time spatial perception engine for 3D scene graph construction and optimization. In Robotics: Science and Systems (RSS) , 2022. [19] N. Hughes, Y. Chang, S. Hu, R. Talak, R. Abdulhai, J. Strader, and L. Carlone. Foundations of spatial perception for robotics: Hierarchical representations and real-time systems. Intl. J. of Robotics Research ,2024. [20] E. H¨ ullermeier and W. Waegeman. Aleatoric and epistemic uncertainty in machine learning: An intro-duction to concepts and methods. Machine learning , 110(3):457–506, 2021. [21] K.M. Jatavallabhula, A. Kuwajerwala, Q. Gu, M. Omama, T. Chen, S. Li, G. Iyer, S. Saryazdi, N. Keetha, A. Tewari, J.B. Tenenbaum, C.M. de Melo, M. Krishna, L. Paull, F. Shkurti, and A. Torralba. Conceptfu-sion: Open-set multimodal 3d mapping. In Robotics: Science and Systems (RSS) , 2023. [22] Z. Khan and Y. Fu. Consistency and uncertainty: Identifying unreliable responses from black-box vision-language models for selective visual question answering. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 10854–10863, 2024. [23] S. Koch, N. Vaskevicius, M. Colosi, P. Hermosilla, and T. Ropinski. Open3DSG: Open-vocabulary 3D scene graphs from point clouds with queryable objects and open-set relationships. In IEEE Conf. on Computer Vision and Pattern Recognition (CVPR) , 2024. [24] L. Kuhn, Y. Gal, and S. Farquhar. Semantic uncertainty: Linguistic invariances for uncertainty estimation in natural language generation. arXiv preprint arXiv:2302.09664 , 2023. [25] B. Lakshminarayanan, A. Pritzel, and C. Blundell. Simple and scalable predictive uncertainty estimation using deep ensembles. Advances in neural information processing systems , 30, 2017. [26] G.K.R. Lau, H. Dao, N.K.H. Lin, and B.K.H. Low. Uncertainty quantification for mllms. In ICML 2025 Workshop on Reliable and Responsible Foundation Models , 2025. [27] L. Li, J. Lei, Z. Gan, and J. Liu. Adversarial vqa: A new benchmark for evaluating the robustness of vqa models. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 2042–2051, 2021. [28] L. Lian, Y. Ding, Y. Ge, S. Liu, H. Mao, B. Li, M. Pavone, M-Y. Liu, T. Darrell, A. Yala, and Y. Cui. Describe anything: Detailed localized image and video captioning. In Intl. Conf. on Computer Vision (ICCV) , 2025. [29] F. Liu, K. Lin, L. Li, J. Wang, Y. Yacoob, and L. Wang. Aligning large multi-modal model with robust instruction tuning. CoRR , 2023. [30] H. Liu, C. Li, Q. Wu, and Y.J. Lee. Visual instruction tuning. In Conf. on Neural Information Processing Systems (NeurIPS) , 2023. [31] X. Liu, A. Prabhu, F. Cladera, I.D. Miller, L. Zhou, C.J. Taylor, and V. Kumar. Active metric-semantic mapping by multiple aerial robots. In 2023 IEEE International Conference on Robotics and Automation (ICRA) , pp. 3282–3288. IEEE, 2023. [32] D. Maggio, Y. Chang, N. Hughes, M. Trang, D. Griffith, C. Dougherty, E. Cristofalo, L. Schmid, and L. Carlone. Clio: Real-time task-driven open-set 3D scene graphs. IEEE Robotics and Automation Letters (RA-L) , 9(10):8921–8928, 2024. [33] A. Malinin and M. Gales. Uncertainty estimation in autoregressive structured prediction. arXiv preprint arXiv:2002.07650 , 2020. [34] P. Manakul, A. Liusie, and M.J.F. Gales. Selfcheckgpt: Zero-resource black-box hallucination detection for generative large language models. arXiv preprint arXiv:2303.08896 , 2023. [35] K. Marino, M. Rastegari, A. Farhadi, and R. Mottaghi. Ok-vqa: A visual question answering benchmark requiring external knowledge. In Proceedings of the IEEE/cvf conference on computer vision and pattern recognition , pp. 3195–3204, 2019. [36] J. Ni, G.H. Abrego, N. Constant, J. Ma, K. Hall, D. Cer, and Y. Yang. Sentence-t5: Scalable sentence en-coders from pre-trained text-to-text models. In Findings of the association for computational linguistics: ACL 2022 , pp. 1864–1874, 2022. [37] A. Nikitin, J. Kossen, Y. Gal, and P. Marttinen. Kernel language entropy: Fine-grained uncertainty quan-tification for llms from semantic similarities. Advances in Neural Information Processing Systems , 37: 8901–8929, 2024. 
+
+11 [38] V. Quach, A. Fisch, T. Schuster, A. Yala, J.H. Sohn, T.S. Jaakkola, and R. Barzilay. Conformal language modeling. arXiv preprint arXiv:2306.10193 , 2023. [39] A. Radford, J.W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, G. Krueger, and I. Sutskever. Learning transferable visual models from natural language super-vision. In Marina Meila and Tong Zhang (eds.), Intl. Conf. on Machine Learning (ICML) , volume 139 of 
+
+Proceedings of Machine Learning Research , pp. 8748–8763. PMLR, 18–24 Jul 2021. [40] A.Z. Ren, A. Dixit, A. Bodrova, S. Singh, S. Tu, N. Brown, P. Xu, L. Takayama, F. Xia, J. Varley, Z. Xu, D. Sadigh, A. Zeng, and A. Majumdar. Robots that ask for help: Uncertainty alignment for large language model planners. In Conference on Robot Learning (CoRL) , 2023. [41] A.Z. Ren, J. Clark, A. Dixit, M. Itkina, A. Majumdar, and D. Sadigh. Explore until confident: Efficient exploration for embodied question answering. In Robotics: Science and Systems (RSS) , 2024. [42] A. Rosinol, A. Gupta, M. Abate, J. Shi, and L. Carlone. 3D dynamic scene graphs: Actionable spatial per-ception with places, objects, and humans. In Robotics: Science and Systems (RSS) , 2020. doi: 10.15607/ RSS.2020.XVI.079. URL http://news.mit.edu/2020/robots-spatial-perception-0715 .[43] S. Saxena, B. Buchanan, C. Paxton, P. Liu, B. Chen, N. Vaskevicius, L. Palmieri, J. Francis, and O. Kroe-mer. Grapheqa: Using 3d semantic scene graphs for real-time embodied question answering. In Confer-ence on Robot Learning (CoRL) , 2025. [44] L. Schmid, M. Abate, Y. Chang, and L. Carlone. Khronos: A unified approach for spatio-temporal metric-semantic SLAM in dynamic environments. In Robotics: Science and Systems (RSS) , 2024. [45] J. Su, J. Luo, H. Wang, and L. Cheng. Api is enough: Conformal prediction for large language models without logit-access. arXiv preprint arXiv:2403.01216 , 2024. [46] S. Tong, Z. Liu, Y. Zhai, Y. Ma, Y. LeCun, and S. Xie. Eyes wide shut? exploring the visual shortcomings of multimodal llms. In IEEE Conf. on Computer Vision and Pattern Recognition (CVPR) , pp. 9568–9578, 2024. [47] D. Tran, J. Liu, M.W. Dusenberry, D. Phan, M. Collier, J. Ren, K. Han, Z. Wang, Z. Mariet, H. Hu, et al. Plex: Towards reliability using pretrained large model extensions. arXiv preprint arXiv:2207.07411 ,2022. [48] U. Upadhyay, S. Karthik, M. Mancini, and Z. Akata. Probvlm: Probabilistic adapter for frozen vison-language models. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 1899–1910, 2023. [49] A. Venkataramanan, P. Bodesheim, and J. Denzler. Probabilistic embeddings for frozen vision-language models: Uncertainty quantification with gaussian process latent variable models. arXiv preprint arXiv:2505.05163 , 2025. [50] A. Werby, C. Huang, M. B¨ uchner, A. Valada, and W. Burgard. Hierarchical open-vocabulary 3d scene graphs for language-grounded robot navigation. Robotics: Science and Systems (RSS) , 2024. [51] Q. Xie, S.Y. Min, P. Ji, Y. Yang, T. Zhang, A. Bajaj, R. Salakhutdinov, M. Johnson-Roberson, and Y. Bisk. Embodied-RAG: General non-parametric embodied memory for retrieval and generation, 2024. URL 
+
+https://arxiv.org/abs/2409.18313 .[52] Y. Yang, H. Yang, J. Zhou, P. Chen, H. Zhang, Y. Du, and C. Gan. 3d-mem: 3d scene memory for embodied exploration and reasoning. In IEEE Conf. on Computer Vision and Pattern Recognition (CVPR) ,pp. 17294–17303, 2025. [53] Q. Yu, J. Li, L. Wei, L. Pang, W. Ye, B. Qin, S. Tang, Q. Tian, and Y. Zhuang. Hallucidoctor: Mitigating hallucinatory toxicity in visual instruction data. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 12944–12953, 2024. [54] B. Zhai, S. Yang, C. Xu, S. Shen, K. Keutzer, and M. Li. Halle-switch: Controlling object hallucination in large vision language models. arXiv preprint arXiv:2310.01779 , 2023. [55] A. Zhang, C. Eranki, C. Zhang, J-H. Park, R. Hong, P. Kalyani, L. Kalyanaraman, A. Gamare, A. Bagad, M. Esteva, et al. Toward robust robot 3-d perception in urban environments: The ut campus object dataset. 
+
+IEEE Trans. Robotics , 40:3322–3340, 2024. [56] H. Zhang and L. Carlone. Fuse: Quantifying uncertainty in multimodal llms by bayesian fusing epistemic and aleatoric uncertainty. Work in progress , 2026. 
+
+12 [57] Y. Zhang, P. Sun, Y. Jiang, D. Yu, F. Weng, Z. Yuan, P. Luo, W. Liu, and X. Wang. Bytetrack: Multi-object tracking by associating every detection box. In European Conf. on Computer Vision (ECCV) , pp. 1–21. Springer, 2022. [58] Z. Zhang, Z. Zhu, P. Li, T. Liu, X. Ma, Y. Chen, B. Jia, S. Huang, and Q. Li. Task-oriented sequential grounding in 3D scenes, 2024. URL https://arxiv.org/abs/2408.04034 .[59] X. Zhao, W. Ding, Y. An, Y. Du, T. Yu, M. Li, M. Tang, and J. Wang. Fast segment anything, 2023. 
+
+13 Supplementary Material 
+
+A Object-level Uncertainty Matters in DAAAM 
+
+DAAAM is designed to build grounded semantic memory from a sparse set of representative views. However, not all objects are equally easy to describe from a limited number of views. Some objects remain semantically stable after only a few observations, while others exhibit persistent ambiguity due to clutter, viewpoint effects, or fine-grained attributes. The uncertainty score uj provides a prin-cipled way to detect these difficult cases. Rather than treating all objects uniformly, the system can identify which objects are already semantically well characterized and which objects require further refinement. This makes uncertainty quantification a key interface between memory construction and active view acquisition: it summarizes the quality of the current semantic evidence for each object and supports downstream decisions about where additional sensing or captioning effort should be spent. 
+
+B Augmented Block Form after Adding a New View 
+
+Recall 
+
+Z(t) 
+
+> j
+
+= zj1, . . . , zjt 
+
+ ∈ Rd×t
+
+denote the current weighted embedding matrix, where each column is a weighted caption embed-ding, and let 
+
+S(t) 
+
+> j
+
+= ( Z(t) 
+
+> j
+
+)⊤Z(t) 
+
+> j
+
++ λIt
+
+be the corresponding regularized Gram matrix. For a candidate view i, let 
+
+zij = γij rij ∈ Rd
+
+be the weighted embedding that would be obtained if view i were queried. After adding this candi-date, the augmented weighted embedding matrix becomes 
+
+Z(t+1)  
+
+> j
+
+(i) =  Z(t) 
+
+> j
+
+, zij 
+
+ ∈ Rd×(t+1) .
+
+Therefore, 
+
+S(t+1)  
+
+> j
+
+(i) =  Z(t+1)  
+
+> j
+
+(i)⊤Z(t+1)  
+
+> j
+
+(i) + λIt+1 .
+
+Expanding the product gives 
+
+ Z(t+1)  
+
+> j
+
+(i)⊤Z(t+1)  
+
+> j
+
+(i) = 
+
+"
+
+(Z(t) 
+
+> j
+
+)⊤
+
+z⊤
+
+> ij
+
+# h
+
+Z(t) 
+
+> j
+
+zij 
+
+i
+
+=
+
+"
+
+(Z(t) 
+
+> j
+
+)⊤Z(t) 
+
+> j
+
+(Z(t) 
+
+> j
+
+)⊤zij 
+
+z⊤ 
+
+> ij
+
+Z(t) 
+
+> j
+
+z⊤ 
+
+> ij
+
+zij 
+
+#
+
+.
+
+Now define 
+
+b(t) 
+
+> ij
+
+≜ (Z(t) 
+
+> j
+
+)⊤zij ∈ Rt.
+
+Since ∥rij ∥2 = 1 and zij = γij rij , we also have 
+
+z⊤ 
+
+> ij
+
+zij = ∥zij ∥22 = γ2 
+
+> ij
+
+.
+
+Adding the regularization term λIt+1 blockwise yields 
+
+S(t+1)  
+
+> j
+
+(i) = 
+
+"
+
+(Z(t) 
+
+> j
+
+)⊤Z(t) 
+
+> j
+
++ λIt b(t)
+
+> ij
+
+(b(t) 
+
+> ij
+
+)⊤ γ2 
+
+> ij
+
++ λ
+
+#
+
+=
+
+"
+
+S(t) 
+
+> j
+
+b(t)
+
+> ij
+
+(b(t) 
+
+> ij
+
+)⊤ γ2 
+
+> ij
+
++ λ
+
+#
+
+.
+
+Thus, the updated regularized Gram matrix has the claimed augmented block form. 
+
+C Proof of Theorem 4.4 
+
+Theorem 4.4 (Closed-form one-step uncertainty update) . For any candidate view i ∈ C (t) 
+
+> j
+
+acquired for object j with t existing views, the one-step uncertainty update is given by 
+
+u(t+1)  
+
+> j
+
+(i) − u(t) 
+
+> j
+
+= log 
+
+
+
+s(t)
+
+> ij
+
+
+
+. (6) 14 Proof. Recall that 
+
+S(t+1)  
+
+> j
+
+(i) = 
+
+"
+
+S(t) 
+
+> j
+
+b(t)
+
+> ij
+
+(b(t) 
+
+> ij
+
+)⊤ ˜γ2 
+
+> ij
+
++ λ
+
+#
+
+,
+
+where S(t) 
+
+> j
+
+∈ Rt×t is positive definite because 
+
+S(t) 
+
+> j
+
+= ( Z(t) 
+
+> j
+
+)⊤Z(t) 
+
+> j
+
++ λI t, λ > 0.
+
+Hence (S(t) 
+
+> j
+
+)−1 exists. For a block matrix of the form 
+
+A BC D
+
+
+
+,
+
+with A invertible, the determinant can be written using the Schur complement of A:
+
+det 
+
+A BC D
+
+
+
+= det( A) det( D − CA −1B).
+
+In our case, identify 
+
+A = S(t) 
+
+> j
+
+, B = b(t) 
+
+> ij
+
+, C = ( b(t) 
+
+> ij
+
+)⊤, D = γ2 
+
+> ij
+
++ λ. 
+
+Therefore, the Schur complement of S(t) 
+
+> j
+
+in S(t+1)  
+
+> j
+
+(i) is 
+
+D − CA −1B = γ2 
+
+> ij
+
++ λ − (b(t) 
+
+> ij
+
+)⊤(S(t) 
+
+> j
+
+)−1b(t) 
+
+> ij
+
+.
+
+Since D is a scalar, its determinant is just itself, so applying the block determinant identity yields 
+
+det S(t+1)  
+
+> j
+
+(i) = det S(t)
+
+> j
+
+
+
+γ2 
+
+> ij
+
++ λ − (b(t) 
+
+> ij
+
+)⊤(S(t) 
+
+> j
+
+)−1b(t)
+
+> ij
+
+
+
+.
+
+Taking logarithms on both sides gives 
+
+log det S(t+1)  
+
+> j
+
+(i) = log det S(t) 
+
+> j
+
++ log 
+
+
+
+γ2 
+
+> ij
+
++ λ − (b(t) 
+
+> ij
+
+)⊤(S(t) 
+
+> j
+
+)−1b(t)
+
+> ij
+
+
+
+.
+
+Finally, since 
+
+u(t) 
+
+> j
+
+= log det S(t) 
+
+> j
+
+, u(t+1)  
+
+> j
+
+(i) = log det S(t+1)  
+
+> j
+
+(i),
+
+we obtain 
+
+u(t+1)  
+
+> j
+
+(i) − u(t) 
+
+> j
+
+= log 
+
+
+
+˜γ2 
+
+> ij
+
++ λ − (b(t) 
+
+> ij
+
+)⊤(S(t) 
+
+> j
+
+)−1b(t)
+
+> ij
+
+
+
+,
+
+which proves the claim. Since S(t) 
+
+> j
+
+≻ 0, the Schur complement formula gives 
+
+det S(t+1)  
+
+> j
+
+(i) = det S(t)
+
+> j
+
+
+
+γ2 
+
+> ij
+
++ λ − (b(t) 
+
+> ij
+
+)⊤(S(t) 
+
+> j
+
+)−1b(t)
+
+> ij
+
+
+
+. (8) Taking logarithms on both sides yields the claim. 
+
+D Proof of Theorem 4.5 
+
+Theorem 4.5 (Criterion for one-step uncertainty reduction) . For any candidate view i ∈ C (t) 
+
+> j
+
+ac-quired for object j with t existing views, we have the following uncertainty reduction criterion: 
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+⇐⇒ η(t) 
+
+> ij
+
+> γ 2 
+
+> ij
+
++ λ − 1.
+
+Proof. By Theorem 4.4, 
+
+u(t+1)  
+
+> j
+
+(i) − u(t) 
+
+> j
+
+= log  γ2 
+
+> ij
+
++ λ − η(t)
+
+> ij
+
+.
+
+Since log( ·) is strictly increasing, this quantity is negative if and only if 
+
+γ2 
+
+> ij
+
++ λ − η(t) 
+
+> ij
+
+< 1,
+
+which is equivalent to 
+
+η(t) 
+
+> ij
+
+> γ 2 
+
+> ij
+
++ λ − 1.
+
+15 E Proof of Proposition 4.7 
+
+Proposition 4.7 (Monotonicity of BOED utility under FOSD and proxy acquisition) . Suppose the FOSD assumption holds for object oj . Then for any two candidates i, i ′ ∈ C (t) 
+
+> j
+
+, qij ≥ qi′j =⇒
+
+∆j (i) ≥ ∆j (i′). Consequently, any maximizer of qij over C(t) 
+
+> j
+
+is also a maximizer of the exact BOED utility ∆j (i) and candidate views can be ranked by qij , yielding the proxy acquisition rule: 
+
+i⋆j ∈ arg max 
+
+> i∈C (t)
+> j
+
+qij . (7) 
+
+Proof. Let 
+
+X ≜ s(t) 
+
+> ij
+
+, Y ≜ s(t) 
+
+> i′j
+
+,
+
+viewed as positive random variables conditional on the current evidence D(t) 
+
+> j
+
+. By assumption, 
+
+X ⪯FOSD Y, 
+
+meaning that their conditional distribution functions satisfy 
+
+FX (x) ≜ P
+
+
+
+X ≤ x D(t)
+
+> j
+
+
+
+≥ P
+
+
+
+Y ≤ x D(t)
+
+> j
+
+
+
+≜ FY (x) ∀x > 0.
+
+Equivalently, for every threshold x > 0, X is conditionally more likely than Y to take smaller values. Now consider the function 
+
+g(s) = − log s, s > 0.
+
+Since log s is strictly increasing on (0 , ∞), g is strictly decreasing on (0 , ∞). Because X and Y are positive almost surely, g(X) and g(Y ) are well defined. A standard property of first-order stochastic dominance states that if X ⪯FOSD Y , then for every decreasing measurable function g for which the expectations exist, 
+
+E
+
+h
+
+g(X) D(t)
+
+> j
+
+i
+
+≥ E
+
+h
+
+g(Y ) D(t)
+
+> j
+
+i
+
+.
+
+Applying this with g(s) = − log s, we obtain 
+
+E
+
+h
+
+− log s(t) 
+
+> ij
+
+D(t)
+
+> j
+
+i
+
+≥ E
+
+h
+
+− log s(t) 
+
+> i′j
+
+D(t)
+
+> j
+
+i
+
+.
+
+By definition of the exact BOED utility, 
+
+∆j (i) = E
+
+h
+
+− log s(t) 
+
+> ij
+
+D(t)
+
+> j
+
+i
+
+, ∆j (i′) = E
+
+h
+
+− log s(t) 
+
+> i′j
+
+D(t)
+
+> j
+
+i
+
+.
+
+Therefore, 
+
+∆j (i) ≥ ∆j (i′),
+
+which proves the claim. 
+
+F Proof of Theorem 4.8 
+
+Theorem 4.8 (Probabilistic guarantee of uncertainty reduction via heuristic) . Suppose that for two feasible candidate views i, i ′ ∈ C (t) 
+
+> j
+
+, qij ≥ qi′j and the corresponding Schur scores s(t) 
+
+> ij
+
+, s (t) 
+
+> i′j
+
+satisfies Assumption 4.6. Then 
+
+P
+
+
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+D(t)
+
+> j
+
+
+
+≥ P
+
+
+
+u(t+1)  
+
+> j
+
+(i′) < u (t) 
+
+> j
+
+D(t)
+
+> j
+
+
+
+.
+
+Proof. Recall from the one-step update formula that for any candidate view i,
+
+u(t+1)  
+
+> j
+
+(i) − u(t) 
+
+> j
+
+= log s(t) 
+
+> ij
+
+,
+
+16 where the Schur complement satisfies s(t) 
+
+> ij
+
+> 0 almost surely, since it is the Schur complement of the positive definite matrix S(t+1)  
+
+> j
+
+(i) with respect to the positive definite principal block S(t) 
+
+> j
+
+.Because the logarithm is strictly increasing on (0 , ∞), we have 
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+⇐⇒ u(t+1)  
+
+> j
+
+(i) − u(t) 
+
+> j
+
+< 0 ⇐⇒ log s(t) 
+
+> ij
+
+< 0 ⇐⇒ s(t) 
+
+> ij
+
+< 1.
+
+Therefore, conditional on the current evidence D(t) 
+
+> j
+
+,
+
+P
+
+
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+D(t)
+
+> j
+
+
+
+= P
+
+
+
+s(t) 
+
+> ij
+
+< 1 D(t)
+
+> j
+
+
+
+.
+
+Likewise, 
+
+P
+
+
+
+u(t+1)  
+
+> j
+
+(i′) < u (t) 
+
+> j
+
+D(t)
+
+> j
+
+
+
+= P
+
+
+
+s(t) 
+
+> i′j
+
+< 1 D(t)
+
+> j
+
+
+
+.
+
+Now let 
+
+Fi(x) ≜ P
+
+
+
+s(t) 
+
+> ij
+
+≤ x D(t)
+
+> j
+
+
+
+, Fi′ (x) ≜ P
+
+
+
+s(t) 
+
+> i′j
+
+≤ x D(t)
+
+> j
+
+
+
+denote the conditional distribution functions of the two Schur complements. By the assumed first-order stochastic dominance, 
+
+Fi(x) ≥ Fi′ (x) ∀x > 0.
+
+In particular, evaluating this inequality at x = 1 gives 
+
+P
+
+
+
+s(t) 
+
+> ij
+
+≤ 1 D(t)
+
+> j
+
+
+
+≥ P
+
+
+
+s(t) 
+
+> i′j
+
+≤ 1 D(t)
+
+> j
+
+
+
+.
+
+Combining this with the equivalence between uncertainty reduction and the event {s < 1}, we conclude that 
+
+P
+
+
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+D(t)
+
+> j
+
+
+
+≥ P
+
+
+
+u(t+1)  
+
+> j
+
+(i′) < u (t) 
+
+> j
+
+D(t)
+
+> j
+
+
+
+,
+
+which proves the claim. 
+
+G Redundancy Score Intuition 
+
+Recall that 
+
+b(t) 
+
+> ij
+
+= ( Z(t) 
+
+> j
+
+)⊤zij , η(t) 
+
+> ij
+
+= ( b(t) 
+
+> ij
+
+)⊤(S(t) 
+
+> j
+
+)−1b(t) 
+
+> ij
+
+,
+
+where zij = γij rij is the candidate weighted caption embedding and 
+
+S(t) 
+
+> j
+
+= ( Z(t) 
+
+> j
+
+)⊤Z(t) 
+
+> j
+
++ λIt.
+
+Substituting b(t) 
+
+> ij
+
+= ( Z(t) 
+
+> j
+
+)⊤zij gives 
+
+η(t) 
+
+> ij
+
+= z⊤ 
+
+> ij
+
+Z(t) 
+
+> j
+
+(S(t) 
+
+> j
+
+)−1(Z(t) 
+
+> j
+
+)⊤zij .
+
+Thus, if we define 
+
+P (t) 
+
+> j
+
+≜ Z(t) 
+
+> j
+
+(S(t) 
+
+> j
+
+)−1(Z(t) 
+
+> j
+
+)⊤ ∈ Rd×d,
+
+then 
+
+η(t) 
+
+> ij
+
+= z⊤ 
+
+> ij
+
+P (t) 
+
+> j
+
+zij .
+
+The matrix P (t) 
+
+> j
+
+acts as a regularized projection-like operator onto the span of the previously se-lected weighted embeddings. Consequently, the quadratic form η(t) 
+
+> ij
+
+measures how much of the candidate vector zij lies in directions that are already explained by the current evidence. In particu-lar, η(t) 
+
+> ij
+
+is large when zij is well aligned with the span of the columns of Z(t) 
+
+> j
+
+, and small when zij 
+
+points in a semantically new direction. The term γ2 
+
+> ij
+
+has an equally direct interpretation. Since ∥rij ∥2 = 1 ,
+
+∥zij ∥22 = ∥γij rij ∥22 = γ2 
+
+> ij
+
+.
+
+17 Hence γ2 
+
+> ij
+
+is simply the squared norm of the candidate weighted embedding. Larger γij corre-sponds to greater internal incoherence, so more incoherent candidate captions contribute larger total weighted magnitude. Combining these two facts, the Schur complement term 
+
+γ2 
+
+> ij
+
++ λ − η(t)
+
+> ij
+
+can be interpreted as a regularized residual energy : it is the total weighted magnitude of the candi-date embedding, plus regularization, minus the portion already explained by the currently selected views. Therefore, uncertainty decreases precisely when the candidate is sufficiently explained by the existing evidence relative to its own incoherence. 
+
+Idealized example. This interpretation becomes exact in the idealized case where λ = 0 and the columns of Z(t) 
+
+> j
+
+are orthonormal. Then 
+
+S(t) 
+
+> j
+
+= ( Z(t) 
+
+> j
+
+)⊤Z(t) 
+
+> j
+
+= It,
+
+so 
+
+P (t) 
+
+> j
+
+= Z(t) 
+
+> j
+
+(Z(t) 
+
+> j
+
+)⊤,
+
+which is the orthogonal projector onto span( Z(t) 
+
+> j
+
+). In this case, 
+
+η(t) 
+
+> ij
+
+= z⊤ 
+
+> ij
+
+P (t) 
+
+> j
+
+zij = P (t) 
+
+> j
+
+zij 
+
+> 22
+
+,
+
+so η(t) 
+
+> ij
+
+is exactly the squared norm of the component of zij that lies in the span of the already selected weighted embeddings. If zij lies entirely in that span, then η(t) 
+
+> ij
+
+= ∥zij ∥22 = γ2 
+
+> ij
+
+; if it is orthogonal to that span, then η(t) 
+
+> ij
+
+= 0 . The general regularized case preserves the same intuition, but with a softened projection induced by (S(t) 
+
+> j
+
+)−1.
+
+Proposition G.1 (Lower bound from approximate stochastic dominance) . Let 
+
+s(t) 
+
+> ij
+
+= ˜ γ2 
+
+> ij
+
++ λ − η(t)
+
+> ij
+
+be the random Schur complement for candidate view i, conditional on the current evidence D(t) 
+
+> j
+
+.Suppose there exists a reference random variable S⋆ and a constant ε ∈ [0 , 1] such that 
+
+P
+
+
+
+s(t) 
+
+> ij
+
+≤ x D(t)
+
+> j
+
+
+
+≥ P(S⋆ ≤ x) − ε ∀x > 0.
+
+Then 
+
+P
+
+
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+D(t)
+
+> j
+
+
+
+≥ P(S⋆ < 1) − ε. 
+
+Proof. Since 
+
+u(t+1)  
+
+> j
+
+(i) − u(t) 
+
+> j
+
+= log s(t) 
+
+> ij
+
+,
+
+we have 
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+⇐⇒ s(t) 
+
+> ij
+
+< 1.
+
+Therefore 
+
+P
+
+
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+D(t)
+
+> j
+
+
+
+= P
+
+
+
+s(t) 
+
+> ij
+
+< 1 D(t)
+
+> j
+
+
+
+.
+
+Applying the assumed CDF bound at x = 1 yields 
+
+P
+
+
+
+s(t) 
+
+> ij
+
+< 1 D(t)
+
+> j
+
+
+
+≥ P(S⋆ < 1) − ε, 
+
+which proves the claim. 
+
+Proposition G.2 (Lower bound from the first two moments) . Let 
+
+μij = E[s(t) 
+
+> ij
+
+| D (t) 
+
+> j
+
+], σ2 
+
+> ij
+
+= Var( s(t) 
+
+> ij
+
+| D (t) 
+
+> j
+
+).
+
+If μij < 1, then 
+
+P
+
+
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+D(t)
+
+> j
+
+
+
+≥ (1 − μij )2
+
+σ2 
+
+> ij
+
++ (1 − μij )2 .
+
+18 Proof. Since 
+
+u(t+1)  
+
+> j
+
+(i) < u (t) 
+
+> j
+
+⇐⇒ s(t) 
+
+> ij
+
+< 1,
+
+it suffices to bound P(s(t) 
+
+> ij
+
+< 1 | D (t) 
+
+> j
+
+). By Cantelli’s inequality, 
+
+P
+
+
+
+s(t) 
+
+> ij
+
+− μij ≥ 1 − μij D(t)
+
+> j
+
+
+
+≤ σ2
+
+> ij
+
+σ2 
+
+> ij
+
++ (1 − μij )2 .
+
+Hence 
+
+P
+
+
+
+s(t) 
+
+> ij
+
+< 1 D(t)
+
+> j
+
+
+
+≥ 1 − σ2
+
+> ij
+
+σ2 
+
+> ij
+
++ (1 − μij )2 = (1 − μij )2
+
+σ2 
+
+> ij
+
++ (1 − μij )2 .
+
+H LLM-based Captions Fusion Details 
+
+After uncertainty-driven view selection, each object is associated with a small set of captions ob-tained from multiple views. We fuse these captions into a single object description using a con-strained LLM-based aggregation step. The prompt is designed to exploit the acquisition structure of our pipeline: the first few captions correspond to the initial representative views, while later captions come from refinement views that are assumed to be resolve uncertainty. Accordingly, the LLM is instructed to regard later captions as more reliable evidence when conflicts arise. If a fact disagrees between initial and refined views, the refined-view version is preferred. If disagreement exists only among the initial views, the conflict is not suppressed; instead, the fused caption retains the alterna-tives using cautious natural-language constructions such as “white or gray” or “possibly wooden or metal.” This preserves uncertainty rather than collapsing it prematurely into a single claim. Formally, let {cj1, . . . , c jr j } denote the captions for object oj , ordered by acquisition stage, with captions from the potential refinement stage placed after the initial ones. The fusion module takes this ordered caption list as input and prompts the LLM to generate a structured JSON output contain-ing three fields: a fused caption, the facts used in that caption, and the facts omitted during fusion. The LLM is explicitly constrained to satisfy three requirements: (i) it may only use information that appears in at least one source caption, preventing unsupported hallucinations; (ii) it must privilege facts from refined views when they conflict with facts from initial views; and (iii) it must expose unresolved ambiguity from the initial views rather than silently discarding it. In this way, fusion serves as a semantic consolidation layer over the multi-view captions: consistent facts are merged into a unified object description, refined views correct lower-quality initial evidence, and residual ambiguity is preserved in the language when the evidence remains unresolved. We present the de-tailed prompt in Section H. Section H shows the system prompt used to fuse multiple captions of the same object into a single concise description while preserving uncertainty and handling conflicts between initial and refined views. We use gpt-4o-mini from OpenAI’s API for caption fusion, and the prompt is designed to elicit structured JSON output containing the fused caption, t he facts used in that caption, and any omitted facts. The prompt explicitly instructs the LLM to avoid hal-lucinating new information, to privilege refined views over initial views when conflicts arise, and to surface unresolved ambiguity rather than silently discarding it. 19 System prompt for caption fusion 
+
+SYSTEM_PROMPT = """\ You are a scene-description assistant that fuses multiple captions of the same object into one. Caption ordering: - Captions are numbered starting from [1]. The first three ([1]-[3]) are initial views. - If more than three captions are provided, captions [4] onwards are refined views with higher quality. - When facts conflict, prefer the version stated in refined views ([4]+) over initial views ([1]-[3]). Handling conflicts: - For facts that conflict across initial views only, keep all alternatives using natural phrasing (e.g. "white or gray", "appears round or oval", "possibly wooden or metal"). - For facts that conflict between initial and refined views, prefer the refined view’s version and drop the initial view’s version. - Never silently drop a conflicting fact from the initial views --- surface it as an alternative. Other rules: - Never introduce new information not present in any source caption. - The fused caption should be concise (one to three sentences). Respond ONLY with valid JSON matching this schema: {"fused_caption": "<one to three sentences>", "used_facts": ["<fact 1>", ...], "omitted_facts": ["<fact that was dropped>", ...] }""" 
+
+20 I Algorithm Details 
+
+Algorithm 1 UQ-DAAAM: Uncertainty Quantification and Active Object Refinement 
+
+Require: RGB-D frame stream F = {f1, . . . , f n}, object fragments O = {o1, . . . , o m}, visibility indicators 
+
+vij , DAAAM heuristic scores qij , refinement budget B, uncertainty threshold τ
+
+Ensure: Refined object memories {V j , u j , ˆcj }mj=1  
+
+> 1:
+
+Run the standard DAAAM pipeline to construct the initial memory and obtain, for each object oj , an initial set of selected views Vj , where |V j | = r, and captions {cℓj }rℓ=1  
+
+> 2:
+
+for each object oj ∈ O do  
+
+> 3:
+
+Compute normalized caption embeddings rℓj ← ϕ(cℓj )  
+
+> ∥ϕ(cℓj )∥2
+
+, ℓ = 1 , . . . , r  
+
+> 4:
+
+Compute incoherence weights γℓj ← exp  α(1 − pℓj ) 
+
+> 5:
+
+Form weighted embedding matrix Zj ← [ γ1j r1j , . . . , γ rj rrj ] 
+
+> 6:
+
+Form semantic scatter and uncertainty Sj ← Z⊤ 
+
+> j
+
+Zj + λI, uj ← log det Sj 
+
+> 7:
+
+end for  
+
+> 8:
+
+Identify uncertain objects Uτ ← { j ∈ [m] : uj > τ } 
+
+> 9:
+
+for each object oj with j ∈ U τ do  
+
+> 10:
+
+Initialize object-level refinement budget bj ← B 
+
+> 11:
+
+while bj > 0 do  
+
+> 12:
+
+Form feasible candidate-view set Cj ← { i ∈ [n] \ V j : vij = 1 } 
+
+> 13:
+
+if Cj = ∅ then  
+
+> 14:
+
+break  
+
+> 15:
+
+end if  
+
+> 16:
+
+Select the next refinement view using the proxy rule i⋆ ∈ arg max i∈C j qij  
+
+> 17:
+
+Query the VLM on object oj in view fi⋆ to obtain a new caption c 
+
+> 18:
+
+Update the semantic scatter and uncertainty online via Equation (4)  
+
+> 19:
+
+Append view: Vj ← V j ∪ { i⋆} 
+
+> 20:
+
+Decrease object-level budget: bj ← bj − 1 
+
+> 21:
+
+end while  
+
+> 22:
+
+end for  
+
+> 23:
+
+for each object oj ∈ O do  
+
+> 24:
+
+Fuse the multi-view captions associated with Vj into a final caption ˆcj 
+
+> 25:
+
+end for  
+
+> 26:
+
+return {V j , u j , ˆcj }mj=1 
+
+J Uncertainty Quality Experiments 
+
+A central claim of the paper is that the proposed uncertainty score is meaningful. We isolate uncer-tainty measurement from view selection by evaluating the quality of the uncertainty scores them-selves, without using them to select views. In our experiments, we use Llava-v1.5-13b [30], with CLIP-ViT-L-336px [39] as its vision backbone. Following [24, 26], we evaluate our uncertainty met-ric’s performance on three distinct visual question-answering (VQA) benchmark datasets: VQAv2 [13], OKVQA [35], and AdVQA [27]. We compare our metric against a variety of uncertainty-quantification baselines: • Neighborhood Consistency [22]: examines the consistency of the model responses over rephrased questions generated by a small proxy VQG model. • LN-Entropy [33]: normalizes the joint log-probability of each sequence by dividing it by the sequence length sampled via multinomial sampling. • Semantic Entropy [24]: models the uncertainty over different meanings by clustering the gen-erated sequences by [16] and measuring the clusters’ entropies. • EigenScore [7]: computes the log determinant of the covariance matrix of response embeddings via SVD. Let u⋆ 
+
+> correct
+
+and u⋆ 
+
+> incorrect
+
+denote the uncertainty scores of correct and incorrect responses, respec-tively. Our target quantity is the pairwise ranking probability P(u⋆ 
+
+> correct
+
+< u ⋆
+
+> incorrect
+
+) , i.e. , how often a randomly chosen correct response receives a lower uncertainty score than a randomly chosen in-correct response. Following [26, 24], we summarize this ranking quality with the AUROC of a binary classifier that uses u⋆ to predict correctness (lower u⋆ indicates higher confidence / more likely correct). 21 AUROC (↑) Pearson Corr. (↑) Spearman Corr. (↑) ECE (↓) AURAC (↑)                                                                                          
+
+> Method VQA OK AdV VQA OK AdV VQA OK AdV VQA OK AdV VQA OK AdV
+> Baselines  Neighborhood 0.761 0.512 0.660 0.789 0.577 0.543 0.712 0.580 0.703 0.331 0.502 0.353 0.886 0.629 0.683 LN-Entropy 0.763 0.698 0.639 0.563 0.856 0.913 0.566 0.699 0.900 0.055 0.057 0.072 0.899 0.741 0.705 Semantic Entropy 0.840 0.712 0.757 0.909 0.444 0.799 0.897 0.532 0.781 0.056 0.189 0.182 0.902 0.734 0.742 EigenScore 0.850 0.741 0.766 0.922 0.790 0.872 0.883 0.842 0.811 0.056 0.190 0.211 0.913 0.753 0.753 Ours 0.853 0.746 0.763 0.902 0.895 0.941 0.852 0.901 0.875 0.041 0.041 0.043 0.862 0.743 0.710
+
+Table 3: Uncertainty evaluation on VQAv2, OKVQA, and AdVQA. We report AUROC, calibration correlations (Pearson, Spearman), Expected Calibration Error (ECE; lower is better), and AURAC (higher is better). We test whether the ( normalized ) uncertainty score is calibrated in the sense that P(correct | u⋆) ≈
+
+1 − u⋆. We follow the standard binning-based calibration protocol of [15]: we sort and bin instances by u⋆ and compute per-bin average uncertainty and empirical accuracy. We report: Calibration cor-relation , the correlation between binned mean uncertainty and binned empirical error. We provide both Pearson and Spearman correlations. Expected Calibration Error (ECE) , which measures the (weighted) average absolute gap between binned predicted confidence and binned accuracy. As shown in Table 3, our metric consistently outperforms all baselines on both discrimination (AU-ROC/TPR/FPR) and calibration (correlations/ECE), including multimodal-targeted methods such as UMPIRE and Neighborhood Consistency. On the more challenging datasets (OKVQA and Ad-VQA), where model outputs exhibit higher diversity and incoherence, our metric remains robust and provides substantially better correctness prediction. We also evaluate whether our metric can improve selective answering —i.e. , abstaining on uncertain queries and answering only when the model is confident. Let u⋆q be the uncertainty score for query q (lower u⋆ indicates higher confidence). For any threshold 
+
+θ, the selective policy answers iff u⋆q ≤ θ and abstains otherwise. Varying θ induces a trade-off be-tween coverage (fraction answered) and accuracy on the answered subset. Following [9, 26, 20], we plot the Rejection–Accuracy curve: we sort queries by u⋆ and progressively reject the most uncertain fraction; at each rejection rate r ∈ [0 , 1] (equivalently, coverage 1 − r), we compute the accuracy on the remaining answered queries. We summarize the overall benefit of uncertainty-based abstention with the Area Under the Rejection–Accuracy Curve (AURAC) , which aggregates performance across all thresholds (higher is better). As shown in Table 3, our metric consistently achieves the highest AURAC across datasets. This indicates that fusing dual-source uncertainty yields a more reliable abstention signal: the model preferentially rejects queries that are likely to be incorrect, thereby improving accuracy on the an-swered subset. In practical VQA settings, this supports user-facing behaviors where the system abstains when uncertain rather than returning low-confidence answers. 
+
+K Experiments Details 
+
+Dataset and preprocessing. We evaluate on the CODa outdoor driving dataset [55], which pro-vides 30,Hz stereo images, LiDAR-projected depth maps, and globally consistent poses. All experi-ments use the front camera ( cam0 ) images, center-cropped and resized to 480 × 640 pixels. Depth is sourced from the 3d raw estimated LiDAR projection, filtered to the range [0 .05 , 20 .0] m. Frames are processed at 10Hz (the sensor publishing rate). 
+
+Scene reconstruction. We use Khronos [44] for real-time 3D scene graph construction, with a TSDF voxel size of 0.2,m and truncation distance of 0.6,m. Object fragments are extracted with a minimum volume of 0.005m 3 and maximum of 50m 3, requiring at least 8 observations and a min-imum allocation confidence of 0.5. Traversability places are computed with widths in [0 .4, 2.0] m, with label projection to ground planes enabled. 
+
+Segmentation and tracking. We use FastSAM [59] compiled to a TensorRT engine at 480 × 640 
+
+resolution for open-vocabulary instance segmentation, with a minimum mask area of 400 pixels. Object tracking uses ByteTrack [57] with appearance re-identification via a CLIP-based ReID model (TensorRT), a new-track threshold of 0.6, and a track buffer of 30 frames. A track must accumulate at least 8 observations before it qualifies for semantic annotation. 22 Method Accuracy ↑ Position [m] ↓ Temporal [min] ↓
+
+DAAAM-RR 0.716 ± 0.014 41 .18 ± 2.31 1.769 ± 0.089 
+
+DAAAM-QR 0.738 ± 0.011 40 .14 ± 1.98 1.734 ± 0.072 
+
+DAAAM-NC [22] 0.713 ± 0.016 41 .62 ± 2.54 1.783 ± 0.094 
+
+DAAAM-LN [33] 0.714 ± 0.015 41 .55 ± 2.48 1.776 ± 0.091 
+
+DAAAM-Ent [24] 0.733 ± 0.013 40 .33 ± 2.17 1.718 ± 0.083 
+
+DAAAM-ES [7] 0.743 ± 0.012 39 .69 ± 2.02 1.683 ± 0.078 
+
+UQ-DAAAM (Ours) 0.761 ± 0.009 37 .84 ± 1.74 1.589 ± 0.063 
+
+Table 4: Mean ± standard deviation on OC-NaVQA (All split). Results averaged over three seeds. 
+
+Semantic annotation. We use DAM-3B [28] as the vision-language model for object captioning, operating in focal-prompt mode with batch sizes of 32–128 masks. Frame selection uses Perception Encoder (PE-Core-L14-336) CLIP features to select the most visually informative frame per track. Per-frame CLIP features (ViT-B/16) are computed every 5 frames for temporal scene understanding. Semantic annotation queries are triggered every 120 frames. 
+
+Cross-view UQ. We use the cross-view uncertainty quantification mode, where the assignment BLP [12] assigns r=3 representative frames per tracked fragment (with a minimum of 2 views re-quired). The BLP is solved with GLPK MI (15s timeout), with a greedy set-cover fallback. Each assigned view produces an independent VLM caption; the log-determinant Gram uncertainty is com-puted from the r L2-normalised caption embeddings with λ = 10 −8. We additionally incorporate the UMPIRE [26] coherence term with weight α = 1 .0, scaling each embedding by its incoherence weight γi = α(1 − exp( ℓℓ i)) where ℓℓ i is the per-sequence log-likelihood. 
+
+Active view selection. Objects whose initial UQ score exceeds the threshold τ = −0.25 are selected for refinement. Each flagged object receives up to b=2 additional views, chosen to max-imally reduce the log-determinant via the rank-1 Schur complement update: log det( G(t+1) ) = log det( G(t)) + log( c − b⊤(G(t))−1b), where b and c are the cross-terms and self-similarity of the new view embedding. The Gram inverse is updated via the Sherman–Morrison formula, avoiding recomputation. Refinement runs asynchronously during pipeline shutdown with a timeout of 300s. 
+
+Downstream evaluation. For the NaVQA benchmark [2], we use GPT-5-mini for question answering over the constructed scene graph memory, with sentence embeddings computed by Sentence-T5-XL [36]. We evaluate on 7 CODa sequences (0, 3, 4, 6, 16, 21, 22) totalling 98,866 frames. All experiments are conducted on a single NVIDIA RTX 4090 GPU with 24GB VRAM, using 1 assignment worker and 1 grounding worker. 
+
+L Memory and Runtime Details 
+
+We evaluate the overhead introduced by cross-view uncertainty quantification and active view se-lection on the same CODa sequences, using a single NVIDIA RTX 4090 GPU. Across 7 sequences (98,866 frames total), UQ-DAAAM achieves a mean frame rate of 13.5 Hz, comfortably exceeding the 10 Hz sensor rate of the CODa dataset and confirming that the UQ extensions preserve real-time operation. The cross-view BLP solver, which assigns r=3 views per tracked fragment, adds a mean latency of 131 .7 ± 132 .5 ms per query batch, accounting for only 1.49% of total frame processing time. This is because the BLP runs on CPU via cvxpy and executes infrequently (828 calls across 98,866 frames). Each object receives 3.44 ± 0.68 cross-view captions on average, from which the log-determinant Gram uncertainty is computed via numpy.linalg.slogdet entirely on CPU with negligible overhead. Of the 18,298 objects annotated across all sequences, 6,324 (34.6%) were se-lected for active view refinement based on their initial uncertainty, receiving 1.32 ± 0.47 additional views each. Active view selection reduced the mean UQ score from 0.56 to 0.32 , indicating substan-tially increased caption agreement. The additional VLM calls for refinement occur asynchronously in the grounding worker thread during shutdown, with a configurable timeout. GPU memory con-sumption remains within the 24 GB envelope of the RTX 4090, as the UQ and BLP components are CPU-only and the VLM model (DAM-3B) is shared between initial annotation and refinement. 23 M Qualitative Results and Visualizations 
+
+In the following qualitative examples, we present the captions and uncertainty scores for both initial and refined views of selected objects. We show both objects with low uncertainty, which do not require refinement (before and after view selection are the same), and objects with high uncertainty, where the refined views lead to more consistent captions and reduced uncertainty. In each visualiza-tion, we show the raw RGB images, object masks, and zoomed-in views of the masked objects for clarity. 
+
+M.1 Examples of Objects with Low Uncertainty View 1 View 2 View 3 
+
+> The window consists of two
+> vertical rectangular panes,
+> each divided into four smaller
+> rectangular sections by
+> horizontal and vertical
+> muntins. The panes are framed
+> by a dark border, and the
+> muntins are light-colored,
+> creating a grid pattern.
+> A tall, rectangular window
+> with a white frame, divided
+> into two vertical sections.
+> Each section contains a grid
+> of horizontal and vertical
+> panes, creating a series of
+> smaller rectangular panes. The
+> window is set within a brick
+> wall.
+> A tall, rectangular window
+> with a dark frame, divided
+> into two vertical sections.
+> The window has a grid pattern
+> with horizontal and vertical
+> lines, creating multiple
+> smaller rectangular panes.
+
+Fused caption: 
+
+The window consists of two vertical rectangular 
+
+panes with a grid pattern, divided into smaller 
+
+rectangular sections by muntins. It is framed by a 
+
+dark border, although one description suggests it 
+
+has a white frame, and is set within a brick wall. 
+
+sem_id=3023 UQ: 0.717 | before: after: 
+
+24 View 1 View 2 View 3 
+
+The pavement is a smooth, 
+
+concrete surface with visible 
+
+tire marks and slight 
+
+discolorations. It extends 
+
+diagonally from the bottom 
+
+left to the upper right, with 
+
+a curb on the bottom edge. The 
+
+pavement has a rectangular 
+
+metal grate embedded near the 
+
+top left corner. 
+
+The pavement is a smooth, 
+
+light gray concrete surface 
+
+with subtle veining and slight 
+
+discoloration. It features a 
+
+rectangular section with a 
+
+grid-like pattern of 
+
+horizontal wooden slats 
+
+adjacent to a concrete curb. 
+
+A smooth, light gray concrete 
+
+driveway with visible tire 
+
+marks curving to the right. 
+
+The driveway has a slightly 
+
+raised, rounded edge on the 
+
+left side. 
+
+Fused caption: 
+
+The pavement is a smooth, light gray concrete 
+
+surface with visible tire marks and slight 
+
+discolorations. It extends diagonally from the 
+
+bottom left to the upper right, featuring a curb on 
+
+the bottom edge, and has a rectangular metal grate 
+
+embedded near the top left corner. There is also a 
+
+section with a grid-like pattern of horizontal 
+
+wooden slats adjacent to the concrete curb. 
+
+sem_id=126 UQ: 0.591 | before: after: View 1 View 2 View 3 
+
+The back of a traffic sign 
+
+with a dark gray surface, 
+
+featuring a slightly 
+
+reflective quality and a 
+
+vertical edge on the right 
+
+side. 
+
+The traffic sign has a 
+
+circular shape with a grey 
+
+back. It is mounted on a 
+
+vertical pole that is attached 
+
+to the center of the sign's 
+
+back. 
+
+The traffic sign has an 
+
+octagonal shape with a grey 
+
+back. It is mounted on a 
+
+vertical pole that is also 
+
+grey. The pole is secured with 
+
+bolts at the top and bottom of 
+
+the sign. 
+
+Fused caption: 
+
+The back of a traffic sign with a dark gray surface 
+
+that has a slightly reflective quality. It is 
+
+mounted on a vertical pole, but the shape of the 
+
+sign is either circular or octagonal, as initial 
+
+views suggest different options. 
+
+sem_id=683 UQ: 0.513 | before: after: No refinement views are needed for these objects, since the initial views already provide a stable and coherent semantic summary. The captions are consistent across views, and the uncertainty scores are low, indicating that the system is confident in its understanding of these objects. 25 M.2 Examples of Objects with High Uncertainty View 1 View 2 View 3 Refined 1 Refined 2 
+
+A rectangular, horizontally-
+
+oriented air vent with a 
+
+series of evenly spaced 
+
+vertical slats. 
+
+A rectangular signboard with a 
+
+dark background and light-
+
+colored text that reads 
+
+"Farmhouse Market" in a serif 
+
+font, with a smaller subtitle 
+
+or description below. 
+
+A rectangular vent with 
+
+horizontal slats, painted in a 
+
+dark color, and featuring a 
+
+slight protrusion on the top 
+
+edge. 
+
+A rectangular window with a 
+
+dark, solid frame and a large, 
+
+dark-tinted glass pane. 
+
+Rectangular window with a dark 
+
+frame and a single large pane 
+
+of glass. 
+
+Fused caption: 
+
+A rectangular window with a dark frame and a large, dark-tinted glass pane. 
+
+sem_id=262 UQ: 0.311 | before: 0.853 after: 0.311 View 1 View 2 View 3 Refined 1 
+
+The image is too dark and 
+
+lacks detail, making it 
+
+impossible to provide an 
+
+accurate description of the 
+
+CCTV camera. 
+
+The squirrel has a small, 
+
+rounded body covered in dark, 
+
+short fur. Its head is 
+
+slightly raised, showing a 
+
+smooth, rounded forehead and a 
+
+short snout. The visible part 
+
+of its body appears sleek and 
+
+streamlined. 
+
+The chimney is a large, 
+
+elongated unit with a 
+
+cylindrical shape. It has a 
+
+smooth, metallic surface with 
+
+a dark, matte finish. The 
+
+visible part of the chimney 
+
+shows a slightly tapered end. 
+
+A dark gray, cylindrical 
+
+chimney with a slightly 
+
+tapered top and a smooth 
+
+surface. 
+
+Fused caption: 
+
+A dark gray, cylindrical chimney with a slightly tapered top and a 
+
+smooth surface is visible. 
+
+sem_id=182 UQ: 0.686 | before: 0.843 after: 0.686 
+
+26 View 1 View 2 View 3 Refined 1 
+
+The lightbulb features a 
+
+cylindrical shape with a 
+
+smooth, reflective surface. It 
+
+has a gradient of colors, 
+
+predominantly bright white in 
+
+the center, transitioning to a 
+
+soft blue on the left side and 
+
+a greenish hue on the right 
+
+side. The lightbulb emits a 
+
+warm, inviting glow. 
+
+A rectangular air vent with a 
+
+dark brown frame and a white 
+
+interior grille. The vent has 
+
+a horizontal orientation and 
+
+appears to be part of a larger 
+
+structure. 
+
+A horizontal white strip with 
+
+a slight gradient, 
+
+transitioning from a light 
+
+blue to a white hue, 
+
+positioned centrally between 
+
+two darker, textured areas. 
+
+A rectangular window with 
+
+horizontal blinds, partially 
+
+open, allowing light to filter 
+
+through. The blinds are evenly 
+
+spaced and the window frame is 
+
+dark. 
+
+Fused caption: 
+
+The object is a rectangular window with horizontal blinds, partially 
+
+open, allowing light to filter through. The blinds are evenly spaced and 
+
+the window frame is dark. 
+
+sem_id=1523 UQ: 0.719 | before: 0.836 after: 0.719 View 1 View 2 View 3 Refined 1 
+
+The manhole cover is elongated 
+
+and rectangular with a rough, 
+
+textured surface. It has a 
+
+weathered, metallic appearance 
+
+with patches of rust and 
+
+discoloration. The edges are 
+
+slightly raised, and there are 
+
+no visible markings or 
+
+patterns on the cover. 
+
+A metallic, elongated, and 
+
+slightly curved object with a 
+
+rough, textured surface. The 
+
+object has a predominantly 
+
+gray color with patches of 
+
+lighter and darker shades, 
+
+giving it a mottled 
+
+appearance. 
+
+A series of connected, 
+
+irregularly shaped, and 
+
+unevenly spaced segments 
+
+forming a jagged line, with a 
+
+gradient of colors ranging 
+
+from dark gray to light gray 
+
+and hints of blue. 
+
+The pothole has an irregular, 
+
+elongated shape with a jagged, 
+
+uneven surface. It features a 
+
+mix of dark and light gray 
+
+tones, with patches of white 
+
+and blue discoloration. The 
+
+edges are rough and blurred, 
+
+indicating a deep and possibly 
+
+filled with debris. 
+
+Fused caption: 
+
+The pothole has an irregular, elongated shape with a jagged, uneven 
+
+surface featuring a mix of dark and light gray tones, and patches of 
+
+white and blue discoloration. The edges are rough and blurred, 
+
+suggesting it may be filled with debris. 
+
+sem_id=29 UQ: 0.747 | before: 0.906 after: 0.747 27 View 1 View 2 View 3 Refined 1 Refined 2 
+
+Rectangular trash can with a 
+
+flat lid, featuring a mottled 
+
+pattern of earthy tones 
+
+including shades of brown and 
+
+beige, with a slightly darker 
+
+base. 
+
+A rectangular catch basin with 
+
+a grid metal cover featuring 
+
+parallel vertical and 
+
+horizontal bars, creating a 
+
+series of rectangular 
+
+openings. The metal appears to 
+
+be weathered, with a mix of 
+
+gray and brown tones, and 
+
+there are visible signs of 
+
+rust and wear along the edges 
+
+and intersections of the bars. 
+
+Rectangular water valve with a 
+
+smooth, metallic surface and a 
+
+slightly rounded top edge. The 
+
+valve has a visible seam 
+
+running vertically along the 
+
+right side, indicating a 
+
+possible joint or connection 
+
+point. 
+
+A rectangular concrete block 
+
+with a smooth, flat surface 
+
+and slightly rounded edges. 
+
+The block has a weathered 
+
+appearance with patches of 
+
+discoloration and some darker 
+
+areas. The top edge of the 
+
+block is straight and 
+
+horizontal. 
+
+The concrete block is 
+
+rectangular with a rough, 
+
+textured surface. It has a 
+
+predominantly light gray color 
+
+with patches of darker gray 
+
+and some areas of dark brown 
+
+discoloration. The edges are 
+
+slightly uneven, and there are 
+
+visible signs of weathering 
+
+and wear. 
+
+Fused caption: 
+
+A rectangular concrete block with a smooth, flat surface and slightly rounded edges. It 
+
+appears weathered, showing patches of light gray with darker gray and brown 
+
+discoloration, and has signs of wear. 
+
+sem_id=305 UQ: 0.725 | before: 0.899 after: 0.725 View 1 View 2 View 3 Refined 1 Refined 2 
+
+A person with dark hair 
+
+wearing a green top with a 
+
+ruffled neckline and a lanyard 
+
+with a badge around their 
+
+neck. 
+
+The painting depicts a serene 
+
+landscape with a central 
+
+figure seated on a rock, 
+
+surrounded by lush greenery 
+
+and trees. The figure appears 
+
+contemplative, with their head 
+
+slightly bowed and hands 
+
+resting on their lap, as they 
+
+gaze towards the horizon. The 
+
+color palette is dominated by 
+
+warm earth tones, with greens, 
+
+browns, and hints of yellow 
+
+and red adding depth and 
+
+warmth to the scene. The 
+
+brushwork is loose and 
+
+impressionistic, suggesting a 
+
+tranquil, untouched natural 
+
+environment. 
+
+The mannequin is dressed in a 
+
+brown coat with a high collar 
+
+and a red scarf tied around 
+
+the neck. The coat has long 
+
+sleeves and appears to be made 
+
+of a thick, warm material. 
+
+A giraffe with a pattern of 
+
+dark brown patches outlined by 
+
+lighter lines stands with its 
+
+long neck extended upwards and 
+
+head turned slightly to the 
+
+left. Its eyes are soft and 
+
+gentle, with long eyelashes, 
+
+and its ossicones are short 
+
+and tufted. The giraffe's 
+
+muzzle is visible, showing two 
+
+nostrils at the tip of its 
+
+snout. 
+
+A horse dressed in a dark 
+
+brown patches outlined by 
+
+lighter lines stands with its 
+
+long neck extended upwards and 
+
+head turned slightly to the 
+
+left. Its eyes are large with 
+
+long eyelashes. 
+
+Fused caption: 
+
+The object appears to be a giraffe or a horse with a pattern of dark brown patches 
+
+outlined by lighter lines, standing with its long neck extended upwards and head turned 
+
+slightly to the left. Its eyes are soft and gentle with long eyelashes, and its ossicones 
+
+are short and tufted. 
+
+sem_id=772 UQ: 0.759 | before: 0.897 after: 0.759 28 View 1 View 2 View 3 Refined 1 
+
+A rectangular box with a matte 
+
+gray surface and slightly 
+
+rounded edges. The box has a 
+
+dark red color along the top 
+
+edge, transitioning to a 
+
+lighter gray on the sides. 
+
+A modern, slim, rectangular 
+
+trash can with a flat top and 
+
+a slightly angled lid, 
+
+featuring a smooth, metallic 
+
+finish and a subtle, 
+
+reflective sheen. 
+
+The mailbox is a vertical 
+
+rectangular structure with a 
+
+dark, possibly black, color. 
+
+It features a horizontal mail 
+
+slot at the top, which is 
+
+recessed into the surface of 
+
+the mailbox. The surface of 
+
+the mailbox appears smooth and 
+
+is likely made of metal or a 
+
+similar sturdy material. 
+
+A tall, narrow, rectangular 
+
+phone booth with a metallic 
+
+frame and a sliding glass 
+
+door. The booth has a light 
+
+gray frame with a slightly 
+
+darker gray interior. The top 
+
+of the booth is flat and 
+
+slightly sloped. 
+
+Fused caption: 
+
+The object is a tall, narrow, rectangular phone booth with a metallic 
+
+frame and a sliding glass door. It features a light gray frame with a 
+
+slightly darker gray interior and a flat, slightly sloped top. 
+
+sem_id=417 UQ: 0.822 | before: 0.891 after: 0.822 View 1 View 2 View 3 Refined 1 Refined 2 
+
+> A black, rectangular trash can
+> with a flat lid and a vertical
+> handle on the front.
+> A cylindrical, vertically
+> oriented vase with a textured
+> surface that appears to be
+> made of a dark material,
+> possibly ceramic or glass,
+> with a visible narrow opening
+> at the top.
+> A black rectangular signboard
+> with a dark, possibly black,
+> border and a lighter interior.
+> The tree has dense, dark green
+> foliage with a rounded canopy.
+> The branches are not visible,
+> and the leaves appear to be
+> clustered tightly together,
+> creating a thick, lush
+> appearance.
+> A dense, rounded bush with
+> dark green foliage and thin,
+> elongated branches extending
+> upwards.
+
+Fused caption: 
+
+The scene features a dense, rounded bush with dark green foliage and thin, elongated 
+
+branches extending upwards; it could also be a tree that has thick, lush, dark green 
+
+leaves creating a rounded canopy. 
+
+sem_id=679 UQ: 0.750 | before: 0.914 after: 0.750 Across these qualitative examples, UQ-DAAAM consistently selects refined views that expose ob-ject evidence that is either missing or misleading in the initial views, leading to substantial reductions in uncertainty. In the first example (sem id=262), the initial views yield conflicting descriptions such as an air vent, a “Farmhouse Market” signboard, and a slatted structure, while the refined views, cap-tured from a closer and more frontal viewpoint, reveal the object clearly as a dark-framed window with a tinted glass pane, reducing uncertainty from 0.853 to 0.311. In the second and third examples (sem id=182 and sem id=1523), the original captions are highly unstable and include implausible object hypotheses such as a CCTV camera, a squirrel, a glowing lightbulb, and an air vent; the re-fined views instead provide more frontal and informative observations that reveal a dark gray cylin-drical chimney and a rectangular window with partially open horizontal blinds, lowering uncertainty from 0.843 to 0.686 and from 0.836 to 0.719, respectively. The fourth example (sem id=29) shows a harder case: the initial views describe the object as a manhole cover, a curved metallic object, or an irregular jagged surface pattern, while the refined view provides a sharper observation of a pothole-like structure, producing a moderate but still meaningful reduction from 0.906 to 0.747. The fifth example (sem id=305) shows that unstable initial hypotheses of a trash can, a grid metal catch basin, 29 and a water valve are resolved by the refined views into a coherent description of a weathered rect-angular concrete block, reducing uncertainty from 0.899 to 0.725. The sixth example (sem id=772) illustrates how distance-induced ambiguity, where the initial small crops are described as a person with a lanyard, an impressionistic landscape painting, and a mannequin in a brown coat, is mitigated by refined views that zoom in on the object and reveal an animal sculpture; here uncertainty reduc-tion does not force a single interpretation, as the model remains unsure whether it is a horse or a giraffe, and the fused caption conservatively preserves both possibilities (0.897 to 0.759). The sev-enth example (sem id=417) highlights an important failure mode: although the refined view clearly improves the visual clarity of the object, which is actually a bike parking rack, the underlying VLM still misidentifies it as a tall phone booth with a sliding glass door, so the uncertainty only decreases modestly from 0.891 to 0.822. This case shows that refinement can expose a sharper observation while still being bottlenecked by the backbone VLM’s recognition ability, and that lower uncer-tainty does not automatically imply semantic correctness. Finally, the eighth example (sem id=679) demonstrates that refinement could avoid occlusion: initial captions conflict between a trash can, a ceramic vase, and a signboard due to the occlusion of the metal fences, while the refined views narrow the ambiguity between a dense bush and a tree canopy and reduce uncertainty from 0.914 to 0.750, with the fused caption conservatively preserving both possibilities. Overall, these examples show that UQ-DAAAM tends to select views with better geometry, scale, or visibility, which makes the resulting captions more semantically consistent and leads to measurable uncertainty reduction, while also exposing residual failures that are attributable to the underlying VLM rather than to the uncertainty-driven view selection itself. 
+
+N Limitations 
+
+UQ-DAAAM inherits several limitations from the underlying DAAAM pipeline while introducing additional ones of its own. First, our uncertainty estimate depends on the quality of the generated ob-ject captions and their associated coherence signals. If the VLM systematically hallucinates, misses fine-grained attributes, or produces poorly calibrated confidence estimates, the resulting uncertainty score may not faithfully reflect the true semantic ambiguity of the object. In particular, cross-view agreement does not always imply correctness, since multiple views may consistently support the same mistaken description. Second, the refinement stage introduces additional semantic-query cost. Although our method is designed to allocate this budget selectively, repeated querying and fusion may still be too expensive for highly dynamic platforms or settings with strict latency constraints. Finally, while caption fusion produces a more stable object summary, maintaining multi-view de-scriptions, uncertainty estimates, and refinement histories for many objects may increase memory overhead over long horizons. Future work should investigate stronger active-view acquisition strate-gies and memory-bounded summarization mechanisms for long-term deployment. 30
