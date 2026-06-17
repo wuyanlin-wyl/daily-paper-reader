@@ -1,0 +1,518 @@
+Title: RoVE: Rotary Value Embeddings Attention for Relative Position-dependent Value Pathways
+
+URL Source: https://arxiv.org/pdf/2606.11275v1
+
+Published Time: Thu, 11 Jun 2026 00:03:06 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# RoVE: Rotary Value Embeddings Attention for Relative Position-dependent Value Pathways 
+
+Alejandro Garc´ ıa-Castellanos 1 a.garciacastellanos@uva.nl 
+
+Maurice Weiler 2 m.weiler.ml@gmail.com 
+
+Erik J. Bekkers 1 e.j.bekkers@uva.nl 
+
+AMLab, University of Amsterdam 1, MIT CSAIL 2
+
+Abstract 
+
+Rotary Position Embeddings ( RoPE ) make attention scores position-relative but leave the value pathway position-blind: the message sent by a value token is the same regardless of its distance from the query. We propose RoVE , a parameter-free modification that makes values position-sensitive by rotating them simultaneously with keys, and show that it turns 
+
+RoPE attention into attentive convolution . This new perspective unifies several indepen-dent formulations of the same operation across computer vision, robotics, and modern LLM architectures. Trained 124M and 354M GPT-2 models show consistent empirical gains over 
+
+RoPE on few-shot in-context learning, out-of-distribution perplexity, and long-context re-trieval, with the clearest improvements on tasks that require long-range aggregation. 
+
+Keywords: Rotary Position Embeddings, Attentive Convolution, Large Language Models 
+
+1. Introduction 
+
+Rotary Position Embeddings ( RoPE ) (Su et al., 2024) make attention scores shift equiv-ariant : rotating queries qi and keys kj by position dependent rotation matrices Ri and Rj
+
+produces the score q⊤ 
+
+> i
+
+Rj−ikj /√d, which depends on positions only through the relative offset 
+
+δ = j −i. The value pathway, however, is untouched. In the language of transformer circuits (Appendix E and Elhage et al. (2021)), RoPE biases the QK circuit toward relative posi-tions while leaving the OV circuit position-blind: unlike convolution kernels, the channel map WV applied to xj carries no information about where xj lies relative to the query. A natural completion rotates the value at position j by Rj before aggregation and inverts by moving the output via R−1 
+
+> i
+
+to position i. As we show, this replaces the constant value map WV with the offset-dependent convolution kernel ψδ = RδWV where δ = j −i, endowing the OV circuit with the same relative-position sensitivity already present in the QK circuit. Similar “ RoPE -on-values” constructions have been independently discovered across sev-eral communities. Miyato et al. (2024) introduced it for multi-view novel-view synthesis, encoding geometric relationships between camera frames, and subsequent work has further extended the same mechanism to computer vision (Wu et al., 2026; Li et al., 2026) and robotics (Klee et al., 2026). In the language-modeling setting, DeepSeek-V4 (DeepSeek-AI, 2026) arrives at the same operation from a different direction: its compressed shared-KV architecture causes positional information to leak from keys into values, and an inverse out-put rotation needs to be applied as a corrective measure to maintain the relative position. Each work motivates the mechanism on application-specific grounds, yet none provides a structural account of what it does to the attention operator. We isolate this positional embedding mechanism on the value stream, which we call 
+
+RoVE , and provide a theoretical analysis of this modification. We then evaluate it as a 
+
+> arXiv:2606.11275v1 [cs.LG] 9 Jun 2026
+
+Garc´ ıa-Castellanos, Weiler & Bekkers t0 t1 t2 t3 t4 t5 t6 t7 
+
+> key token
+> t0
+> t1
+> t2
+> t3
+> t4
+> t5
+> t6
+> t7
+> query token
+
+(a) Att. weights t0 t1 t2 t3 t4 t5 t6 t7  
+
+> key token
+> t0
+> t1
+> t2
+> t3
+> t4
+> t5
+> t6
+> t7
+
+(b) RoPE kernel t0 t1 t2 t3 t4 t5 t6 t7  
+
+> key token
+> t0
+> t1
+> t2
+> t3
+> t4
+> t5
+> t6
+> t7
+
+(c) RoPE mixer t0 t1 t2 t3 t4 t5 t6 t7  
+
+> key token
+> t0
+> t1
+> t2
+> t3
+> t4
+> t5
+> t6
+> t7
+
+(d ) RoVE kernel t0 t1 t2 t3 t4 t5 t6 t7  
+
+> key token
+> t0
+> t1
+> t2
+> t3
+> t4
+> t5
+> t6
+> t7
+
+(e) RoVE mixer Figure 1: Matrix-mixer view of RoPE and RoVE. RoPE factorises into ( a) position-sensitive attention weights and ( b) a constant shared value projection WV across all offsets ( c). ( d) RoVE 
+
+replaces WV with the offset-indexed family ψδ = Rδ WV , ( e) producing a block-Toeplitz mixer whose diagonals rotate systematically with relative offset, the signature of an attentive convolution. 
+
+standalone module in standard (non-shared-KV) language models – a regime in which it has not previously been studied. Our contributions are: 
+
+• Structural characterisation: We show that RoVE turns RoPE attention into an attentive convolution (Romero et al., 2020; Fuchs et al., 2020): the position-blind map WV is replaced by the offset-dependent kernel ψδ = RδWV , and the matrix mixing operator (Hwang et al., 2024) acquires block-Toeplitz rather than Kronecker structure. 
+
+• Empirical validation: We train 124M and 354M parameter GPT-2 language mod-els and evaluate on in-context learning (ICL) benchmarks and long-context tasks. 
+
+RoVE consistently improves ICL accuracy, long-context robustness, and retrieval performance over standard RoPE attention. 
+
+2. Background 
+
+Matrix mixers: Let X ∈ Rn×d be the input feature tensor, where n is the sequence length and d is the hidden dimension. We denote by vec( X) ∈ Rnd the vectorisation of 
+
+X. Any layer of the form vec( Y ) = M(X) vec( X), where M(X) is an nd × nd matrix partitioned into d × d blocks, belongs to the matrix mixer family (Hwang et al., 2024). 
+
+Attentive convolutions: A classical d-dimensional convolution mixes positions through a fixed offset-dependent kernel ψδ ∈ Rd×d. Attentive convolutions (Romero et al., 2020; Fuchs et al., 2020) replace the fixed weights with content-dependent scalars A(X)ij ∈ R
+
+while keeping the kernel: 
+
+yi = X  
+
+> j∈N (i)
+
+A(X)ij ψj−i xj , (1) where A(X)ij gates the contribution of token j to position i, and N (i) is a neighbourhood of i. The corresponding mixer is block-Toeplitz: the ( i, j )-th d × d block of M(X) equals 
+
+A(X)ij ψj−i, so each block diagonal carries the same kernel, scaled by a scalar gate. 
+
+Standard RoPE attention: Let N (i) ⊆ { 1, . . . , n } denote the set of positions visible to query i. Typical choices include causal masking ( N (i) = {j ≤ i}), full attention ( N (i) ≡{1, ..., n }), and sparse patterns (Child et al., 2019). RoPE (Su et al., 2024) defines block-diagonal rotation matrices Rt ∈ SO( d), where the m-th 2 × 2 block rotates by angle tω m
+
+2RoVE: Rotary Value Embeddings Attention 
+
+for geometrically spaced frequencies ωm = θ−2m/d  
+
+> 0
+
+, and computes 
+
+yi = X  
+
+> j∈N (i)
+
+A(X)ij WV xj , A(X)ij = softmax j∈N (i)
+
+ 1√d (WQxi)⊤Rj−i(WK xj )
+
+
+
+. (2) The mixer factorizes as MRoPE (X) = A(X) ⊗ WV across tensor axes, decoupling token routing from channel projections (Elhage et al., 2021). 
+
+YaRN: RoPE -based models are typically trained at short context lengths but deployed at longer ones, creating an out-of-distribution problem: low-frequency components encounter rotation angles unseen during training (Tian et al., 2026). Uniform frequency stretching is a natural fix (Chen et al., 2023), but destroys local position dependence in high-frequency components. YaRN (Peng et al., 2024) resolves this via frequency-dependent interpolation, i.e., preserving high frequencies while smoothly scaling the lower ones. This rescaling can be applied post-hoc without any additional training. For further related work see Appendix B. 
+
+3. Method 
+
+RoPE makes attention scores position-relative but leaves the value pathway invariant: two tokens assigned equal attention weight contribute identically to the output regardless of their offset from the query. RoVE extends this by additionally rotating each value into the query’s reference frame before aggregation. 
+
+Definition 1 (RoVE) Let N (i) ⊆ {1, . . . , n } be any neighbourhood function and let 
+
+A(X)ij be the RoPE attention weights from (2) . RoVE computes 
+
+˜yi = R−1
+
+> i
+
+X 
+
+> j∈N (i)
+
+A(X)ij Rj WV xj = X 
+
+> j∈N (i)
+
+A(X)ij Rj−iWV
+
+| {z }
+
+> ψj−i
+
+xj . (3) 
+
+Convolution lens: Equation (3) is an instance of the attentive convolution (1) with neighbourhood N , RoPE attention weights, and position-dependent kernel ψδ = RδWV
+
+(standard RoPE is recovered by the degenerate choice ψδ ≡ WV ). Crucially, the value pathway is no longer a single shared map but the tied family {RδWV }δ, so relative position modulates token transformation (OV circuit) as well as token selection (QK circuit). 
+
+Matrix mixer lens: In mixer form, the ( i, j )-th d × d block of MRoVE (X) equals 
+
+A(X)ij Rj−iWV , replacing the factorised RoPE blocks A(X)ij WV . Consequently, the mixer inherits the block-Toeplitz structure of attentive convolutions, up to the content-dependent modulation by Aij : blocks along the same relative-offset diagonal share the same rotated value kernel. Figure 1 visualizes this transition from a constant value kernel to an offset-indexed family of value kernels. See Appendix E for further analysis of RoVE ’s circuit. 
+
+Local-frame lens: Equation (3) admits a clean frame-change interpretation: first, each value WV xj is transformed from its local frame into a shared global frame by Rj , then contributions are aggregated in the global frame, and finally the result is transformed into the query’s local frame by R−1 
+
+> i
+
+. The effective kernel Rj−iWV is the frame-change operator composed with the learned channel map. This frame-change perspective is the primary motivation in Miyato et al. (2024), where features from different views are rotated into a common reference frame before aggregation. Moreover, in the message-passing view, the transformed values Rj WV xj can be seen as tensorial messages (Lippmann et al., 2025). 
+
+> 3Garc´ ıa-Castellanos, Weiler & Bekkers
+
+Efficiency: RoVE embeds values analogously to the query/key embeddings in RoPE. These operations have linear complexity O(nd ) since rotations act independently on n in-dividual tokens and d 
+
+> 2
+
+channel pairs – their computational cost is therefore negligible com-pared to O(nd 2) linear and O(n2d) attention layers. Like RoPE, RoVE is compatible with FlashAttention kernels (Dao et al., 2022) since it acts on values and attention outputs before and after the kernel call. Furthermore, it introduces no additional learned parameters. 
+
+4. Experiments 
+
+Setup: We evaluate RoVE as a drop-in replacement for the value pathway in RoPE 
+
+attention, training GPT-2-style transformers (Brown et al., 2020) at small ( ∼124M) and medium ( ∼354M) scale on FineWebEdu-10B (Lozhkov et al., 2024) with a 1024-token con-text. We evaluate on: DCLM-Core , few-shot ICL accuracy within the training con-text (Li et al., 2024a); OOD perplexity at up to 16 × context length, with and without 
+
+YaRN (Peng et al., 2024); and RULER , long-context retrieval at 4k/8k tokens scored by NLL (Hsieh et al., 2024). Full details and more empirical results are shown in Appendix A.                                        
+
+> Table 1: Core ICL accuracy and perplexity for the 354M parameter model. Core is measured within the 1024-token training context; PPL is measured from 512 to 16384 tokens. + YaRN denotes inference-time interpolation, leaving Core unchanged. Green highlight marks column bests PPL ( ↓)Method Core ( ↑)512 1024 2048 4096 8192 16384
+> RoPE 0.1664 17.68 15.64 293.24 840.10 1412.76 1630.72 +YaRN 17.68 15.64 16.05 48.61 154.61 270.98
+> RoVE (ours) 0.1856 17.52 15.52 133.68 311.38 458.15 583.84 +YaRN 17.52 15.52 15.78 18.40 35.95 124.82
+
+RoVE improves in the trained regime: Tables 1 and 3 show that RoVE improves both Core ICL accuracy and in-context perplexity at both scales. Thus RoVE provides a useful inductive bias even within the training distribution, not only at extrapolated lengths. 
+
+RoVE and YaRN are complementary: RoVE substantially reduces OOD perplexity, and YaRN improves both baselines while leaving their gap largely intact. Relative position-ing on the value stream is therefore not hindered by inference-time frequency interpolation, i.e., the two methods address complementary aspects of long-context generalization. 
+
+RoVE improves long-context retrieval: Tables 2 and 4 show that perplexity gains translate to synthetic long-context retrieval tasks, with the strongest improvements on tasks requiring information to be maintained and recombined across the context. These results align with the attentive convolution view. Standard RoPE makes attention weights position-aware but leaves value transformation position-blind; RoVE closes this gap by aligning selected information according to relative position before aggregation. 
+
+> 4
+
+RoVE: Rotary Value Embeddings Attention 
+
+Table 2: RULER long-context retrieval (NLL; lower is better) for the 354M parameter model. Tasks: Common Word Extraction (CWE), multi-key Needle-in-a-Haystack (NIAH), Question Answering (QA), Variable Tracking (VT). Avg is the unweighted mean over all eight task/length cells. + YaRN 
+
+denotes inference-time interpolation. Green highlight marks column bests. CWE ( ↓) NIAH ( ↓) QA ( ↓) VT ( ↓)Method 4k 8k 4k 8k 4k 8k 4k 8k Avg ( ↓)                                     
+
+> RoPE 8.87 ±0.46 9.15 ±0.44 10 .90 ±1.25 10 .40 ±1.22 8.83 ±1.84 9.18 ±1.64 10 .12 ±0.53 10 .22 ±0.38 9.71 ±0.97
+> +YaRN 4.31 ±0.47 5.71 ±0.41 7.61 ±1.47 9.46 ±1.27 6.40 ±2.73 7.43 ±2.14 4.53 ±0.51 7.50 ±0.51 6.62 ±1.19
+> RoVE (ours) 7.17 ±0.37 7.93 ±0.39 9.51 ±1.48 10 .14 ±1.43 8.25 ±2.14 8.71 ±2.03 7.93 ±0.51 8.31 ±0.39 8.50 ±1.09
+> +YaRN 4.39 ±0.60 4.62 ±0.54 3.63 ±1.16 5.16 ±1.21 5.61 ±3.23 6.05 ±2.76 2.11 ±0.32 3.10 ±0.41 4.33 ±1.28
+
+5. Conclusion 
+
+We propose RoVE , an extension of RoPE attention that turns it into an attentive convo-lution by replacing the position-blind map WV with the offset-indexed kernel ψδ = RδWV ,converting the attention mixer from Kronecker to block-Toeplitz structure and endowing the OV circuit with the same relative-position sensitivity already present in the QK circuit. This parameter-free modification consistently improves upon RoPE across model scales, in-context evaluation, out-of-distribution perplexity, and RULER retrieval. Gains are largest with YaRN , confirming the two methods are complementary. Since RoVE leaves attention logits unchanged and is compatible with efficient attention kernels, relative-position-aware values stand as a robust structural bias for LLMs. For further discussion see Appendix D. 
+
+Acknowledgments 
+
+Alejandro Garc´ ıa Castellanos is funded by the Hybrid Intelligence Center, a 10-year pro-gramme funded through the research programme Gravitation which is (partly) financed by the Dutch Research Council (NWO). This publication is part of the project SIGN with file number VI.Vidi.233.220 of the research programme Vidi which is (partly) financed by the Dutch Research Council (NWO) under the grant https://doi.org/10.61686/ PKQGZ71565 .
+
+References 
+
+Simran Arora, Sabri Eyuboglu, Aman Timalsina, Isys Johnson, Michael Poli, James Y Zou, Atri Rudra, and Christopher R´ e. Zoology: Measuring and improving recall in efficient language models. In International conference on learning representations , volume 2024, pages 15664–15730, 2024. Federico Barbero, Alex Vitvitskyi, Christos Perivolaropoulos, Razvan Pascanu, and Petar Veliˇ ckovi´ c. Round and round we go! what makes rotary positional encodings useful? 
+
+arXiv preprint arXiv:2410.06205 , 2024. bloc97. Ntk-aware scaled rope allows llama models to have longer context windows. https://www.reddit.com/r/LocalLLaMA/comments/14lz7j5/ntkaware_ scaled_rope_allows_llama_models_to_have/ , 2023. 
+
+5Garc´ ıa-Castellanos, Weiler & Bekkers 
+
+Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen Krueger, Tom Henighan, Rewon Child, Aditya Ramesh, Daniel M. Ziegler, Jeffrey Wu, Clemens Winter, Christopher Hesse, Mark Chen, Eric Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess, Jack Clark, Christopher Berner, Sam McCandlish, Alec Radford, Ilya Sutskever, and Dario Amodei. Language models are few-shot learners. Advances in neural information processing systems , 33:1877–1901, 2020. Shouyuan Chen, Sherman Wong, Liangjian Chen, and Yuandong Tian. Extending con-text window of large language models via positional interpolation. arXiv preprint arXiv:2306.15595 , 2023. Yuhan Chen, Ang Lv, Jian Luan, Bin Wang, and Wei Liu. Hope: A novel positional encoding without long-term decay for enhanced context awareness and extrapolation. In 
+
+Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 23044–23056, 2025. Ta-Chung Chi, Ting-Han Fan, Peter J Ramadge, and Alexander Rudnicky. Kerple: Ker-nelized relative positional embedding for length extrapolation. Advances in Neural Infor-mation Processing Systems , 35:8386–8399, 2022. Rewon Child, Scott Gray, Alec Radford, and Ilya Sutskever. Generating long sequences with sparse transformers. arXiv preprint arXiv:1904.10509 , 2019. Jean-Baptiste Cordonnier, Andreas Loukas, and Martin Jaggi. On the relationship between self-attention and convolutional layers. arXiv preprint arXiv:1911.03584 , 2019. Zihang Dai, Zhilin Yang, Yiming Yang, Jaime G Carbonell, Quoc Le, and Ruslan Salakhut-dinov. Transformer-xl: Attentive language models beyond a fixed-length context. In 
+
+Proceedings of the 57th annual meeting of the association for computational linguistics ,pages 2978–2988, 2019. Tri Dao, Dan Fu, Stefano Ermon, Atri Rudra, and Christopher R´ e. Flashattention: Fast and memory-efficient exact attention with io-awareness. Advances in neural information processing systems , 35:16344–16359, 2022. DeepSeek-AI. Deepseek-v4: Towards highly efficient million-token context intelligence, 2026. Yiran Ding, Li Lyna Zhang, Chengruidong Zhang, Yuanyuan Xu, Ning Shang, Jiahang Xu, Fan Yang, and Mao Yang. Longrope: Extending llm context window beyond 2 million tokens. arXiv preprint arXiv:2402.13753 , 2024. Nelson Elhage, Neel Nanda, Catherine Olsson, Tom Henighan, Nicholas Joseph, Ben Mann, Amanda Askell, Yuntao Bai, Anna Chen, Tom Conerly, Nova DasSarma, Dawn Drain, Deep Ganguli, Zac Hatfield-Dodds, Danny Hernandez, Andy Jones, Jackson Kernion, Liane Lovitt, Kamal Ndousse, Dario Amodei, Tom Brown, Jack Clark, Jared Kaplan, Sam McCandlish, and Chris Olah. A mathematical framework 
+
+> 6RoVE: Rotary Value Embeddings Attention
+
+for transformer circuits. Transformer Circuits Thread , 2021. https://transformer-circuits.pub/2021/framework/index.html. Daniel Y. Fu, Tri Dao, Khaled K. Saab, Armin W. Thomas, Atri Rudra, and Christopher R´ e. Hungry Hungry Hippos: Towards language modeling with state space models. In 
+
+International Conference on Learning Representations , 2023a. Daniel Y. Fu, Elliot L. Epstein, Eric Nguyen, Armin W. Thomas, Michael Zhang, Tri Dao, Atri Rudra, and Christopher R´ e. Simple hardware-efficient long convolutions for sequence modeling. arXiv preprint arXiv:2302.06646 , 2023b. Fabian Fuchs, Daniel Worrall, Volker Fischer, and Max Welling. SE(3)-Transformers: 3D Roto-Translation Equivariant Attention Networks. In Advances in Neural In-formation Processing Systems , volume 33, pages 1970–1981. Curran Associates, Inc., 2020. URL https://proceedings.neurips.cc/paper_files/paper/2020/hash/ 15231a7ce4ba789d13b722cc5c955834-Abstract.html .Anand Gopalakrishnan, Robert Csord´ as, J¨ urgen Schmidhuber, and Michael C Mozer. De-coupling the” what” and” where” with polar coordinate positional embeddings. arXiv preprint arXiv:2509.10534 , 2025. Cheng-Ping Hsieh, Simeng Sun, Samuel Kriman, Shantanu Acharya, Dima Rekesh, Fei Jia, Yang Zhang, and Boris Ginsburg. Ruler: What’s the real context size of your long-context language models? arXiv preprint arXiv:2404.06654 , 2024. Sukjun Hwang, Aakash Lahoti, Tri Dao, and Albert Gu. Hydra: Bidirectional State Space Models Through Generalized Matrix Mixers, July 2024. URL http://arxiv.org/abs/ 2407.09941 . arXiv:2407.09941 [cs]. David Klee, Boce Hu, Andrew Cole, Heng Tian, Dian Wang, Robert Platt, and Robin Walters. RAVEN: End-to-end equivariant robot learning with RGB cameras. In The Fourteenth International Conference on Learning Representations , 2026. URL https: //openreview.net/forum?id=z8BN7KyaPl .Jeffrey Li, Alex Fang, Georgios Smyrnis, Maor Ivgi, Matt Jordan, Samir Gadre, Hritik Bansal, Etash Guha, Sedrick Keh, Kushal Arora, Saurabh Garg, Rui Xin, Niklas Muen-nighoff, Reinhard Heckel, Jean Mercat, Mayee Chen, Suchin Gururangan, Mitchell Worts-man, Alon Albalak, Yonatan Bitton, Marianna Nezhurina, Amro Abbas, Cheng-Yu Hsieh, Dhruba Ghosh, Josh Gardner, Maciej Kilian, Hanlin Zhang, Rulin Shao, Sarah Pratt, Sunny Sanyal, Gabriel Ilharco, Giannis Daras, Kalyani Marathe, Aaron Gokaslan, Jieyu Zhang, Khyathi Chandu, Thao Nguyen, Igor Vasiljevic, Sham Kakade, Shuran Song, Sujay Sanghavi, Fartash Faghri, Sewoong Oh, Luke Zettlemoyer, Kyle Lo, Alaaeldin El-Nouby, Hadi Pouransari, Alexander Toshev, Stephanie Wang, Dirk Groeneveld, Luca Soldaini, Pang Wei Koh, Jenia Jitsev, Thomas Kollar, Alexandros G. Dimakis, Yair Car-mon, Achal Dave, Ludwig Schmidt, and Vaishaal Shankar. Datacomp-lm: In search of the next generation of training sets for language models. Advances in Neural Information Processing Systems , 37:14200–14282, 2024a. 
+
+> 7Garc´ ıa-Castellanos, Weiler & Bekkers
+
+Ruilong Li, Brent Yi, Junchen Liu, Hang Gao, Yi Ma, and Angjoo Kanazawa. Cameras as relative positional encoding. Advances in Neural Information Processing Systems , 38: 15984–16009, 2026. Shanda Li, Chong You, Guru Guruganesh, Joshua Ainslie, Santiago Ontanon, Manzil Za-heer, Sumit Sanghai, Yiming Yang, Sanjiv Kumar, and Srinadh Bhojanapalli. Functional interpolation for relative positions improves long context transformers. In International Conference on Learning Representations , volume 2024, pages 11303–11328, 2024b. Peter Lippmann, Gerrit Gerhartz, Roman Remme, and Fred A Hamprecht. Beyond canoni-calization: How tensorial messages improve equivariant message passing. In International Conference on Learning Representations , volume 2025, pages 88067–88087, 2025. Anton Lozhkov, Loubna Ben Allal, Leandro von Werra, and Thomas Wolf. Fineweb-edu: the finest collection of educational content, 2024. URL https://huggingface. co/datasets/HuggingFaceFW/fineweb-edu .Takeru Miyato, Bernhard Jaeger, Max Welling, and Andreas Geiger. Gta: A geometry-aware attention mechanism for multi-view transformers. In International Conference on Learning Representations , volume 2024, pages 8172–8208, 2024. nanoGPT. nanogpt. https://github.com/karpathy/nanoGPT , 2022. GitHub repository. Bo Peng, Eric Alcaide, Quentin Anthony, Alon Albalak, Samuel Arcadinho, Huanqi Cao, Xin Cheng, Michael Chung, Matteo Grella, Kranthi Kiran GV, Xuzheng He, Haowen Hou, Przemyslaw Kazienko, Jan Kocon, and Jiaming et al. Kong. Rwkv: Reinventing rnns for the transformer era. arXiv:2305.13048 , 2023. Bowen Peng, Jeffrey Quesnelle, Honglu Fan, and Enrico Shippole. Yarn: Efficient context window extension of large language models. In International Conference on Learning Representations , volume 2024, pages 31932–31951, 2024. Michael Poli, Stefano Massaroli, Eric Nguyen, Daniel Y. Fu, Tri Dao, Stephen Baccus, Yoshua Bengio, Stefano Ermon, and Christopher R´ e. Hyena Hierarchy: Towards Larger Convolutional Language Models, April 2023. URL http://arxiv.org/abs/2302.10866 .arXiv:2302.10866 [cs]. Ofir Press, Noah A Smith, and Mike Lewis. Train short, test long: Attention with linear biases enables input length extrapolation. arXiv preprint arXiv:2108.12409 , 2021. Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and Peter J Liu. Exploring the limits of transfer learning with a unified text-to-text transformer. Journal of machine learning research , 21(140): 1–67, 2020. David W. Romero, Erik J. Bekkers, Jakub M. Tomczak, and Mark Hoogendoorn. Attentive Group Equivariant Convolutional Networks, June 2020. URL http://arxiv.org/abs/ 2002.03830 . arXiv:2002.03830 [cs]. 
+
+> 8RoVE: Rotary Value Embeddings Attention
+
+Jianlin Su, Murtadha Ahmed, Yu Lu, Shengfeng Pan, Wen Bo, and Yunfeng Liu. Roformer: Enhanced transformer with rotary position embedding. Neurocomputing , 568:127063, 2024. Qingyuan Tian, Wenhong Zhu, Xiaoran Liu, Xiaofeng Wang, and Rui Wang. Mrrope: Mixed-radix rotary position embedding. arXiv preprint arXiv:2601.22181 , 2026. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. Yu Wu, Minsik Jeon, Jen-Hao Rick Chang, Oncel Tuzel, and Shubham Tulsiani. RayRoPE: Projective Ray Positional Encoding for Multi-view Attention, January 2026. URL http: //arxiv.org/abs/2601.15275 . arXiv:2601.15275 [cs]. Chuanyang Zheng, Yihang Gao, Han Shi, Jing Xiong, Jiankai Sun, Jingyao Li, Minbin Huang, Xiaozhe Ren, Michael Ng, Xin Jiang, et al. Dape v2: Process attention score as feature map for length extrapolation. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 10628–10666, 2025. 
+
+> 9Garc´ ıa-Castellanos, Weiler & Bekkers
+
+Appendix A. Full Experimental Results 
+
+A.1. Setup Models: We train two GPT-2-style transformers in the nanoGPT framework (nanoGPT, 2022). The small model ( ≈124M parameters) has 12 layers, 12 attention heads, and em-bedding dimension 768; the medium model ( ≈354M parameters) has 24 layers, 16 heads, and embedding dimension 1024. Both models share a GPT-2 BPE vocabulary of 50 304 tokens, pre-layer normalisation, GELU activations, and base RoPE frequency θ0 = 10 000. The only architectural difference between the RoPE and RoVE conditions is the value pathway; all other architectural and training hyperparameters are held fixed. 
+
+Training: Both models are trained for one epoch on FineWebEdu-10B ( ≈10B tokens of educational web text tokenised with the GPT-2 tiktoken encoder) (Lozhkov et al., 2024), with a sequence length of 1024 tokens. We use a total batch size of 2 19 = 524 288 tokens, accumulated via gradient accumulation over micro-batches of 32 sequences per GPU (small) and 16 (medium), distributed across four NVIDIA H100 GPUs with PyTorch DDP. We optimise with AdamW ( β = (0 .9, 0.95), weight decay 0 .1, gradient clipping at norm 1 .0) in bfloat16 . The learning rate follows a cosine decay from 6 × 10 −4 to 6 × 10 −5 after a 715-step linear warm-up, over 19 073 gradient steps in total. 
+
+Evaluation: We evaluate both models on three benchmarks. 
+
+• Core ICL accuracy. We report in-context learning accuracy on the DCLM-Core benchmark (Li et al., 2024a), a diverse suite of few-shot tasks spanning multiple-choice, Winograd schema, and language-modelling formats. Per-task accuracy is centred on the random baseline and normalised to [0 , 1], and the Core score is the mean across tasks. All evaluation uses the GPT-2 tiktoken tokeniser, matching training. 
+
+• Out-of-distribution perplexity. We evaluate on the FineWebEdu-10B held-out validation split at context lengths L ∈ { 512 , 1024 , 2048 , 4096 , 8192 , 16384 } using a sliding window with stride 512 tokens. Only the final min( L, 512) tokens per window are scored, so each reported perplexity reflects next-token prediction conditioned on 
+
+L tokens of preceding context. We additionally apply YaRN (Peng et al., 2024) positional interpolation at inference time without any fine-tuning, where the frequency modulation is applied to all rotation matrices, covering both the QK- and OV-circuits. 
+
+• RULER long-context retrieval. We evaluate on four RULER synthetic tasks (Hsieh et al., 2024), namely Common Word Extraction (CWE), multi-key Needle-in-a-Haystack (NIAH), Question Answering (QA), and Variable Tracking (VT), at context lengths 4 096 and 8 192 tokens with 500 samples each, constructed with the NVIDIA RULER pipeline using the GPT-2 tokeniser. Because our models are base language models without instruction tuning, candidate answers are ranked by negative log-likelihood (NLL, where lower values indicate higher probability assigned to the correct answer). We report mean ± standard deviation over the 500 samples. 
+
+> 10 RoVE: Rotary Value Embeddings Attention
+
+A.2. Results In-distribution performance: Tables 3 and 1 report Core ICL accuracy and perplex-ity within the training context length ( ≤ 1024 tokens) for both scales. RoVE improves Core from 0 .1375 to 0 .1416 at 124M and from 0 .1664 to 0 .1856 at 354M. Correspondingly, perplexity at 512 and 1024 tokens decreases from 25 .23/22 .37 to 25 .05/22 .30 (124M) and from 17 .68/15 .64 to 17 .52/15 .52 (354M). The consistent gains at both scales within the trained context window confirm that value-side rotation provides a useful inductive bias independently of any length-extrapolation effect. 
+
+Out-of-distribution perplexity: Beyond the training context, the advantage of RoVE 
+
+grows substantially. Without positional interpolation, the 354M RoVE model reaches per-plexity 311 .38 and 583 .84 at 4k and 16k tokens, compared to 840 .10 and 1630 .72 for RoPE ,i.e., a reduction of approximately 63% and 64%. Applying YaRN narrows the absolute values for both methods, but the relative gap persists: RoVE +YaRN achieves 18 .40 and 124 .82 against 48 .61 and 270 .98 for RoPE +YaRN at the same lengths. The 124M model follows the same pattern (Table 3), with RoVE +YaRN reaching 27 .34 and 185 .87 at 4k and 16k compared to 58 .67 and 310 .52 for RoPE +YaRN . These results demonstrate that value-side relative rotation is complementary to, and not subsumed by, inference-time frequency interpolation. 
+
+Long-context retrieval: Tables 4 and 2 report RULER results with YaRN applied. At 354M, RoVE +YaRN reduces the mean RULER NLL from 6 .62 to 4 .33 relative to 
+
+RoPE +YaRN , with the largest gains on tasks requiring long-range information aggrega-tion: at 4k tokens, multi-key NIAH improves from 7 .61 to 3 .63 and Variable Tracking from 4.53 to 2 .11; at 8k tokens, the same tasks improve from 9 .46 to 5 .16 and from 7 .50 to 3 .10, respectively. At 124M, mean NLL decreases from 6 .75 to 5 .35, again with the strongest gains on NIAH and Variable Tracking. The consistent pattern across both scales and tasks indicates that positional alignment in the value pathway is especially beneficial for retrieval problems that require detecting and recombining information distributed across long con-texts.                                        
+
+> Table 3: Core ICL accuracy and perplexity for the 124M parameter model. Core is measured within the 1024-token training context; PPL is measured from 512 to 16384 tokens. + YaRN denotes inference-time interpolation, leaving Core unchanged. Green highlight marks column bests. PPL ( ↓)Method Core ( ↑)512 1024 2048 4096 8192 16384
+> RoPE 0.1375 25.23 22.37 278.97 500.25 652.28 808.61 +YaRN 25.23 22.37 22.98 58.67 175.04 310.52
+> RoVE (ours) 0.1416 25.05 22.30 185.54 356.78 495.10 638.44 +YaRN 25.05 22.30 22.73 27.34 59.13 185.87 11
+
+Garc´ ıa-Castellanos, Weiler & Bekkers 
+
+Table 4: RULER long-context retrieval (NLL; lower is better) for the 124M parameter model. Tasks: Common Word Extraction (CWE), multi-key Needle-in-a-Haystack (NIAH), Question Answering (QA), Variable Tracking (VT). Avg is the unweighted mean over all eight task/length cells. + YaRN 
+
+denotes inference-time interpolation. Green highlight marks column bests. CWE ( ↓) NIAH ( ↓) QA ( ↓) VT ( ↓)Method 4k 8k 4k 8k 4k 8k 4k 8k Avg ( ↓)
+
+RoPE 7.56 ±0.33 8.61 ±0.40 11 .57 ±1.01 11 .91 ±0.96 8.81 ±1.66 8.99 ±1.56 9.72 ±0.51 10 .43 ±0.57 9.70 ±0.88 
+
++YaRN 4.64 ±0.49 6.13 ±0.37 7.40 ±1.70 9.79 ±1.15 6.40 ±2.57 7.55 ±1.87 4.97 ±0.47 7.11 ±0.49 6.75 ±1.14 
+
+RoVE (ours) 8.05 ±0.46 8.40 ±0.50 10 .26 ±1.30 10 .52 ±1.47 8.82 ±2.12 9.39 ±2.15 9.12 ±0.46 9.48 ±0.50 9.25 ±1.12 
+
++YaRN 4.37 ±0.53 5.18 ±0.55 5.09 ±1.66 7.65 ±1.66 6.44 ±3.40 6.80 ±2.54 2.60 ±0.35 4.68 ±0.46 5.35 ±1.39 
+
+Table 5: Core ICL accuracy and perplexity for the 354M parameter model. Core is measured within the 1024-token training context; PPL is measured from 512 to 16384 tokens. +YaRN de-notes inference-time interpolation, leaving Core unchanged. Green highlight marks column bests. 
+
+Restatement of the results presented at Table 1 for easier comparison with 124M parameter model. 
+
+PPL ( ↓)Method Core ( ↑) 512 1024 2048 4096 8192 16384 
+
+RoPE 0.1664 17.68 15.64 293.24 840.10 1412.76 1630.72 +YaRN 17.68 15.64 16.05 48.61 154.61 270.98 
+
+RoVE (ours) 0.1856 17.52 15.52 133.68 311.38 458.15 583.84 +YaRN 17.52 15.52 15.78 18.40 35.95 124.82 Table 6: RULER long-context retrieval (NLL; lower is better) for the 354M parameter model. Tasks: Common Word Extraction (CWE), multi-key Needle-in-a-Haystack (NIAH), Question Answering (QA), Variable Tracking (VT). Avg is the unweighted mean over all eight task/length cells. + YaRN 
+
+denotes inference-time interpolation. Green highlight marks column bests. Restatement of the results presented at Table 2 for easier comparison with 124M parameter model.. 
+
+CWE ( ↓) NIAH ( ↓) QA ( ↓) VT ( ↓)Method 4k 8k 4k 8k 4k 8k 4k 8k Avg ( ↓)
+
+RoPE 8.87 ±0.46 9.15 ±0.44 10 .90 ±1.25 10 .40 ±1.22 8.83 ±1.84 9.18 ±1.64 10 .12 ±0.53 10 .22 ±0.38 9.71 ±0.97 
+
++YaRN 4.31 ±0.47 5.71 ±0.41 7.61 ±1.47 9.46 ±1.27 6.40 ±2.73 7.43 ±2.14 4.53 ±0.51 7.50 ±0.51 6.62 ±1.19 
+
+RoVE (ours) 7.17 ±0.37 7.93 ±0.39 9.51 ±1.48 10 .14 ±1.43 8.25 ±2.14 8.71 ±2.03 7.93 ±0.51 8.31 ±0.39 8.50 ±1.09 
+
++YaRN 4.39 ±0.60 4.62 ±0.54 3.63 ±1.16 5.16 ±1.21 5.61 ±3.23 6.05 ±2.76 2.11 ±0.32 3.10 ±0.41 4.33 ±1.28 
+
+12 RoVE: Rotary Value Embeddings Attention 
+
+Appendix B. Related Work 
+
+Positional encodings: Positional encodings for transformers fall into three families. 
+
+• Absolute encodings (APE; Vaswani et al. 2017) add a fixed or learned vector pi to each token embedding before projection, yielding scores 
+
+Aape  
+
+> ij
+
+= ( WQ(xi + pi)) ⊤(WK (xj + pj )) ,
+
+which depend on the absolute indices i and j separately, making extrapolation to unseen lengths fragile. 
+
+• Additive relative encodings (ARPE; Raffel et al. 2020; Press et al. 2021; Chi et al. 2022; Li et al. 2024b) replace the absolute positional terms with an offset-indexed bias, 
+
+Aarpe  
+
+> ij
+
+= ( WQxi)⊤(WK xj ) + bj−i,
+
+so the positional contribution depends only on the displacement δ=j−i, which can improve length generalisation over APE but requires materialising the full n×n score matrix, preventing the use of FlashAttention kernels (Dao et al., 2022). 
+
+• Rotary position encoding , RoPE (Su et al., 2024), obtains the same offset-only depen-dence multiplicatively: rotating queries and keys by their absolute positions before the inner product yields 
+
+Arope  
+
+> ij
+
+= ( RiWQxi)⊤(Rj WK xj ) = ( WQxi)⊤Rj−i(WK xj ), (4) which depends on the displacement δ=j−i rather than on i and j separately, while remaining compatible with FlashAttention. Length extrapolation with RoPE remains challenging because rotation angles at un-seen positions are out of distribution; a number of methods address this via frequency rescaling, including PI, NTK, and YaRN (see Appendix C for a brief overview). In all three families the value pathway carries no relative-position signal: APE injects an absolute component via WV (xj +pj ), while ARPE and RoPE leave WV xj entirely un-changed. RoVE closes this gap by applying the same rotation family to the value pathway, 
+
+ψδ=RδWV , without modifying scores or sacrificing FlashAttention compatibility. 
+
+Distinguishing “what” and “where” in RoPE: A separate line of work examines how position and content interact within the RoPE score itself. Barbero et al. (2024); Chen et al. (2025) show mechanistically that low-frequency RoPE components act as semantic channels in trained models, while high-frequency components construct positional attention patterns. PoPE (Gopalakrishnan et al., 2025) formalises this through a polar decomposition of (4), identifying a content-dependent phase cross-term that entangles positional and semantic information, which is replaced by pure-magnitude representations to yield a score that factors into a content product and a positional cosine, improving perplexity and length generalisation. These works restructure the QK circuit to disentangle position and content in the attention mechanism; RoVE instead introduces positional structure into the value pathway, a component none of them address. Combining RoVE with semantics-aware QK encodings such as PoPE is a natural direction for future work. 
+
+> 13 Garc´ ıa-Castellanos, Weiler & Bekkers
+
+Attention and convolution: Cordonnier et al. (2019) prove that multi-head self-attention can express any convolutional layer under a specific relative positional encoding. Their con-struction takes the ARPE score of Dai et al. (2019) and zeroes the content-driven projection matrices, collapsing it to a position-only term, i.e., a degenerate ARPE in which bδ=v(h)⊤rδ
+
+absorbs the entire score. With the quadratic encoding rδ=( ∥δ∥2, δ 1, δ 2), each head’s score peaks sharply at a single fixed offset, so its value matrix W (h) 
+
+> V
+
+acts as the convolutional filter for that offset. The value pathway is thus offset-specific, but scores become content-independent and each filter is a separate, discrete matrix tied to one head. RoVE reaches the same attentive-convolution structure from the opposite side: it keeps fully content-dependent RoPE scores (4) and makes the value pathway offset-dependent through the continuous, parameter-free family ψδ=RδWV , a single WV rotated through the rotation group rather than replicated per head. DAPE V2 (Zheng et al., 2025) takes a complementary approach, applying a narrow convolution kernel across heads over the pre-softmax score tensor (on top of a standard ad-ditive positional bias), and shows that this convolution component alone provably suffices for associative recall even when the bias is zeroed out. However, the operation requires materialising the full n×n score tensor before softmax, ruling out FlashAttention . Nev-ertheless, the two methods are structurally dual: DAPE V2 enriches routing while leaving values intact, whereas RoVE enriches the value transformation while leaving scores intact. 
+
+Gated convolutions and recall: Gated convolutions and state-space models (Fu et al., 2023a; Poli et al., 2023; Peng et al., 2023; Fu et al., 2023b) provide sub-quadratic alternatives to attention. Arora et al. (2024) show that 82% of their perplexity gap relative to attention is explained by associative recall : gated convolutions apply a fixed filter whose weights are set by model parameters alone and cannot adapt, based on the input, which tokens to mix, whereas attention’s input-dependent scores softmax( QK ⊤) can locate the matching token at any distance. RoVE addresses a complementary half of this picture. Attention already determines which token to retrieve, but with standard RoPE the value transformation WV
+
+is the same fixed map regardless of how far that token lies from the query. Replacing 
+
+WV with the offset-indexed family ψδ=RδWV lets the model additionally control how each retrieved feature is realigned before it is recombined with the query, much as multi-view aggregation rotates a feature into a common reference frame before fusion (Miyato et al., 2024). Consistent with this view, RoVE improves associative recall over vanilla RoPE 
+
+across the long-context retrieval benchmarks reported in Appendix A.2. 
+
+Appendix C. Additional Background on Frequency Scaling 
+
+At position t, RoPE rotates frequency channel m by angle t ω m. When t exceeds the training context length L, this angle falls outside the range [0 , L ω m] seen during training, causing distributional shift that compounds across layers. All practical remedies address this by rescaling the frequencies ωm = θ−2m/d  
+
+> 0
+
+so that positions up to a target length L′ > L 
+
+produce rotation angles within the training range. 
+
+Positional Interpolation (PI; Chen et al. 2023) maps each position t 7 → tL/L ′, equiva-lently applying a uniform frequency reduction ωm 7 → ωm/s with s = L′/L . This guarantees all rotation angles remain in-distribution, but does so indiscriminately: high-frequency di-
+
+> 14 RoVE: Rotary Value Embeddings Attention
+
+mensions, which encode fine-grained local positional distinctions, are compressed by the same factor s as low-frequency dimensions, blurring short-range structure. 
+
+NTK-aware scaling (bloc97, 2023) corrects this imbalance by uniformly rescaling the base θ0 rather than the positions directly. Because ωm = θ−2m/d  
+
+> 0
+
+, a single multiplicative base change has a dimension-dependent effect on individual frequencies: the substitution 
+
+θ0 7 → θ0 · sd/ (d−2) 
+
+rescales each frequency as ωm 7 → ωm · s−2m/ (d−2) , leaving the highest-frequency dimension (m = 0) entirely unchanged while recovering the full PI factor s−1 at the lowest-frequency dimension ( m = d/ 2 − 1), thereby preserving short-range positional structure where it is most informative. 
+
+YaRN (Peng et al., 2024) takes this frequency-dependent logic to its principled con-clusion by treating each dimension according to its wavelength λm = 2 π/ω m relative to the training context L. Dimensions with λm ≪ L complete many full rotations within the training window; their angles are robustly periodic and can therefore be safely extrapolated 
+
+(left unscaled) at inference time. Dimensions with λm > L never complete a single rotation during training: at positions beyond L their rotation angles fall entirely outside the training distribution, making them the primary source of extrapolation errors. These dimensions must therefore be interpolated . Intermediate dimensions are handled by a smooth blend between the two regimes: 
+
+ω′ 
+
+> m
+
+=
+
+
+
+ωm if λm < α, 
+
+ 1 − γ(λm) ωm + γ(λm) ωm/s if α ≤ λm ≤ β, ωm/s if λm > β, 
+
+where γ is a smooth blending function increasing from 0 to 1 over [ α, β ], and α, β are wavelength thresholds. To compensate for the softmax sharpness distortion introduced by frequency compression, YaRN additionally applies an attention temperature correction p1/t to the pre-softmax logits. All adjustments are applied at inference time without any additional fine-tuning. More advanced frequency extrapolation schemes have since been proposed (Ding et al., 2024; Tian et al., 2026); however, in this work we focus on YaRN as it is among the most widely adopted techniques in production settings, as evidenced, for instance, by its use in DeepSeek-V4 (DeepSeek-AI, 2026). 
+
+Frequency scaling in RoVE: When applying YaRN to RoVE , we rescale the frequen-cies of both the QK and OV rotation matrices uniformly, as described above. This is a natural extension: since RoVE ties the value pathway to the same rotation family {Rδ}δ
+
+as the keys and queries, the same out-of-distribution problem arises in the OV circuit when positions exceed L, and the same frequency rescaling mitigates it. We leave as future work whether more specialised extrapolation strategies should be developed specifically for the OV pathway. The methods reviewed above, such as, PI, NTK-aware scaling, and YaRN ,were originally designed under the assumption that rotations appear only in the QK circuit; it is therefore an open question whether their frequency thresholds and blending schedules remain optimal when the same rotation family also modulates value transformations, or whether the two pathways call for different rescaling regimes. 
+
+> 15 Garc´ ıa-Castellanos, Weiler & Bekkers
+
+Appendix D. Discussion 
+
+What changes when values rotate? In standard RoPE , relative position determines attention weights but leaves the value map WV unchanged: position governs which fea-tures are aggregated, not how . RoVE closes this gap by replacing WV with the offset-dependent kernel RδWV , so that the layer remains shift-equivariant while the value stream carries strictly more relative-position information than a scalar attention coefficient can convey alone. From a geometric perspective, attention selects which neighboring features to aggregate while RδWV aligns each selected feature before fusion, analogous to geomet-ric multi-view aggregation in Miyato et al. (2024), where features from different camera views are rotated into a common frame; in language, positions replace views and relative-position rotations replace camera-to-camera transforms. This joint conditioning of selection and aggregation explains the RULER pattern, where gains are largest on tasks requiring long-range information to be tracked and recombined rather than merely detected. 
+
+Limitations and future work: While the experiments show a consistent advantage for rotating values, they do not fully identify the mechanism behind the improved OOD perplexity. Our working hypothesis is that RoVE induces a more coherent extrapolation regime: when relative offsets exceed those seen in training, the QK and value pathways drift together because they share the same rotation family. In standard RoPE , by contrast, the attention logits extrapolate while the value transformation remains unchanged, creating a mismatch between selection and aggregation. A direct test would analyze errors by RoPE 
+
+frequency band, examining each term in the offset-indexed sum of Appendix E separately, following the style of Chen et al. (2025), and measure whether value-side rotations preserve the learned relationship between the QK and OV circuits at unseen offsets. 
+
+Appendix E. Circuits Framework Analysis 
+
+Background: Elhage et al. (2021) provide a notation for decomposing transformer com-putations into interpretable end-to-end paths. We recall the elements needed here. The token embedding matrix WE ∈ Rd×|V| maps one-hot token vectors to residual-stream vectors of dimension d; the unembedding matrix WU ∈ R|V|× d maps residual-stream vectors back to logits over the vocabulary V. Together they form the “direct path” from input tokens to output logits: Id ⊗ WU WE , where Id is the identity on the sequence dimension and ⊗ denotes the tensor product (equivalently, a Kronecker product when written on vectorised tokens). Each attention head h contributes through two largely independent circuits: 
+
+• QK circuit. The bilinear form W hQK = ( W hQ )⊤W hK ∈ Rd×d determines the attention pattern Ah(X) ∈ Rn×n: entry Ah(X)ij measures how strongly position i attends to position j based on the residual-stream content X at those positions. It answers the question which tokens are attended to. 
+
+• OV circuit. The matrix W hOV = W hO W hV ∈ Rd×d determines what is communicated when a token is attended to: it maps the residual-stream vector at position j to the update written into position i’s residual stream. It answers the question what 
+
+information is moved. 
+
+> 16 RoVE: Rotary Value Embeddings Attention
+
+(a) RoPE attention circuit see Equation (5) 
+
+(b) RoVE attention circuit; see Equation (6)             
+
+> Figure 2: Visualization of the circuits of the one-layer attention-only transformer for RoPE (left; adapted from Elhage et al. (2021)) and RoVE (right). In standard RoPE , we have as many bifurcations from the residual stream as there are attention heads hiat that layer. In RoVE we obtain new bifurcations associated with each displacement δ.
+
+The full one-layer attention-only transformer then expands as 
+
+T (X) = Id ⊗ WU WE + X
+
+> h
+
+Ah(X) ⊗  WU W hOV WE
+
+, (5) where the tensor product Ah(X) ⊗ (WU W hOV WE ) means: Ah(X) routes information across sequence positions in an input-dependent way, while WU W hOV WE transforms it in the chan-nel dimension with fixed weights. The two dimensions are independent —this is the Kro-necker structure. See Figure 2( a) for a visual representation of Equation (5). 
+
+How RoPE fits in: With RoPE , the attention pattern Ah(X) becomes shift-equivariant (entry Ah(X)ij depends on positions only through the offset j − i and the token content), but the OV circuit W hOV remains a single fixed matrix. The Kronecker structure of (5) is therefore preserved under RoPE : token routing and channel transformation are still decoupled. 
+
+How RoVE changes the picture: RoVE operates at the attention level, replacing the constant value map W hV with the offset-dependent kernel RδW hV . From the circuits perspective, this means the effective OV matrix at offset δ is W hO RδW hV , with the rotation 
+
+Rδ sandwiched between the two projections. Consequently, the token-routing and channel-transformation dimensions are no longer independent, and (5) no longer holds. Introducing shift matrices Sδ ∈ Rn×n with ( Sδ)ij = 1[j − i = δ] to partition the attention pattern by offset, the RoVE transformer expands as 
+
+T RoVE (X) = Id ⊗ WU WE + X
+
+> h
+
+X
+
+> δ
+
+ Ah(X) ⊙ Sδ ⊗  WU W hO RδW hV WE
+
+, (6) 
+
+> 17 Garc´ ıa-Castellanos, Weiler & Bekkers
+
+where ⊙ is the entry-wise product. Each term selects the δ-offset entries of Ah(X) and pairs them with the corresponding rotated end-to-end map, and summing over δ recovers the full output because P 
+
+> δ
+
+Ah(X) ⊙ Sδ = Ah(X). The Kronecker structure is replaced by a sum of Kronecker products , one per offset diagonal, which is exactly the block-Toeplitz structure described in Section 3. See Figure 2( b) for a visual representation of Equation (6).
