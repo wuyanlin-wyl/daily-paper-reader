@@ -1,0 +1,528 @@
+Title: VISA: VLM-Guided Instance Semantic Auditing for 3D Occupancy World Models
+
+URL Source: https://arxiv.org/pdf/2606.13460v1
+
+Published Time: Fri, 12 Jun 2026 01:06:46 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# VISA: VLM-Guided Instance Semantic Auditing for 3D Occupancy World Models 
+
+Ruiqi Xian 
+
+University of Maryland College Park 
+
+Yuehan Xian 
+
+Nanjing University of Posts and Telecommunications 
+
+Jing Liang 
+
+Standford University 
+
+Xuewei(Tony) Qi 
+
+Motional AD Inc. 
+
+Dinesh Manocha 
+
+University of Maryland College Park 
+
+Abstract: Semantic 3D occupancy provides a voxelized world state for au-tonomous driving and robot decision making, but object and rare-class errors can affect free-space interpretation, collision checking, and temporal state propaga-tion. We show that a common VLM strategy, aligning 3D voxel or object features with crop-caption embeddings, improves text-space similarity without reliably im-proving closed-set occupancy mIoU. Motivated by this mismatch, we propose 
+
+VISA , a training-time semantic auditing approach for existing occupancy world models. VISA queries an offline VLM on a representative crop of each physical object instance, obtains a structured audit with class hypotheses, plausible confu-sions, reliability, attributes, and evidence, and propagates it along the object track. The audit is grounded to matched 3D object voxels and distilled into semantic logits through reliability-weighted taxonomy, attribute-factor, and scene-level au-dit graph losses, while inference remains unchanged and requires no VLM. On nuScenes, averaged across three runs, VISA improves OccWorld from 19 .06 to 
+
+20 .05 mIoU and GaussianWorld from 21 .36 to 21 .91 mIoU; on GaussianWorld, object mIoU improves from 18 .18 to 19 .16 and rare-class mIoU from 15 .60 to 
+
+16 .79 . These results suggest that VLMs are better suited to closed-set occupancy as reliability-aware semantic auditors than as generic caption-embedding targets. 
+
+Keywords: 3D Occupancy Prediction, World Models 
+
+## 1 Introduction 
+
+3D semantic occupancy prediction is becoming a central representation for autonomous driving per-ception, robot decision making, and occupancy-based world modeling [1, 2, 3, 4, 5, 6]. It represents a scene as a dense voxelized world state, where each voxel stores occupancy and semantic predictions for foreground objects, background regions, and free space [1, 7, 8, 4, 5]. Unlike object-centric per-ception, which often relies on sparse boxes or bird’s-eye-view abstractions [9], semantic occupancy provides a unified spatial representation that can support planning, collision checking, map updating, and temporal state propagation [10, 6, 11, 12]. Semantic reliability is therefore important: confusing traffic cones with barriers, trucks with buses or trailers, or pedestrians and motorcycles with back-ground regions can change the free-space and obstacle semantics used by downstream autonomy modules. Although recent occupancy models have made strong progress in reconstructing occupied space from camera inputs [8, 3, 4], learning semantically reliable world states remains challeng-ing due to visually similar categories, long-tail objects, occlusion, and the fine-grained closed-set taxonomy used in occupancy benchmarks [2, 5, 4]. 
+
+> arXiv:2606.13460v1 [cs.CV] 11 Jun 2026
+
+Vision-language models (VLMs) offer semantic knowledge through transferable visual representa-tions and image-language reasoning [13, 14, 15, 16, 17, 18]. This has motivated 3D scene under-standing methods based on CLIP-style distillation, open-vocabulary feature alignment, and region-level language supervision [19, 20, 21, 22]. A natural adaptation to semantic occupancy is to cap-tion object crops and align 3D voxel or object features with the corresponding language embed-dings [13, 14, 21, 19]. However, caption embeddings are open-vocabulary and instance-specific, whereas occupancy evaluation is closed-set, taxonomy-specific, and voxel-level [3, 4, 5]. Object crops also cover sparse object regions, while occupancy models predict dense foreground, back-ground, and free-space semantics across the full 3D volume [8, 3, 4, 5]. We verify this mismatch with a diagnostic ablation: instance-text alignment improves its auxiliary text-space objective, but does not reliably improve semantic occupancy mIoU. This motivates using VLMs as offline visual auditors rather than embedding targets [13, 14, 15, 16, 17, 18, 23, 24]. A crop-level audit can pro-vide occupancy-aligned cues unavailable from a free-form caption: a closed-set class hypothesis, plausible visual confusions, attributes, reliability, and evidence. For occupancy training, the useful VLM signal should therefore be taxonomy-aware, instance-specific, reliability-aware, and grounded to voxel-level semantic decisions rather than preserved as a generic open-vocabulary embedding. We propose VISA , a training-time semantic auditing approach for existing occupancy world models. VISA does not introduce a new occupancy architecture or change inference. It audits representative object crops with an offline VLM, converts the responses into structured audit tuples, and grounds them only to matched 3D object voxels of the same physical instance. During training, these audits supervise voxel semantic logits through reliability-weighted taxonomy, attribute-factor, and scene-level audit graph losses. At inference, the model uses the same camera inputs and occupancy world-model architecture as the baseline, with no VLM calls, text encoder, crop extraction, or additional modules. Compared with prior vision-language supervision for 3D perception, VISA differs in both target space and grounding. Existing methods transfer CLIP/VLM knowledge through open-vocabulary feature alignment, region-level language supervision, or voxel-space embedding and language-prior distillation [19, 20, 21, 22, 25, 26, 27, 28, 29, 30, 31, 32]. These approaches are useful for open-vocabulary recognition or vocabulary expansion, but closed-set occupancy is evaluated by voxel-level logits under a fixed driving taxonomy [3, 4, 5]. VISA instead converts crop-level VLM judgments into reliability-aware taxonomy and attribute supervision grounded to matched object voxels. Additional related work is discussed in Appendix A. Our contributions are: 1. We diagnose a task-specific failure mode of generic VLM supervision for occupancy: open-vocabulary caption/feature alignment can optimize text-space objectives while remaining weakly coupled to closed-set voxel-level semantic prediction. 2. We introduce VISA , a training-time semantic auditing approach that converts VLM crop un-derstanding into reliability-aware closed-set taxonomy and visual-factor supervision, replacing generic caption embeddings with occupancy-compatible audit signals. 3. We propose audit-to-occupancy grounding for physical object instances: audits are associated with the same object over time, applied only to matched 3D object voxels, and further organized by a scene-level audit graph over co-occurring objects. 4. We validate VISA as training-time supervision for existing occupancy world models. Averaged across three runs, VISA improves semantic mIoU by +0 .99 on OccWorld and +0 .55 on Gaus-sianWorld, with especially strong object/rare-class gains of +1 .40 / + 1 .42 on OccWorld and 
+
++0 .98 / + 1 .19 on GaussianWorld, and no inference-time VLM cost. 
+
+## 2 Problem Setup 
+
+We study how offline VLM audits can provide training-time supervision for semantic 3D occupancy world models. The occupancy model predicts dense closed-set semantic logits over the full 3D scene, while the VLM observes sparse object-centric image crops and produces instance-level se-mantic judgments. The goal is to convert these crop-level audits into voxel-compatible supervision during training, without changing the inference-time occupancy model. 2VLM                   
+
+> (e.g., Qwen3VL)
+> Class: track
+> Confidence: 0.91
+> Confusions: {bus,
+> trailer}
+> Attributes: {large
+> vehicle, long body}
+> Reliability: 0.86
+> Audit tuple
+> …
+> Occupancy world
+> model
+> Inference (unchanged model, no VLM, only camera input)
+> Taxonomy loss
+> Attribute -factor
+> Scene audit graph
+> Matched 3D
+> object voxels
+> audit
+> Attach audit to
+> same track
+> t-2t-1t
+> Data preparation Offline VLM auditor Track -to -voxel grounding and supervision
+> Voxel semantic
+> logits
+> …
+> tt+1 t+2
+> Semantic occupancy state
+> t-2t-1t
+> Multi -view camera over time
+> 3D object tracks
+> …
+> …
+> t-2t-1tt-3
+> …
+> Input: Multi -view camera sequence
+> ……
+> Occupancy world model
+> (same architecture & weights) t+3
+> Representative
+> object crop
+> …
+> …
+> Training -time offline VLM auditing
+
+Figure 1: Overview of VISA . During training, object tracks are converted into representative crops and audited by an offline VLM to obtain closed-set class hypotheses, plausible confusions, attributes, reliability, and evidence. The audit is propagated to 3D boxes of the same physical in-stance, grounded to matched object voxels, and distilled into semantic occupancy logits through taxonomy, attribute, and scene-level audit graph supervision. At inference, the original occupancy world model is unchanged and requires no VLM, text encoder, crop extraction, or object-track input. 
+
+Semantic 3D Occupancy World Model: The occupancy model fθ takes a single frame or a se-quence of camera observations, I1: t, and predicts dense semantic occupancy logits Zt = fθ (I1: t),where Zt ∈ RH×W ×D×C . Each voxel v at time t has a class-logit vector zv,t ∈ RC , where C
+
+includes object classes, stuff classes, and the empty class. Given dense voxel labels Yt, standard training uses cross-entropy and Lovasz losses: 
+
+Locc = Lce (Zt, Yt) + Llovasz (Zt, Yt). (1) VISA does not assume a particular internal state representation or temporal update rule; it only adds training-time supervision to the semantic logits. 
+
+Offline VLM Audits and Object Voxels: During training, we additionally use object-level re-gions/tracks and offline VLM audits. For each physical object instance i, a representative image crop is queried with a closed-set taxonomy and visual-factor prompt. The VLM returns a JSON audit and we parse it as an audit tuple: 
+
+Ai =  cvlm 
+
+i , q i, Ci, ui, r i, e i
+
+ , (2) where cvlm 
+
+i is a closed-set class hypothesis, qi ∈ [0 , 1] is the VLM-reported confidence for that hypothesis, Ci is a set of plausible visual confusions with VLM-reported confidence scores, ui ∈{0, 1}A is a vector of occupancy-relevant visual factors, ri ∈ [0 , 1] is the visual reliability of the crop, and ei is a short evidence string used for inspection. These audits are sparse and object-centric: they describe visible object crops, not the full occupancy grid or stuff regions. To use an audit for occupancy training, it must be grounded to the corresponding 3D object region. Let bi,t be the 3D box of instance i at time t, and let yobj 
+
+i be its object class. Using the dense voxel label yv,t from Yt, we define the matched object-voxel set as 
+
+Vi,t = {v | xv,t ∈ bi,t , y v,t = yobj 
+
+i }. (3) This training-time restriction prevents a crop-level VLM judgment from supervising nearby back-ground, free space, or overlapping objects. 
+
+Learning Objective: Given dense occupancy labels, object tracks, and offline audits, we train the occupancy model with the standard occupancy loss plus a VISA supervision term: 
+
+min 
+
+θ Locc (θ) + LVISA (θ; {A i, Vi,t }i,t ), (4) where i indexes audited object instances and t indexes frames in which the corresponding instance has a 3D box. The role of LVISA is to convert instance-level VLM judgments into closed-set, voxel-3grounded semantic supervision. Section 3 instantiates this term with reliability-weighted taxonomy distillation, attribute-factor supervision, and scene-level audit graph regularization. 
+
+## 3 VISA 1 5 10 20   
+
+> training epoch
+> 0.68
+> 0.70
+> 0.72
+> 0.74
+> 0.76
+> 0.78
+> paired cosine
+> (a) Text-space alignment
+> paired text cosine
+> nearest class proto. acc.
+> instance retrieval@5
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> accuracy / retrieval (%)
+> 19.5
+> 20.0
+> mIoU (%)  20.14
+> 19.46
+> 19.64
+> (b) Semantic occupancy
+> Baseline Caption
+> align
+> Semantic
+> prototype
+> 32.0
+> 32.5
+> IoU (%)  32.33 32.20
+> 31.79
+> (c) Geometric occupancy
+
+Figure 2: Diagnostic of generic language alignment for occupancy. Left: paired text cosine measures projected 3D feature–caption similarity, nearest class-prototype accuracy uses closed-set class text prototypes, and in-stance retrieval@5 retrieves the paired caption from the caption bank. Right: caption alignment uses crop cap-tions, while semantic prototype uses class text proto-types; both remain below the occupancy baseline. VISA is a training-time semantic audit-ing approach for existing semantic 3D occupancy world models. Given of-fline object crops, VISA parses VLM re-sponses into structured audit tuples, as-sociates each audit with the same phys-ical object track across time, grounds it to matched 3D object voxels, and distills it into voxel semantic logits. The VLM is used only offline; at inference, the un-derlying occupancy world model is un-changed. VISA consists of four com-ponents: (i) offline instance audit gener-ation, (ii) track-to-voxel grounding, (iii) reliability-weighted taxonomy and attribute-factor distillation, and (iv) scene-level audit graph reg-ularization over co-occurring audited objects. 
+
+From Caption Alignment to Semantic Auditing: A common way to use offline VLM supervision is to caption each object crop, encode the caption with a text encoder, and align the corresponding 3D instance feature with the text embedding. Let hi,t be the pooled 3D feature for object instance 
+
+i at time t, and let gtext  
+
+> i
+
+be the caption embedding. Caption alignment optimizes Lcap = 1 −
+
+cos( ϕ(hi,t ), gtext  
+
+> i
+
+), where ϕ is a projection head. Fig. 2 diagnoses why this generic language-alignment strategy is insufficient for closed-set occu-pancy. The left panel evaluates the learned text-space representation: paired text cosine measures the optimized feature-caption similarity, nearest class-prototype accuracy tests whether the projected feature selects the correct closed-set class text prototype, and instance retrieval@5 tests whether it retrieves the paired crop caption. These metrics improve during training, showing that the auxiliary branch is learned. However, the right panel shows that caption alignment and closed-set semantic prototype distillation both remain below the reproduced occupancy baseline in semantic mIoU and occupied IoU. Thus, the issue is not simply an unoptimized auxiliary branch or the use of free-form captions; text-space supervision is weakly coupled to voxel-level closed-set semantic decisions. VISA therefore replaces caption embeddings with structured semantic audits that can be grounded to object voxels and distilled directly into semantic logits. 
+
+Instance Semantic Audit Tuple: VISA uses the VLM as a structured semantic auditor rather than a caption generator. As mentioned in Section 2, we parsed the output of the VLM auditor as an audit tuple Ai, as defined in Eq. 2. The tuple is not used to supervise arbitrary scene re-gions; it is later grounded only to the corresponding 3D object voxels. The visual-factor vocab-ulary is predefined from occupancy-relevant driving semantics rather than freely generated by the VLM; examples include large vehicle , long body , two wheeler , vulnerable road user ,and traffic control object . The full vocabulary is provided in Appendix B. For example, a long vehicle crop may produce cvlm  
+
+> i
+
+= bus , Ci = {truck , trailer }, and positive factors such as large vehicle and long body . Thus, each audit is taxonomy-aligned, instance-conditioned, reliability-aware, and directly usable for voxel-level training. 
+
+Track-to-Voxel Grounding: A VLM audit is a 2D object-level observation, while occupancy super-vision is applied to 3D voxel logits. VISA bridges this gap by associating each audit with the same physical object track across time and applying it only to the matched object-voxel set Vi,t defined in Eq. 3. This keeps crop-level VLM supervision local to the corresponding object and prevents leakage to background, free space, or nearby instances. 4For each supervised object box, we pool the model predictions inside Vi,t :
+
+¯pi,t = 1
+
+|V i,t |
+
+X
+
+> v∈V i,t
+
+softmax( zv,t ). (5) The dense occupancy loss still supervises the full voxel grid, while VISA losses act only on matched object regions. For example, a reliable audit from one visible crop of a bus is associated with the same bus track across time, but the loss is applied only to occupied voxels inside each corresponding 3D box. 
+
+Reliability-Weighted Taxonomy Distillation: The taxonomy loss keeps the occupancy label as the anchor while allowing the VLM audit to express instance-specific ambiguity. Let qi be the VLM-reported confidence for its closed-set class hypothesis and ri be the crop reliability. We do not treat these scores as calibrated probabilities; they are used only for conservative filtering and weak loss weighting. An audit is used for taxonomy distillation only if qi ≥ τq and ri ≥ τr .For a valid audit, we construct a normalized VLM distribution si from the class hypothesis and its confusion set: 
+
+si,c ∝ qi⊮[c = cvlm  
+
+> i
+
+] + X
+
+> (c′,γ )∈C i
+
+γ⊮[c = c′],
+
+where γ is the VLM-reported confidence for a plausible confusion class. We blend this distribution with the occupancy object label: 
+
+ttax  
+
+> i
+
+= (1 − α) onehot( yobj  
+
+> i
+
+) + α si.
+
+For each audited object box, we apply a weighted soft cross-entropy: 
+
+Ltax = 1
+
+|I tax |
+
+X
+
+> (i,t )∈I tax
+
+wi − X
+
+> c
+
+ttax  
+
+> i,c
+
+log ¯ pi,t,c 
+
+!
+
+, wi = ri max( qi, 0.25) ,
+
+where Itax is the set of audited boxes that pass the confidence and reliability thresholds. This target expresses plausible confusions, such as bus–truck–trailer ambiguity, without replacing the occupancy label. 
+
+Attribute-Factor Distillation: Taxonomy targets capture class-level ambiguity, but they do not explicitly supervise the visual factors shared by confusable classes. VISA therefore also distills the audited visual-factor vector ui. We define a fixed class-to-attribute matrix M ∈ { 0, 1}Cobj ×A, where each row describes the attributes implied by an object class; for example, large vehicles share factors such as large vehicle and long body , while bicycles and motorcycles share two wheeler . The full mapping is provided in Appendix B. Let ¯pobj  
+
+> i,t
+
+be the pooled object-class probability distribution over Vi,t . We project it through M to obtain the predicted attribute vector ˆui,t = (¯ pobj  
+
+> i,t
+
+)⊤M and train it to match the VLM attribute vector: 
+
+Lattr = 1
+
+|I attr |
+
+X
+
+> (i,t )∈I attr
+
+ri BCE(ˆ ui,t , ui), (6) where Iattr contains reliable audited boxes with valid attribute targets. This loss encourages the semantic logits to respect instance-specific visual factors rather than only flat closed-set labels. 
+
+Scene-Level Audit Graph: Taxonomy and attribute losses supervise audited instances indepen-dently. To add scene-level structure, VISA builds an audit graph over reliable audited objects at each timestep. Nodes are audited object instances with valid matched voxels and non-empty at-tribute vectors. Edges are assigned deterministically from symbolic audit fields rather than from VLM-provided edge scores. For two nodes i and j, let sim a(ui, uj ) be the Jaccard similarity of their binary attribute vectors, and let compat( i, j ) indicate that the two audits have the same VLM class hypothesis or that one class appears in the other’s confusion set. We define positive and negative edges as 
+
+(i, j ) ∈ E + 
+
+> t
+
+if sim a(ui, uj ) ≥ τ+ or compat( i, j ), (7) 
+
+(i, j ) ∈ E − 
+
+> t
+
+if sim a(ui, uj ) ≤ τ− and ¬compat( i, j ), (8) 5Table 1: NuScenes semantic occupancy benchmark. IoU denotes binary occupied-space IoU and mIoU denotes semantic mIoU over 16 foreground classes. All numbers are percentages. For repro-duced world-model backbones, IoU and mIoU are reported as mean ± standard deviation over three seeds, and per-class IoUs are averaged over the same seeds.                                                                                                                                                                                                                                                             
+
+> Method IoU mIoU
+> barrier
+> bicycle
+> bus
+> car
+> const. veh.
+> motorcycle
+> pedestrian
+> traffic cone
+> trailer
+> truck
+> drive. surf.
+> other flat
+> sidewalk
+> terrain
+> manmade
+> vegetation
+> MonoScene [7] 23.96 7.31 4.03 0.35 8.00 8.04 2.90 0.28 1.16 0.67 4.01 4.35 27.72 5.20 15.13 11.29 9.03 14.86 Atlas [34] 28.66 15.00 10.64 5.68 19.66 24.94 8.90 8.84 6.47 3.28 10.42 16.21 34.86 15.46 21.89 20.95 11.21 20.54 BEVFormer [9] 30.50 16.75 14.22 6.58 23.46 28.28 8.66 10.77 6.64 4.05 11.20 17.78 37.28 18.00 22.88 22.17 13.80 22.21 TPVFormer [3] 30.86 17.10 15.96 5.31 23.86 27.32 9.79 8.74 7.09 5.20 10.97 19.22 38.87 21.25 24.26 23.15 11.73 20.81 OccFormer [35] 31.39 19.03 18.65 10.41 23.92 30.29 10.31 14.19 13.59 10.13 12.49 20.77 38.78 19.79 24.19 22.21 13.48 21.35 SurroundOcc [4] 31.49 20.30 20.59 11.68 28.06 30.86 10.70 15.14 14.09 12.06 14.38 22.26 37.29 23.70 24.49 22.77 14.89 21.86 GaussianFormer [33] 29.83 19.10 19.52 11.26 26.11 29.78 10.47 13.83 12.58 8.67 12.74 21.57 39.63 23.28 24.46 22.99 9.59 19.12 GaussianFormer-2 [36] 31.74 20.82 21.39 13.44 28.49 30.82 10.92 15.84 13.55 10.53 14.04 22.92 40.61 24.36 26.08 24.27 13.83 21.98 QuadricFormer [37] 32.13 21.11 21.38 13.41 28.40 31.01 11.32 17.10 13.94 11.28 14.75 22.66 40.81 24.71 26.51 25.22 13.54 21.78 OccWorld [6] 31.63 ±1.07 19.06 ±0.29 15.55 13.38 25.16 27.49 10.08 13.67 12.44 9.52 9.16 17.83 42.34 24.58 25.32 23.95 10.97 23.48 OccWorld + VISA 31.80 ±1.94 20.05 ±0.06 17.48 15.02 27.84 27.85 10.23 15.95 12.95 10.32 10.10 20.58 41.52 25.37 25.83 24.20 12.59 23.01 GaussianWorld [12] 33.17 ±1.13 21.36 ±0.03 20.44 13.09 26.86 31.01 12.76 17.10 13.33 10.69 14.11 22.94 42.31 25.26 27.53 25.81 14.38 24.21
+> GaussianWorld + VISA 33.53 ±1.02 21.91 ±0.12 20.91 14.86 27.87 31.67 13.82 18.18 13.87 10.46 15.16 23.50 42.95 23.93 27.95 26.26 14.63 24.60
+
+and ignore ambiguous pairs. The model-side relation is computed from predicted attribute factors. Let ρij = cos(ˆ ui,t , ˆuj,t ) and 
+
+wij = min( ri, r j ). The graph loss is 
+
+Lgraph = 1
+
+Z
+
+ X
+
+(i,j )∈E +
+
+> t
+
+wij (1 − ρij ) + X
+
+(i,j )∈E −
+
+> t
+
+wij max(0 , ρ ij − m)
+
+ , (9) where Z normalizes by the total valid edge weight. This encourages objects with compatible audits, such as buses and trucks, to share predicted semantic factors while separating incompatible pairs such as large vehicles and traffic cones. 
+
+Training Objective and Inference: The VISA supervision term in Eq. 4 combines local audit distillation and scene-level relation regularization: 
+
+LVISA = λtax Ltax + λattr Lattr + λgraph Lgraph . (10) All VLM audits are computed offline from training-set crops. At inference, the model receives only the standard camera inputs of the underlying occupancy world model and requires no image cropping, VLM querying, text encoder, object-track input, or additional module. 
+
+## 4 Experiments 
+
+Experimental Setup: We evaluate VISA on nuScenes semantic occupancy [2] with the standard 16 foreground classes. Following prior work [4, 5, 33, 12], we report occupied IoU, semantic mIoU, object mIoU over the 10 object classes, and rare mIoU over bicycle, bus, construction vehicle, motor-cycle, traffic cone, and trailer; all numbers are percentages. We instantiate VISA on GaussianWorld and OccWorld under the same inputs, dense occupancy labels, training split, and evaluation protocol as each reproduced baseline, and report mean and standard deviation over three runs. The VLM is used only to generate offline training audits, and inference uses the original occupancy backbone. Additional implementation details are provided in Appendix B. 
+
+Main Benchmark Results: Table 1 compares VISA with prior camera-based semantic occupancy methods on nuScenes validation. Without changing the inference architecture, VISA improves se-mantic mIoU on both occupancy world-model backbones: OccWorld improves from 19 .06 to 20 .05 ,and GaussianWorld improves from 21 .36 to 21 .91 , averaged across three runs. The gains are con-centrated on object semantics, consistent with VISA’s object-crop audit design. On GaussianWorld, object mIoU improves by +0 .98 and rare-class mIoU improves by +1 .19 , with gains on visually confusable or long-tail classes such as bicycle, bus, construction vehicle, motorcycle, trailer, and truck. Stuff classes change less because VISA does not directly audit background regions. 6t = 0.0 s  t = 0.5 s  t = 1.0 s  t = 1.5 s  t = 2.0 s  t = 2.5 s       
+
+> Ground Truth
+> GaussianWorld
+> GaussianWorld
+> +VISA (ours)
+> OccWorld
+> OccWorld
+> + VISA (ours)
+> (+0.00 m, +0.00 m) (+2.22 m, +3.38 m) (+0.50 m, +6.72 m) (+0.87 m, +9.78 m) (+1.28 m, +12.57 m) (+1.76 m, +15.47 m)
+> Ego -Pose
+
+Figure 3: Qualitative effect of VISA on occupancy world models. We visualize the evolution of predicted occupancy world states from two backbones before and after adding VISA across six consecutive frames. VISA yields cleaner foreground object regions and more coherent semantic boundaries while leaving the inference architecture unchanged. 0.5 1.0 1.5 2.0 2.5                 
+
+> Horizon (s)
+> 16
+> 18
+> 20
+> Score (%)
+> Semantic mIoU
+> 0.5 1.0 1.5 2.0 2.5
+> Horizon (s)
+> 12
+> 14
+> 16
+> Object mIoU
+> 0.5 1.0 1.5 2.0 2.5
+> Horizon (s)
+> 10
+> 12
+> 14
+> Rare mIoU
+> 0.5 1.0 1.5 2.0 2.5
+> Horizon (s)
+> 26
+> 28
+> 30
+> 32 Occupied IoU
+> GaussianWorld GaussianWorld + VISA OccWorld OccWorld + VISA
+
+Figure 4: Ego-motion-conditioned world-state rollout on nuScenes validation. Predicted occu-pancy states are propagated to future ego frames using known future ego poses. VISA consistently improves rollout quality on both GaussianWorld and OccWorld without using future images. 
+
+Qualitative World-State Comparison: Figure 3 compares the semantic occupancy states pro-duced by baseline and VISA-enhanced models on the same nuScenes sequence. VISA does not change the inference architecture, but its training-time audits yield cleaner object regions and more coherent semantic boundaries across consecutive frames. These improvements are most visible around foreground objects under ego motion, where semantic drift or fragmentation can affect the quality of the maintained world state. This qualitative comparison is consistent with the object and rare-class gains in Table 1. 
+
+Ego-Motion-Conditioned World-State Rollout: Beyond current-frame occupancy, we evaluate whether the semantic world state predicted at time t remains useful after propagation to future ego frames. Following the rollout setting of occupancy world models, we transform the predicted se-mantic occupancy state using known future ego poses and compare the propagated state with future occupancy labels. Figure 4 shows that VISA improves rollout quality on both GaussianWorld and OccWorld. The gains are consistent across semantic mIoU, object mIoU, rare-class mIoU, and oc-cupied IoU, indicating that instance-level VLM auditing improves the semantic quality of the world state before rollout. The improvement is most pronounced for object and rare-class metrics, match-ing the object-centric design of VISA. 
+
+Ablations and Non-VLM Controls: Table 2 evaluates VISA components and non-VLM alter-natives on GaussianWorld. In the component ablation, taxonomy supervision improves semantic mIoU and occupied IoU, while attribute-factor supervision improves object and rare-class mIoU. Combining taxonomy and attributes improves overall mIoU but does not fully preserve the ob-ject/rare gains of attribute-only supervision. Adding the scene-level audit graph gives the best se-7Table 2: Ablation study on GaussianWorld. Left: component ablation of VISA. Right: non-VLM prior baselines that test whether the gains can be explained by taxonomy or attribute smoothing without instance-specific VLM auditing.                                                                 
+
+> Tax. Attr. Graph IoU mIoU Obj. Rare
+> –––33.29 21.37 18.18 15.60
+> ✓––34.47 21.47 18.06 15.92 –✓–32.00 21.40 18.85 16.47
+> ✓✓–33.26 21.74 18.53 16.08
+> ✓✓✓33.61 21.91 19.16 16.79
+> (a) VISA components
+> Prior baseline IoU mIoU Obj. Rare
+> GaussianWorld 33.29 21.37 18.18 15.60 + Hand-crafted class neighbors 34.44 21.38 17.34 15.06 + GT class attributes 33.64 21.16 17.64 15.88 + Dataset confusion prior 34.14 21.45 17.62 15.16 + Random confusion prior 31.78 19.64 16.48 14.35
+> + VISA 33.61 21.91 19.16 16.79
+> (b) Non-VLM prior baselines
+
+mantic, object, and rare-class results, suggesting that relational audit regularization helps stabilize the combination of taxonomy and attribute cues. The non-VLM controls test whether VISA reduces to class-structured label smoothing. Hand-crafted taxonomy smoothing, GT-derived attributes, and dataset-confusion smoothing use the same backbone and training schedule but remove instance-specific VLM audits; random-confusion smoothing controls for the soft-label format. These alter-natives either improve occupied IoU while hurting object/rare mIoU, or degrade all metrics. VISA is the only variant that improves semantic, object, and rare-class mIoU together, indicating that the gains come from instance-conditioned visual audits rather than global taxonomy priors alone. Table 3: Offline VLM audit diagnostics on the nuScenes training split.        
+
+> Statistic Value
+> Training-scene coverage 700 / 700 Audited 3D-box instances 51,420 Evaluated object-class audits 49,568 Closed-set agreement 87.7% Clear / partial / poor crops 20.7 / 76.6 / 2.7% Rare-class audit fraction 15.1%
+
+Offline VLM Audit Diagnostics: Table 3 sum-marizes the offline audits used by VISA. The audit pipeline covers all 700 nuScenes train-ing scenes and produces 51,420 audited 3D-box instances, including 49,568 audits from the 10 object classes used for object mIoU. The VLM closed-set class hypothesis agrees with the nuScenes label for 87.7% of evaluated object-class audits, showing that the teacher is generally aligned with the occupancy taxonomy but is not accurate enough to be treated as an oracle. The vis-ibility breakdown further supports reliability-weighted supervision. Clear, partial, and poor crops account for 20.7%, 76.6%, and 2.7% of sampled audits, with top-1 agreement of 92.9%, 88.6%, and 22.9%, respectively. Their average confidence/reliability scores are 0.95/0.96, 0.66/0.60, and 0.18/0.14. VISA therefore uses VLM outputs as soft, reliability-weighted taxonomy and attribute supervision, while dense occupancy labels remain the primary supervision over the full voxel grid. 
+
+## 5 Conclusion, Limitations and Future Work 
+
+Conclusion: We presented VISA , a training-time semantic auditing framework for existing 3D occupancy world models. VISA converts offline VLM judgments on object crops into closed-set, voxel-grounded supervision through taxonomy, attribute-factor, and scene-level graph losses, while leaving inference VLM-free. On nuScenes, VISA improves OccWorld and GaussianWorld, espe-cially on object and rare-class semantics. Our blind audit diagnostics further show that the VLM provides meaningful visual evidence without access to ground-truth class labels. These results sug-gest that VLMs are more useful for closed-set occupancy as reliability-aware semantic auditors than as generic caption-embedding targets. 
+
+Limitations and Future Work: First, VISA adds offline audit-generation cost and can inherit recognition biases from the VLM teacher. This cost is paid only during training, but scaling to larger datasets requires efficient audit generation and teacher-quality validation. Future work can re-duce this dependency through lighter VLMs, active audit selection, or cached reusable audit banks. Second, VISA currently audits visible object instances, while stuff regions such as road, sidewalk, terrain, and vegetation remain supervised mainly by dense occupancy labels. This matches the object-centric gains observed in our experiments, but limits the benefit for large background regions 8and scene layout. Extending semantic auditing from object crops to stuff regions or scene-level con-text is an important direction. Third, VISA relies on annotated object boxes/tracks and dense voxel labels during training to ground crop-level audits to matched object voxels. These annotations are not used at inference, but they limit the direct applicability of the current implementation to datasets with reliable temporal object annotations. Using detected tracks or weaker instance annotations is an important direction for scaling VISA. 9References 
+
+[1] S. Song, F. Yu, A. Zeng, A. X. Chang, M. Savva, and T. Funkhouser. Semantic scene com-pletion from a single depth image. In CVPR , 2017. URL https://arxiv.org/abs/1611. 08974 .[2] H. Caesar, V. Bankiti, A. H. Lang, S. Vora, V. E. Liong, Q. Xu, A. Krishnan, Y. Pan, G. Baldan, and O. Beijbom. nuscenes: A multimodal dataset for autonomous driving. In CVPR , 2020. URL https://arxiv.org/abs/1903.11027 .[3] Y. Huang, W. Zheng, Y. Zhang, J. Zhou, and J. Lu. Tri-perspective view for vision-based 3d semantic occupancy prediction. In CVPR , 2023. URL https://arxiv.org/abs/2302. 07817 .[4] Y. Wei, L. Zhao, W. Zheng, Z. Zhu, J. Zhou, and J. Lu. Surroundocc: Multi-camera 3d occupancy prediction for autonomous driving. In ICCV , 2023. URL https://arxiv.org/ abs/2303.09551 .[5] X. Tian, T. Jiang, L. Yun, Y. Mao, H. Yang, Y. Wang, Y. Wang, and H. Zhao. Occ3d: A large-scale 3d occupancy prediction benchmark for autonomous driving. In NeurIPS Datasets and Benchmarks , 2023. URL https://arxiv.org/abs/2304.14365 .[6] W. Zheng, W. Chen, Y. Huang, B. Zhang, Y. Duan, and J. Lu. Occworld: Learning a 3d occupancy world model for autonomous driving. arXiv preprint arXiv:2311.16038 , 2023. URL https://arxiv.org/abs/2311.16038 .[7] A.-Q. Cao and R. de Charette. Monoscene: Monocular 3d semantic scene completion. In 
+
+CVPR , 2022. URL https://arxiv.org/abs/2112.00726 .[8] Y. Li, Z. Yu, C. B. Choy, C. Xiao, J. M. Alvarez, S. Fidler, C. Feng, and A. Anandkumar. Voxformer: Sparse voxel transformer for camera-based 3d semantic scene completion. In 
+
+CVPR , 2023. URL https://arxiv.org/abs/2302.12251 .[9] Z. Li, W. Wang, H. Li, E. Xie, C. Sima, T. Lu, Q. Yu, and J. Dai. Bevformer: Learning bird’s-eye-view representation from multi-camera images via spatiotemporal transformers. In ECCV ,2022. URL https://arxiv.org/abs/2203.17270 .[10] D. Ha and J. Schmidhuber. World models. arXiv preprint arXiv:1803.10122 , 2018. URL 
+
+https://arxiv.org/abs/1803.10122 .[11] C. Min, L. Xiao, Y. Nie, B. Dai, S. Zhang, et al. Driveworld: 4d pre-trained scene understand-ing via world models for autonomous driving. arXiv preprint arXiv:2405.04390 , 2024. URL 
+
+https://arxiv.org/abs/2405.04390 .[12] S. Zuo, W. Zheng, Y. Huang, J. Zhou, and J. Lu. Gaussianworld: Gaussian world model for streaming 3d occupancy prediction. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2025. URL https://arxiv.org/abs/2412.10373 .[13] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, G. Krueger, and I. Sutskever. Learning transferable visual models from natural language supervision. In International Conference on Machine Learning , 2021. URL 
+
+https://arxiv.org/abs/2103.00020 .[14] X. Zhai, B. Mustafa, A. Kolesnikov, and L. Beyer. Sigmoid loss for language image pre-training. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 11975–11986, 2023. URL https://arxiv.org/abs/2303.15343 .[15] J. Li, D. Li, S. Savarese, and S. Hoi. BLIP-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In International Conference on Machine Learning , pages 19730–19742, 2023. URL https://proceedings.mlr.press/ v202/li23q.html .10 [16] H. Liu, C. Li, Q. Wu, and Y. J. Lee. Visual instruction tuning. In Advances in Neural Informa-tion Processing Systems , 2023. URL https://arxiv.org/abs/2304.08485 .[17] J. Bai, S. Bai, S. Yang, S. Wang, S. Tan, P. Wang, J. Lin, C. Zhou, and J. Zhou. Qwen-VL: A versatile vision-language model for understanding, localization, text reading, and beyond. 
+
+arXiv preprint arXiv:2308.12966 , 2023. URL https://arxiv.org/abs/2308.12966 .[18] P. Wang, S. Bai, S. Tan, S. Wang, Z. Fan, J. Bai, K. Chen, X. Liu, J. Wang, W. Ge, Y. Fan, K. Dang, M. Du, X. Ren, R. Men, D. Liu, C. Zhou, J. Zhou, and J. Lin. Qwen2-VL: En-hancing vision-language model’s perception of the world at any resolution. arXiv preprint arXiv:2409.12191 , 2024. URL https://arxiv.org/abs/2409.12191 .[19] R. Chen, Y. Liu, L. Kong, X. Zhu, Y. Ma, Y. Li, Y. Hou, Y. Qiao, and W. Wang. CLIP2Scene: Towards label-efficient 3d scene understanding by CLIP. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 7020–7030, 2023. URL 
+
+https://openaccess.thecvf.com/content/CVPR2023/html/Chen_CLIP2Scene_ Towards_Label-Efficient_3D_Scene_Understanding_by_CLIP_CVPR_2023_paper. html .[20] S. Peng, K. Genova, C. M. Jiang, A. Tagliasacchi, M. Pollefeys, and T. Funkhouser. Openscene: 3d scene understanding with open vocabularies. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 815–824, 2023. URL https://openaccess.thecvf.com/content/CVPR2023/html/Peng_OpenScene_ 3D_Scene_Understanding_With_Open_Vocabularies_CVPR_2023_paper.html .[21] R. Ding, J. Yang, C. Xue, W. Zhang, S. Bai, and X. Qi. PLA: Language-driven open-vocabulary 3d scene understanding. arXiv preprint arXiv:2211.16312 , 2022. URL https://arxiv.org/ abs/2211.16312 .[22] J. Yang, R. Ding, W. Deng, Z. Wang, and X. Qi. Regionplc: Regional point-language con-trastive learning for open-world 3d scene understanding. arXiv preprint arXiv:2304.00962 ,2023. URL https://arxiv.org/abs/2304.00962 .[23] Z. Chen, J. Wu, W. Wang, W. Su, G. Chen, S. Xing, Z. Muyan, Q. Zhang, X. Zhu, L. Lu, B. Li, P. Luo, T. Lu, Y. Qiao, and J. Dai. InternVL: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2024. URL https://arxiv.org/abs/2312.14238 .[24] B. Li, Y. Zhang, D. Guo, R. Zhang, F. Li, H. Zhang, K. Zhang, P. Li, Y. Liu, and C. Li. LLaVA-NeXT: Improved reasoning, ocr, and world knowledge. arXiv preprint arXiv:2401.13601 ,2024. [25] Z. Tan, Z. Dong, C.-J. Zhang, W. Zhang, H. Ji, and H. Li. Ovo: Open-vocabulary occupancy. 
+
+arXiv preprint arXiv:2305.16133 , 2023. URL https://arxiv.org/abs/2305.16133 .[26] A. Vobeck´ y, O. Sim’eoni, D. Hurych, S. Gidaris, A. Bursuc, P. P´ erez, and J. Sivic. Pop-3d: Open-vocabulary 3d occupancy prediction from images. arXiv preprint arXiv:2401.09413 ,2024. URL https://arxiv.org/abs/2401.09413 .[27] Z. Zhang, B. Gao, J. Ye, H. Jin, L. Jiang, and W. Yang. Clip prior-guided 3d open-vocabulary occupancy prediction. Pattern Recognition , 162:111347, 2025. [28] S. Boeder, F. Gigengack, and B. Risse. Langocc: Self-supervised open vocabulary occupancy estimation via volume rendering. arXiv preprint arXiv:2407.17310 , 2024. URL https:// arxiv.org/abs/2407.17310 .[29] Z. Yu, B. Pang, L. Liu, R. Zhang, Q. Peng, M. Luo, S. Yang, M. Chen, S. Cao, and H. Shen. Language driven occupancy prediction. In Proceedings of the IEEE/CVF International Con-ference on Computer Vision (ICCV) , 2024. URL https://arxiv.org/abs/2411.16072 .11 [30] J. Zheng, P. Tang, Z. Wang, G. Wang, X. Ren, B. Feng, and C. Ma. Veon: Vocabulary-enhanced occupancy prediction. arXiv preprint arXiv:2407.12294 , 2024. URL https://arxiv.org/ abs/2407.12294 .[31] Y. Feng, Y. Han, X. Zhang, T. Li, Y. Zhang, and R. Fan. Vipocc: Leveraging visual pri-ors from vision foundation models for single-view 3d occupancy prediction. arXiv preprint arXiv:2412.11210 , 2024. URL https://arxiv.org/abs/2412.11210 .[32] A. E. Doruk and H. F. Ates. Vlmfusionocc3d: Vlm assisted multi-modal 3d semantic oc-cupancy prediction. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV) , 2026. URL https://arxiv.org/abs/2603.02609 .[33] Y. Huang, W. Zheng, Y. Zhang, J. Zhou, and J. Lu. Gaussianformer: Scene as gaussians for vision-based 3d semantic occupancy prediction. In European Conference on Computer Vision ,2024. URL https://arxiv.org/abs/2405.17429 .[34] Z. Murez, T. Van As, J. Bartolozzi, A. Sinha, V. Badrinarayanan, and A. Rabinovich. Atlas: End-to-end 3d scene reconstruction from posed images. In European conference on computer vision , pages 414–431, 2020. URL https://arxiv.org/abs/2003.10432 .[35] Y. Zhang, Z. Zhu, and D. Du. Occformer: Dual-path transformer for vision-based 3d semantic occupancy prediction. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , 2023. URL https://arxiv.org/abs/2304.05316 .[36] Y. Huang, A. Thammatadatrakoon, W. Zheng, Y. Zhang, D. Du, and J. Lu. Gaussianformer-2: Probabilistic gaussian superposition for efficient 3d occupancy prediction. In Proceedings of the computer vision and pattern recognition conference , pages 27477–27486, 2025. URL 
+
+https://arxiv.org/abs/2412.04384 .[37] S. Zuo, W. Zheng, X. Han, L. Yang, J. Lu, et al. Quadricformer: Scene as superquadrics for 3d semantic occupancy prediction. Advances in Neural Information Processing Systems , 38: 47779–47801, 2026. URL https://arxiv.org/abs/2506.10977 .[38] X. Wang, Z. Zhu, W. Xu, Y. Zhang, Y. Wei, X. Chi, Y. Ye, D. Du, J. Lu, and X. Wang. Openoccupancy: A large scale benchmark for surrounding semantic occupancy perception. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 17804–17813, 2023. URL https://arxiv.org/abs/2303.03991 .[39] Z. Li, Z. Yu, D. Austin, M. Fang, S. Lan, J. Kautz, and J. M. ´ Alvarez. Fb-occ: 3d occupancy prediction based on forward-backward view transformation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2023. URL https:// arxiv.org/abs/2307.01492 .[40] Y.-Q. Wang, Y. Chen, X. Liao, L. Fan, and Z. Zhang. Panoocc: Unified occupancy rep-resentation for camera-based 3d panoptic segmentation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. URL https: //arxiv.org/abs/2306.10013 .[41] Y. Huang, W. Zheng, B. Zhang, J. Zhou, and J. Lu. Selfocc: Self-supervised vision-based 3d occupancy prediction. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 19946–19956, 2024. URL https://arxiv.org/abs/ 2311.12754 .[42] M. Pan, J. Liu, R. Zhang, P. Huang, X. Li, L. Liu, and S. Zhang. Renderocc: Vision-centric 3d occupancy prediction with 2d rendering supervision. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. URL https:// arxiv.org/abs/2309.09502 .12 [43] C. Zhang, J. Yan, Y. Wei, J. Li, L. Liu, Y. Tang, Y. Duan, and J. Lu. Occnerf: Advancing 3d occupancy prediction in lidar-free environments. IEEE Transactions on Image Processing , 34: 3096–3107, 2025. URL https://arxiv.org/abs/2312.09243 .[44] L. Li, T. Zhou, W. Wang, J. Li, and Y. Yang. Deep hierarchical semantic segmentation. In Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) ,pages 1246–1257, 2022. URL https://arxiv.org/abs/2203.14335 .[45] Y. Cui, M. Jia, T.-Y. Lin, Y. Song, and S. Belongie. Class-balanced loss based on effective number of samples. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 9268–9277, 2019. URL https://arxiv.org/abs/1901.05555 .[46] B. Kang, S. Xie, M. Rohrbach, Z. Yan, A. Gordo, J. Feng, and Y. Kalantidis. Decoupling rep-resentation and classifier for long-tailed recognition. In International Conference on Learning Representations , 2020. URL https://arxiv.org/abs/1910.09217 .[47] P. Khosla, P. Teterwak, C. Wang, A. Sarna, Y. Tian, P. Isola, A. Maschinot, C. Liu, and D. Kr-ishnan. Supervised contrastive learning. In Advances in Neural Information Processing Sys-tems , 2020. URL https://arxiv.org/abs/2004.11362 .[48] X. Zhu, H. Zhang, F. He, R. Wu, Y. Shan, W. Yang, and H. Yu. Dr.Occ: Depth- and region-guided 3D occupancy from surround-view cameras for autonomous driving. arXiv preprint arXiv:2603.01007 , 2026. URL https://arxiv.org/abs/2603.01007 .[49] W. Kim, I.-J. Lee, S. Hwang, S. Kim, and D. Kum. Class-distribution guided active learning for 3D occupancy prediction in autonomous driving. IEEE Robotics and Automation Letters ,11:6999–7006, 2026. URL https://arxiv.org/abs/2603.27294 .[50] Z. Leng, J. Yang, W. Yi, and B. Zhou. Occupancy learning with spatiotemporal memory. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 26569–26578, 2025. URL https://arxiv.org/abs/2508.04705 .[51] M. Mattamala, J. Frey, P. Libera, N. Chebrolu, G. Martius, C. Cadena, M. Hutter, and M. F. Fallon. Wild visual navigation: fast traversability learning via pre-trained models and online self-supervision. Autonomous Robots , 49, 2024. URL https://arxiv.org/abs/2404. 07110 .13 A Additional Related Work 
+
+3D Semantic Occupancy and Occupancy World Models: Originating from semantic scene com-pletion [1, 7], 3D semantic occupancy prediction has become a standard representation for surround-view robot perception [38, 5]. Mainstream architectures construct volumetric scene fields by lifting multi-camera features into voxel or BEV-voxel representations with spatiotemporal transformers, view transformation modules, or efficient 3D decoders [9, 35, 39, 40]. Parallel efforts explore scal-able supervision beyond dense 3D labels, including temporal consistency across frames [4, 41] and differentiable rendering from 2D observations [42, 43]. More recently, occupancy representations have been incorporated into world-model formulations, where the predicted 3D state can be prop-agated or rolled out for future scene reasoning and planning [10, 6, 12]. However, closed-set se-mantic occupancy remains vulnerable to long-tail imbalance and fine-grained category confusion, especially for object classes whose 2D evidence is sparse, occluded, or visually ambiguous. VISA complements temporal aggregation and world-state rollout by improving the semantic quality of the learned occupancy state, without changing the underlying world-model architecture or inference pipeline. 
+
+Vision-Language Supervision for 3D Robot Perception: Transferring knowledge from 2D vision-language models (VLMs) to 3D perception has progressed from sparse point clouds [20, 22] to dense voxel prediction. Recent language-driven occupancy methods typically follow two paradigms. One line aligns 3D features with continuous language or CLIP embeddings, sometimes through differen-tiable rendering or voxel-language contrastive learning [25, 26, 28, 27]. Another line uses foundation models to generate dense pseudo-labels or open-vocabulary supervision offline, followed by 2D–3D fusion or occupancy distillation [29, 30, 32, 31]. While effective for open-vocabulary perception, these strategies are not always aligned with closed-set occupancy evaluation: embedding alignment may require high-dimensional language-aligned features and can suffer from cross-modal represen-tation mismatch, while dense pseudo-label generation can introduce boundary noise and projection errors in voxel space. In contrast, VISA uses the VLM as an offline semantic auditor rather than an inference-time feature extractor or dense pseudo-labeler. It converts structured crop-level audits into closed-set taxonomy, attribute, and scene-graph supervision over voxel logits, introducing no VLM calls or language features at inference. 
+
+Taxonomy- and Attribute-Aware Robot Supervision: Real-world driving categories exhibit se-mantic relationships and shared physical properties, but standard occupancy models usually treat classes as flat and independent labels. Hierarchical semantic parsing in 2D vision [44] suggests that taxonomic structure can improve semantic consistency, yet directly building hierarchical architec-tures for dense 3D voxel prediction can increase model complexity. Existing 3D occupancy methods more commonly address imbalance and ambiguity through class-balanced objectives [45, 46], con-trastive learning [47], auxiliary geometric guidance [48], or active sample selection [49, 50]. These approaches do not explicitly model visual factors shared across related objects, such as long-body vehicles, two-wheelers, vulnerable road users, or traffic-control obstacles. As a result, visually similar but functionally distinct categories can remain difficult to separate, particularly for rare or safety-critical classes [5, 51]. VISA addresses this gap by using VLM audits to provide taxonomy-aware class relations and attribute-factor supervision during training, improving rare and visually ambiguous object semantics while preserving the original inference-time world model. 
+
+## B Implementation Details 
+
+Crop extraction and view selection. We generate VLM audits only from the nuScenes training split. For each annotated 3D object box, we project the box into all six surround-view cameras and compute a tight 2D bounding box whenever at least two projected corners are visible. To reduce severe occlusion, we compute inter-box overlap in each camera view and mark a projected crop as occluded when its visible area ratio is below 0.3. We select the best camera view by preferring unoccluded projections with larger visible crop area; if all views are occluded, we fall back to the best available projection. The final crop is padded by 10% of the tight 2D box size with a minimum 14 padding of 8 pixels, clipped to the image boundary, and saved as a JPEG. We discard crops whose tight 2D box is smaller than 24 pixels on either side. Each crop record stores the scene, frame index, object box index, selected camera, tight and padded 2D boxes, depth, visibility ratio, occlusion flag, number of LiDAR points, and instance token when available. 
+
+Blind VLM audit prompt. The VLM is not given the ground-truth class label. Instead, we query Qwen3-VL offline with only the crop image, a closed-set occupancy object vocabulary, and a fixed visual-factor vocabulary. The prompt is designed to elicit structured semantic audits rather than free-form captions. The core prompt is:     
+
+> You are auditing a small crop from a vehicle surround-view camera. Choose only from this closed-set class list: barrier, bicycle, bus, car, construction vehicle, motorcycle, pedestrian, traffic cone, trailer, truck. Your task is not to write a caption. Output an instance-level taxonomy and visual-factor audit using only visible crop evidence: the most likely closed-set class, confidence, up to three plausible confusion classes, a visual subtype, binary visual attributes useful for 3D semantic occupancy, visual reliability, visibility, motion likelihood, and one short visual reason. Do not use scene context. For visibility, use clear when the class is identifiable from the crop, partial when the crop is truncated, occluded, tiny, or blurred but still contains class evidence, and poor when the crop is too ambiguous to identify from visual evidence. Output only one JSON object with the required fields.
+
+The required JSON fields are: nuScenes class , class confidence , possible confusions ,
+
+subtype , attributes , motion likelihood , visibility , visual reliability , and reason .The attribute keys are fixed to: vehicle-like, large vehicle, long body, box-shaped object, two-wheeler, vulnerable road user, traffic-control object, construction-like object, static obstacle, and thin vertical object. Each attribute is binary and must be supported by visible evidence. 
+
+JSON validation and audit statistics. We parse only valid JSON objects and canonicalize class names to the 10 object classes used for object mIoU. Class confidence and reliability are clipped to 
+
+[0 , 1] ; malformed confusion entries, invalid fields, or missing attributes are replaced by conservative defaults. The full blind audit covers all 700 nuScenes training scenes and produces 51,420 audited 3D-box instances, including 49,568 instances from the 10 evaluated object classes. The parse-valid rate after JSON extraction and validation is 100 .0% . The merged audit file is generated once offline and reused for all VISA training runs. 
+
+Blind audit quality diagnostic. Because the VLM never receives the ground-truth class label, we can directly evaluate its closed-set visual agreement with nuScenes annotations. Overall, the blind audit achieves 87 .7% top-1 agreement with nuScenes labels. Agreement is strongly correlated with the VLM reliability estimate: clear crops have 92 .9% agreement, partial crops have 88 .6% 
+
+agreement, and poor crops drop to 22 .9% agreement. The corresponding mean confidence/reliability values are 0.95 /0.96 for clear crops, 0.66 /0.60 for partial crops, and 0.18 /0.14 for poor crops. This supports using the VLM as a reliability-weighted semantic auditor rather than an oracle pseudo-labeler. 
+
+Voxel grounding and filtering. During training, each audit is attached to the matching physical object using the nuScenes instance token when available; otherwise it is matched by scene, frame in-dex, and box index. VISA applies audit supervision only to voxels inside the corresponding oriented 3D box whose dense occupancy label matches the object class. We enlarge the box by a factor of 
+
+1.05 to tolerate discretization error. For taxonomy supervision, we keep audits with visual reliability at least 0.20 and class confidence at least 0.20 . For attribute and scene-graph supervision, we keep audits with visual reliability at least 0.20 . We require at least 4 valid object voxels per box, supervise at most 80 boxes per frame for taxonomy and attribute losses, at most 60 boxes per frame for the scene graph loss, sample at most 4096 voxels per box for instance losses, and at most 2048 voxels per box for graph loss. 15 Table 4: Robustness to object grounding quality on GaussianWorld. All variants use the same offline VLM audits and training schedule. Grounding setting IoU mIoU Obj. Rare Full VISA: GT boxes/tracks 33.61 21.91 19.16 16.79 w/o track broadcast 32.81 21.34 18.42 15.92 Jittered boxes 33.25 21.67 18.81 16.34 w/o voxel-label filtering 32.07 21.21 17.98 15.47 
+
+Training losses. VISA is added to the original occupancy objective as auxiliary training supervi-sion. The taxonomy loss constructs a soft target 
+
+˜yi = (1 − α)eyi + αqi,
+
+where eyi is the closed-set occupancy label, qi is the normalized VLM class/confusion distribution, and α = 0 .20 . The taxonomy loss weight is 0.03 . The attribute loss maps predicted object-class probabilities to the fixed attribute vocabulary and applies binary cross-entropy to the VLM attribute vector with weight 0.02 . The scene-level audit graph builds pairwise relations between audited objects in the same frame: pairs are positive if their attribute Jaccard similarity is at least 0.50 or their VLM taxonomy/confusion sets are compatible, and negative if their attribute Jaccard similarity is at most 0.05 and the taxonomy sets are incompatible. The negative similarity margin is 0.20 , the graph loss weight is 0.005 , and at most 512 object pairs are sampled per frame. All VISA losses are applied only during training. 
+
+Offline cost and inference. The full audit generation is embarrassingly parallel across crops. In our implementation, Qwen3-VL-8B is run with greedy decoding and up to 340 generated tokens per crop. The audit bank covers 51,420 training 3D-box instances and is generated once offline before occupancy training. At deployment, VISA introduces no additional inputs, parameters, VLM calls, text encoders, crop extraction, object tracks, or latency; inference is exactly the original occupancy world model. 
+
+## C More Ablation Studies 
+
+Robustness to object grounding quality. Table 4 studies how VISA depends on the quality of object-level grounding. The full model uses GT 3D boxes, instance tracks, and voxel-label filtering to attach each blind VLM audit to matched object voxels. Removing track broadcast reduces mIoU from 21.91 to 21.34 and rare mIoU from 16.79 to 15.92, showing that propagating an audit along the same physical object track improves supervision coverage, especially for long-tail classes. When the 3D boxes used for VISA grounding are jittered with moderate noise, performance remains close to the full model, with mIoU decreasing by only 0.24 and rare mIoU by 0.45. This suggests that VISA is not overly sensitive to small box localization errors. Finally, removing voxel-label filtering gives the largest degradation in object and rare-class metrics. This confirms that restricting VLM supervision to voxels whose dense label matches the audited object class prevents semantic leakage from nearby stuff regions or neighboring objects inside the 3D box. Overall, the results show that VISA benefits from accurate object grounding, but remains robust to moderate box noise, while track broadcast and matched-voxel filtering are important for clean and effective supervision. 
+
+Audit reliability. Table 5 first evaluates the reliability mechanism in VISA. Removing reliability weighting consistently reduces performance, lowering mIoU from 21.91 to 21.63 and rare mIoU from 16.79 to 16.35. This indicates that the VLM’s confidence and visual reliability scores provide useful information for modulating the strength of audit supervision. Removing reliability filtering causes a larger degradation, especially on object mIoU, which drops from 19.16 to 17.10. This suggests that low-quality or ambiguous audits can introduce harmful semantic noise if they are allowed to supervise voxel logits. Thus, reliability is not merely a diagnostic output of the VLM; it is an important part of making VLM supervision robust. 16 Table 5: Ablation of audit reliability and crop selection on GaussianWorld. All variants use the same training schedule and offline VLM audit format.                         
+
+> Variant IoU mIoU Obj. Rare
+> VISA full 33.61 21.91 19.16 16.79
+> w/o reliability weighting 33.35 21.63 18.84 16.35 w/o reliability filtering 31.90 20.81 17.10 15.51 Random visible crop 32.08 21.32 18.23 15.68 Largest-area crop 33.48 21.74 17.98 16.53
+
+Crop selection. Table 5 also studies how the choice of audited crop affects training. Using a random visible crop degrades IoU and rare mIoU, showing that arbitrary views can produce noisier audits and weaker supervision. The largest-area crop baseline recovers much of the overall mIoU and rare-class performance, but still underperforms full VISA in object mIoU. This suggests that visible area is an important factor for audit quality, but area alone is not sufficient: the full crop-selection strategy also accounts for occlusion and representative visibility, which improves object-level semantic supervision. 17 Figure 5: Qualitative future occupancy forecasting visualization on nuScenes validation. The columns show forecasting horizons from 0.5s to 2.5s, and rows compare future ground truth with predictions from GaussianWorld, GaussianWorld+VISA, OccWorld, and OccWorld+VISA. The numbers under each prediction denote semantic and object scores for the displayed forecast. In this representative sequence, VISA preserves sharper semantic boundaries and cleaner object-centric foreground regions over longer horizons. 
+
+# Supplementary Material 
+
+## VISA: VLM-Guided Instance Semantic Auditing for 3D Occupancy World Models A Future Occupancy Forecasting Diagnostics 
+
+We further evaluate how the semantic occupancy representations learned with VISA affect fu-ture occupancy forecasting. This experiment is intended as an additional temporal diagnostic be-yond single-frame occupancy evaluation. Given a stream occupancy backbone, we train the same lightweight forecasting-head architecture to predict future occupancy states from past predicted oc-cupancy states. The forecasting head is trained on predicted states rather than ground-truth occu-pancy, so the evaluation reflects the compounded errors of the perception backbone and the fore-casting module. At test time, we autoregressively roll out predictions from 0.5s to 2.5s and report semantic mIoU, object mIoU, rare-class mIoU, and occupied-space IoU on the nuScenes validation set. All methods use the same forecasting-head training protocol, validation split, horizons, and metric definitions. All metrics are reported in percentages. Figure 5 provides a qualitative example of the same forecasting setting. In this challenging urban driving scene, VISA produces visibly sharper future occupancy forecasts, with cleaner foreground regions and more coherent semantic boundaries over time. The improvement is consistent across the displayed horizons: both GaussianWorld+VISA and OccWorld+VISA achieve higher semantic and object scores than their corresponding backbones from 0.5s to 2.5s. This visualization highlights 18 Table 6: Future occupancy forecasting diagnostics from 0.5s to 2.5s on nuScenes validation. Sem., Obj., Rare, and Occ. IoU denote semantic mIoU, object mIoU, rare-class mIoU, and occupied-space IoU, respectively. All metrics are reported in percentages; values in parentheses indicate percentage-point changes relative to the corresponding reproduced backbone. Bold numbers indicate the better result within each backbone pair at the same horizon.                                                                                                                        
+
+> Horizon Method Sem. (%) ↑Obj. (%) ↑Rare (%) ↑Occ. IoU (%) ↑
+> 0.5s GaussianWorld 21.03 15.60 10.12 37.89 GaussianWorld + VISA 21.07 (+0.04) 15.48 (-0.12) 9.89 (-0.23) 38.56 (+0.67) OccWorld 15.74 11.29 6.28 32.37 OccWorld + VISA 16.87 (+1.13) 12.57 (+1.28) 7.28 (+1.00) 32.67 (+0.30) 1.0s GaussianWorld 18.54 11.94 7.01 36.17 GaussianWorld + VISA 18.68 (+0.14) 11.51 (-0.43) 6.89 (-0.12) 37.42 (+1.25) OccWorld 14.17 8.57 4.30 32.16
+> OccWorld + VISA 14.97 (+0.80) 9.54 (+0.97) 4.80 (+0.50) 32.11 (-0.05) 1.5s GaussianWorld 16.27 9.37 5.02 33.54 GaussianWorld + VISA 16.75 (+0.48) 9.04 (-0.33) 5.32 (+0.30) 35.75 (+2.21) OccWorld 12.78 6.78 3.11 31.42
+> OccWorld + VISA 13.19 (+0.41) 7.58 (+0.80) 3.43 (+0.32) 30.35 (-1.07) 2.0s GaussianWorld 14.22 7.34 3.58 30.89 GaussianWorld + VISA 15.17 (+0.95) 7.41 (+0.07) 4.24 (+0.66) 33.93 (+3.04) OccWorld 11.52 5.43 2.11 30.41
+> OccWorld + VISA 11.67 (+0.15) 6.28 (+0.85) 2.63 (+0.52) 28.23 (-2.18) 2.5s GaussianWorld 12.46 5.89 2.80 28.51 GaussianWorld + VISA 13.77 (+1.31) 6.11 (+0.22) 3.39 (+0.59) 32.14 (+3.63) OccWorld 10.34 4.36 1.37 29.24
+> OccWorld + VISA 10.31 (-0.03) 5.20 (+0.84) 1.92 (+0.55) 26.15 (-3.09)
+
+the benefit of injecting instance-level semantic structure into the occupancy representation before autoregressive future prediction. Table 6 shows that the effect of VISA on future occupancy forecasting is metric- and backbone-dependent. For GaussianWorld, VISA improves semantic mIoU and occupied-space IoU across all horizons. The gains become larger at longer horizons: at 2.5s, GaussianWorld+VISA improves semantic mIoU by 1.31 points and occupied-space IoU by 3.63 points. Object and rare-class fore-casting are slightly lower at short horizons, but improve at longer horizons. This suggests that, for GaussianWorld, the occupancy states learned with VISA provide a more favorable input representa-tion for long-horizon forecasting. For OccWorld, VISA shows a different pattern. It improves object mIoU at every horizon, with gains between 0.80 and 1.28 points, and also improves rare-class mIoU across all horizons. This is consistent with the object-centric design of VISA and indicates that the learned representation helps preserve object and rare-class semantic information during future prediction. However, occupied-space IoU decreases at longer horizons for OccWorld+VISA. This indicates that improvements in object-level semantic discrimination do not necessarily translate into improved coarse occupied sup-port under autoregressive forecasting. Overall, these results show that VISA can provide benefits beyond static occupancy evaluation, but the effect is not uniform across backbones or metrics. On GaussianWorld, the benefits are strongest for long-horizon semantic and geometric forecasting. On OccWorld, the benefits are concentrated on object and rare-class forecasting, while coarse geometric occupancy becomes worse at longer horizons. This behavior is consistent with VISA’s design: it injects instance- and semantic-level structure into occupancy representations, which is most directly useful for preserving object-class 19 Table 7: Open-loop planning and near-field semantic occupancy diagnostics on nuScenes valida-tion. L2 errors are reported in meters at the 1s, 2s, and 3s horizons, and Avg. L2 denotes their average. BoxCol is the mean instantaneous box-collision rate over the same horizons. Near-field metrics are computed within 20m of the ego vehicle and reported in percentages. Values in parenthe-ses indicate changes relative to the corresponding backbone; for L2 columns, changes are in meters, and for percentage metrics, changes are in percentage points. Bold numbers indicate the better result within each backbone pair.                                                       
+
+> Method L2@1s ↓L2@2s ↓L2@3s ↓Avg. L2 ↓BoxCol (%) ↓Obj.@20 (%) ↑Rare@20 (%) ↑
+> GaussianWorld 0.956 1.479 2.064 1.500 4.79 28.40 24.93 GaussianWorld + VISA 0.859 (-0.097) 1.406 (-0.073) 2.013 (-0.051) 1.426 (-0.074) 4.99 (+0.20) 28.41 (+0.01) 25.19 (+0.26) OccWorld 0.882 1.462 2.072 1.472 4.28 21.12 17.69 OccWorld + VISA 0.842 (-0.040) 1.425 (-0.037) 2.048 (-0.024) 1.438 (-0.034) 4.97 (+0.69) 22.78 (+1.66) 18.89 (+1.20)
+
+information over time, but it does not directly optimize future free-space geometry or coarse occu-pied support. 
+
+## B Open-Loop Planning and Near-Field Semantic Diagnostics 
+
+We further evaluate whether the semantic occupancy representations learned with VISA benefit downstream open-loop planning diagnostics and near-field semantic perception. This experiment is intended as a diagnostic rather than a closed-loop safety evaluation. For open-loop planning, we use the same downstream planning protocol for each reproduced backbone and train the same lightweight planning-head architecture. All methods follow the same planning-head training and evaluation protocol. We report trajectory L2 error in meters at the 1s, 2s, and 3s horizons, as well as the average L2 across horizons. For transparency, we also report the mean instantaneous box-collision rate over the same horizons. To connect the planning diagnostic with semantic occupancy quality, we report near-field object mIoU and rare-class mIoU within 20m of the ego vehicle. These near-field metrics are computed directly from the semantic occupancy predictions and are reported in percentages. All near-field evaluations use the same validation scenes, frame count, and metric definitions. Table 7 shows that VISA reduces open-loop trajectory L2 for both reproduced occupancy world-model backbones under the same downstream planning protocol. For GaussianWorld, VISA reduces average L2 from 1.500 to 1.426. The improvement is consistent across all horizons, with reductions of 0.097m at 1s, 0.073m at 2s, and 0.051m at 3s. For OccWorld, VISA reduces average L2 from 1.472 to 1.438, with smaller but consistent gains across the three horizons. These results suggest that the semantic occupancy states learned with VISA can improve expert-trajectory imitation in an open-loop planning setting. The near-field semantic diagnostics show a consistent object-centric trend. VISA improves object mIoU within 20m for both backbones, with a small gain on GaussianWorld and a larger gain on OccWorld. It also improves rare-class mIoU within 20m for both backbones. These gains are aligned with the design of VISA, which provides training-time supervision on matched object voxels and is intended to improve object and rare-class semantic quality in planning-relevant regions. The box-collision diagnostic shows a different trend: mean BoxCol does not improve under this open-loop planning protocol. This reflects the difference between expert-trajectory imitation and collision-aware planning. L2 measures similarity to logged trajectories, whereas box collision de-pends on footprint clearance, geometric support, and planner safety costs. We therefore interpret this section as an open-loop planning and near-field semantic diagnostic rather than a closed-loop safety evaluation. VISA does not directly optimize planner collision cost, clearance margins, or closed-loop control behavior. The results indicate that VISA improves open-loop trajectory imitation and near-field object-centric semantic occupancy, but should not be interpreted as evidence of improved collision avoidance or closed-loop planning safety. 20 Table 8: VLM audit quality on the rare classes used for rare-class mIoU. Top-1 agreement measures whether the VLM’s predicted class matches the nuScenes annotation. In-conf. agreement measures whether the ground-truth class is either the top prediction or appears in the VLM-proposed confusion set. Conf. and Rel. denote the average VLM-reported class confidence and visual reliability. Class # Audits Top-1 (%) In-conf. (%) Conf. Rel. Bicycle 574 67.3 76.9 0.66 0.63 Bus 523 76.7 93.3 0.76 0.72 Constr. vehicle 529 60.0 95.0 0.86 0.79 Motorcycle 605 86.3 88.2 0.62 0.61 Traffic cone 4617 91.0 97.1 0.78 0.73 Trailer 917 48.3 79.3 0.84 0.83 Table 9: Audit quality as a function of VLM-reported visual reliability over the full training audit set. Reliability is not treated as a calibrated probability, but higher reliability bins correlate with higher audit agreement. Reliability bin # Audits Top-1 (%) Avg. confidence 
+
+[0 .0, 0.2) 801 29.2 0.10 
+
+[0 .2, 0.4) 3153 79.9 0.29 
+
+[0 .4, 0.6) 8989 82.9 0.30 
+
+[0 .6, 0.8) 21198 90.4 0.76 
+
+[0 .8, 1.0] 17279 91.1 0.94 
+
+## C Additional VLM Audit Diagnostics 
+
+VISA uses an offline VLM auditor to provide training-time instance-level semantic structure. Since this supervision is derived from a vision-language model, we further analyze the quality and am-biguity patterns of the audit signal used during training. For each object crop, the auditor returns a structured response containing a closed-set class hypothesis, plausible confusion classes, visual attributes, class confidence, visual reliability, and short evidence. We report audit agreement with the nuScenes class annotation, as well as reliability-binned audit quality. These diagnostics are in-tended to characterize the training audit bank used by VISA, rather than to benchmark the VLM as a standalone classifier. Table 8 shows that the audit signal is informative but not noise-free. For visually distinctive cate-gories such as traffic cone and motorcycle, the VLM often predicts the correct closed-set class. For more ambiguous rare classes such as trailer and construction vehicle, top-1 agreement is lower, but the ground-truth class frequently appears in the proposed confusion set. This is important for VISA because the audit is not used as a hard replacement label. Instead, VISA uses the full structured audit, including plausible confusions, visual attributes, confidence, and reliability, as soft object-centric supervision anchored by the original occupancy labels. The confidence and reliability values should therefore be interpreted as audit metadata for weighting and filtering, not as guarantees that the top-1 VLM class is semantically correct. Table 9 supports the use of reliability filtering and weighting in VISA. Very low-reliability crops have poor agreement, while crops with reliability above 0.6 achieve over 90% top-1 agreement. Reliability is therefore useful as a training-time visual-quality signal, even though it should not be interpreted as a calibrated probability or as a guarantee of semantic correctness. This distinction matters because a crop can be visually clear and thus receive high reliability, while still being se-mantically ambiguous under the fine-grained closed-set driving taxonomy. In the full training audit bank, we filter or downweight low-quality signals using both class-confidence and visual-reliability thresholds. Table 10 illustrates why VISA uses structured audits rather than single hard pseudo-labels. The dominant audit errors are not random class assignments, but structured confusions among visually 21 Table 10: Representative structured VLM audit examples from the training audit set. Ambiguous cases often involve visually similar object categories, but the ground-truth class is frequently pre-served in the VLM confusion set or reflected in the visual attributes. Type GT VLM Confid. Rel. Notes Correct Constr. vehicle Constr. vehicle 0.98 0.99 construction-like, large vehicle Correct Bicycle Bicycle 0.95 0.98 two-wheeler, vulnerable road user Correct Traffic cone Traffic cone 0.95 0.98 traffic-control, thin obstacle Ambiguous Constr. vehicle Truck 0.98 0.98 GT appears in confusion set Ambiguous Trailer Truck 0.95 0.98 long-body vehicle ambiguity Ambiguous Traffic cone Barrier 0.95 0.98 traffic-control obstacle ambiguity Table 11: Offline VLM audit generation cost on the nuScenes training audit set. Audit generation is parallel over object crops and is run once before occupancy training. Throughput and time are measured from our sharded generation logs on NVIDIA RTX A6000 GPUs. The audit bank is used only during training and introduces no additional inference-time modules or VLM calls. Item Value VLM backbone Qwen3-VL-8B-Instruct # audited crops 51,420 GPU type NVIDIA RTX A6000 Generation setup 4 nodes × 4 GPUs/node, 16 GPUs total Decoding setting Greedy decoding, max 340 new tokens, structured audit prompt Throughput 0.128 crops/s/GPU Total wall-clock time 7.1 hours Total GPU-hours 111.3 GPU-hours Audit bank storage 113 MB JSONL; 293 MB including manifests, shards, and logs JSON schema-valid records 100.0% (51,420 / 51,420) Additional inference modules None VLM calls at inference None Additional inference overhead None beyond the original occupancy backbone related driving categories, such as trailer versus truck, construction vehicle versus truck, and traffic cone versus barrier. Some of these ambiguous cases can still have high visual reliability because the crop itself is clear, even though the fine-grained closed-set category remains ambiguous. This motivates the VISA design: reliability is used to filter poor visual evidence, while the confusion set and attribute factors capture uncertainty among semantically related classes. The audit signal is used only during training as auxiliary supervision; inference remains VLM-free. 
+
+## D Offline Audit Generation Cost 
+
+VISA uses the VLM auditor only as an offline training-data preprocessing step. The generated audit bank is fixed before occupancy training and is not queried during validation or inference. As a result, deployment is unchanged relative to the corresponding occupancy backbone: no VLM module is attached, no image-text model is loaded, no crop extraction is performed, and no VLM call is made at test time. Table 11 summarizes the one-time cost of generating the offline audit bank. The cost is paid before occupancy training and is naturally parallelizable because each object crop can be audited indepen-dently. In our implementation, each GPU processes a disjoint JSONL shard and writes structured audit records without distributed synchronization. This makes the preprocessing simple to scale with the number of available GPUs. The resulting audit bank is compact compared with model checkpoints and dataset storage. For each crop, it stores the audited class hypothesis, plausible confusion classes, visual attributes, confidence, 22 Figure 6: Representative VLM audit boundary cases from the full training audit set. The examples illustrate foreground distractors, contextual bias, low-resolution evidence, and viewpoint ambiguity. We report the VLM class confidence and visual reliability for each crop. reliability, and the raw structured response. During occupancy training, VISA reads these records to construct the taxonomy, attribute, and graph supervision losses. At inference time, the audit records and VISA losses are removed entirely. Thus, VISA preserves the deployed occupancy model architecture and input pipeline: it does not require an image-text model, VLM queries, object crops, object tracks, or additional inference-time memory and latency. 
+
+## E Failure Cases and Boundary Conditions 
+
+We provide qualitative failure cases and boundary conditions to clarify what VISA does and does not address. These examples are intentionally selected stress cases rather than typical outcomes. They are meant to illustrate the operating limits of VLM-guided semantic auditing and structured occupancy supervision. VISA uses offline VLM audits as soft training-time semantic guidance, rather than treating the VLM as an oracle or adding inference-time reasoning modules. The exam-ples highlight two complementary sources of residual error: ambiguity in crop-level audit signals and local errors in spatially coherent semantic occupancy prediction. Figure 6 shows representative failure modes of the offline VLM audit. In the first example, the target instance is a concrete barrier, but a salient traffic cone appears in the foreground; the VLM focuses on the foreground object and predicts traffic cone instead of barrier . In the second example, the target truck is partially visible behind a fence, and the surrounding sign and construction-like context bias the audit toward construction vehicle . The third example is a far-range, low-resolution crop, where the vehicle shape is too blurred to reliably distinguish bus from truck . The fourth example contains a fallen two-wheeler viewed from above, where the visible evidence indicates a two-wheeler but is insufficient to reliably separate bicycle from motorcycle .These cases show that best-view crop selection improves visibility but cannot completely remove foreground distractors, contextual bias, far-range resolution limits, or viewpoint ambiguity. This is why VISA does not use VLM predictions as hard pseudo-labels. Instead, each audit is used as a soft, reliability-aware training signal, anchored by the original dense occupancy supervision and restricted to matched object voxels. Low-confidence or low-reliability audits are filtered or weakly weighted, while even reliable audits remain auxiliary guidance rather than replacements for ground-truth occupancy labels. Figure 7 shows a boundary case of spatially coherent semantic occupancy prediction. VISA often produces cleaner and more coherent object or region-level predictions, which is beneficial when the local semantic evidence is correct. However, in locally ambiguous regions, this same coherence can make an incorrect local hypothesis appear as a more contiguous false-positive region, as high-lighted by the red circles. Similarly, when a small region receives an incorrect semantic label, the prediction can become spatially more coherent while remaining semantically incorrect over a local neighborhood, as highlighted by the yellow circles. 23 Figure 7: Representative boundary case of structured occupancy completion on nuScenes vali-dation. Red circles highlight over-completed regions where the prediction fills spatially coherent occupancy that is absent from the ground truth. Yellow circles highlight cases where a local seman-tic misclassification is propagated to nearby voxels due to the same structured completion behavior. Highlighted regions are representative rather than exhaustive. This behavior reflects a boundary of consistency-oriented semantic supervision rather than an ad-ditional inference-time failure mode. VISA encourages object-centric semantic consistency, but it does not directly solve all sources of geometric uncertainty, stuff-region ambiguity, or local semantic noise. Thus, when the underlying local evidence is incorrect or incomplete, spatial coherence can improve visual consistency without necessarily correcting the underlying semantic error. Overall, these stress cases help explain the remaining errors observed despite the quantitative gains reported in the main paper. They clarify the regime in which VISA is most useful: improving object-centric semantic occupancy supervision, especially for rare and visually confusable classes, while preserving the original inference architecture. The method does not fully resolve ambigu-ous crop-level grounding, contextual VLM bias, low-resolution evidence, viewpoint ambiguity, or local errors caused by incomplete geometric evidence. These limitations motivate future work on uncertainty-aware audit selection, stronger geometric consistency checks, and extending semantic auditing beyond visible object instances to stuff regions and free-space structure. 24
