@@ -1,0 +1,438 @@
+Title: From Frames to Temporal Graphs: In-Context Egocentric Action Recognition with Vision-Language Models
+
+URL Source: https://arxiv.org/pdf/2606.15417v1
+
+Published Time: Tue, 16 Jun 2026 00:59:20 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# From Frames to Temporal Graphs: In-Context Egocentric Action Recognition with Vision-Language Models 
+
+Bessie Dominguez-Dager 1† Francisco Gomez-Donoso 1 Miguel Cazorla 1
+
+Marc Pollefeys 2,3 Daniel Barath 2 Zuria Bauer 21University of Alicante 2ETH Zürich 3Microsoft 
+
+Figure 1: The proposed TAG converts egocentric video into structured Temporal Action Graphs for action recognition. Video frames are processed through a VLM-based perception pipeline that extracts interaction descriptions and formalizes them into temporally ordered graph triplets encoding hand-object relations. The serialized graph is then provided to the VLM for closed-set action prediction, optionally augmented with labeled graph examples for in-context learning. 
+
+## Abstract 
+
+Action reasoning in egocentric video requires capturing fine-grained transitions of hand-object interactions, a task where general-purpose Vision-Language Models (VLMs) often struggle when operating directly on raw pixels. We propose to decouple visual perception from symbolic reasoning by converting videos into Temporal Action Graphs. In a multi-stage prompting pipeline, we first generate dense natural language narratives over short temporal windows as a semantic bottle-neck, then formalize them into structured, open-vocabulary graph representations. On the EGTEA and Epic-Kitchens-100 datasets, the symbolic representation un-locks efficient in-context learning: few-shot graph demonstrations yield substantial accuracy gains over zero-shot frame and graph-based inference alike. Even in the zero-shot setting, graph-based reasoning remains competitive with pixel-based inference despite potential pretraining contamination favoring the latter. Across 11 open-weight VLMs from 6 model families ranging from 2B to 235B parameters, our findings indicate that current VLMs are more effective as symbolic reasoners than as direct visual observers. By projecting video into the language domain, we provide a scalable, fine-tuning-free alternative to end-to-end approaches that better leverages these models’ latent reasoning strengths. The code will be made public.  
+
+> †Corresponding author Preprint.
+> arXiv:2606.15417v1 [cs.CV] 13 Jun 2026
+
+## 1 Introduction 
+
+Understanding human actions in egocentric video is a foundational capability for applications ranging from robotic manipulation and assistive technologies to augmented reality. Unlike third-person video, the egocentric perspective is dominated by fine-grained hand-object interactions: grasping, pouring, cutting, and placing, where the critical visual evidence lies not in any single frame but in the transition between consecutive hand-object configurations [ 1 –3]. Recognizing such actions requires reasoning about temporal changes: what was being held, what is now being released, and what the hands are reaching for next. Structured scene representations have proven effective for encoding relational information in both static and dynamic settings. Scene graphs, which model objects as nodes and their relationships as edges, have improved performance in visual question answering [ 4, 5], image generation [ 6] and robotic planning [ 7– 9]. More recently, open-vocabulary 3D scene graphs have enabled language-grounded perception for navigation and manipulation [ 10 – 12 ], and dynamic scene graphs have extended these representations to capture temporal evolution [ 13 , 14 ]. However, these graph-based methods have primarily targeted spatial understanding, object layouts and pairwise relations within a scene, rather than the temporal evolution of interaction states that characterizes egocentric actions. Vision-Language Models (VLMs) have emerged as powerful general-purpose reasoning systems, capable of processing interleaved image and text inputs [ 15 –17 ]. However, when applied to video-based action recognition, most VLMs face fundamental limitations: their training is overwhelmingly grounded in static image-text pairs, with limited or no explicit video supervision [ 18 , 19 ]. When presented with a sequence of frames at inference time, these models must heuristically aggregate independent scene interpretations rather than reason over learned notions of motion or causality. The result is that fine-grained temporal dynamics, precisely those that distinguish taking from touching, or placing from releasing, are often lost in the dense, high-dimensional visual token stream. We propose to decouple visual perception from symbolic reasoning. Rather than asking a VLM to perceive and reason over raw pixels, we use the model’s visual capabilities to extract local interaction descriptions, which are then formalized into structured Temporal Action Graphs. Each graph encodes the temporal evolution of hand-object interactions as a sequence of attributed triplets (source, relation, object), serializable as plain text. The VLM then reasons over this symbolic representation, operating in its native text domain, to predict the action label. This design exploits a key asymmetry: while VLMs often struggle as direct visual observers of dynamic scenes, they are highly effective symbolic reasoners when relational structure is stated directly in the graph [20–22]. We evaluate this framework across eleven open-weight VLMs spanning 2B to 235B parameters on two major egocentric action recognition benchmarks: EGTEA [ 1 ] and Epic-Kitchens-100 [ 2]. Our results show a consistent and often substantial advantage for graph-based reasoning over direct frame-based inference, even when using identical model parameters. This advantage persists despite the high probability that frontier models have encountered these benchmarks during pre-training, a condition that should theoretically favor pixel-based memorization, not symbolic abstraction. We further demonstrate that the text-serializable nature of our graphs unlocks highly efficient in-context learning (ICL): prepending just one or two labeled graph examples to the prompt significantly boosts performance, a strategy that is impractical with raw visual inputs because each video example would consume thousands of image tokens and quickly exhaust the model’s context [23]. The main contributions can be summarized as follows: • We introduce TAG , a framework that converts egocentric video into structured, open-vocabulary interaction graphs via multi-stage prompting, decoupling visual perception from symbolic reasoning without any training or fine-tuning. • We show that reasoning over structured graphs consistently outperforms direct frame-based inference across eleven different VLMs spanning 2B to 235B parameters, even under conditions where pretraining data contamination should favor pixel-based memorization. • We provide an extensive zero-shot and few-shot VLM evaluation for egocentric action recognition, covering eleven models on two major benchmarks (EGTEA and Epic-Kitchens-100), with systematic ablations over graph construction components, in-context example count, and input frame budget. 2Figure 2: Overview of the TAG framework. An egocentric video is processed through overlapping temporal windows Wt. For each window, a VLM generates a natural-language description of the dominant interaction, which is converted into a structured JSON graph. Window-level graphs are concatenated into a single Temporal Action Graph Gτ , serialized as temporally ordered triplets, and provided to the VLM for closed-set action prediction. The rightmost column illustrates the final prediction step with candidate actions and confidence scores. 
+
+## 2 Related Work 
+
+Action Recognition. EGTEA [ 1] and Epic-Kitchens-100 [ 2 ] are the canonical fine-grained egocen-tric classification benchmarks, while Ego4D [ 3] dominates large-scale egocentric pretraining. Prior work on these benchmarks invariably relies on egocentric-specialized pretraining: EgoVLP [ 24 ], LaV-iLa [ 25 ], EgoVideo [ 26 ], and LLaVAction [ 27 ] fine-tune multimodal models on Ego4D narrations at substantial cost. The strongest zero-shot reference, GPT4Ego [ 28 ], composes off-the-shelf foundation tools (SAM [ 29 ], ChatGPT) in a multi-stage design but still freezes an egocentric-pretrained backbone (e.g., LaViLa) and selects classes by cosine similarity rather than generation. We are not aware of published work that evaluates training-free, general-purpose, generative VLMs with in-context demonstrations on these benchmarks. Both datasets are public and likely partially represented in contemporary VLM training mixtures, a caveat that arguably favours pixel-based inference [30]. 
+
+Vision-Language Models. We evaluate eleven instruction-tuned VLMs from six open-weight families, spanning dense and mixture-of-experts (MoE) architectures from 2B to 235B parameters [ 31 ,32]. Recent studies document severe limitations of VLMs on video understanding, especially in the egocentric setting [ 19 , 33 , 18 , 34 ]; we address these limitations through multi-stage prompting that surfaces temporal and relational structure to the VLM directly. 
+
+Structured and Language-Based Intermediate Representations. Decoupling perception from reasoning has roots in neuro-symbolic AI [ 35 ] and modern systems realize this through language as a zero-shot composition interface, e.g., Socratic Models for video QA [ 36 ] or captions as inputs to frozen LLMs [ 37 ]. Closest in spirit, LLoVi [ 38 ] captions short clips with a VLM and aggregates them with an LLM for long-form QA, mirroring our narrative stage without graph formalization, pure language leaves compositional structure implicit. Graphs serve as compositional intermediates for visual reasoning, from static scene graphs [ 4 ] to spatio-temporal scene graphs [ 14 ]. Recent work uses them as intermediate representations: EASG [ 39 ] annotates closed-vocabulary action scene graphs over Ego4D as a supervised target; SceneNet [ 40 ] prompts a proprietary VLM for action hypergraphs on HD-EPIC [ 41 ]; VideoMindPalace [ 42 ] serializes layered topological graphs; and SG-VLM [ 43 ] grounds reasoning with scene graphs via GroundingDINO [ 44 ] and SAM. All four extract graphs from the query video in a single grounding pass. Our two-stage narrative-then-graph pipeline instead deploys graphs as labelled few-shot demonstrations for fine-grained verb-noun classification, training-free. 
+
+In-Context Learning with VLMs. ICL was popularized for LLMs by GPT-3 [ 45 ] and extended to multimodal inputs by Flamingo [ 15 ]. Visual ICL adds a distinct bottleneck: each demonstration occupies hundreds to thousands of tokens, saturating context after a handful of examples [ 46 , 23 ]. Serializing visual content as text compresses the demonstration budget and bypasses cross-modal interaction issues [ 47 , 37 ]; Zong et al. [ 48 ] report that substituting text for images yields markedly steeper accuracy gains with the number of shots. We apply this strategy at the level of structured graphs rather than free-form captions. Closest to our setting, EILeV [ 49 ] elicits few-shot ICL on egocentric video by training BLIP-2 variants on Ego4D with carefully curated data; it documents that off-the-shelf VLMs fail to benefit from in-context examples on rare and out-of-distribution egocentric actions, the motivation we share. Our pipeline differs in three respects: demonstrations are text-serialized Temporal Action Graphs rather than raw video; the target task is fine-grained verb-noun classification rather than narration generation; and the pipeline is fully training-free. 33 Method 
+
+We propose TAG, a training-free framework that decouples visual perception from symbolic reasoning for egocentric action recognition. Given an egocentric video, TAG distils pixel-level dynamics into a compact, text-serializable graph that a VLM can reason over in its native language domain. The framework has three stages (Fig. 2): temporal decomposition of the sampled frames into overlapping windows (Section 3.1), neuro-symbolic mapping of each window into a local interaction graph via two-stage prompting (Section 3.2), and temporal graph construction that assembles local graphs into a single Temporal Action Graph (Section 3.3). The resulting graph is the input for closed-set action prediction, optionally augmented with labelled graph examples for ICL (Section 3.4). 
+
+Problem Formulation. Let V = {ft}Tt=1 be the frames of an egocentric video. We uniformly sample M frames to obtain a subset 
+
+X = ( fτ1 , f τ2 , . . . , f τM ), (1) where τi is the original temporal index of the i-th sampled frame. Given a closed action vocabulary 
+
+A = {a1, . . . , a C }, the objective is to predict the ground-truth label a∗ ∈ A . A conventional VLM consumes the raw frames directly, 
+
+ˆa = Φ VLM (X, A), (2) whereas TAG converts X into a Temporal Action Graph Gτ (see Section 3.3) and reasons over its text serialization as: 
+
+ˆa = Φ VLM (serialize( Gτ ), A). (3) Comparing Eqs. (2) and (3) under the same VLM and the same sampled frames isolates the effect of the intermediate representation from the capacity of the perception module. 
+
+3.1 Temporal Decomposition via Overlapping Sliding Windows 
+
+Egocentric actions are defined by transitions between hand-object configurations: an action such as “take” is identified by the shift from reaching to grasping rather than by any single static frame. To expose such a local dynamics while keeping each extraction step tractable, we partition X into overlapping temporal windows. 
+
+Window definition. Given a maximum window size n, for each t ∈ { 2, . . . , M } we define 
+
+Wt = ( fτmax(1 , t −n+1) , . . . , f τt ), (4) yielding M −1 windows. The first windows grow from two frames up to n; all subsequent ones have exactly n frames, with stride one (overlap n−1). We fix n = 4 , so each window spans two to four consecutive sampled frames. 
+
+Anchor principle. Each window Wt is anchored to its final frame fτt : although the VLM sees the full window, symbolic extraction (Section 3.2) is constrained to describe the dominant interaction visible at fτt . The preceding n−1 frames serve as local context to disambiguate the ongoing interaction (e.g., releasing vs. touching). This guarantees exactly one interaction snapshot per sampled frame (except fτ1 , used only as context for W2), avoiding redundancy while preserving temporal coverage. 
+
+3.2 Neuro-Symbolic Mapping: From Pixels to Local graphs 
+
+Each window Wt is converted into a structured local graph Gt through a two-stage prompting strategy. The key insight is that decomposing the visual-to-symbolic translation into an intermediate natural-language description and a subsequent formalization step reduces symbolic hallucinations and improves grounding, consistent with findings that expanded intermediate-reasoning budgets benefit complex extraction tasks [50, 51]. 
+
+Stage I: Semantic Description. Given a temporal window Wt, the VLM generates a free-form natural-language narrative 
+
+Nt = Φ VLM (Wt, p desc ), (5) where the description prompt pdesc instructs the model to (i) identify the action performed by the hands or, if hands are not visible or not informative, by the camera wearer; (ii) specify the roles of the left/right hands when visible; and (iii) disambiguate visually similar objects by grounding them in the visual evidence. The narrative Nt acts as a semantic bottleneck that forces the VLM to consolidate visual evidence into a coherent linguistic summary before any symbolic structure is imposed. 4Stage II: Symbolic Extraction. The narrative is then parsed into a structured graph. Crucially, this stage operates on Nt alone, without re-processing the original frames, ensuring that all visual grounding is mediated through the bottleneck: Gt = Φ VLM (Nt, p struct ), where pstruct is the structuring prompt. 
+
+Local graph schema. The output Gt is a set of up to Kt interaction triplets: Gt = gt,k =(st,k , r t,k , o t,k ), k ∈ { 1, . . . , K t}, where the three components are defined as follows. • Source: st,k ∈ S, the interaction agent, is drawn from a fixed vocabulary S =
+
+{ hand_left , hand_right , hand_both , camera_wearer }.• Relation: rt,k ∈ R , an open-vocabulary verb in continuous form (e.g., holding, cutting, reaching), describing the interaction type. • Object: ot,k = ( αt,k , ℓ t,k ) where ℓt,k is a one-word object label and αt,k is a one-word attribute capturing salient property (color, state, material, or function). The attribute-label pair forms an open-vocabulary attributed object. 
+
+Schema constraints. Four constraints keep Gt compact and temporally localized: (i) hand_both 
+
+is used only when the left and right hands cooperate on the same object with the same interaction; (ii) when hand interactions are present, camera-wearer relations are excluded, prioritizing active manipulation over generic ego-motion; (iii) only the interaction state at the terminal frame is included, even if the narrative references earlier frames; (iv) at most one relation per interaction source, preventing duplicates for the same agent. 
+
+3.3 Temporal Action Graph Construction 
+
+The window-level graphs are assembled into a directed attributed graph Gτ = ( Vτ , Eτ ) that captures both the semantic content and the temporal evolution of the video. The node set aggregates all sources and attributed objects observed across the video, 
+
+Vτ =
+
+> M
+
+[
+
+> t=2
+> Kt
+
+[
+
+> k=1
+
+{st,k , o t,k },
+
+and each edge extends a local triplet with a temporal index: 
+
+Eτ = {(st,k , r t,k , o t,k , t ) | t ∈ { 2, . . . , M }, k ∈ { 1, . . . , K t}} . (6) The temporal index t preserves ordering, allowing the graph to represent both persistence (repeated relations) and progression (changes in relation or object). 
+
+Serialization. For inference, Gτ is serialized into a temporally ordered sequence of triplets, 
+
+> SERIALIZE
+
+(Gτ ) =  (st,k , r t,k , o t,k ) Mt=2 
+
+, (7) where triplets within a timestamp are ordered by source priority (left hand, right hand, both hands, camera wearer) and timestamps follow chronological order. This deterministic ordering yields a unique, reproducible string that the VLM processes directly, without a dedicated graph encoder. 
+
+3.4 Action Prediction and In-Context Learning 
+
+Equations (2) and (3) define the frames-only and graphs-only settings tested in our experiments. The third setting, Graphs + ICL , prepends N labelled graph exemplars to the query graph: 
+
+ˆa = Φ VLM 
+
+ serialize( Gτn), a n
+
+Nn=1 , serialize( Gτ ), A
+
+
+
+. (8) Graph serialization is what makes ICL practical for video: each demonstration occupies on the order of tens of text tokens, whereas an equivalent visual demonstration would consume hundreds to thousands of image tokens and quickly exhaust the context window [ 23 ]. Projecting video into a symbolic format also aligns the task with the VLM’s pre-trained pattern matching over text sequences, bypassing the lack of explicit cross-image relational reasoning in standard VLM training [47]. 
+
+## 4 Experiments 
+
+Datasets and Evaluation Protocols. On EGTEA [ 1] (106 action classes), we follow the official protocol on split 1 (8,299/2,022 train/test) and report mean-class-accuracy (MCA), Top-1, Top-3, and 5Table 1: Main results on EGTEA: small and medium VLMs. MCA and Top-1 on the split-1 test set ( 106 action classes) for four backbones in the small ( < 20 B) and medium ( 20 –100 B) regimes. ICL entries are mean ± SEM over 5 demonstration draws.                                                    
+
+> Qwen3.5-2B GLM-4.6V-Flash Kimi-VL-A3B Qwen3-VL-32B Input Modality MCA Top-1 MCA Top-1 MCA Top-1 MCA Top-1 Frames only 25.7 32.8 27.1 39.7 20.0 34.0 34.6 47.6 Graphs only 20.6 35.0 31.6 45.0 21.0 37.9 37.2 50.2 Graphs ICL 32.2 ±0.2 38.2 ±0.2 36.6 ±0.4 46.8 ±0.3 29.0 ±0.5 41.4 ±0.4 42.4 ±0.4 53.4 ±0.2
+
+Table 2: Main results on EGTEA: large VLMs. Same protocol as Table 1, applied to three backbones above 100 B parameters.                                       
+
+> GLM-4.6V* Llama-4-Scout* Qwen3-VL-235B* Input Modality MCA Top-1 MCA Top-1 MCA Top-1 Frames only 35.8 48.5 17.4 31.0 39.2 49.7 Graphs only 42.4 52.0 25.0 40.2 40.6 52.3 Graphs ICL 47.7 ±0.3 54.5 ±0.2 29.7 ±0.3 44.4 ±0.1 46.1 ±0.5 56.2 ±0.3
+
+Top-5. On Epic-Kitchens-100 [ 2] (97 verbs, 300 nouns, 3,806 composed action classes; 67,217/9,668 train/val), we evaluate on val and report Top-1/Top-5 for verb, noun, and action, with an action counted correct only when both verb and noun match. The training split is used solely as the ICL retrieval pool. 
+
+Evaluated VLMs. We evaluate eleven open-weight VLMs from six families, spanning 2B–235B parameters, across dense and MoE architectures, in three regimes by total count: small (< 20 B), 
+
+medium (20–100B), and large (> 100 B). Checkpoints that do not fit in GPU memory at full precision are quantized and marked ∗. Detailed descriptions can be found in the Supplementary, section A.1. 
+
+Inference setup. All experiments use vLLM [ 52 ] on up to four NVIDIA L40S GPUs with greedy decoding (temperature 0) and reasoning modes disabled. The same 16 uniformly sampled frames per clip and the same closed candidate set of action labels are used by every modality: (i) Frames only: 
+
+the 16 frames and candidate set are passed to the VLM. (ii) Graphs only: the 16 frames feed the TAG construction of Section 3, and the serialized graph Gτ replaces them as input. (iii) Graphs + ICL: the graphs-only prompt is prefixed with labelled graph examples from the training split. The candidate set, response schema, and ranking semantics are identical across all three. 
+
+Prompting. A fixed template across modalities and models contains (i) a task instruction, (ii) the input, (iii) the closed candidate set, and (iv) a constrained JSON response schema. For EGTEA, candidates are action_id: action_label pairs and the model returns the five most plausible actions. For Epic-Kitchens-100, verb and noun vocabularies are listed separately and the model returns five verb:noun predictions; pairs with valid verb and noun but no annotated action class are counted for verb and noun Top-k only. Responses are accepted only if they contain exactly k distinct predictions from the candidate set with confidences in [0 , 1] (used only for ranking). Full templates are in the Supplementary, section A.2. 
+
+ICL pool. The pool is built once per seed from the training split and held fixed across models, so differences are attributable to the VLM and the input representation. For EGTEA we use a class-balanced pool with k ∈ { 1, 2} examples per class. For Epic-Kitchens-100, exhaustive coverage is infeasible, so we restrict the candidate label set to the m ∈ { 50 , 100 } most frequent training classes and draw the pool from those. 
+
+4.1 Main Results 
+
+In all tables we highlight, bold , and underline the best overall, individual best, and second-best entries, respectively, and report ICL results as mean ± SEM (standard error of the mean) over 5 seeds. 
+
+EGTEA. Across small and medium VLMs (Table 1), switching from raw frames to our temporal graph yields consistent gains: on Qwen3-VL-32B, Top-1 rises from 47 .6 to 50 .2. Graphs + ICL 
+
+adds the largest delta, on GLM-4.6V-Flash it beats frames by 9.5 MCA, supporting the view that the symbolic graph format is a memory-efficient interface for in-context conditioning, where raw visual tokens would saturate the context window. The effect persists above 100B (Table 2); Llama-4-Scout ∗
+
+6Table 3: Main results on Epic-Kitchens-100. Top-1 and Top-5 accuracy for verb, noun, and composed action across three VLMs. Graphs + ICL uses one in-context example per class with 100 
+
+candidate classes; Overall reports the macro-average over the three models per modality. ICL entries are mean ± SEM over 5 seeds. 
+
+Model Input Modality Top-1 Acc. Top-5 Acc. Verb Noun Action Verb Noun Action GLM-4.6V-Flash Frames only 24.54 23.71 9.91 26.53 35.44 13.83 Graphs only 18.76 24.09 6.68 26.64 38.49 12.86 Graphs ICL 28.59 ± 0.40 27.22 ± 0.12 10.65 ± 0.10 40.42 ± 0.65 40.95 ± 0.28 20.10 ± 0.22 
+
+Kimi-VL-A3B Frames only 32.09 17.67 6.33 38.29 28.40 12.48 Graphs only 25.77 22.04 7.26 29.34 36.05 12.88 Graphs ICL 27.59 ± 0.33 24.00 ± 0.08 9.09 ± 0.15 33.30 ± 0.14 33.58 ± 0.17 13.93 ± 0.11 
+
+GLM-4.6V* Frames only 27.18 26.22 10.60 32.73 43.12 17.68 Graphs only 24.88 25.81 9.01 34.43 41.93 16.32 Graphs ICL 34.58 ± 0.21 29.57 ± 0.13 14.02 ± 0.15 47.96 ± 0.29 46.66 ± 0.05 26.69 ± 0.15 
+
+Overall Frames only 27.94 22.53 8.95 32.52 35.65 14.66 Graphs only 23.14 23.98 7.65 30.14 38.82 14.02 Graphs ICL 30.25 26.93 11.25 40.56 40.40 20.24 0 1 2     
+
+> In-Context Examples ( k)
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Mean Class Accuracy (MCA) %
+> < 20B Parameters
+> Qwen3.5-2B
+> Gemma-3-4B
+> GLM-4.6V-Flash
+> Kimi-VL-A3B
+> 012
+> In-Context Examples ( k)
+> 20B 100B Parameters
+> Gemma-3-27B
+> Qwen3-VL-32B
+> Qwen3.5-35B
+> 012
+> In-Context Examples ( k)
+> > 100B Parameters
+> GLM-4.6V*
+> Llama-4-Scout*
+> Qwen3.5-122B*
+> Qwen3-VL-235B*
+
+Figure 3: ICL scaling on EGTEA across different model parameter regimes (MCA). The horizontal dashed lines indicate the 0-shot raw frame baseline for each respective model. This visualizes the crossover point: while 0-shot graphs occasionally underperform dense frame inputs, scaling to k ≥ 1
+
+graph examples consistently eclipses the frames-only bounds across nearly all tested architectures. in particular has an unusually weak frame baseline ( 17 .4 MCA) yet reaches 29 .7 with graphs + ICL, suggesting graphs partially compensate for limited temporal alignment in pretraining. 
+
+Epic-Kitchens-100. On Epic-Kitchens-100 (Table 3), Graphs + ICL is strongest overall : it beats frames-only on every macro-average metric, with the largest gain on the strongest backbone (GLM-4.6V ∗: Action Top-1 10 .60 → 14 .02 , Top-5 17 .68 → 26 .69 ). SEMs are small relative to the gaps (±0.15 on Action Top-1 for GLM-4.6V ∗), so the improvement is stable across examples rather than an artifact of a particular shot. 
+
+ICL primarily recovers the verb gap. The largest single jump comes in verb accuracy ( 23 .14 →
+
+30 .25 Top-1, macro-average). Since examples are themselves graphs, we read this not as additional visual evidence but as supplying a decoding pattern from serialized graph to closed-set label, which is the bottleneck when graphs are used alone. Kimi-VL-A3B is the exception: its frames-only verb accuracy ( 32 .09 ) is the table’s highest, yet ICL still improves action ( 6.33 → 9.09 ) and noun (17 .67 → 24 .00 ) accuracies. 
+
+4.2 ICL Scaling Analysis 
+
+Figure 3 sweeps the number of graph demonstrations k ∈ { 0, 1, 2} per class on EGTEA, grouped by parameter regime; we average MCA over 5 independent demonstration draws. 1 For every family except Gemma-3, a single demonstration ( k = 1 ) already surpasses both graphs-only and frames-only; a second helps Qwen3.5, GLM-4.6V, and Kimi-VL but slightly hurts Qwen3-VL and Llama-4-Scout ∗,
+
+> 1
+
+Per-seed SEMs and Top-{1, 3, 5} accuracies are reported in the Supplementary Section A.3. 
+
+70 1 2         
+
+> In-Context Examples ( k)
+> 20.0
+> 22.5
+> 25.0
+> 27.5
+> 30.0
+> 32.5
+> 35.0
+> Top-1 Accuracy (%)
+> Verb
+> 012
+> In-Context Examples ( k)
+> 18
+> 20
+> 22
+> 24
+> 26
+> 28
+> 30
+> Noun
+> 012
+> In-Context Examples ( k)
+> 6
+> 8
+> 10
+> 12
+> 14
+> Action
+> GLM-4.6V-Flash Kimi-VL-A3B GLM-4.6V* 50 classes 100 classes frames-only baseline
+
+Figure 4: ICL scaling on Epic-Kitchens-100 across Verb, Noun, and Action (Top-1). Each panel reports Top-1 accuracy as a function of the number of graph-based in-context examples provided per class ( 0 corresponds to the graphs-only setting, i.e., no in-context demonstrations). Solid lines denote 50 candidate classes; dashed lines, 100. Long-dashed horizontals mark the frames-only baseline. Table 4: TAG construction ablation on EGTEA. Joint ablation over overlapping windows ( Window ), multi-stage prompting ( MS-Prompt. ), and node attributes ( Attr. ) on two Qwen3.5 backbones. The last row of each block is the full configuration. 
+
+Model Window MS-Prompt. Attr. MCA Top-1 Top-3 Top-5 Qwen3.5-35B 
+
+✓ ✓ 40.83 48.62 68.10 75.22 
+
+✓ ✓ 41.71 50.00 70.33 77.89 
+
+✓ ✓ 43.30 50.94 70.72 77.65 
+
+✓ ✓ ✓ 45.34 52.87 73.99 80.27 
+
+Qwen3.5-122B* 
+
+✓ ✓ 41.53 49.11 70.77 79.43 
+
+✓ ✓ 42.79 50.40 72.40 80.81 
+
+✓ ✓ 44.08 51.83 74.00 81.45 
+
+✓ ✓ ✓ 47.17 53.61 76.16 83.93 
+
+so the optimal k is model-dependent. Gemma-3 inverts this pattern. Although its graphs-only baseline exceeds frames-only, adding demonstrations degrades accuracy; for this family, the extra prompt complexity appears to outweigh the instructional signal that the demonstrations carry. Table 5: Frame-budget ablation on EGTEA. 
+
+Frames only accuracy at 4 vs. 16 input frames; 4
+
+matches the per-window count used during graph construction.                                 
+
+> Model Frames MCA Top-1 Top-3 Top-5 Qwen3.5-2B 422.21 31.31 49.55 55.89 16 25.65 32.84 49.60 56.53
+> Qwen3.5-35B 446.31 55.34 70.28 76.66 16 50.53 57.27 74.73 80.02
+> Qwen3.5-122B* 444.93 52.67 70.57 78.09 16 51.73 58.06 74.83 80.81
+
+Figure 4 sweeps both the candidate-set size ( 50 
+
+or 100 classes) and the number of graph ex-amples per class on EK100. One example per class consistently improves over graphs-only and frames-only across verb, noun, and action; a second example helps with 50 classes but not with 100 , where the longer prompt can slightly hurt the smaller models. The best trade-off is one example per class with 100 candidates. Graph ICL helps, but does not scale monotoni-cally with k.
+
+4.3 Ablations TAG construction. We ablate three orthogonal design choices on EGTEA (Table 4, two Qwen3.5 backbones): (i) overlapping temporal windows, (ii) multi-stage prompting (MS-Prompt.), and (iii) node attributes. Each row removes one factor from the full configuration in row 4. Sliding windows are the largest single contributor on both backbones ( +4 .51 /+5 .61 MCA on Qwen3.5-35B / Qwen3.5-122B ∗); followed by MS-Prompt ( +3 .63 /+4 .38 ); attributes help every metric (+2 .04 /+3 .09 MCA), with a larger gain on the larger model. 
+
+Frame budget in Frames only . To rule out a context-size explanation, we compare frames-only 
+
+at 4 vs. 16 input frames, with 4 matching the per-window count used during graph construction (Table 5). More frames consistently help every metric and model, so the gains from graph-based prompting (despite its 4-frame windows), cannot be attributed to seeing fewer frames at once, but to the structured temporal abstraction itself. This is consistent with EgoVideo, which reports saturation only at 32 frames [26]. 8Figure 5: Qualitative results of TAG on EGTEA and Epic-Kitchens-100. For each clip (rows), we show four sampled frames and the predicted label under Frames only , Graphs only , and Graphs + ICL ,with correct predictions in green and errors in red . The temporal graph Gτ already resolves several verb-level errors made under Frames only , and adding in-context examples further disambiguates fine-grained verb and noun confusions that persist in the Graphs only variant. Results obtained with Qwen3.5-122B* on EGTEA and GLM-4.6V* on Epic-Kitchens-100. Figure 5 illustrates two recurring failure modes for Frames only : temporal ambiguity between near-symmetric verbs such as take and put , and unstable noun predictions under partial object occlusion. Confusions are progressively resolved from Frames only to Graphs only to Graphs + ICL , though 
+
+Graphs only also introduces an error when the underlying VLM misreads hand–object interactions within a short window (e.g. cut vs. wash ), which ICL subsequently corrects. In the end, the graph representation is only as reliable as the per-window perception that feeds it. 
+
+## 5 Conclusions 
+
+We demonstrate that converting an egocentric video into Temporal Action Graphs shifts action recognition from the visual stream into the language domain. By decoupling perception from reasoning, this text-serializable bottleneck enables competitive zero-shot inference and unlocks few-shot in-context learning that remains impractical with raw video. While the long-term trajectory of AI suggests that end-to-end compute scaling will eventually solve video understanding natively, structured language provides a necessary pragmatic bridge today. Until video pretraining paradigms can induce robust temporal reasoning, explicit symbolic representations allow us to recruit a VLM’s latent linguistic strengths to compensate for its current visual limitations. The code will be published. 
+
+Limitations. The multi-stage pipeline incurs higher inference latency than single-pass models. Graph construction requires 2( M − 3) = 26 VLM calls per clip, one Stage I description, and one Stage II formalization for each of the 13 sliding windows, plus one call for action prediction, totaling 
+
+∼ 27 forward passes. However, a direct multiplier comparison with the frames-only baseline is misleading: the single frames-only call processes 16 images simultaneously, whereas each Stage I call receives only 4 frames and each Stage II call receives text alone. The effective cost therefore depends heavily on the model, its visual-token encoding, and the degree to which window calls are parallelized across GPUs. A detailed latency analysis is deferred to future work. Additionally, accuracy remains below specialized egocentric models fine-tuned on in-domain data, and performance is bounded by the quality of the Stage I narrative, since the symbolic bottleneck cannot recover what the perception step misses. Additional information can be found in the Supplementary Material. 9References 
+
+[1] Y. Li, M. Liu, and J. M. Rehg, “In the eye of beholder: Joint learning of gaze and actions in first person video,” in Proceedings of the European conference on computer vision (ECCV) , pp. 619–635, 2018. [2] D. Damen, H. Doughty, G. Farinella, A. Furnari, E. Kazakos, J. Ma, D. Moltisanti, J. Munro, T. Perrett, W. Price, and M. Wray, “Rescaling egocentric vision: Collection, pipeline and challenges for epic-kitchens-100,” International Journal of Computer Vision , vol. 130, pp. 33–55, Jan. 2022. [3] K. Grauman, A. Westbury, E. Byrne, Z. Chavis, A. Furnari, R. Girdhar, J. Hamburger, H. Jiang, M. Liu, X. Liu, et al. , “Ego4d: Around the world in 3,000 hours of egocentric video,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 18995–19012, 2022. [4] J. Johnson, R. Krishna, M. Stark, L.-J. Li, D. A. Shamma, M. S. Bernstein, and L. Fei-Fei, “Image retrieval using scene graphs,” in 2015 IEEE Conference on Computer Vision and Pattern Recognition (CVPR) ,pp. 3668–3678, 2015. [5] D. Xu, Y. Zhu, C. B. Choy, and L. Fei-Fei, “Scene graph generation by iterative message passing,” 2017. [6] J. Johnson, A. Gupta, and L. Fei-Fei, “Image generation from scene graphs,” in Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 1219–1228, 2018. [7] Q. Gu, A. Kuwajerwala, S. Morin, K. M. Jatavallabhula, B. Sen, A. Agarwal, C. Rivera, W. Paul, K. Ellis, R. Chellappa, et al. , “Conceptgraphs: Open-vocabulary 3d scene graphs for perception and planning,” in 
+
+2024 IEEE International Conference on Robotics and Automation (ICRA) , pp. 5021–5028, IEEE, 2024. [8] A. Werby, C. Huang, M. Büchner, A. Valada, and W. Burgard, “Hierarchical Open-Vocabulary 3D Scene Graphs for Language-Grounded Robot Navigation,” in Proceedings of Robotics: Science and Systems ,(Delft, Netherlands), July 2024. [9] K. Rana, J. Haviland, S. Garg, J. Abou-Chakra, I. Reid, and N. Sünderhauf, “Sayplan: Grounding large language models using 3d scene graphs for scalable robot task planning,” in Proceedings of the 7th Conference on Robot Learning (CoRL) , pp. 23–72, Proceedings of Machine Learning Research, 2023. [10] C. Zhang, A. Delitzas, F. Wang, R. Zhang, X. Ji, M. Pollefeys, and F. Engelmann, “Open-vocabulary functional 3d scene graphs for real-world indoor spaces,” in 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 19401–19413, 2025. [11] A. Werby, C. Huang, M. Büchner, A. Valada, and W. Burgard, “Hierarchical Open-Vocabulary 3D Scene Graphs for Language-Grounded Robot Navigation,” in Proceedings of Robotics: Science and Systems ,(Delft, Netherlands), July 2024. [12] S. Koch, N. Vaskevicius, M. Colosi, P. Hermosilla, and T. Ropinski, “Open3dsg: Open-vocabulary 3d scene graphs from point clouds with queryable objects and open-set relationships,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 14183–14193, 2024. [13] A. Rosinol, A. Gupta, M. Abate, J. Shi, and L. Carlone, “3d dynamic scene graphs: Actionable spatial perception with places, objects, and humans,” Robotics: Science and Systems XVI , 2020. [14] J. Ji, R. Krishna, L. Fei-Fei, and J. C. Niebles, “Action genome: Actions as compositions of spatio-temporal scene graphs,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pp. 10236–10247, 2020. [15] J.-B. Alayrac, J. Donahue, P. Luc, A. Miech, I. Barr, Y. Hasson, K. Lenc, A. Mensch, K. Millicah, M. Reynolds, R. Ring, E. Rutherford, S. Cabi, T. Han, Z. Gong, S. Samangooei, M. Monteiro, J. Menick, S. Borgeaud, A. Brock, A. Nematzadeh, S. Sharifzadeh, M. Binkowski, R. Barreira, O. Vinyals, A. Zis-serman, and K. Simonyan, “Flamingo: a visual language model for few-shot learning,” in Proceedings of the 36th International Conference on Neural Information Processing Systems , NIPS ’22, (Red Hook, NY, USA), Curran Associates Inc., 2022. [16] J. Li, D. Li, S. Savarese, and S. Hoi, “Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models,” in International conference on machine learning , pp. 19730–19742, PMLR, 2023. [17] H. Liu, C. Li, Q. Wu, and Y. J. Lee, “Visual instruction tuning,” in Proceedings of the 37th Interna-tional Conference on Neural Information Processing Systems , NIPS ’23, (Red Hook, NY, USA), Curran Associates Inc., 2023. 
+
+10 [18] Y. Liu, S. Li, Y. Liu, Y. Wang, S. Ren, L. Li, S. Chen, X. Sun, and L. Hou, “Tempcompass: Do video llms really understand videos?,” in Findings of the Association for Computational Linguistics: ACL 2024 ,pp. 8731–8772, 2024. [19] K. Mangalam, R. Akshulakov, and J. Malik, “Egoschema: A diagnostic benchmark for very long-form video language understanding,” Advances in Neural Information Processing Systems , vol. 36, pp. 46212– 46244, 2023. [20] B. Fatemi, J. Halcrow, and B. Perozzi, “Talk like a graph: Encoding graphs for large language models,” in 
+
+The Twelfth International Conference on Learning Representations , 2024. [21] H. Wang, S. Feng, T. He, Z. Tan, X. Han, and Y. Tsvetkov, “Can language models solve graph problems in natural language?,” in Proceedings of the 37th International Conference on Neural Information Processing Systems , NIPS ’23, (Red Hook, NY, USA), Curran Associates Inc., 2023. [22] T. Gupta and A. Kembhavi, “Visual programming: Compositional visual reasoning without training,” in 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 14953–14962, 2023. [23] Y. Jiang, J. A. Irvin, J. H. Wang, M. A. Chaudhry, J. H. Chen, and A. Y. Ng, “Many-shot in-context learning in multimodal foundation models,” in ICML 2024 Workshop on In-Context Learning , 2024. [24] K. Q. Lin, J. Wang, M. Soldan, M. Wray, R. Yan, E. Z. Xu, D. Gao, R.-C. Tu, W. Zhao, W. Kong, et al. ,“Egocentric video-language pretraining,” Advances in Neural Information Processing Systems , vol. 35, pp. 7575–7586, 2022. [25] Y. Zhao, I. Misra, P. Krähenbühl, and R. Girdhar, “Learning video representations from large language models,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 6586– 6597, 2023. [26] B. Pei, Y. Huang, J. Xu, G. Chen, Y. He, L. Yang, Y. Wang, W. Xie, Y. Qiao, F. Wu, and L. Wang, “Model-ing fine-grained hand-object dynamics for egocentric video representation learning,” in The Thirteenth International Conference on Learning Representations , 2025. [27] S. Ye, H. Qi, A. Mathis, and M. W. Mathis, “Llavaction: evaluating and training multi-modal large language models for action recognition,” arXiv e-prints , pp. arXiv–2503, 2025. [28] G. Dai, X. Shu, W. Wu, R. Yan, and J. Zhang, “Gpt4ego: Unleashing the potential of pre-trained models for zero-shot egocentric action recognition,” IEEE Transactions on Multimedia , vol. 27, pp. 401–413, 2025. [29] A. Kirillov, E. Mintun, N. Ravi, H. Mao, C. Rolland, L. Gustafson, T. Xiao, S. Whitehead, A. C. Berg, W.-Y. Lo, et al. , “Segment anything,” in Proceedings of the IEEE/CVF international conference on computer vision , pp. 4015–4026, 2023. [30] Y. Dong, X. Jiang, H. Liu, Z. Jin, B. Gu, M. Yang, and G. Li, “Generalization or memorization: Data contamination and trustworthy evaluation for large language models,” in Findings of the Association for Computational Linguistics: ACL 2024 (L.-W. Ku, A. Martins, and V. Srikumar, eds.), (Bangkok, Thailand), pp. 12039–12050, Association for Computational Linguistics, Aug. 2024. [31] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, G. Krueger, and I. Sutskever, “Learning transferable visual models from natural language supervision,” in Proceedings of the 38th International Conference on Machine Learning (M. Meila and T. Zhang, eds.), vol. 139 of Proceedings of Machine Learning Research , pp. 8748–8763, PMLR, 18–24 Jul 2021. [32] Z. Li, X. Wu, H. Du, F. Liu, H. Nghiem, and G. Shi, “A survey of state of the art large vision language models: Alignment, benchmark, evaluations and challenges,” in 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW) , pp. 1578–1597, 2025. [33] C. Plizzari, A. Tonioni, Y. Xian, A. Kulshrestha, and F. Tombari, “Omnia de egotempo: Benchmarking temporal understanding of multi-modal llms in egocentric videos,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2025. [34] I. Rodin, T.-Y. Wu, K. Min, S. N. Sridhar, A. Furnari, S. Tripathi, and G. M. Farinella, “Easg-bench: Video q&a benchmark with egocentric action scene graphs,” in Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 2711–2716, 2025. 
+
+11 [35] K. Yi, J. Wu, C. Gan, A. Torralba, P. Kohli, and J. B. Tenenbaum, “Neural-symbolic vqa: disentangling reasoning from vision and language understanding,” in Proceedings of the 32nd International Conference on Neural Information Processing Systems , NIPS’18, (Red Hook, NY, USA), p. 1039–1050, Curran Associates Inc., 2018. [36] A. Zeng, M. Attarian, brian ichter, K. M. Choromanski, A. Wong, S. Welker, F. Tombari, A. Purohit, M. S. Ryoo, V. Sindhwani, J. Lee, V. Vanhoucke, and P. Florence, “Socratic models: Composing zero-shot multi-modal reasoning with language,” in The Eleventh International Conference on Learning Representations ,2023. [37] Z. Yang, Z. Gan, J. Wang, X. Hu, Y. Lu, Z. Liu, and L. Wang, “An empirical study of gpt-3 for few-shot knowledge-based vqa,” in AAAI , 2022. [38] C. Zhang, T. Lu, M. M. Islam, Z. Wang, S. Yu, M. Bansal, and G. Bertasius, “A simple LLM framework for long-range video question-answering,” in Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing (Y. Al-Onaizan, M. Bansal, and Y.-N. Chen, eds.), (Miami, Florida, USA), pp. 21715–21737, Association for Computational Linguistics, Nov. 2024. [39] I. Rodin, A. Furnari, K. Min, S. Tripathi, and G. M. Farinella, “Action scene graphs for long-form understanding of egocentric videos,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 18622–18632, 2024. [40] A. Taluzzi, D. Gesualdi, R. Santambrogio, C. Plizzari, F. Palermo, S. Mentasti, and M. Matteucci, “From pixels to graphs: using scene and knowledge graphs for hd-epic vqa challenge,” arXiv preprint arXiv:2506.08553 , 2025. [41] T. Perrett, A. Darkhalil, S. Sinha, O. Emara, S. Pollard, K. Parida, K. Liu, P. Gatti, S. Bansal, K. Flanagan, J. Chalk, Z. Zhu, R. Guerrier, F. Abdelazim, B. Zhu, D. Moltisanti, M. Wray, H. Doughty, and D. Damen, “Hd-epic: A highly-detailed egocentric video dataset,” in 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , Proceedings of the IEEE Computer Society Conference on Computer Vision and Pattern Recognition, (USA United States), pp. 23901–23913, IEEE, Aug. 2025. Publisher Copyright: ©2025 IEEE.; The IEEE/CVF Conference on Computer Vision and Pattern Recognition 2025, CVPR Nashville ; Conference date: 11-06-2025 Through 15-06-2025. [42] Z. Huang, Y. Ji, X. Wang, N. Mehta, T. Xiao, D. Lee, S. Vanvalkenburgh, S. Zha, B. Lai, L. Yu, et al. ,“Building a mind palace: Structuring environment-grounded semantic graphs for effective long video analysis with llms,” in Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pp. 24169–24179, 2025. [43] H. Ma, V. Pathak, and D. Z. Wang, “Bridging vision language models and symbolic grounding for video question answering,” arXiv preprint arXiv:2509.11862 , 2025. [44] S. Liu, Z. Zeng, T. Ren, F. Li, H. Zhang, J. Yang, Q. Jiang, C. Li, J. Yang, H. Su, et al. , “Grounding dino: Marrying dino with grounded pre-training for open-set object detection,” in European conference on computer vision , pp. 38–55, Springer, 2024. [45] T. B. Brown, B. Mann, N. Ryder, M. Subbiah, J. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, S. Agarwal, A. Herbert-Voss, G. Krueger, T. Henighan, R. Child, A. Ramesh, D. M. Ziegler, J. Wu, C. Winter, C. Hesse, M. Chen, E. Sigler, M. Litwin, S. Gray, B. Chess, J. Clark, C. Berner, S. McCandlish, A. Radford, I. Sutskever, and D. Amodei, “Language models are few-shot learners,” in 
+
+Proceedings of the 34th International Conference on Neural Information Processing Systems , NIPS ’20, (Red Hook, NY, USA), Curran Associates Inc., 2020. [46] H. Chen, X. Yang, Y. Huang, Z. Wu, J. Wang, and X. Geng, “Manipulating the label space for in-context classification,” arXiv preprint arXiv:2312.00351 , 2023. [47] Y. Zhou, X. Li, Q. Wang, and J. Shen, “Visual in-context learning for large vision-language models,” in 
+
+Findings of the Association for Computational Linguistics: ACL 2024 , pp. 15890–15902, 2024. [48] Y. Zong, O. Bohdal, and T. Hospedales, “VL-ICL bench: The devil in the details of multimodal in-context learning,” in The Thirteenth International Conference on Learning Representations , 2025. [49] K. P. Yu, Z. Zhang, F. Hu, S. Storks, and J. Chai, “Eliciting in-context learning in vision-language models for videos through curated data distributional properties,” in Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing (Y. Al-Onaizan, M. Bansal, and Y.-N. Chen, eds.), (Miami, Florida, USA), pp. 20416–20431, Association for Computational Linguistics, Nov. 2024. 
+
+12 [50] J. Wei, X. Wang, D. Schuurmans, M. Bosma, brian ichter, F. Xia, E. H. Chi, Q. V. Le, and D. Zhou, “Chain of thought prompting elicits reasoning in large language models,” in Advances in Neural Information Processing Systems (A. H. Oh, A. Agarwal, D. Belgrave, and K. Cho, eds.), 2022. [51] S. Yao, D. Yu, J. Zhao, I. Shafran, T. Griffiths, Y. Cao, and K. Narasimhan, “Tree of thoughts: Deliberate problem solving with large language models,” in Advances in Neural Information Processing Systems 
+
+(A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt, and S. Levine, eds.), vol. 36, pp. 11809–11822, Curran Associates, Inc., 2023. [52] W. Kwon, Z. Li, S. Zhuang, Y. Sheng, L. Zheng, C. H. Yu, J. Gonzalez, H. Zhang, and I. Stoica, “Efficient memory management for large language model serving with pagedattention,” in Proceedings of the 29th Symposium on Operating Systems Principles , SOSP ’23, (New York, NY, USA), p. 611–626, Association for Computing Machinery, 2023. [53] Qwen Team, “Qwen3.5: Towards native multimodal agents,” February 2026. [54] G. T. A. Kamath, J. Ferret, S. Pathak, N. Vieillard, R. Merhej, S. Perrin, T. Matejovicova, A. Ram’e, M. Rivière, L. Rouillard, T. Mesnard, G. Cideron, J.-B. Grill, S. Ramos, E. Yvinec, M. Casbon, E. Pot, I. Penchev, G. Liu, F. Visin, K. Kenealy, L. Beyer, X. Zhai, A. Tsitsulin, R. I. Busa-Fekete, A. Feng, N. Sachdeva, B. Coleman, Y. Gao, B. Mustafa, I. Barr, E. Parisotto, D. Tian, M. Eyal, C. Cherry, J.-T. Peter, D. Sinopalnikov, S. Bhupatiraju, R. Agarwal, M. Kazemi, D. Malkin, R. Kumar, D. Vilar, I. Brusilovsky, J. Luo, A. Steiner, A. Friesen, A. Sharma, A. Sharma, A. M. Gilady, A. Goedeckemeyer, A. Saade, A. Kolesnikov, A. Bendebury, A. Abdagic, A. Vadi, A. Gyorgy, A. S. Pinto, A. Das, A. Bapna, A. Miech, A. Yang, A. Paterson, A. Shenoy, A. Chakrabarti, B. Piot, B. Wu, B. Shahriari, B. Petrini, C. Chen, C. L. Lan, C. A. Choquette-Choo, C. Carey, C. Brick, D. Deutsch, D. Eisenbud, D. Cattle, D. Cheng, D. Paparas, D. S. Sreepathihalli, D. Reid, D. Tran, D. Zelle, E. Noland, E. Huizenga, E. Kharitonov, F. Liu, G. Amirkhanyan, G. Cameron, H. Hashemi, H. Klimczak-Pluci’nska, H. Singh, H. Mehta, H. T. Lehri, H. Hazimeh, I. Ballantyne, I. Szpektor, I. Nardini, J. Pouget-Abadie, J. Chan, J. Stanton, J. M. Wieting, J. Lai, J. Orbay, J. Fernandez, J. Newlan, J. Ji, J. Singh, K. Black, K. Yu, K. Hui, K. Vodrahalli, K. Greff, L. Qiu, M. Valentine, M. Coelho, M. Ritter, M. Hoffman, M. Watson, M. Chaturvedi, M. Moynihan, M. Ma, N. Babar, N. Noy, N. Byrd, N. Roy, N. Momchev, N. Chauhan, O. Bunyan, P. Botarda, P. Caron, P. K. Rubenstein, P. Culliton, P. Schmid, P. G. Sessa, P. mei Xu, P. Sta´ nczyk, P. D. Tafti, R. Shivanna, R. Wu, R. Pan, R. A. Rokni, R. Willoughby, R. Vallu, R. Mullins, S. Jerome, S. Smoot, S. Girgin, S. Iqbal, S. Reddy, S. Sheth, S. Põder, S. Bhatnagar, S. R. Panyam, S. Eiger, S. Zhang, T. Liu, T. Yacovone, T. Liechty, U. Kalra, U. Evci, V. Misra, V. Roseberry, V. Feinberg, V. Kolesnikov, W. Han, W. Kwon, X. Chen, Y. Chow, Y. Zhu, Z. Wei, Z. Egyed, V. Cotruta, M. Giang, P. Kirk, A. Rao, J. Lo, E. Moreira, L. G. Martins, O. Sanseviero, L. Gonzalez, Z. Gleicher, T. Warkentin, V. S. Mirrokni, E. Senter, E. Collins, J. Barral, Z. Ghahramani, R. Hadsell, Y. Matias, D. Sculley, S. Petrov, N. Fiedel, N. Shazeer, O. Vinyals, J. Dean, D. Hassabis, K. Kavukcuoglu, C. Farabet, E. Buchatskaya, J.-B. Alayrac, R. Anil, D. Lepikhin, S. Borgeaud, O. Bachem, A. Joulin, A. Andreev, C. Hardin, R. Dadashi, and L. Hussenot, “Gemma 3 technical report,” ArXiv , vol. abs/2503.19786, 2025. [55] V. Team, W. Hong, W. Yu, X. Gu, G. Wang, G. Gan, H. Tang, J. Cheng, J. Qi, J. Ji, L. Pan, S. Duan, W. Wang, Y. Wang, Y. Cheng, Z. He, Z. Su, Z. Yang, Z. Pan, A. Zeng, B. Wang, B. Chen, B. Shi, C. Pang, C. Zhang, D. Yin, F. Yang, G. Chen, J. Xu, J. Zhu, J. Chen, J. Chen, J. Chen, J. Lin, J. Wang, J. Chen, L. Lei, L. Gong, L. Pan, M. Liu, M. Xu, M. Zhang, Q. Zheng, S. Yang, S. Zhong, S. Huang, S. Zhao, S. Xue, S. Tu, S. Meng, T. Zhang, T. Luo, T. Hao, T. Tong, W. Li, W. Jia, X. Liu, X. Zhang, X. Lyu, X. Fan, X. Huang, Y. Wang, Y. Xue, Y. Wang, Y. Wang, Y. An, Y. Du, Y. Shi, Y. Huang, Y. Niu, Y. Wang, Y. Yue, Y. Li, Y. Zhang, Y. Wang, Y. Wang, Y. Zhang, Z. Xue, Z. Hou, Z. Du, Z. Wang, P. Zhang, D. Liu, B. Xu, J. Li, M. Huang, Y. Dong, and J. Tang, “Glm-4.5v and glm-4.1v-thinking: Towards versatile multimodal reasoning with scalable reinforcement learning,” 2025. [56] K. Team, A. Du, B. Yin, B. Xing, B. Qu, B. Wang, C. Chen, C. Zhang, C. Du, C. Wei, C. Wang, D. Zhang, D. Du, D. Wang, E. Yuan, E. Lu, F. Li, F. Sung, G. Wei, G. Lai, H. Zhu, H. Ding, H. Hu, H. Yang, H. Zhang, H. Wu, H. Yao, H. Lu, H. Wang, H. Gao, H. Zheng, J. Li, J. Su, J. Wang, J. Deng, J. Qiu, J. Xie, J. Wang, J. Liu, J. Yan, K. Ouyang, L. Chen, L. Sui, L. Yu, M. Dong, M. Dong, N. Xu, P. Cheng, Q. Gu, R. Zhou, S. Liu, S. Cao, T. Yu, T. Song, T. Bai, W. Song, W. He, W. Huang, W. Xu, X. Yuan, X. Yao, X. Wu, X. Li, X. Zu, X. Zhou, X. Wang, Y. Charles, Y. Zhong, Y. Li, Y. Hu, Y. Chen, Y. Wang, Y. Liu, Y. Miao, Y. Qin, Y. Chen, Y. Bao, Y. Wang, Y. Kang, Y. Liu, Y. Dong, Y. Du, Y. Wu, Y. Wang, Y. Yan, Z. Zhou, Z. Li, Z. Jiang, Z. Zhang, Z. Yang, Z. Huang, Z. Huang, Z. Zhao, Z. Chen, and Z. Lin, “Kimi-vl technical report,” 2025. [57] S. Bai, Y. Cai, R. Chen, K. Chen, X. Chen, Z. Cheng, L. Deng, W. Ding, C. Gao, C. Ge, et al. , “Qwen3-vl technical report,” arXiv preprint arXiv:2511.21631 , 2025. [58] Meta AI, “The Llama 4 herd: The beginning of a new era of natively multimodal ai innovation.” https: //ai.meta.com/blog/llama-4-multimodal-intelligence/ , April 2025. 
+
+13 A Technical Appendices and Supplementary Material 
+
+A.1 Model details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 A.2 Prompt Templates . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 A.2.1 Stage-1 Description Prompt . . . . . . . . . . . . . . . . . . . . . . . 15 A.2.2 Stage-2 Graph Summarization Prompt . . . . . . . . . . . . . . . . . . 15 A.2.3 Action Recognition Prompts . . . . . . . . . . . . . . . . . . . . . . . 15 A.3 Per-Model Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 A.4 Implementation Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 
+
+## A Technical Appendices and Supplementary Material 
+
+A.1 Model details 
+
+The selection of models used in this paper (see Table 6) aims for breadth along two axes: model family, so that conclusions about the semantic bottleneck are not specific to a single training recipe, and parameter scale, which lets us check whether the bottleneck eases or persists as capacity grows. The largest checkpoints are quantized only as far as needed to fit our inference budget, so accuracy differences across rows reflect representational choices rather than precision loss. Table 6: Vision-Language Models evaluated. Eleven instruction-tuned VLMs from six open-weight families, grouped into three size regimes. MoE rows report total / active parameters; dense rows report total. Context lengths are the native pre-training windows reported by the model authors. Models marked ∗ run from quantized checkpoints to fit inference within four L40S GPUs. All models are evaluated with reasoning modes disabled and greedy decoding ( T = 0 ).                                                      
+
+> Model Params (Total / Active) Type Context Length Quantization
+> Small ( <20 B)
+> Qwen3.5-2B [53] 2B Dense 256K -Gemma-3-4B-it [54] 4B Dense 128K -GLM-4.6V-Flash [55] 9B Dense 128K Kimi-VL-A3B-Instruct [56] 16B / 3B MoE 128K -
+> Medium ( 20 –100 B)
+> Gemma-3-27B-it [54] 27B Dense 128K -Qwen3-VL-32B-Instruct [57] 32B Dense 256K -Qwen3.5-35B-A3B [53] 35B / 3B MoE 256K -
+> Large ( >100 B), quantized
+> GLM-4.6V ∗[55] 106B / 12B MoE 128K FP8 Llama-4-Scout-17B-16E ∗[58] 109B / 17B MoE 10M FP8 Qwen3.5-122B-A10B ∗[53] 122B / 10B MoE 256K FP8 Qwen3-VL-235B-A22B-Instruct ∗[57] 235B / 22B MoE 256K AWQ-Int4
+
+14 A.2 Prompt Templates A.2.1 Stage-1 Description Prompt 
+
+For each temporal window Wt, we prompt the VLM to generate a linguistic description of the observed interaction. To ensure the reliability of the "image-to-symbolic" transition, we include a self-correction instruction within the prompt. The exact template is provided below:  
+
+> Prompt Template: Stage-1 (Action Description)
+> Describe the main action the hands or the camera wearer are performing in the egocentric video frames. If visible, provide information about the right and left hands. Once you have the description, double-check–-based on the visual details in the frames–-the object(s) involved in the action to ensure the object name is correct and not confused with a visually similar object.
+
+A.2.2 Stage-2 Graph Summarization Prompt 
+
+In the second stage, the free-text descriptions generated in Stage-1 are mapped onto a structured symbolic space. We prompt the VLM to act as a deterministic parser, converting natural language into a JSON-formatted graph representation. This stage enforces a strict schema to facilitate the subsequent temporal graph aggregation. The prompt is structured as follows: 
+
+> Prompt Template: Stage-2 (Graph Summarization)
+> You are specialized on creating graphs in JSON format from a description. The graph should summarize the main action described. Here the graph schema: {"relations": [ {"visibility": "hand_left" | "hand_right" | "hand_both" | "camera_wearer", "object": { "label": "name of the direct object (1 word)", "attribute": "most descriptive attribute (1 word)" }, "interaction": { "type": "main action verb (1 word in continuous form)" }}], }Use "hand_both" only when left and right hands physically cooperate on the same object with identical interaction. If hands are in the description, do not include camera wearer information in the graph. If there are descriptions from different frames, include in the graph the information of the last frame. Include only one relation per same visibility entity.
+
+A.2.3 Action Recognition Prompts 
+
+We detail the prompt templates used for closed-set action recognition across the three evaluation settings considered in this work: frames only , graphs only , and graphs + ICL . All three settings query the same VLM with the same user-side template; they differ only in (i) the input artifact attached to the user message and (ii) whether the system prompt includes labelled demonstrations. This isolates the effect of the input representation from prompt-specific tuning. 
+
+Placeholders. Throughout the templates, fields of the form <NAME> are instantiated per setting, per dataset, or per example: 15 • <INPUT_MODALITY> – the input representation: video sequences (frames-only setting) or 
+
+temporal dynamic graphs (graph-based settings). • <MODALITY_SPECIFICATION> – the concrete artifact passed to the model: sequence of frames sampled from a video or temporal graph representation .• <ACTION_FORMAT> – the dataset-dependent label format: "action_id" for EGTEA and 
+
+"verb:noun" for Epic-Kitchens-100. • <ACTIONS_OPTIONS> – the closed-set vocabulary of candidate action labels for the target dataset, formatted according to <ACTION_FORMAT> .• <ICL_EXAMPLES> – a sequence of k labelled (graph , action) demonstrations per candi-date class, drawn from the training split. Used only in the graphs + ICL setting. • <RESPONSE> – the required output schema: a JSON object containing the top-5 predicted labels (in <ACTION_FORMAT> ) ranked by the model’s self-reported confidence. • <EXAMPLE> – one illustrative JSON instance conforming to <RESPONSE> .• <INVALID> , <ERROR_MSG> – the model’s previous malformed output and the corresponding parser diagnostic; used only by the correction prompt. 
+
+System prompt (frames-only and graphs-only). The non-ICL system prompt is shared between the frames-only and graphs-only conditions, with the input modality templated: 
+
+> Prompt Template: System
+> You are an expert at analyzing <INPUT_MODALITY> and identifying actions. Given a <MODALITY_SPECIFICATION>, identify which action is most likely being performed by the hands or the camera wearer. Return your answer in JSON format with <RESPONSE>.
+
+System prompt (graphs + ICL). For the graph-based ICL setting, the system prompt is specialized to graphs and prepends k labelled demonstrations per candidate class from the training set, so that the model can ground its interpretation of node and edge semantics in concrete examples:  
+
+> Prompt Template: System (ICL)
+> You are an expert at analyzing temporal dynamic graphs and identifying actions. Below are labelled examples of temporal graphs and their corresponding actions. Use these as reference to understand the graph structure and action patterns: <ICL_EXAMPLES> Now, given the following temporal graph, identify which action is most likely being performed by the hands or the camera wearer. Return your answer in JSON format with <RESPONSE>.
+
+User prompt. The user-side prompt differs slightly between the frames-only and the graph-based settings, reflecting the different nature of the input. The final block (candidate list, response schema, and example) is identical across all three settings; only the lead-in and the input modality vary.   
+
+> Prompt Template: User (frames-only)
+> Analyze these 16 frames from a video sequence and determine which action is being performed. Choose the top 5 most likely actions from this list: <ACTIONS_OPTIONS> Return your answer in JSON format with <RESPONSE>. Example: <EXAMPLE>
+
+The 16 sampled frames are attached as image content blocks immediately before this text. For the graph-based settings (graphs only and graphs + ICL), the input is provided as text inside the user message: 16 Prompt Template: User (graph-based settings)   
+
+> Analyze the following temporal dynamic graph extracted from a video sequence and determine which action is being performed. GRAPH DATA: <GRAPH_CONTENT> Choose the top 5 most likely actions from this list: <ACTIONS_OPTIONS> Return your answer in JSON format with <RESPONSE>. Example: <EXAMPLE>
+
+Correction prompt. VLM outputs that violate the response schema (wrong number of predictions, labels outside the closed set, duplicate predictions, or malformed JSON) are passed through a repair step using the template below. The correction loop is invoked iteratively for up to two repetitions. To keep the correction context manageable for datasets with large label spaces, the candidate list shown in the correction prompt is truncated to at most 50 entries.   
+
+> Prompt Template: Correction
+> Your previous answer was invalid. You provided: <INVALID> Reason why it is invalid: <ERROR_MSG> Fix it using these rules: - exactly 5 predictions - each action must be chosen from <ACTIONS_OPTIONS> - all 5 <ACTION_FORMAT> must be distinct - return JSON only
+
+A.3 Per-Model Results 
+
+Tables 7 and 8 report the per-model results underlying the aggregate trends in the main paper, for EGTEA and EK100 respectively. The full EGTEA table covers all eleven backbones; the EK100 sweep is restricted to a representative set of three models for compute reasons (GLM-4.6V-Flash, Kimi-VL-A3B, GLM-4.6V ∗) and additionally varies the candidate-set size and number of in-context examples per class. Two observations are worth noting. First, on EGTEA the Graphs only → Graphs + ICL progression holds across nearly every backbone, with the clear exception of Gemma-3 (both 4B and 27B), where graphs alone are the strongest modality and demonstrations degrade performance. Second, the optimal number of in-context examples is model-dependent on EGTEA: most models prefer k = 2 , but Qwen3-VL-32B, Qwen3.5-35B-A3B, Qwen3-VL-235B ∗, and Llama-4-Scout ∗
+
+peak at k = 1 . On EK100 the picture is consistent with the candidate-size sweep in the main paper: 
+
+k = 1 with C = 100 is competitive across all three models. 
+
+A.4 Implementation Details 
+
+All experiments use vLLM [ 52 ] for inference on up to four NVIDIA L40S GPUs with greedy decoding (temperature T =0 ) and reasoning modes disabled. Each clip is represented by M =16 
+
+uniformly sampled frames. We discard the first and last frame, and build temporal windows over the remaining 14 frames as follows. Windows are anchored at f2 and grow incrementally with sizes 
+
+2, 3, 4 until reaching the maximum size n=4 ; thereafter, windows of size n=4 slide forward with stride s=1 . This produces 13 overlapping windows in total ( 2 ramp-up windows and 11 fixed-size windows). Graph construction therefore requires 2 × 13 = 26 VLM calls per clip (one Stage I and one Stage II per window), plus one call for action prediction, totaling 27 forward passes. Models that fit within the four-GPU budget are run at native full precision; models that exceed it are run from the highest-precision publicly released quantized checkpoint compatible with the budget (Table 6). Output responses that violate the JSON schema are re-prompted with the correction template for up to two attempts. Samples that remain invalid after this loop are not discarded; instead, we apply lenient post-processing in which invalid responses are removed and the remaining predictions are retained as a (possibly truncated) ranked list. All metrics are computed on the cleaned predictions. Samples for which cleaning leaves no valid prediction are counted as a miss for every Top-k.17 Table 7: EGTEA action recognition across models and input modalities. We report MCA, Top-1, Top-3, and Top-5 accuracy. Within each model block, the best entry per metric is shown in bold ,and the second-best is underlined ; the modality with the highest average across the four metrics is highlighted . ICL rows ( Graphs ICL k ex ) report mean ± SEM over 5 demonstration draws. The 
+
+Overall block reports the macro-average across models for each input modality. 
+
+Model Input Modality MCA Top-1 Top-3 Top-5 Qwen3.5-2B Frames only 25.65 32.84 49.60 56.53 
+
+Graphs only 20.55 34.97 48.27 52.08 Graphs ICL 1 ex 30.90 ± 0.30 38.70 ± 0.32 51.64 ± 0.61 55.94 ± 0.67 Graphs ICL 2 ex 32.24 ± 0.15 38.15 ± 0.21 51.55 ± 0.26 56.39 ± 0.36 Gemma-3-4B Frames only 8.72 15.03 27.60 34.22 Graphs only 14.24 32.29 43.72 50.74 
+
+Graphs ICL 1 ex 13.50 ± 0.21 27.81 ± 0.26 36.58 ± 0.32 40.08 ± 0.49 Graphs ICL 2 ex 12.05 ± 0.18 23.80 ± 0.37 33.03 ± 0.14 37.02 ± 0.10 GLM-4.6V-Flash Frames only 27.11 39.66 51.04 54.70 Graphs only 31.60 44.96 61.82 67.06 
+
+Graphs ICL 1 ex 33.30 ± 0.32 46.40 ± 0.23 60.97 ± 0.25 64.81 ± 0.28 Graphs ICL 2 ex 36.58 ± 0.38 46.82 ± 0.26 62.02 ± 0.29 65.55 ± 0.35 Kimi-VL-A3B Frames only 20.03 34.03 45.75 50.15 Graphs only 20.97 37.88 51.34 54.25 Graphs ICL 1 ex 27.45 ± 0.50 40.35 ± 0.28 52.61 ± 0.27 55.53 ± 0.36 Graphs ICL 2 ex 29.03 ± 0.50 41.37 ± 0.35 54.26 ± 0.51 57.14 ± 0.40 
+
+Gemma-3-27B Frames only 23.08 34.72 51.04 57.67 Graphs only 26.77 40.60 59.10 67.51 
+
+Graphs ICL 1 ex 26.95 ± 0.60 39.13 ± 0.42 56.29 ± 0.24 64.27 ± 0.46 Graphs ICL 2 ex 24.90 ± 0.43 38.35 ± 0.54 56.54 ± 0.24 64.90 ± 0.08 Qwen3-VL-32B Frames only 34.62 47.58 65.43 72.50 Graphs only 37.18 50.20 69.93 77.65 Graphs ICL 1 ex 42.53 ± 0.52 53.18 ± 0.47 72.22 ± 0.41 78.35 ± 0.17 
+
+Graphs ICL 2 ex 42.38 ± 0.38 53.42 ± 0.22 71.50 ± 0.11 77.78 ± 0.30 Qwen3.5-35B-A3B Frames only 50.53 57.27 74.73 80.02 Graphs only 45.34 52.87 73.99 80.27 Graphs ICL 1 ex 51.77 ± 0.27 55.87 ± 0.28 75.50 ± 0.35 82.97 ± 0.20 
+
+Graphs ICL 2 ex 53.10 ± 0.54 53.97 ± 0.35 75.21 ± 0.37 82.74 ± 0.12 GLM-4.6V* Frames only 35.84 48.47 66.62 72.70 Graphs only 42.37 52.03 70.82 78.54 Graphs ICL 1 ex 45.68 ± 0.38 53.04 ± 0.34 70.60 ± 0.19 75.82 ± 0.17 Graphs ICL 2 ex 47.68 ± 0.30 54.53 ± 0.21 72.64 ± 0.23 79.06 ± 0.33 
+
+Llama-4-Scout* Frames only 17.38 30.96 45.90 50.99 Graphs only 24.97 40.21 61.67 70.28 
+
+Graphs ICL 1 ex 30.01 ± 0.36 44.61 ± 0.39 62.75 ± 0.36 69.59 ± 0.43 Graphs ICL 2 ex 29.68 ± 0.27 44.35 ± 0.13 62.81 ± 0.25 69.72 ± 0.34 Qwen3.5-122B* Frames only 51.73 58.06 74.83 80.81 Graphs only 47.17 53.61 76.16 83.93 Graphs ICL 1 ex 54.47 ± 0.48 57.74 ± 0.38 78.96 ± 0.23 85.55 ± 0.23 
+
+Graphs ICL 2 ex 56.08 ± 0.54 57.59 ± 0.43 78.25 ± 0.31 85.10 ± 0.34 Qwen3-VL-235B* Frames only 39.21 49.65 69.83 78.59 Graphs only 40.56 52.32 75.07 83.04 Graphs ICL 1 ex 47.02 ± 0.41 56.36 ± 0.38 78.13 ± 0.27 85.52 ± 0.21 Graphs ICL 2 ex 46.07 ± 0.51 56.20 ± 0.34 79.15 ± 0.38 86.79 ± 0.21 
+
+Overall Frames only 30.35 40.75 56.58 62.63 Graphs only 31.97 44.72 62.90 69.58 
+
+Graphs ICL 1 ex 36.69 46.66 63.30 68.95 Graphs ICL 2 ex 37.25 46.23 63.36 69.29 
+
+18 Table 8: Epic-Kitchens-100 action recognition across models and input modalities. We report Top-1 and Top-5 accuracy for verb, noun, and action prediction; legend conventions follow Table 7. ICL rows sweep the number of in-context examples per class ( k ∈ { 1, 2}) and the candidate-set size (50 or 100 classes), and report mean ± SEM over 5 demonstration draws. The Overall block macro-averages each modality across models. 
+
+Model Input Modality Top-1 Acc. Top-5 Acc. Verb Noun Action Verb Noun Action GLM-4.6V-Flash Frames only 24.54 23.71 9.91 26.53 35.44 13.83 Graphs only 18.76 24.09 6.68 26.64 38.49 12.86 Graphs ICL (1 ex / 50 cls) 28.38 ± 0.64 26.24 ± 0.07 10.41 ± 0.13 39.81 ± 1.01 40.29 ± 0.13 19.74 ± 0.37 Graphs ICL (2 ex / 50 cls) 28.55 ± 0.34 26.97 ± 0.10 10.66 ± 0.09 40.92 ± 0.67 41.42 ± 0.14 20.88 ± 0.32 
+
+Graphs ICL (1 ex / 100 cls) 28.59 ± 0.40 27.22 ± 0.12 10.65 ± 0.10 40.42 ± 0.65 40.95 ± 0.28 20.10 ± 0.22 Graphs ICL (2 ex / 100 cls) 28.20 ± 0.36 27.45 ± 0.15 10.55 ± 0.12 37.60 ± 1.71 40.73 ± 1.17 20.06 ± 0.33 Kimi-VL-A3B Frames only 32.09 17.67 6.33 38.29 28.40 12.48 Graphs only 25.77 22.04 7.26 29.34 36.05 12.88 Graphs ICL (1 ex / 50 cls) 26.87 ± 0.14 23.97 ± 0.11 8.52 ± 0.05 33.16 ± 0.26 34.22 ± 0.16 13.75 ± 0.17 Graphs ICL (2 ex / 50 cls) 27.30 ± 0.10 23.83 ± 0.17 8.85 ± 0.10 32.91 ± 0.32 32.99 ± 0.10 13.61 ± 0.12 Graphs ICL (1 ex / 100 cls) 27.59 ± 0.33 24.00 ± 0.08 9.09 ± 0.15 33.30 ± 0.14 33.58 ± 0.17 13.93 ± 0.11 
+
+Graphs ICL (2 ex / 100 cls) 26.86 ± 0.08 23.85 ± 0.12 8.76 ± 0.04 31.09 ± 0.30 32.43 ± 0.17 12.94 ± 0.04 GLM-4.6V* Frames only 27.18 26.22 10.60 32.73 43.12 17.68 Graphs only 24.88 25.81 9.01 34.43 41.93 16.32 Graphs ICL (1 ex / 50 cls) 33.45 ± 0.20 28.14 ± 0.17 13.32 ± 0.11 46.45 ± 0.33 44.88 ± 0.15 25.31 ± 0.12 Graphs ICL (2 ex / 50 cls) 34.48 ± 0.15 28.24 ± 0.13 13.95 ± 0.10 47.21 ± 0.58 45.77 ± 0.55 26.57 ± 0.11 Graphs ICL (1 ex / 100 cls) 34.58 ± 0.21 29.57 ± 0.13 14.02 ± 0.15 47.96 ± 0.29 46.66 ± 0.05 26.69 ± 0.15 Graphs ICL (2 ex / 100 cls) 34.64 ± 0.05 29.39 ± 0.16 14.14 ± 0.08 47.68 ± 0.14 46.45 ± 0.11 26.88 ± 0.08 
+
+Overall Frames only 27.94 22.53 8.95 32.52 35.65 14.66 Graphs only 23.14 23.98 7.65 30.14 38.82 14.02 Graphs ICL (1 ex / 50 cls) 29.57 26.12 10.75 39.81 39.80 19.60 Graphs ICL (2 ex / 50 cls) 30.11 26.35 11.15 40.35 40.06 20.35 
+
+Graphs ICL (1 ex / 100 cls) 30.25 26.93 11.25 40.56 40.40 20.24 Graphs ICL (2 ex / 100 cls) 29.90 26.90 11.15 38.79 39.87 19.96 
+
+19

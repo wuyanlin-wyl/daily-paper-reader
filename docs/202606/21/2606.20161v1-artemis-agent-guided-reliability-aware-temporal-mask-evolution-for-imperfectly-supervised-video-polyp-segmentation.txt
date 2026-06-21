@@ -1,0 +1,931 @@
+Title: ARTEMIS: Agent-guided Reliability-aware Temporal Mask Evolution for Imperfectly Supervised Video Polyp Segmentation
+
+URL Source: https://arxiv.org/pdf/2606.20161v1
+
+Published Time: Fri, 19 Jun 2026 00:54:35 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+> IEEE TRANSACTIONS ON IMAGE PROCESSING 1
+
+# ARTEMIS: Agent-guided Reliability-aware Temporal Mask Evolution for Imperfectly Supervised Video Polyp Segmentation 
+
+Tong Wang ˙ID , Siwen Wang ˙ID , Yaolei Qi ˙ID , Jinxing Zhou ˙ID , Yuting He ˙ID , Guanyu Yang ˙ID and Yutong Xie ˙ID 
+
+Abstract —Imperfectly supervised video polyp segmentation (VPS) seeks to learn dense and temporally consistent masks from inexpensive supervision, covering weak annotations such as points and scribbles, as well as semi-supervision with only a small subset of densely labeled frames. This setting is clini-cally attractive but technically challenging: polyps often suffer from weak object-background contrast, ambiguous boundaries, motion blur, and specular highlights, while incomplete super-vision provides only sparse or missing pixel-level guidance. Although SAM2 can transform sparse or partial annotations into dense masks, direct pseudo labeling still suffers from geometry-degraded pseudo masks with boundary leakage into background mucosa, temporally underused pseudo labeling, and reliability-blind pseudo supervision. To address these issues, we propose ARTEMIS, a unified framework for imperfectly supervised VPS driven by agent-guided reliability-aware temporal mask evolution. ARTEMIS first initializes coarse masks from available supervision: points/scribbles are converted by SAM2, while dense labels in semi-supervision serve as reliable anchors. It then uses a debate-and-judge vision-language agent to select reliable tem-poral anchors under weak supervision and propagates them bidi-rectionally with SAM2 to refine unreliable or unlabeled frames. Finally, ARTEMIS trains the final segmenter with temporal reliability-aware robust learning, comprising reliability-guided reference selection, a Reference Prototype Transport Module, and reliability-aware robust loss. These components assess mask reli-ability, evolve anchors over time, transport target identity across frames, and down-weight noisy supervision rather than dis-carding difficult samples. Experiments on SUN-SEG and CVC-ClinicDB-612 under scribble, point, and limited-label settings show that ARTEMIS achieves state-of-the-art performance. Code will be released at https://github.com/wangtong627/ARTEMIS. 
+
+Index Terms —Video Polyp Segmentation, Imperfect Supervi-sion (Weak/Semi), Temporal Mask Evolution. 
+
+I. I NTRODUCTION 
+
+# COLORECTAL cancer is the third most common cancer worldwide [1] and usually develops from polyps on the colonic mucosa [2]. Although colonoscopy is the gold standard for screening, more than 25% of polyps are missed [3], neces-sitating accurate and efficient automatic polyp segmentation. Video polyp segmentation (VPS) [4]–[8] provides frame-level localization and tracking cues for computer-aided 
+
+Tong Wang, Yaolei Qi, and Guanyu Yang are with the Key Laboratory of New Generation Artificial Intelligence Technology and Its Interdisciplinary Applications, Southeast University, Ministry of Education, Jiangsu, China. (email: tongwangnj@qq.com, yang.list@seu.edu.cn) Siwen Wang, Jinxing Zhou, and Yutong Xie are with the Mohamed bin Zayed University of Artificial Intelligence (MBZUAI), Abu Dhabi, UAE. (email: yutong.xie678@gmail.com) Yuting He is with the School of Medicine, Case Western Reserve University, Cleveland, OH, USA. (e-mail: yuting.he4@case.edu) Corresponding authors: Guanyu Yang and Yutong Xie . Work was done when Tong Wang was visiting MBZUAI. Time  Time 
+
+Time  Time   
+
+> (a) (b)
+> (c) (d)
+
+Fig. 1. Challenges in VPS. (a) Low contrast between the foreground polyp within the green box and surrounding background; (b) motion blur; (c) scale variations; and (d) partial occlusion. 
+
+colonoscopy. Compared with static image segmentation [9]– [14], VPS is more challenging because polyps often share similar color, texture, and boundaries with surrounding mu-cosa. As shown in Fig. 1, this weak discriminability is further amplified by common clinical artifacts, including 1) back-ground ambiguity , 2) motion blur , 3) scale variation , and 4) partial occlusion . These spatial-temporal perturbations often cause missed regions, over-segmentation, or temporal drift. Supervision is another bottleneck. Dense annotation for colonoscopy videos is labor-intensive and costly: at 30 fps, a 30-second video has 900 frames and requires 75 hours at 5 minutes/frame [4], making pixel-perfect masks impractical at scale. Lower-cost alternatives include weak supervision, such as point prompts ( ∼2 seconds/frame) or scribbles ( ∼10 seconds/frame) [15], [16], and semi-supervision with dense masks for only a small fraction of frames. Existing methods address these regimes separately: 1) weakly supervised meth-ods rely on feature transformation, annotation expansion, or loss design with sparse labels [15]–[17]; 2) semi-supervised methods use teacher-student consistency or mutual correc-tion [18]–[22]; and 3) unified video learning under imper-fect supervision remains underexplored. The first two address individual regimes but do not unify imperfectly supervised VPS; they remain supervision-limited, lack priors for dense-label recovery, and provide limited temporal consistency. Because colonoscopy datasets often mix sparse labels with partially labeled videos under different budgets, imperfect supervision is heterogeneous. This motivates a unified setting for imperfectly supervised VPS that handles both cases in one formulation, improving generality, reducing weak/semi-supervised fragmentation, and matching mixed supervision. Foundation models offer a promising way to inject exter-nal visual priors into imperfect supervision. SAM [23] and SAM2 [24] can generate dense masks from sparse prompts and have been used for weakly or incompletely supervised seg-mentation [25]–[27]. However, simply replacing missing labels with SAM-generated pseudo masks does not provide a unified      
+
+> arXiv:2606.20161v1 [cs.CV] 18 Jun 2026 IEEE TRANSACTIONS ON IMAGE PROCESSING 2Imperfect
+> Supervision
+> (a) Previous Paradigms
+> (b) ARTEMIS (Ours)
+> Reliability-aware
+> Robust Learning
+> Reliability-aware
+> Loss
+> Agent -guided Bidirectional Mask Evolutio n
+> Weak Supervision
+> (Point / Scribble)
+> Semi Supervision
+> (Partial Dense Labels)
+> Model Training Heuristic Filtering
+> SAM2
+> Mask Generation
+> Reliability
+> Agent-guide Anchor
+> Selection
+> SAM2 Deb ate /judge
+> agent
+> Bidirectional Mask
+> Evolution
+> Fig. 2. Comparison of imperfectly supervised VPS paradigms. Prior pipelines hard-filter pseudo labels, discarding useful samples and remaining noise-sensitive. ARTEMIS follows complete-then-learn : Stage 1 evolves reli-able anchors, while Stage 2 uses reliability-guided reference selection, RPTM, and robust loss across weak/semi-supervised settings.
+
+solution for imperfectly supervised VPS, where pseudo labels must be both geometrically plausible and temporally coherent across supervision regimes. The limitations are threefold: 
+
+1) Geometry-degraded pseudo masks. Masks from points, scribbles, or initial models can be unreliable in low-contrast, blurred, fast-motion, and occluded frames, causing structural distortion, fragmented interiors, and boundary leakage into background mucosa [15]–[17]; such failures are especially relevant to polyp segmentation with ambiguous boundaries; 
+
+2) Temporally underused pseudo labeling. Existing SAM-based methods for imperfect supervision mostly target image-level tasks or a single supervision regime, often performing one-shot pseudo-label generation or selection [25], [28], [29]; thus, they underuse SAM2’s temporal memory and mask propagation for cross-frame continuity, which is central to VPS; and 3) Reliability-blind pseudo supervision. Heuristic filtering with area, confidence, or fixed thresholds may dis-card difficult but informative frames or retain noisy masks as equal supervision [27], [28], [30]–[33], both problematic for pseudo-label and noisy-label medical segmentation. These observations suggest that foundation-model masks should not be directly accepted or rejected as static labels; instead, they should be assessed for reliability, evolved through temporal propagation, and used with noise-aware supervision. To address these limitations, we propose ARTEMIS , an agent-guided reliability-aware temporal mask evolution frame-work for unified imperfectly supervised VPS . ARTEMIS pro-vides a unified framework for this underexplored setting by jointly covering weak supervision and semi-supervision, rather than treating them as isolated problems. As shown in Fig. 2, ARTEMIS differs from prior paradigms in three aspects. 1) It uses SAM2 and a debate-and-judge vision-language agent to identify reliable temporal anchors, injecting foundation-model priors into incomplete supervision. 2) It evolves masks bidirectionally so reliable anchors refine un-reliable or unlabeled frames through temporal propagation. 3) 
+
+It trains the final segmenter with reliability-guided reference selection, Reference Prototype Transport Module (RPTM), and reliability-aware robust loss, using informative imperfect pseudo labels instead of simply discarding them. For weak supervision, sparse scribbles/points are converted into dense masks; for semi-supervision, available dense masks serve as reliable anchors and are propagated to unlabeled frames. Our main contributions are summarized as follows:  
+
+> •
+
+Unified Imperfectly Supervised VPS. We establish a unified paradigm and propose ARTEMIS, a two-stage framework that handles weakly supervised and semi-supervised VPS by completing sparse or missing annota-tions into temporally consistent dense pseudo masks.  
+
+> •
+
+Agent-guided bidirectional mask evolution. We intro-duce a debate-and-judge vision-language agent to select reliable masks as weak-supervision anchors, while dense labels serve as semi-supervision anchors; both are bidi-rectionally propagated to refine unreliable frames.  
+
+> •
+
+Temporal reliability-aware robust learning. We com-bine reliability-guided reference selection, RPTM, and reliability-aware robust loss to enhance temporal identity consistency and suppress noisy supervision.  
+
+> •
+
+Comprehensive validation. Experiments under weakly supervised and semi-supervised settings on two bench-mark datasets show state-of-the-art performance. II. R ELATED WORK 
+
+Video polyp segmentation. Early polyp segmentation meth-ods [9]–[14], [34], [35] mainly follow static image paradigms and perform well on image benchmarks, but directly applying them to videos ignores temporal correlations and may yield discontinuous masks. To exploit video cues, PNS [4] and PNS+ [5] introduce progressive temporal modeling, while recent VPS methods [6]–[8], [36]–[38] further study short-term alignment, long-term interaction, and Mamba-based dy-namics. These works are mostly fully supervised, whereas ARTEMIS uses temporal modeling to complete sparse or missing annotations into dense pseudo masks. 
+
+Imperfectly supervised segmentation. Weakly supervised segmentation [15]–[17], [26], [30], [39]–[46] reduces anno-tation cost by learning from points, scribbles, or other sparse labels, usually with structural priors, local consistency, or task-specific losses. Semi-supervised segmentation [18]–[22], [47]– [51] uses limited dense labels with teacher-student consis-tency, mutual correction, or cross-view learning. SEE [27] unifies weak and semi-supervised concealed object segmen-tation with SAM-based pseudo-label generation and selec-tion. Yet most imperfectly supervised methods remain image-oriented or closed-loop, so they underuse temporal propaga-tion; ARTEMIS instead formulates weak/semi-supervised VPS as bidirectional temporal pseudo-label completion. 
+
+Foundation-model-assisted pseudo labeling. SAM [23] and SAM2 [24] provide strong promptable mask generation, and SAM-based pseudo labels have been used for weakly super-vised concealed or polyp segmentation [25], [26] and incom-plete supervision [27]. However, such masks remain unreliable in camouflaged or medical scenes with weak contrast and ambiguous boundaries. Structured conditional reasoning [52], [53] and multi-agent debate (MAD) [54]–[56] offer comple-mentary evidence and judge-based decisions, making them suitable for pseudo-label reliability assessment. Recent debate-enhanced pseudo-labeling applies this idea to weakly super-vised camouflaged object detection [29]; ARTEMIS adapts it to VPS by selecting reliable temporal anchors, evolving them with SAM2, and suppressing residual noise via our reliability-aware learning method. IEEE TRANSACTIONS ON IMAGE PROCESSING 3                         
+
+> TABLE I COMPARISON OF DIFFERENT PROMPT TYPES ON POLYP SEGMENTATION .
+> Prompt Type Mean Dice (%) ↑Mean MAE (%) ↓
+> Sparse Point 71.8 13.7 Light Noisy Mask ( β= 0 .2)88.3 (+23 .0%) 2.3 (−83 .4%)
+> Moderate Noisy Mask ( β= 0 .4)81.3 (+13 .2%) 3.0 (−78 .4%)
+> Heavy Noisy Mask ( β= 0 .6)74.3 (+3 .4%) 3.1 (−77 .2%) Frame GT Sparse
+> Prediction
+> Dense
+> Prediction
+> Sparse
+> Prompt
+> Dense
+> Prompt
+> Fig. 3. Qualitative comparison of sparse and dense prompts. Sparse Prompt uses yellow point prompts, while Dense Prompt uses green heavy noisy mask prompts on the same frames. Compared with sparse prompts, dense noisy masks provide stronger spatial priors for polyp localization.
+
+III. M ETHODOLOGY 
+
+A. Methodology Overview 
+
+This work follows a complete-then-learn pipeline. Stage 1 converts available supervision into coarse masks, selects reliable temporal anchors, and performs SAM2-based bidi-rectional propagation to obtain evolved pseudo masks. Weak supervision requires scribble/point-to-mask completion, while semi-supervision directly uses dense labels as anchors. Stage 2 
+
+trains the segmenter with reliability-guided reference selection, RPTM, and reliability-aware robust loss, see Fig. 5 and Fig. 6. 
+
+B. Motivation for Temporal Mask Evolution 
+
+ Observation 1: Dense mask prompt is more informative for weakly discriminative targets. A key challenge in VPS is the weak semantic discriminability. Their color, texture, and boundaries can be highly similar to surrounding mucosa, mak-ing it difficult to infer complete object extent from local cues alone. Sparse point prompts provide only discrete locations and cannot sufficiently describe target shape, boundary, or spatial extent. In contrast, dense mask prompts offer region-level priors and stronger structural constraints. This motivates us to ask: for weakly discriminative polyps, are dense mask prompts more effective than sparse points, even when noisy? 
+
+We conduct an offline observation experiment on a SUN-SEG subset with 10 colonoscopy videos and 1,478 matched frames. Ground-truth masks are used only for this diagnostic study to synthesize controlled noisy masks and compute Dice/MAE, not for ARTEMIS training. Sparse points sampled from scribbles [27] serve as the baseline. Following [57], noisy dense masks are generated from ground truth using random dilation/erosion and affine perturbation. The perturbation ratio 
+
+β denotes the changed-pixel proportion, with β = 0 .2, 0.4,and 0.6 for light, moderate, and heavy noise. As shown in Tab. I, noisy mask prompts consistently outperform sparse points, even under heavy perturbation. This indicates that approximate region support is more informative                             
+
+> TABLE II COMPARISON OF PROMPT TYPES FOR POLYP SEGMENTATION . F OR NOISY MASKS ,FRAMES WITH DICE <0.6ARE REPLACED BY DENSE NOISY MASKS AND PROPAGATED BY SAM2 TO THE NEXT FIVE FRAMES WITHOUT ADDITIONAL PROMPTS .
+> Prompt Type Mean Dice (%) ↑Mean MAE (%) ↓
+> Sparse Point 71.8 13.7 Light Noisy Mask ( β= 0 .2)92.4 (+28 .6%) 0.7 (−95 .1%)
+> Moderate Noisy Mask ( β= 0 .4)89.9 (+25 .2%) 0.7 (−94 .7%)
+> Heavy Noisy Mask ( β= 0 .6)86.7 (+20 .8%) 0.8 (−94 .4%)
+
+Time         
+
+> Frame GT Dense  Sparse
+> Fig. 4. Qualitative results of temporal propagation from reliable anchors. The red box marks the injected dense mask prompt, which improves subsequent frames without additional prompts.
+
+than isolated point cues for weakly discriminative polyps. As illustrated in Fig. 3, yellow sparse points often cause under- or over-segmentation, whereas green heavy noisy masks provide stronger region-level guidance. This observation leads to a key design choice: ARTEMIS uses sparse prompts only as low-cost localization cues and converts them into coarse dense masks for subsequent selection , propagation , and refinement .
+
+ Observation 2: High-quality mask prompts benefit sub-sequent frames through temporal propagation. In SAM2 video inference, a prompted frame is encoded into the tem-poral memory bank and can influence later frames. A reliable mask prompt may therefore act as a temporal anchor rather than only a single-frame correction. This motivates us to ask: if a dense mask prompt is injected into a difficult frame, can its benefit extend to the following frames? 
+
+We use sparse point prompting as the baseline and identify low-quality frames by Dice < 0.6. This criterion is used only in the observation study with ground truth, not as a training-time rule. For each selected frame, we replace the point prompt with a dense noisy mask in Observation 1, and let SAM2 propagate to the next five frames without additional prompts. As shown in Tab. II, dense noisy masks consistently im-prove temporal propagation. Dice increases from 71.8% to 92.4%, 89.9%, and 86.7% under light, moderate, and heavy noise, while MAE decreases from 13.7% to below 0.8%. The qualitative results in Fig. 4 confirm this temporal effect: replacing a poor point prompt with a dense noisy mask refines the prompted frame and improves the following propagated frames. Since this observation only verifies forward prop-agation, ARTEMIS further applies the same mechanism in the reverse temporal direction. This yields bidirectional mask evolution , where reliable anchors refine low-quality frames both before and after them. IEEE TRANSACTIONS ON IMAGE PROCESSING 4.
+
+# Stage1: A gent -guided Bidirectional Mask Evolution 
+
+> Image
+> Coarse
+> Mask
+
+Affirmative 
+
+Agent  Negative 
+
+Agent 
+
+Agent-guide Anchor Selection 
+
+Why this mask can be a reliable anchor?     
+
+> ·Covers the main polyp region.
+> ·Overall shape is consistent with the lesion.
+> ·Most boundaries follow plausible mucosal
+> changes.
+> ·Although slightly noisy, it still provides
+> useful region -level guidance for SAM2
+> propagation.
+
+Why this mask may 
+
+be unreliable?    
+
+> ·Lower boundary
+> leaks into nearby
+> mucosa.
+> ·A small part of the
+> polyp boundary is
+> not fully covered.
+> Suggest score 0.88 Suggest score 0.48
+
+Judge Agent  Summary of Evidence 
+
+Final Decision 
+
+Decision: Anchor  
+
+> Reliability score: 0. 85
+> Main reason:
+> The candidate mask covers the main polyp area and preserves a plausible structure.
+> Although minor boundary leakage, it is su ffi ciently reliable as a temporal anchor.
+
+Input 
+
+Supporting Evidence     
+
+> ·Main polyp region is covered.
+> ·Shape and structure are plausible.
+> ·Useful region -level prior for propagation.
+
+Opposing Evidence   
+
+> ·Slight background leakage.
+> ·Minor missing boundary area .
+> All Frames:
+> Temporal Non-Maximum Suppression (T-NMS)
+
+Bidirectional Mask Evolution 
+
+Time 
+
+> Input Frame
+> Coarse Mask
+> (point)
+> Coarse Mask
+> (forward)
+> Final Mask
+> (backward)
+
+Anchor Selection 
+
+t = 0  t = 1  t = 2  t = T-1  t = T 
+
+& Forward Evolution 
+
+Anchor Selection  & Back ward Evolution           
+
+> R Round
+> of
+> Debate
+> Reliable Frame Forward Evolution Affi rmative Agent
+> Unreliable Frame Back ward Evolution Negative Agent
+> Selected Anchor Frame Segmentation Model
+> (SAM2) Judge Agent
+> Unselected Anchor Frame LLM (QWen2.5-VL) Selected Anchor
+
+Fig. 5. Overview of Stage 1: Agent-guided Bidirectional Mask Evolution. Given an input frame and SAM2 coarse mask, a debate-and-judge agent scores its anchor reliability. Candidate anchors are filtered by temporal NMS and propagated bidirectionally with SAM2 to produce evolved pseudo masks. 
+
+C. Stage 1: Agent-guided Bidirectional Mask Evolution 
+
+From observations to design. Given a video {It}Tt=1 with 
+
+It ∈ R3×H×W , where t is the frame index, T is the frame number, and H, W are frame height and width, ARTEMIS first obtains an initial coarse mask M ct ∈ [0 , 1] H×W from the available supervision. The supervision source determines how anchors are formed: 1) for weak supervision, scribbles are converted into sparse points and point annotations are used directly; SAM2 then converts these sparse prompts into coarse dense masks. 2) For semi-supervision, available dense labels are directly used as mask prompts. Stage 1 then selects or defines reliable masks as anchors and propagates them bidirectionally to refine unlabeled or unreliable frames. 
+
+Agent-guided reliable anchor selection. Directly propagat-ing all coarse masks may contaminate the SAM2 memory bank, so ARTEMIS first estimates which masks are reli-able enough to serve as anchors. For each image-mask pair 
+
+(It, M ct ), we provide the original image, candidate mask, mask overlay, and a fixed instruction to a debate-and-judge vision-language agent. We instantiate the agent with Qwen2.5-VL-7B [58]. The agent contains three roles: 1) affirmative agent ,which argues for accepting the mask; 2) negative agent , which identifies failure risks; and 3) judge agent , which outputs an anchor/non-anchor decision with a reliability score st ∈ [0 , 1] ,clipped to this range for normalization. The fixed prompt used for all frames is: 
+
+Meta Prompt. You are an expert agent for colonoscopy video polyp segmentation. Given an image and a candidate coarse mask generated by SAM2, evaluate whether the mask is reliable enough to serve as a temporal anchor for mask propagation. Focus on image-mask alignment, foreground completeness, boundary plausibility, background leakage, artifact confusion, and overall credibility as a mask prompt. 
+
+Affirmative Agent. Argue why the candidate mask should be accepted as a reliable anchor. Identify visual evidence showing that it covers the main polyp region, preserves plausible structure, and can provide useful region-level guidance for SAM2 propagation. 
+
+Negative Agent. Argue why the candidate mask may be unreli-able. Identify visual evidence of under-segmentation, over-segmentation, boundary errors, background leakage, or artifact confusion, and explain possible risks if it is propagated. 
+
+Judge Agent. Given the image, candidate mask, and debate history, summarize the key evidence from both sides. Output: Decision: Anchor / Non-anchor; Reliability score: 0–1; Main reason: ...; Failure risk: ... 
+
+Formally, let D+ and D− denote the affirmative and neg-ative debating agents, respectively, and let Pmeta denote the shared meta prompt. For each frame t, the two agents produce supporting and opposing assessments: 
+
+a+ 
+
+> t
+
+= D+(It, M ct , P meta ), a− 
+
+> t
+
+= D−(It, M ct , P meta ), (1) where a+ 
+
+> t
+
+and a− 
+
+> t
+
+denote the positive and negative arguments for the candidate mask M ct . After R debate rounds, the judge agent J takes the complete debate history Ht as input and outputs the final reliability score st:
+
+st = J(It, M ct , Ht). (2) We first retain frames whose reliability scores exceed the anchor selection threshold τa. In this paper, we set τa = 0 .7.The resulting candidate anchor set C is defined as: 
+
+C = {t | st > τ a}. (3) To improve temporal coverage, we further apply temporal non-maximum suppression (T-NMS): candidates in C are sorted by reliability scores {st}Tt=1 , and lower-scoring can-didates within a radius of r = 5 frames around a selected anchor are suppressed. The final anchor set A is: 
+
+A = T -NMS( C, {st}Tt=1 , r ). (4) IEEE TRANSACTIONS ON IMAGE PROCESSING 5
+
+If no frame satisfies st > τ a, we select the highest-scoring frame as a fallback anchor to avoid unprompted propagation. Selected anchors are injected into SAM2 as mask prompts, while non-anchor frames are refined by bidirectional mask evolution. The following example illustrates the process.             
+
+> Input. Image–mask pair (It, M ct), where the candidate coarse mask roughly covers the main polyp region but has slight boundary leakage.
+> Affirmative Agent. The candidate mask should be accepted as a reliable anchor. It covers the main polyp region, preserves a plausible object shape, and provides useful region-level guidance for SAM2 temporal propagation. Although the boundary is slightly noisy, the main target structure is still retained. Suggested score: 0.88.
+> Negative Agent. The candidate mask may contain several risks. The lower boundary slightly leaks into nearby mucosa, and a small part of the polyp boundary is not fully covered. If propagated directly, this leakage may affect nearby frames. Suggested score: 0.48.
+> Debate Refinement. The affirmative agent argues that the leakage is local and does not dominate the mask, while the negative agent agrees that the main failure is mild. Both agents indicate that the mask is imperfect but more reliable than sparse point prediction.
+> Judge Agent. Decision: Anchor. Reliability score: 0.85. Main reason: the mask covers the main polyp area and preserves a plausible structure. Failure risk: small background leakage may be propagated, but the risk is acceptable.
+> Output. Since st= 0 .85 > τ a, this frame is selected as a reliable temporal anchor.
+
+Bidirectional mask evolution. Given anchors A, ARTEMIS injects each anchor mask M ct into SAM2 as a prompt and propagates it. A forward pass refines later frames but can-not correct earlier ones. Therefore, ARTEMIS performs a second pass in reverse order, allowing reliable anchors to influence both past and future frames. Let Lft , L bt ∈ RH×W
+
+be forward/backward SAM2 logits and P ft = σ(Lft ), P bt =
+
+σ(Lbt ) be their probability maps, where σ(·) is sigmoid. The backward result is used as the evolved pseudo mask ˜Yt ∈
+
+[0 , 1] H×W , while P ft and P bt are for reliability estimation. 
+
+Adaptation to semi-supervision. In the semi-supervised set-ting, the sparsely available dense labels are already high-quality mask prompts. Therefore, we treat all labeled frames as reliable anchors, set their reliability scores to st = 1 , and directly propagate these dense masks forward and backward with SAM2 to complete pseudo labels for unlabeled frames. 
+
+D. Stage 2: Temporal Reliability-aware Robust Learning 
+
+Although Stage 1 improves pseudo masks, the evolved masks may still contain boundary errors, leakage, or incom-plete regions. Stage 2 is designed for this residual noise: it selects a reliable reference frame, transports target identity across time, and down-weights unreliable supervision. 
+
+Reliability-guided reference selection. Under pseudo-label supervision, a fixed first-frame reference may be unreliable due to motion blur, weak visibility, or inaccurate masks. ARTEMIS therefore selects a reliability-guided reference frame from evolved pseudo masks. For each frame t, we define the frame-level quality score Qt ∈ [0 , 1] as: 
+
+Qt = Cf g t · Bt · Vt, (5) where Cf g t ∈ [0 , 1] measures foreground confidence, Bt ∈
+
+[0 , 1] measures forward-backward agreement, and Vt ∈ { 0, 1}
+
+is an area validity term, all computed from Stage 1 outputs without ground truth. Let Ωt ⊆ { 1, . . . , H } × { 1, . . . , W } be the foreground pixel set of the final backward pseudo mask and |Ωt| its pixel count. The foreground confidence is: 
+
+Cf g t = 1
+
+|Ωt|
+
+X
+
+> i∈Ωt
+
+2|P bt (i) − 0.5|, (6) where i indexes a pixel location. We set Cf g t = 0 when Ωt is empty. The agreement term Bt is the IoU between forward-and backward-evolved masks. The validity term Vt equals 1 only when the foreground area ratio lies in [ρmin , ρ max ],where ρmin and ρmax are valid-area bounds. The reliable reference frame index t∗ 
+
+> ref
+
+∈ { 1, . . . , T } is selected by: 
+
+t∗ 
+
+> ref
+
+= arg max  
+
+> t
+
+Qt. (7) To reduce the discrepancy between this strategy and the common first-frame reference setting, the training reference index tref ∈ { 1, . . . , T } is sampled as t∗ 
+
+> ref
+
+with probability 
+
+1 − p and as the first frame with probability p, where p is the first-frame sampling probability. 
+
+Reference Prototype Transport Module (RPTM). The simi-larity between polyps and surrounding mucosa makes temporal modeling vulnerable to drift. RPTM uses a reliable reference frame as the identity source and transports its target identity to K target frames. It is applied to the fused decoder feature before the prediction head, after encoder features have been mapped to a common channel dimension. The module contains four steps: 1) reference identity token extraction; 2) reference-to-frame transport; 3) temporal identity evolution; and 4) 
+
+relation-gated feature injection. Let Fref ∈ RC×Hf ×Wf and 
+
+Ft ∈ RC×Hf ×Wf denote reference and target features, where 
+
+K is the number of target frames, C is the channel number, 
+
+Hf , W f are feature-map height and width, and subscript f
+
+denotes feature resolution. 
+
+1) Reference identity token extraction. RPTM first pre-dicts N spatial assignment maps Aref ∈ RN ×Hf ×Wf from 
+
+Fref , where N is the number of identity tokens, and softly pools the reference feature: 
+
+Znref = X
+
+> h,w
+
+Anref (h, w )Fref (h, w ), n = 1 , . . . , N, (8) where h, w index feature-map locations and Znref ∈ RC is the 
+
+n-th token. Zref ∈ RN ×C encodes reference target identity. 
+
+2) Reference-to-frame transport. RPTM then matches reference tokens with dense target-frame locations. Let Xt =Flatten( Ft) ∈ RHf Wf ×C be the flattened target feature. The transport map Mt ∈ RHf Wf ×N is: 
+
+Mt = Softmax 
+
+ ϕq (Xt)ϕk(Zref )⊤
+
+√C
+
+
+
+, (9) where ϕq (Xt) ∈ RHf Wf ×C and ϕk(Zref ) ∈ RN ×C are query and key projections, and softmax is applied over to-kens. After normalizing Mt over spatial locations to obtain 
+
+¯Mt ∈ RHf Wf ×N , which acts as spatial attention maps for each token, target tokens are: 
+
+Zt = ¯M ⊤ 
+
+> t
+
+ϕv (Xt), (10) IEEE TRANSACTIONS ON IMAGE PROCESSING 6Reference-to-frame 
+
+> transport
+> Relation-gated
+> feature injection
+
+Reference Prototype Transport Module (RPTM) 
+
+> Cross Attn
+> Eq.( 9)
+> Conv
+> Pooling
+> Conv
+> Conv Conv
+> Flatten
+> Bi-Mamba
+> Split
+
+Aref Fref 
+
+Zref  ΦK(Zref) 
+
+F1
+
+FK
+
+Ft Ft
+
+Xt
+
+ΦQ(Xt) 
+
+ΦV(Xt) 
+
+Mt Zt Ztemp_t 
+
+Ftrans_t  Fout 
+
+> ...  ...
+> Bi-Mamba Block
+
+Z1
+
+ZK
+
+Zt
+
+> ...
+> ...
+> Rev
+> Conv
+
+Ztemp_1 
+
+Ztemp_K 
+
+Ztemp_t 
+
+> ...
+> ...
+> Mamba
+> Mamba
+> Rev
+> Reference identity token
+> extraction
+> Temporal identity evolution
+> Re lation  Gate
+> Eq.( 12  & 13 )
+
+# Stage2:  Temporal Reliability -aware Robust Learning 
+
+Reliability-guided 
+
+Reference  Selectio n Model  Architecture  Overview     
+
+> Reference Frame
+> Target Frame s
+> Decoder 2
+> Decoder 3
+> Image Encoder
+> Stage 0
+> (T, C, H/4, W/4)
+> Stage 1
+> (T, 2C, H/8, W/8)
+> Stage 2
+> (T, 4C, H/16, W/16)
+> Stage 3
+> (T, 8C, H/32, W/32)
+> Reliability-aware  Robust  Loss
+> Eq.( 19 )
+> Pred 1 Pred 2 Pred 3 Presudo
+> Labels
+> Quality Score
+
+Time     
+
+> Select Reliable Reference Frame:
+> Area Validity
+> Remove empty / too small
+> / too large masks
+> F-B Consistency
+> IoU between forward and
+> backward envolved masks
+> Foreground Con fi dence
+> Mean SAM2 con fi dence
+> In predicted foreground
+> Decoder 1
+> RPTM
+> Reliable Reference Conv Convolutional Layer Rev Reverse Order Element-wise Addition Matrix Multiplication Element-wise
+> Multiplication
+
+Fig. 6. Overview of Stage 2: Temporal Reliability-aware Robust Learning. ARTEMIS selects a reliable reference using mask reliability cues, transports reference identity tokens to target frames via RPTM, and applies a reliability-aware robust loss to suppress residual pseudo-label noise. 
+
+where ϕv (Xt) ∈ RHf Wf ×C is the value projection and Zt ∈
+
+RN ×C . This reference-conditioned pooling suppresses visually similar but reference-inconsistent background regions. 
+
+3) Temporal identity evolution. To efficiently model long-range temporal dependencies, we use bidirectional Mamba to evolve target identity tokens. The target tokens are organized as Z = [ Z1, . . . , Z K ] ∈ RK×N ×C :
+
+Ztemp = ϕf use (Mamba f (Z), Rev(Mamba b(Rev( Z)))) ,
+
+(11) where Ztemp ∈ RK×N ×C , Mamba f and Mamba b are forward/backward temporal blocks, Rev( ·) reverses temporal order, and ϕf use (·) fuses both directions. 
+
+4) Relation-gated feature injection. For each target frame, 
+
+Ztemp t ∈ RN ×C is transported back through Mt as F trans t =Reshape( MtZtemp t ) ∈ RC×Hf ×Wf , where Ztemp t is the t-th slice of Ztemp and Reshape( ·) restores the Hf × Wf layout. A relation gate Gt controls identity injection: 
+
+Gt = σ  ϕg
+
+ [Ft, F trans t , F t − F trans t ] , (12) where [·] denotes channel-wise concatenation and ϕg (·) maps the 3C-channel input to Gt ∈ [0 , 1] C×Hf ×Wf . The output is: 
+
+F out t = Ft + γm · Gt ⊙ F trans t , (13) where F out t ∈ RC×Hf ×Wf , ⊙ denotes element-wise multi-plication, and γm ∈ R is a learnable scalar initialized to 0, making RPTM an identity mapping at the beginning. 
+
+Reliability-aware robust loss. After temporal feature en-hancement, ARTEMIS down-weights unreliable supervision at both pixel and frame levels. For frame t, we define the final supervision weight Wt ∈
+
+[0 , 1] H×W as: 
+
+Wt = Rpix t · wjudge t , (14) where Rpix t ∈ [0 , 1] H×W is the pixel-level reliability map and 
+
+wjudge t ∈ [0 , 1] is the frame-level judge weight. Given Stage 1 probability maps P ft and P bt , confidence reliability Rconf t
+
+and soft bidirectional consistency Rbidir t are: 
+
+Rconf t = 2 |P bt − 0.5|, Rbidir t = 1 − | P ft − P bt |, (15) where Rconf t , R bidir t ∈ [0 , 1] H×W and | · | is element-wise absolute value. The pixel-level reliability map is: 
+
+Rpix t =
+
+
+
+Rconf t · Rbidir t
+
+γr
+
+, (16) where γr > 0 controls the sharpness of reliability weighting. Under weak supervision, the frame-level weight wjudge t is assigned from the Stage 1 agent judgment: wjudge t = 1 .0 if the frame is qualified as a reliable anchor with st > τ a, and 
+
+wjudge t = 0 .5 otherwise. Under semi-supervision, available dense masks are treated as reliable supervision. Given the prediction ˆYt ∈ [0 , 1] H×W , evolved pseudo mask 
+
+˜Yt ∈ [0 , 1] H×W , and weight map Wt, we define Lwbce as: 
+
+Lwbce = ⟨Wt, BCE( ˆYt, ˜Yt)⟩⟨Wt, 1⟩ + ϵ , (17) and the weighted Dice loss as: 
+
+Lwdice = 1 − 2⟨Wt, ˆYt ⊙ ˜Yt⟩ + ϵ
+
+⟨Wt, ˆYt⟩ + ⟨Wt, ˜Yt⟩ + ϵ . (18) Here ⟨· , ·⟩ denotes summation over pixels, 1 is an all-ones map, ϵ is a small constant for numerical stability, and BCE( ·)
+
+is pixel-wise binary cross-entropy. The final loss Lseg is: 
+
+Lseg = λbce Lwbce + λdice Lwdice , (19) where λbce and λdice balance the two terms. During training, the decoder produces multi-scale side predictions for deep supervision; Lseg is computed for each output and averaged. IEEE TRANSACTIONS ON IMAGE PROCESSING 7
+
+TABLE III QUANTITATIVE COMPARISON ON THE SUN-SEG-E ASY AND SUN-SEG-H ARD DATASETS UNDER Fully Supervised , Scribble Supervision , AND Point Supervision SETTINGS . T HE BEST AND SECOND -BEST RESULTS ARE HIGHLIGHTED IN BOLD AND UNDERLINED , RESPECTIVELY .Method SUN-SEG-Easy-Seen (%) SUN-SEG-Easy-Unseen (%) SUN-SEG-Hard-Seen (%) SUN-SEG-Hard-Unseen (%) 
+
+Sα ↑Emn ϕ ↑F wβ ↑Dice ↑IoU ↑MAE ↓Sα ↑Emn ϕ ↑F wβ ↑Dice ↑IoU ↑MAE ↓Sα ↑Emn ϕ ↑F wβ ↑Dice ↑IoU ↑MAE ↓Sα ↑Emn ϕ ↑F wβ ↑Dice ↑IoU ↑MAE ↓
+
+Fully Supervised 
+
+PraNet [9] 91.8 94.2 87.7 88.3 82.5 2.0 78.1 78.8 66.3 66.5 58.2 5.2 88.4 91.9 83.1 83.9 76.6 3.1 78.7 80.2 66.7 67.5 58.7 5.3 PNS [4] 90.6 91.0 83.6 84.1 78.3 2.0 76.7 74.4 61.6 61.8 54.5 4.8 87.0 89.2 78.7 79.6 72.1 3.3 76.7 75.5 60.9 61.5 53.9 5.0 PNS+ [5] 91.7 92.5 84.8 85.5 78.7 2.1 80.6 79.8 67.6 67.8 59.1 4.4 88.7 90.2 80.6 81.3 72.8 3.0 79.8 79.3 65.4 66.1 57.1 5.0 
+
+Scribble Supervision 
+
+SCWS [15] 79.3 83.4 50.3 74.5 65.1 10.0 73.6 74.2 44.5 60.3 50.4 13.5 76.6 80.7 47.5 70.8 61.2 12.3 72.2 74.7 41.9 60.4 50.2 12.7 TEL [17] 79.8 83.7 51.4 75.7 67.1 10.7 72.2 72.9 43.9 59.7 50.5 15.2 76.4 80.1 48.2 70.9 62.2 13.3 71.2 73.5 42.0 59.5 50.3 14.0 SCOD [16] 80.2 84.5 51.0 75.4 66.5 9.1 74.2 75.8 45.1 61.7 52.0 12.6 75.8 80.6 45.7 70.1 60.6 12.3 73.4 77.0 42.8 62.9 52.9 11.3 SAM-WS [31] 65.9 64.9 26.5 51.6 40.2 17.5 60.3 54.6 23.4 38.8 28.9 23.7 60.3 58.0 20.5 42.3 31.9 22.0 56.9 52.3 20.2 35.2 25.8 25.1 GenSAM [30] 77.8 82.9 47.2 74.2 64.9 10.6 72.7 74.3 42.2 60.9 51.0 14.3 73.7 79.0 42.6 69.2 59.6 13.6 71.3 75.0 39.4 61.3 51.0 13.3 ProMaC [39] 84.7 88.3 61.9 80.9 72.8 7.8 74.9 77.4 51.3 64.8 55.8 12.8 79.5 82.8 54.9 73.6 65.1 11.5 75.2 78.5 50.8 65.0 56.1 11.3 WS-SAM [25] 84.1 87.4 59.3 79.5 70.9 7.6 77.1 78.5 50.6 64.4 55.2 9.2 79.6 83.1 53.1 73.6 64.7 10.9 76.3 79.7 49.5 65.7 56.3 9.1 WeakPolyp [26] 81.2 85.0 53.8 76.3 67.5 9.0 75.1 76.8 47.3 63.2 53.6 12.6 76.4 80.5 47.9 70.6 61.2 12.4 74.5 78.2 45.2 64.3 54.4 11.0 SEE [27] 85.2 87.3 62.6 79.6 70.8 8.0 77.8 78.8 53.3 65.8 56.2 10.2 80.5 82.4 56.6 73.6 64.5 11.7 78.0 80.2 53.0 67.0 57.0 9.2 ARTEMIS (Ours ) 89.7 92.4 84.1 85.2 78.3 3.4 78.6 79.7 65.9 66.7 58.7 4.3 84.5 87.8 77.3 78.8 71.3 7.4 79.6 81.6 67.5 68.7 60.9 4.8 
+
+Point Supervision 
+
+SCWS [15] 74.6 80.9 41.5 71.6 62.1 12.0 70.3 71.2 37.7 57.5 47.4 15.7 70.8 77.1 37.0 66.3 56.3 14.8 68.6 71.6 35.2 57.7 47.3 14.9 TEL [17] 77.5 82.9 46.7 74.7 66.0 11.4 72.9 74.3 42.2 61.3 51.7 14.3 72.9 78.8 41.6 69.3 60.1 14.5 71.5 75.1 39.8 61.7 51.8 13.3 SCOD [16] 75.3 81.6 43.5 73.2 64.2 12.4 71.7 73.2 40.5 60.2 50.5 15.4 71.2 77.5 39.0 67.8 58.3 15.5 70.1 73.8 37.9 60.2 50.3 14.6 SAM-WS [31] 69.2 75.9 33.9 67.4 57.5 16.3 66.8 68.9 32.3 56.7 46.5 19.8 65.6 72.5 29.9 62.5 52.7 19.4 64.8 68.6 29.8 56.1 45.6 19.4 GenSAM [30] 76.5 82.1 45.7 73.1 63.8 11.3 72.7 75.4 42.4 61.9 51.9 14.3 72.4 77.9 41.2 67.9 58.1 14.5 71.4 76.0 39.7 62.4 51.9 13.1 ProMaC [39] 82.2 86.0 56.2 78.0 69.3 9.1 75.2 76.1 49.4 62.6 52.3 12.7 78.9 82.1 52.6 73.2 64.0 11.8 75.2 77.6 49.3 63.8 54.1 11.0 WS-SAM [25] 81.0 85.4 52.5 77.6 69.0 9.4 74.5 76.0 45.4 62.0 52.6 12.0 75.9 80.4 46.8 71.1 62.3 13.1 73.7 77.3 43.9 63.9 54.5 11.6 SEE [27] 83.7 87.3 57.2 79.4 70.8 8.0 74.5 75.6 47.1 62.1 52.6 12.4 79.1 82.6 50.9 73.1 63.9 11.2 74.2 77.0 46.1 63.1 53.6 11.2 ARTEMIS (Ours ) 86.3 88.7 65.4 81.2 73.2 6.8 77.0 76.9 52.9 62.8 53.9 8.0 81.5 84.0 59.2 74.8 66.0 10.0 77.0 78.6 52.7 64.4 55.5 8.0 
+
+E. Implementation Details 
+
+We use SAM2 [24] ( sam2.1_hiera_base_plus.pt ). The debate-and-judge agent is instantiated with Qwen2.5-VL-7B [58] and uses one affirmative/negative debate round followed by one judge decision ( R = 1). Stage 1 uses anchor threshold τa = 0 .7, T-NMS radius r = 5 . Stage 2 uses K = 5 target frames, first-frame sampling probability 
+
+p = 0.5, area bounds ρmin = 0.0005 and ρmax = 0.5,reliability power γr = 2 .0, judge weights wjudge t = 1 .0/0.5
+
+for frames with/without st > τ a, and loss weights λbce = 0 .5,
+
+λdice = 1 .0. RPTM uses N = 4 identity tokens, one forward and one backward Mamba block [59] with state dimension 
+
+dstate = 16 , convolution width dconv = 3 , expansion ratio 2, and relation gate. The segmentation backbone is PVT-v2-B2 [60], and RPTM is applied to the 32-channel fused decoder [7] feature map before the prediction head. The segmenter is trained using AdamW with batch size 12, weight decay 10 −4, input size 352 × 352 . The base learning rate is 
+
+10 −4 for decoder/head parameters and 10 −5 for the backbone. All experiments are conducted on one NVIDIA A100 GPU. IV. E XPERIMENT 
+
+A. Experimental Settings 
+
+Datasets and supervision settings. Experiments are con-ducted on SUN-SEG [5] and CVC-ClinicDB-612 [61]. For SUN-SEG, we follow the standard Easy/Hard and Seen/Un-seen protocol, yielding four splits: SUN-SEG-Easy-Seen, SUN-SEG-Easy-Unseen, SUN-SEG-Hard-Seen, and SUN-SEG-Hard-Unseen. CVC-ClinicDB-612 serves as an addi-tional benchmark and is split into training/testing sets at 
+
+TABLE IV QUANTITATIVE COMPARISON ON THE CVC-C LINIC DB-612 DATASET UNDER Fully Supervised , Scribble Supervision , AND Point Supervision 
+
+> SETTINGS
+
+. T HE BEST AND SECOND -BEST RESULTS ARE HIGHLIGHTED IN  
+
+> BOLD AND UNDERLINED
+
+, RESPECTIVELY .Method CVC-ClinicDB-612 (%) 
+
+Sα ↑ Emn ϕ ↑ F wβ ↑ Dice ↑ IoU ↑ MAE ↓
+
+Fully Supervised 
+
+PraNet [9] 93.6 95.7 88.6 92.3 86.9 0.8 PNS [4] 93.0 95.3 87.2 92.0 86.1 0.8 PNS+ [5] 94.5 96.7 89.5 93.1 88.3 0.9 
+
+Scribble Supervision 
+
+SCWS [15] 83.1 84.4 68.1 71.2 58.1 2.2 TEL [17] 83.1 84.1 67.8 70.5 55.0 2.1 SCOD [16] 83.3 85.5 69.2 73.5 59.1 2.1 SAM-WS [31] 72.9 73.1 53.1 52.4 37.6 6.7 GenSAM [30] 80.1 82.2 67.1 68.1 52.2 2.9 ProMaC [39] 88.2 91.4 80.2 82.9 71.1 1.8 WS-SAM [25] 87.6 89.3 76.8 79.1 67.6 1.8 WeakPolyp [26] 83.5 85.5 69.8 72.6 59.9 1.9 SEE [27] 89.8 92.1 78.9 81.9 70.4 1.6 ARTEMIS (Ours ) 91.7 94.8 86.5 88.7 80.2 1.1 
+
+Point Supervision 
+
+SCWS [15] 76.1 80.3 62.1 64.7 48.7 5.1 TEL [17] 77.7 82.4 63.7 70.1 54.7 4.2 SCOD [16] 77.1 81.1 63.5 69.5 54.2 4.9 SAM-WS [31] 69.5 68.0 46.7 48.1 33.1 6.4 GenSAM [30] 75.2 79.1 62.1 62.7 46.2 5.0 ProMaC [39] 83.8 83.1 69.1 70.9 55.5 2.7 WS-SAM [25] 80.5 84.1 66.7 70.2 55.7 3.2 SEE [27] 84.1 85.2 73.2 75.1 61.4 2.0 ARTEMIS (Ours ) 88.7 90.7 79.4 83.1 72.3 1.7 
+
+a 6:4 ratio. We evaluate ARTEMIS under two imperfectly supervised regimes: 1) weak supervision , including scribble and point annotations; and 2) semi-supervision , using only 1/8 or 1/16 densely labeled SUN-SEG training data following common practice. IEEE TRANSACTIONS ON IMAGE PROCESSING 8
+
+TABLE V QUANTITATIVE COMPARISON ON THE SUN-SEG-E ASY AND SUN-SEG-H ARD DATASETS UNDER 1/8 Labeled Training Data AND 1/16 Labeled Training Data SEMI -SUPERVISED SETTINGS . T HE BEST AND SECOND -BEST RESULTS ARE HIGHLIGHTED IN BOLD AND UNDERLINED , RESPECTIVELY .Method SUN-SEG-Easy-Seen (%) SUN-SEG-Easy-Unseen (%) SUN-SEG-Hard-Seen (%) SUN-SEG-Hard-Unseen (%) 
+
+Sα ↑Emn ϕ ↑F wβ ↑Dice ↑IoU ↑MAE ↓Sα ↑Emn ϕ ↑F wβ ↑Dice ↑IoU ↑MAE ↓Sα ↑Emn ϕ ↑F wβ ↑Dice ↑IoU ↑MAE ↓Sα ↑Emn ϕ ↑F wβ ↑Dice ↑IoU ↑MAE ↓
+
+1/8 Labeled Training Data 
+
+MT [18] 75.2 80.5 44.7 72.5 63.3 13.4 71.7 74.1 42.3 63.0 53.5 17.4 71.0 76.0 39.9 67.1 57.5 16.5 70.7 74.8 40.0 63.7 53.5 16.0 SAM-S [31] 67.6 71.0 28.7 61.0 50.1 17.4 63.1 60.5 26.3 48.0 37.5 22.9 63.5 66.7 23.4 55.0 43.8 19.8 61.7 60.2 24.4 46.9 36.3 22.0 MCF [19] 80.2 85.2 53.1 76.9 68.1 9.8 75.6 77.5 49.2 65.0 55.6 13.1 77.4 81.9 50.0 72.5 63.1 12.2 75.6 79.0 48.1 66.5 56.6 11.4 CauSSL [20] 83.8 87.3 57.2 79.7 71.4 8.4 75.6 76.3 47.8 62.4 53.1 11.2 78.8 81.9 51.2 72.9 64.2 12.0 76.2 78.3 47.9 64.9 55.6 10.6 CML [21] 85.5 87.4 63.0 79.7 71.2 7.9 78.5 79.6 51.4 65.6 56.2 8.1 80.3 83.1 55.8 73.7 64.8 11.2 79.3 81.2 53.5 67.6 57.9 7.4 AD-MT [22] 85.1 88.0 61.8 79.8 71.0 7.4 77.9 79.1 52.8 65.7 56.2 9.9 80.6 83.2 55.8 74.0 64.9 10.8 77.6 80.0 51.7 66.2 56.5 9.1 ST-SAM [32] 86.7 89.1 67.3 81.4 73.5 6.7 76.7 76.8 52.8 61.8 53.2 7.2 81.4 83.8 60.1 74.3 66.0 10.1 77.4 79.0 54.1 64.0 55.5 7.2 KnowSAM [33] 87.0 89.8 80.3 81.6 74.1 5.3 75.5 74.9 60.4 60.9 52.9 5.0 81.7 83.8 73.3 74.6 66.7 9.0 74.9 74.5 59.6 60.2 52.3 5.7 SEE [27] 88.1 91.3 81.9 83.9 76.7 4.9 77.9 79.6 65.0 66.1 58.2 5.4 82.9 86.4 74.6 77.1 68.9 8.7 78.7 81.0 65.8 67.2 59.3 5.5 ARTEMIS (Ours ) 90.7 93.6 85.2 86.5 79.9 2.7 79.4 81.1 67.1 68.2 60.4 4.8 86.2 90.1 78.2 80.0 72.2 4.5 80.8 83.9 69.4 70.9 63.1 4.6 
+
+1/16 Labeled Training Data 
+
+MT [18] 74.4 79.9 41.4 70.4 60.6 12.3 70.2 71.6 37.7 58.1 48.0 16.1 71.6 77.0 37.6 66.4 56.5 14.5 68.5 71.7 34.8 57.9 47.4 15.3 SAM-S [31] 65.6 68.9 26.9 57.6 46.6 18.5 61.5 60.3 24.5 45.1 34.6 22.6 61.1 64.7 22.1 50.9 40.1 21.2 58.5 58.0 21.4 41.8 31.6 22.9 MCF [19] 77.7 83.1 48.3 75.1 66.3 11.3 72.0 73.5 43.5 62.2 52.7 16.5 73.3 78.9 43.0 69.3 60.3 14.2 70.5 74.4 40.4 61.6 51.9 14.8 CauSSL [20] 81.7 86.3 54.1 78.4 69.6 8.7 75.4 77.8 46.7 63.8 54.6 11.1 77.2 81.9 48.3 72.7 63.7 11.9 74.5 78.7 45.5 65.1 55.6 10.6 CML [21] 83.7 87.8 58.6 80.1 71.9 7.7 75.6 77.1 48.6 63.0 53.9 10.4 78.7 82.9 51.7 73.6 64.8 11.0 74.7 78.2 47.3 64.1 54.9 10.0 AD-MT [22] 83.9 87.9 58.8 80.1 71.8 7.7 76.3 78.2 50.0 64.5 55.3 10.6 79.1 83.0 52.1 73.8 64.9 11.0 75.8 79.3 49.0 65.7 56.3 9.9 ST-SAM [32] 84.5 87.9 60.1 80.1 71.9 7.5 76.6 77.5 50.1 63.0 54.0 8.8 79.9 83.3 53.9 74.0 65.2 10.7 76.2 78.9 49.3 64.6 55.5 8.7 KnowSAM [33] 85.0 88.5 62.0 80.9 72.8 7.1 77.6 78.5 52.2 64.0 55.2 7.6 80.5 84.2 56.2 74.8 66.1 10.3 77.2 80.3 51.6 65.8 56.8 7.5 SEE [27] 86.1 87.4 68.2 78.5 69.9 6.6 76.6 76.4 55.0 61.5 52.6 7.0 82.0 83.7 62.8 73.4 64.7 9.8 77.5 78.3 55.5 63.1 53.9 6.7 ARTEMIS (Ours ) 89.9 92.4 84.3 85.5 78.9 3.4 78.3 79.8 66.0 66.9 58.9 4.9 84.5 87.9 77.4 79.1 71.5 7.6 79.2 81.4 67.1 68.2 60.2 5.0 
+
+TABLE VI QUANTITATIVE COMPARISON ON THE CVC-C LINIC DB-612 DATASET UNDER 1/8 Labeled Training Data AND 1/16 Labeled Training Data 
+
+> SEMI
+
+-SUPERVISED SETTINGS . T HE BEST AND SECOND -BEST RESULTS ARE HIGHLIGHTED IN BOLD AND UNDERLINED , RESPECTIVELY .Method CVC-ClinicDB-612 (%) 
+
+Sα ↑ Emn ϕ ↑ F wβ ↑ Dice ↑ IoU ↑ MAE ↓
+
+1/8 Labeled Training Data 
+
+MT [18] 80.2 84.2 65.7 69.1 52.7 4.3 SAM-S [31] 70.1 69.2 48.7 49.7 33.5 5.7 MCF [19] 84.2 85.3 73.1 75.4 60.5 1.9 CauSSL [20] 85.9 86.7 74.5 77.5 63.8 1.7 CML [21] 88.1 92.1 78.8 80.7 67.3 1.7 AD-MT [22] 87.5 90.1 79.1 81.5 68.9 1.9 ST-SAM [32] 88.5 92.4 80.5 82.8 70.7 1.8 KnowSAM [33] 89.5 92.8 81.7 84.1 72.1 1.6 SEE [27] 90.1 93.1 84.7 86.7 76.1 1.3 ARTEMIS (Ours ) 92.8 95.2 88.2 89.6 81.7 0.8 
+
+1/16 Labeled Training Data 
+
+MT [18] 78.1 82.8 63.7 65.1 49.2 4.6 SAM-S [31] 68.5 69.0 48.1 49.1 32.1 5.9 MCF [19] 82.4 83.3 66.5 69.1 52.5 2.3 CauSSL [20] 84.1 84.7 72.1 74.9 58.1 1.9 CML [21] 86.9 88.1 75.5 78.2 64.5 1.8 AD-MT [22] 86.2 88.2 76.1 77.6 63.2 1.9 ST-SAM [32] 87.5 91.3 79.1 79.3 65.5 1.8 KnowSAM [33] 88.1 92.5 81.5 80.1 66.9 1.8 SEE [27] 88.5 92.3 78.3 81.3 67.1 1.5 ARTEMIS (Ours ) 90.9 92.9 85.2 84.8 76.1 1.2 
+
+Evaluation metrics. We report six widely used metrics: struc-ture measure Sα [62], mean E-measure Emn ϕ [63], weighted F-measure F wβ [64], Dice, IoU, and mean absolute error (MAE). Larger values indicate better performance for Sα, Emn ϕ , F wβ ,Dice, and IoU, while smaller values are better for MAE. 
+
+Compared methods. For weak supervision, we compare with SCWS [15], TEL [17], SCOD [16], SAM-WS [31], Gen-SAM [30], ProMaC [39], WS-SAM [25], WeakPolyp [26], and SEE [27]. For semi-supervision, we compare with MT [18], SAM-S [31], MCF [19], CauSSL [20], CML [21], AD-MT [22], ST-SAM [32], KnowSAM [33], and SEE [27]. PraNet [9], PNS [4], and PNS+ [5] are fully supervised methods. We trained these methods under the same settings. 
+
+B. Comparison to State-of-the-Arts 
+
+Weakly supervised comparison. Tabs. III and IV report the scribble and point results. ARTEMIS ranks first among weakly supervised methods on both datasets. Three observations are noteworthy. 1) On SUN-SEG with scribble supervision, ARTEMIS improves Dice from 80.9% to 85.2% on Easy-Seen and from 67.0% to 68.7% on Hard-Unseen over the strongest competitor. 2) The F wβ gains are larger, from 62.6% to 84.1% and from 53.0% to 67.5%, indicating more complete structures. ARTEMIS also reduces MAE from 7.6% to 3.4% on Easy-Seen and from 9.1% to 4.8% on Hard-Unseen, suggesting fewer background leaks and missed regions. 3) 
+
+On CVC-ClinicDB-612, ARTEMIS raises Dice from 82.9% to 88.7% under scribble supervision and from 75.1% to 83.1% under point supervision, while IoU increases to 80.2% and 72.3%, respectively. These gains support our motivation: agent-guided mask evolution turns sparse annotations into reliable temporal anchors and dense evolved pseudo masks. 
+
+Semi-supervised comparison. Tabs. V and VI show the 1/8 and 1/16 labeled-data results. ARTEMIS achieves the best performance in all semi-supervised settings. 1) On SUN-SEG-Easy-Seen, Dice increases from 83.9% to 86.5% with 1/8 labels and from 80.9% to 85.5% with 1/16 labels. 2) On the harder SUN-SEG-Hard-Unseen split, Dice improves from 67.6% to 70.9% and from 65.8% to 68.2%, respectively; the corresponding F wβ scores also rise to 69.4% and 67.1%, showing stronger structure recovery under scarce labels. 3) On CVC-ClinicDB-612, ARTEMIS improves Dice from 86.7% to 89.6% and from 81.3% to 84.8%, with IoU gains from 76.1% IEEE TRANSACTIONS ON IMAGE PROCESSING 9
+
+TABLE VII OVERALL COMPONENT ANALYSIS ON SUN-SEG DATASET UNDER Scribble Supervision AND 1/8 Labeled Training Data SETTINGS . B: BASELINE SEGMENTER ; E VO : AGENT -GUIDED BIDIRECTIONAL MASK EVOLUTION ; R EF : RELIABILITY -GUIDED REFERENCE SELECTION ; R EL : RELIABILITY -AWARE ROBUST LOSS ; RPTM: R EFERENCE PROTOTYPE TRANSPORT MODULE .B Evo Ref Rel RPTM SUN-SEG-Easy-Seen (%) SUN-SEG-Easy-Unseen (%) SUN-SEG-Hard-Seen (%) SUN-SEG-Hard-Unseen (%)                                                                                                                                                                                                                                        
+
+> Sα↑Emn ϕ↑Fwβ↑Dice ↑Sα↑Emn ϕ↑Fwβ↑Dice ↑Sα↑Emn ϕ↑Fwβ↑Dice ↑Sα↑Emn ϕ↑Fwβ↑Dice ↑
+> Scribble Supervision
+> ✓––––67.0 67.9 28.0 57.0 62.9 59.3 26.6 46.0 62.0 62.0 22.5 49.0 60.5 56.9 23.7 42.9
+> ✓✓–––81.1 85.2 55.1 77.7 74.4 76.2 48.1 63.4 76.9 80.7 50.4 71.8 73.7 77.4 45.9 63.7
+> ✓✓✓––84.2 87.3 61.0 79.7 77.4 79.1 53.6 64.3 80.1 82.9 56.0 74.5 78.0 80.8 53.1 65.0
+> ✓✓✓✓–87.6 89.6 77.1 81.8 77.6 78.5 60.9 64.5 82.9 85.2 70.5 75.8 78.7 79.8 62.2 65.7
+> ✓✓✓✓✓89.7 92.4 84.1 85.2 78.6 79.7 65.9 66.7 84.5 87.8 77.3 78.8 79.6 81.6 67.5 68.7
+> 1/8 Labeled Training Data
+> ✓––––69.5 75.5 34.6 66.0 67.0 69.0 32.8 56.3 66.0 72.0 30.5 61.6 65.2 68.5 30.5 55.3
+> ✓✓–––83.5 86.9 58.1 80.0 73.9 74.1 46.2 61.1 79.2 82.7 49.8 72.1 73.8 77.1 45.9 63.7
+> ✓✓✓––86.1 87.9 65.1 81.1 77.4 76.5 52.1 65.5 81.7 84.1 60.2 75.1 76.1 77.2 51.5 64.1
+> ✓✓✓✓–88.3 91.6 82.7 84.4 78.0 79.7 65.3 66.1 83.1 86.7 75.5 77.3 78.7 81.1 66.0 67.2
+> ✓✓✓✓✓90.7 93.6 85.2 86.5 79.4 81.1 67.1 68.2 86.2 90.1 78.2 80.0 80.8 83.9 69.4 70.9
+
+to 81.7% and from 67.1% to 76.1%. This confirms that anchor-based bidirectional evolution can densify missing frame-level labels into temporally consistent masks for semi-supervised learning. The consistent gains over teacher-student and SAM-based baselines further indicate that reliability-aware training is important after pseudo-label completion, because evolved masks still contain noise. 
+
+Threshold curves and qualitative comparison. Figs. 9and 10 compare Dice- and Fβ -threshold curves on SUN-SEG-Hard-Seen. ARTEMIS remains stronger across thresh-olds under all four settings, suggesting that its gains are not tied to a specific binarization threshold. Qualitatively, Fig. 7 shows that ARTEMIS better preserves blurry, drifting, and small polyp regions, while competing methods often produce inaccurate or temporally discontinuous masks. Fig. 8 further shows that ARTEMIS reduces over- and under-segmentation for background-like polyps by combining reliable pseudo supervision with reference-guided temporal identity modeling. 
+
+C. Ablation Studies 
+
+We ablate ARTEMIS following its two-stage pipeline. 
+
+Stage 1 evaluates reliable anchor selection and bidirectional mask evolution, while Stage 2 analyzes reference selection, reliability-aware robust loss, and RPTM. 
+
+Overall Component Analysis. We progressively add key components to the baseline. B trains directly with initial SAM2 coarse masks, Evo adds Stage 1 bidirectional evolution, Ref 
+
+adds reliability-guided reference selection, Rel adds reliability-aware loss, and RPTM gives the full ARTEMIS. As shown in Tab. VII, the gains follow the design logic of ARTEMIS. 1Evo brings the largest improvement, raising scribble Dice from 57.0%/46.0%/49.0%/42.9% to 77.7%/63.4%/71.8%/63.7% on Easy-Seen/Easy-Unseen/Hard-Seen/Hard-Unseen. 2 Ref fur-ther improves Dice to 79.7%/64.3%/74.5%/65.0%. 3 Rel raises it to 81.8%/64.5%/75.8%/65.7% by down-weighting unreliable supervision. 4 RPTM achieves the final Dice of 85.2%/66.7%/78.8%/68.7%, showing the benefit of trans-ported reference identity. The 1/8 labeled-data setting shows a similar trend. 1 Evo improves Dice from 66.0%/56.3%/61.6%/55.3% to 80.0%/61.1%/72.1%/63.7%. 2 Ref is most beneficial on Easy-Unseen and Hard-Seen, while 
+
+TABLE VIII ABLATION STUDY OF RELIABLE ANCHOR SELECTION STRATEGIES IN 
+
+STAGE 1 ON SUN-SEG-E ASY -U NSEEN AND SUN-SEG-H ARD -U NSEEN 
+
+> SETS
+
+. NS: NO SELECTION ; PS: POLICY -BASED SELECTION ; AS: 
+
+> AGENT
+
+-GUIDED SELECTION .Setting SUN-SEG-Easy-Unseen (%) SUN-SEG-Hard-Unseen (%)                                          
+
+> Sα↑Emn ϕ↑Fwβ↑Dice ↑Sα↑Emn ϕ↑Fwβ↑Dice ↑
+> 1NS 70.4 72.1 37.5 59.8 68.8 72.3 35.1 59.9 2 PS 74.5 77.0 45.9 63.4 73.8 78.4 44.8 64.7 3AS (Ours )78.6 79.7 65.9 66.7 79.6 81.6 67.5 68.7
+
+3 Rel improves Hard-Unseen Dice from 64.1% to 67.2%. 4 RPTM further raises Dice from 84.4%/66.1%/77.3%/67.2% to 86.5%/68.2%/80.0%/70.9%. Overall, Stage 1 improves pseudo-label quality, and Stage 2 enhances robustness via reference selection, noise suppression, and identity transport. 
+
+Stage 1: Agent-guided Reliable Anchor Selection. We first ablate temporal anchor selection. NS uses every SAM2 coarse mask as an anchor, PS applies SEE-style policy-based selection with area, confidence, and temporal-continuity rules, and AS uses agent judgment before T-NMS. As shown in Tab. VIII, 1 NS reaches only 59.8%/59.9% Dice on SUN-SEG-Easy-Unseen/Hard-Unseen because unreliable masks are propagated. 2 PS raises Dice to 63.4%/64.7%, showing that filtering low-quality anchors is necessary. 3 AS further improves Dice to 66.7%/68.7% and F wβ from 37.5%/35.1% to 65.9%/67.5% over NS, confirming that semantic agent judgment prevents unreliable anchors in propagation. 
+
+Stage 1: Bidirectional Mask Evolution. We then compare evolution directions. CM uses original SAM2 masks without refinement, CM+FR propagates selected anchors forward, and 
+
+CM+BiR propagates them bidirectionally. In Tab. IX, 1CM obtains 54.9%/53.4% Dice, showing that isolated sparse-prompt masks lack temporal consistency. 2 CM+FR improves Dice to 63.4%/64.4%, confirming that reliable anchors can refine later frames. 3 CM+BiR reaches 66.7%/68.7% Dice, with relative gains of 21.5%/28.7% over CM and large F wβ
+
+gains, confirming that reverse propagation complements for-ward propagation and reduces one-directional drift. 
+
+Stage 1: Pseudo-label Quality. We also measure pseudo-label quality after Stage 1. Ground truth is used only for this offline analysis. In Tab. X, 1 coarse masks obtain 71.0%/73.4% Dice and 8.8%/8.3% MAE under scribble/1/8 labeled-data IEEE TRANSACTIONS ON IMAGE PROCESSING 10 Time  Time       
+
+> Frame SCWS TEL GenSAM ProMac SCOD Ours GT WS-SAM SEE WeakPolyp
+
+Fig. 7. Qualitative comparison. Under Scribble Supervision , rows 1–4 show blurry polyps with temporal drift, where ARTEMIS better preserves accurate boundaries. Rows 5–8 show a small polyp target, where ARTEMIS produces more continuous and precise predictions across frames. Frame  MT  MCF  CML  AD-MT CauSSL Ours GT  KnowSAM  SEE ST-SAM 
+
+> Time  Time
+
+Fig. 8. Qualitative comparison. Under the 1/8 Labeled Training Data setting, the two video clips, each with four frames, contain polyps highly similar to the background. ARTEMIS avoids the over-segmentation and under-segmentation observed in competing methods and identifies the polyp regions accurately. IEEE TRANSACTIONS ON IMAGE PROCESSING 11 0.00 0.20 0.40 0.60 0.80 1.00                 
+
+> Threshold
+> 0.40
+> 0.52
+> 0.64
+> 0.76
+> 0.88
+> 1.00
+> Dice
+> Scribble Supervision
+> 0.00 0.20 0.40 0.60 0.80 1.00
+> Threshold
+> Point Supervision
+> 0.00 0.20 0.40 0.60 0.80 1.00
+> Threshold
+> 1/8 Labeled Training Data
+> 0.00 0.20 0.40 0.60 0.80 1.00
+> Threshold
+> 1/16 Labeled Training Data GenSAM
+> SAM_WS
+> ProMaC
+> SCOD
+> SEE
+> SCWS
+> TEL
+> WS_SAM
+> WeakPolyp
+> AD_MT
+> MT
+> CML
+> CauSSL
+> KnowSAM
+> MCF
+> ST_SAM
+> SAM_S
+> ARTEMIS
+
+Fig. 9. Comparison of Dice-threshold curves on the SUN-SEG-Hard-Seen across four supervision settings. From left to right, the subplots show results under Scribble Supervision , Point Supervision , 1/8 Labeled Training Data , and 1/16 Labeled Training Data .0.00 0.20 0.40 0.60 0.80 1.00                 
+
+> Threshold
+> 0.60
+> 0.68
+> 0.76
+> 0.84
+> 0.92
+> 1.00
+> F
+> Scribble Supervision
+> 0.00 0.20 0.40 0.60 0.80 1.00
+> Threshold
+> Point Supervision
+> 0.00 0.20 0.40 0.60 0.80 1.00
+> Threshold
+> 1/8 Labeled Training Data
+> 0.00 0.20 0.40 0.60 0.80 1.00
+> Threshold
+> 1/16 Labeled Training Data GenSAM
+> SAM_WS
+> ProMaC
+> SCOD
+> SEE
+> SCWS
+> TEL
+> WS_SAM
+> WeakPolyp
+> AD_MT
+> MT
+> CML
+> CauSSL
+> KnowSAM
+> MCF
+> ST_SAM
+> SAM_S
+> ARTEMIS
+
+Fig. 10. Comparison of Fβ -threshold curves on the SUN-SEG-Hard-Seen across four supervision settings. From left to right, the subplots show results under Scribble Supervision , Point Supervision , 1/8 Labeled Training Data , and 1/16 Labeled Training Data .TABLE IX ABLATION STUDY OF MASK EVOLUTION STRATEGIES IN STAGE 1 ON 
+
+SUN-SEG-E ASY -U NSEEN AND SUN-SEG-H ARD -U NSEEN SETS . CM: 
+
+COARSE MASK ; FR: FORWARD REFINEMENT ; B IR: BIDIRECTIONAL REFINEMENT .Setting SUN-SEG-Easy-Unseen (%) SUN-SEG-Hard-Unseen (%) 
+
+Sα ↑ Emn ϕ ↑ F wβ ↑ Dice ↑ Sα ↑ Emn ϕ ↑ F wβ ↑ Dice ↑
+
+1 CM 66.5 68.3 31.9 54.9 64.3 67.2 29.1 53.4 2 CM+FR 74.8 76.6 45.9 63.4 73.7 77.5 43.5 64.4 3 CM+BiR (Ours ) 78.6 79.7 65.9 66.7 79.6 81.6 67.5 68.7 TABLE X PSEUDO -LABEL QUALITY ANALYSIS AFTER STAGE 1 EVOLUTION UNDER 
+
+Scribble Supervision AND 1/8 Labeled Training Data SETTINGS .Pseudo Label SUN-SEG-Train (%) 
+
+Sα ↑ Emn ϕ ↑ F wβ ↑ Dice ↑ IoU ↑ MAE ↓
+
+Scribble Supervision 
+
+1 Coarse mask 80.6 81.3 68.9 71.0 63.0 8.8 2 Forward evolved 87.7 91.4 80.2 81.5 73.8 4.0 3 Bidirectional evolved (Ours ) 88.6 93.0 82.0 83.1 74.5 3.6 
+
+1/8 Labeled Training Data 
+
+1 Coarse mask 81.5 84.2 69.8 73.4 64.1 8.3 2 Forward evolved 88.8 92.5 82.1 84.2 76.1 3.8 3 Bidirectional evolved (Ours ) 91.9 94.7 86.2 87.6 80.9 1.8 
+
+settings, showing the noise in initial SAM2 masks. 2 Forward evolution raises Dice to 81.5%/84.2% and lowers MAE to 4.0%/3.8%. 3 Bidirectional evolution further improves Dice to 83.1%/87.6% and MAE to 3.6%/1.8%, explaining the downstream gains from more clear pseudo masks. 
+
+Stage 2: Reliability-guided Reference Selection. We com-pare three reference strategies: FF always uses the first frame, 
+
+RR samples randomly, and RF selects references using the frame-level quality score Qt. As shown in Tab. XI, 1 FF reaches 65.3%/66.9% Dice, but the first frame is not always 
+
+TABLE XI ABLATION STUDY OF REFERENCE SELECTION STRATEGIES IN STAGE 2 ON 
+
+SUN-SEG-E ASY -U NSEEN AND SUN-SEG-H ARD -U NSEEN SETS . FF: 
+
+FIXED FIRST FRAME ; RR: RANDOM REFERENCE ; RF: 
+
+RELIABILITY -GUIDED REFERENCE FRAME .Setting SUN-SEG-Easy-Unseen (%) SUN-SEG-Hard-Unseen (%) 
+
+Sα ↑ Emn ϕ ↑ F wβ ↑ Dice ↑ Sα ↑ Emn ϕ ↑ F wβ ↑ Dice ↑
+
+1 FF 76.9 78.8 50.2 65.3 77.1 80.1 50.8 66.9 2 RR 76.6 76.1 62.2 62.9 77 77.6 62.5 63.3 3 RF (Ours ) 78.6 79.7 65.9 66.7 79.6 81.6 67.5 68.7 
+
+reliable under blur or occlusion. 2 RR increases F wβ but lowers Dice, suggesting inconsistent identity cues. 3 RF achieves the best Dice of 66.7%/68.7% and improves F wβ
+
+from 62.2%/62.5% to 65.9%/67.5% over RR, verifying that 
+
+Qt selects a more trustworthy identity source for RPTM. 
+
+Stage 2: Reliability-aware Robust Loss. Tab. XII ablates the robust loss. DPS applies uniform supervision, Conf uses 
+
+Rconf t , BiC adds Rbidir t , and SJW adds frame-level judge weights. The results show a progressive reliability effect: 1 DPS obtains 63.1%/64.4% Dice, revealing the limita-tion of treating all pseudo labels equally. 2 Conf improves Dice to 64.3%/65.8%, and 3 adding BiC further raises it to 65.8%/67.4%. 4 Adding SJW gives the best Dice of 66.7%/68.7% and improves F wβ from 46.3%/43.9% to 65.9%/67.5% over DPS, showing that pixel-, temporal-, and frame-level reliability jointly suppress noisy supervision. 
+
+Stage 2: Reference Prototype Transport Module. Tab. XIII ablates RPTM. 1 Removing relation-gated injection ( w/o RG )drops Dice to 66.4%/67.7%, indicating that directly injecting transported identity may introduce noise. 2 One-directional evolution ( Uni-M ) obtains 66.6%/67.1% Dice, showing lim-ited robustness to temporal drift. 3 The full design ( Bi-M )achieves the best Dice of 66.7%/68.7% and F wβ , validating relation-gated bidirectional identity modeling. IEEE TRANSACTIONS ON IMAGE PROCESSING 12 
+
+TABLE XII ABLATION STUDY OF RELIABILITY -AWARE ROBUST LOSS IN STAGE 2 ON 
+
+SUN-SEG-E ASY -U NSEEN AND SUN-SEG-H ARD -U NSEEN SETS . DPS: 
+
+> DIRECT PSEUDO
+
+-LABEL SUPERVISION ; C ONF : Rconf t ; B IC: Rbidir t ; SJW: 
+
+> FRAME
+
+-LEVEL JUDGE WEIGHT .Setting SUN-SEG-Easy-Unseen (%) SUN-SEG-Hard-Unseen (%)                                                  
+
+> Sα↑Emn ϕ↑Fwβ↑Dice ↑Sα↑Emn ϕ↑Fwβ↑Dice ↑
+> 1DPS 74.9 77.2 46.3 63.1 74.0 78.3 43.9 64.4 2 Conf 77.3 78.4 51.4 64.3 76.8 79.7 50.7 65.8 3Conf+BiC 77.6 78.7 54.8 65.8 78.5 80.3 55.1 67.4 4 Conf+BiC+SJW (Ours )78.6 79.7 65.9 66.7 79.6 81.6 67.5 68.7
+
+TABLE XIII ABLATION STUDY OF RPTM COMPONENTS ON 
+
+SUN-SEG-E ASY -U NSEEN AND SUN-SEG-H ARD -U NSEEN SETS . RG: 
+
+> RELATION GATE
+
+; U NI -M/B I-M: UNIDIRECTIONAL /BIDIRECTIONAL 
+
+MAMBA .Setting SUN-SEG-Easy-Unseen (%) SUN-SEG-Hard-Unseen (%)                                          
+
+> Sα↑Emn ϕ↑Fwβ↑Dice ↑Sα↑Emn ϕ↑Fwβ↑Dice ↑
+> 1w/o RG 77.8 79.1 64.7 66.4 79.1 81.4 66.8 67.7 2 Uni-M 78.1 79.0 65.1 66.6 78.7 81.0 66.5 67.1 3Bi-M (Ours )78.6 79.7 65.9 66.7 79.6 81.6 67.5 68.7
+
+Stage 2: Reference Identity Token Number. Tab. XIV ana-lyzes the number of reference identity tokens N . 1 With one token, RPTM obtains 64.5%/65.9% Dice and 46.0%/44.9% 
+
+F wβ , showing limited appearance capacity. 2 Increasing N to 2 improves F wβ , because multiple tokens encode richer identity patterns. 3 N = 4 achieves the best Dice of 66.7%/68.7%. 4 
+
+N = 8 degrades Dice to 64.3%/67.0%, suggesting redundant or noisy cues. Thus, N = 4 provides the best balance between identity capacity and noise robustness. 
+
+D. Further Analysis 
+
+Activation visualization. Fig. 11 visualizes activation maps with and without RPTM under scribble supervision. Without RPTM, the model may activate mucosa-like background or miss ambiguous polyp interiors. With RPTM, reliable ref-erence identity tokens strengthen true-polyp responses and suppress distractors. This indicates that reference prototypes improve semantic discriminability rather than merely smooth-ing predictions temporally. Frame  w/o RPTM w/ RPTM GT 
+
+Fig. 11. Activation visualization of w/o RPTM and RPTM. Under Scribble Supervision , RPTM transports reliable reference-frame identity tokens to the current frame, enhancing polyp-region responses and suppressing distractors. TABLE XIV STAGE 2 PARAMETER ANALYSIS OF THE REFERENCE IDENTITY TOKEN NUMBER (N ) IN RPTM ON SUN-SEG-E ASY -U NSEEN AND 
+
+SUN-SEG-H ARD -U NSEEN SETS .                                                         
+
+> NSUN-SEG-Easy-Unseen (%) SUN-SEG-Hard-Unseen (%)
+> Sα↑Emn ϕ↑Fwβ↑Dice ↑Sα↑Emn ϕ↑Fwβ↑Dice ↑
+> 1174.8 77.4 46.0 64.5 74.3 78.7 44.9 65.9 2 2 77.7 77.7 63.7 64.5 78.9 80.2 65.0 66.1 34(Ours) 78.6 79.7 65.9 66.7 79.6 81.6 67.5 68.7 4 8 77.6 77.6 63.4 64.3 79.3 80.8 65.7 67.0 Frame GT Ours Frame GT Ours
+
+Fig. 12. Failure cases. Under Scribble Supervision , severe distractors, rapid motion, and uneven illumination may still affect fine boundary details and cause incomplete segmentation. 
+
+Failure cases. Fig. 12 shows typical failures under scribble su-pervision. Severe distractors, drastic motion, strong highlights, or uneven illumination may still cause inaccurate boundaries or incomplete masks. These cases motivate more motion-robust temporal modeling and boundary-aware refinement. 
+
+Future work. We will extend ARTEMIS to real-world clinical scenarios and long videos, where complex motion, highlights, low-contrast boundaries, and diverse imaging protocols require stronger temporal reasoning and uncertainty-aware reference selection. We will also explore memory-efficient reference management , drift-resistant propagation , and adaptive human-in-the-loop correction for stable long-video segmentation. V. C ONCLUSION 
+
+In this paper, we presented ARTEMIS , a unified framework for imperfectly supervised VPS. Rather than treating weak su-pervision and semi-supervision as isolated regimes, ARTEMIS completes sparse or missing annotations into temporally con-sistent dense pseudo masks. Consistent with the weak/semi-supervised setting, ARTEMIS mitigates geometry-degraded pseudo masks, temporally underused pseudo labeling, and reliability-blind pseudo supervision through agent-guided bidi-rectional mask evolution and reliability-aware robust learning, including reference selection and RPTM. By selecting reli-able temporal anchors and propagating them across frames, ARTEMIS better exploits foundation-model priors while sup-pressing noisy supervision. Experiments on SUN-SEG and CVC-ClinicDB-612 demonstrate state-of-the-art performance under scribble, point, and limited-label supervision. These results show that reliable temporal completion can make low-cost annotations more effective for clinically practical VPS. ACKNOWLEDGMENT 
+
+Tong Wang, Yaolei Qi, and Guanyu Yang are supported by the National Natural Science Foundation of China (T2541064, 82441021) and the Jiangsu Province Cutting-edge Technology R&D Program (BF2025628). This work is also supported by the Big Data Computing Center of Southeast University. IEEE TRANSACTIONS ON IMAGE PROCESSING 13 
+
+REFERENCES [1] F. Bray, M. Laversanne, H. Sung, J. Ferlay, R. L. Siegel, I. Soer-jomataram, and A. Jemal, “Global cancer statistics 2022: Globocan estimates of incidence and mortality worldwide for 36 cancers in 185 countries,” CA Cancer J. Clin. , vol. 74, no. 3, pp. 229–263, 2024. [2] J. Bernal, N. Tajkbaksh, F. J. Sanchez, B. J. Matuszewski, H. Chen, L. Yu, Q. Angermann, O. Romain, B. Rustad, I. Balasingham 
+
+et al. , “Comparative validation of polyp detection methods in video colonoscopy: results from the miccai 2015 endoscopic vision challenge,” 
+
+IEEE Trans. Med. Imaging , vol. 36, no. 6, pp. 1231–1249, 2017. [3] M. Shaban, R. Awan, M. M. Fraz, A. Azam, Y.-W. Tsang, D. Snead, and N. M. Rajpoot, “Context-aware convolutional neural network for grading of colorectal cancer histology images,” IEEE Trans. Med. Imaging ,vol. 39, no. 7, pp. 2395–2405, 2020. [4] G.-P. Ji, Y.-C. Chou, D.-P. Fan, G. Chen, H. Fu, D. Jha, and L. Shao, “Progressively normalized self-attention network for video polyp seg-mentation,” in Proc. Int. Conf. Med. Image Comput. Comput.-Assist. Interv. (MICCAI) . Springer, 2021, pp. 142–152. [5] G.-P. Ji, G. Xiao, Y.-C. Chou, D.-P. Fan, K. Zhao, G. Chen, and L. Van Gool, “Video polyp segmentation: A deep learning perspective,” 
+
+Mach. Intell. Res. , vol. 19, no. 6, pp. 531–549, 2022. [6] Q. Hu, Z. Yi, Y. Zhou, F. Peng, M. Liu, Q. Li, and Z. Wang, “Sali: Short-term alignment and long-term interaction network for colonoscopy video polyp segmentation,” in Proc. Int. Conf. Med. Image Comput. Comput.-Assist. Interv. (MICCAI) . Springer, 2024, pp. 531–541. [7] G. Chen, H. Wu, and J. Qin, “Stddnet: Harnessing mamba for video polyp segmentation via spatial-aligned temporal modeling and discrim-inative dynamic representation learning,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV) , 2025, pp. 21 364–21 373. [8] T. Wang, Y. Qi, S. Wang, I. Razzak, G. Yang, and Y. Xie, “Cmsa-net: Causal multi-scale aggregation with adaptive multi-source reference for video polyp segmentation,” arXiv preprint arXiv:2602.22821 , 2026. [9] D.-P. Fan, G.-P. Ji, T. Zhou, G. Chen, H. Fu, J. Shen, and L. Shao, “Pranet: Parallel reverse attention network for polyp segmentation,” in 
+
+Proc. Int. Conf. Med. Image Comput. Comput.-Assist. Interv. (MICCAI) .Springer, 2020, pp. 263–273. [10] T. Wang, X. Qi, and G. Yang, “Polyp segmentation via semantic en-hanced perceptual network,” IEEE Trans. Circuits Syst. Video Technol. ,2024. [11] H. Wu, Z. Zhao, J. Zhong, W. Wang, Z. Wen, and J. Qin, “Polypseg+: A lightweight context-aware network for real-time polyp segmentation,” 
+
+IEEE Trans. Cybern. , vol. 53, no. 4, pp. 2610–2621, 2022. [12] H. Wu and Z. Zhao, “Epsegnet: Lightweight semantic recalibration and assembly for efficient polyp segmentation,” IEEE Trans. Neural Netw. Learn. Syst. , vol. 36, no. 8, pp. 13 805–13 817, 2025. [13] B. Xiao, J. Hu, W. Li, C.-M. Pun, and X. Bi, “Ctnet: Contrastive transformer network for polyp segmentation,” IEEE Trans. Cybern. ,vol. 54, no. 9, pp. 5040–5053, 2024. [14] Z. Liu, S. Zheng, X. Sun, Z. Zhu, Y. Zhao, X. Yang, and Y. Zhao, “The devil is in the boundary: Boundary-enhanced polyp segmentation,” IEEE Trans. Circuits Syst. Video Technol. , vol. 34, no. 7, pp. 5414–5423, 2024. [15] S. Yu, B. Zhang, J. Xiao, and E. G. Lim, “Structure-consistent weakly supervised salient object detection with local saliency coherence,” in 
+
+Proc. AAAI Conf. Artif. Intell. (AAAI) , vol. 35, no. 4, 2021, pp. 3234– 3242. [16] R. He, Q. Dong, J. Lin, and R. W. Lau, “Weakly-supervised camouflaged object detection with scribble annotations,” in Proc. AAAI Conf. Artif. Intell. (AAAI) , vol. 37, no. 1, 2023, pp. 781–789. [17] Z. Liang, T. Wang, X. Zhang, J. Sun, and J. Shen, “Tree energy loss: Towards sparsely annotated semantic segmentation,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR) , 2022, pp. 16 907–16 916. [18] A. Tarvainen and H. Valpola, “Mean teachers are better role mod-els: Weight-averaged consistency targets improve semi-supervised deep learning results,” Proc. Adv. Neural Inf. Process. Syst. (NeurIPS) , vol. 30, 2017. [19] Y. Wang, B. Xiao, X. Bi, W. Li, and X. Gao, “Mcf: Mutual correction framework for semi-supervised medical image segmentation,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR) , 2023, pp. 15 651–15 660. [20] J. Miao, C. Chen, F. Liu, H. Wei, and P.-A. Heng, “Caussl: Causality-inspired semi-supervised learning for medical image segmentation,” in 
+
+Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV) , 2023, pp. 21 426– 21 437. [21] S. Wu, X. Wei, X. Chen, Y. Ren, J. He, and X. Pu, “Cross-view mutual learning for semi-supervised medical image segmentation,” in Proc. ACM Int. Conf. Multimedia (ACMMM) , 2024, pp. 9253–9261. [22] Z. Zhao, Z. Wang, L. Wang, D. Yu, Y. Yuan, and L. Zhou, “Alternate diverse teaching for semi-supervised medical image segmentation,” in 
+
+Proc. Eur. Conf. Comput. Vis. (ECCV) . Springer, 2024, pp. 227–243. [23] A. Kirillov, E. Mintun, N. Ravi, H. Mao, C. Rolland, L. Gustafson, T. Xiao, S. Whitehead, A. C. Berg, W.-Y. Lo, P. Dollar, and R. Girshick, “Segment anything,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV) ,2023, pp. 4015–4026. [24] N. Ravi, V. Gabeur, Y.-T. Hu, R. Hu, C. Ryali, T. Ma, H. Khedr, R. Radle, C. Rolland, L. Gustafson, E. Mintun, J. Pan, K. V. Alwala, N. Carion, C.-Y. Wu, R. Girshick, P. Dollar, and C. Feichtenhofer, “SAM 2: Segment anything in images and videos,” arXiv preprint arXiv:2408.00714 , 2024. [25] C. He, K. Li, Y. Zhang, G. Xu, L. Tang, Y. Zhang, Z. Guo, and X. Li, “Weakly-supervised concealed object segmentation with sam-based pseudo labeling and multi-scale feature grouping,” Proc. Adv. Neural Inf. Process. Syst. (NeurIPS) , vol. 36, pp. 30 726–30 737, 2023. [26] Y. Zhao, T. Zhou, Y. Gu, Y. Zhou, Y. Zhang, Y. Wu, and H. Fu, “Weakpolyp-sam: Segment anything model-driven weakly-supervised polyp segmentation,” Knowl.-Based Syst. , vol. 322, p. 113701, 2025. [27] C. He, K. Li, Y. Zhang, Z. Yang, Y. Pang, L. Tang, C. Fang, Y. Zhang, L. Kong, X. Li et al. , “Segment concealed objects with incomplete supervision,” IEEE Trans. Pattern Anal. Mach. Intell. , 2025. [28] H. Chen, P. Wei, G. Guo, and S. Gao, “Sam-cod+: Sam-guided unified framework for weakly-supervised camouflaged object detection,” IEEE Trans. Circuits Syst. Video Technol. , vol. 35, no. 5, pp. 4635–4647, 2024. [29] J. Ge, J. Cao, X. Li, X. Zhu, C. Liu, B. Liu, C. Feng, and I. Patras, “D3ETOR: Debate-enhanced pseudo labeling and frequency-aware pro-gressive debiasing for weakly-supervised camouflaged object detection with scribble annotations,” arXiv preprint arXiv:2512.20260 , 2026. [30] J. Hu, J. Lin, S. Gong, and W. Cai, “Relax image-specific prompt re-quirement in sam: A single generic prompt for segmenting camouflaged objects,” in Proc. AAAI Conf. Artif. Intell. (AAAI) , vol. 38, no. 11, 2024, pp. 12 511–12 518. [31] T. Chen, L. Zhu, C. Deng, R. Cao, Y. Wang, S. Zhang, Z. Li, L. Sun, Y. Zang, and P. Mao, “Sam-adapter: Adapting segment anything in underperformed scenes,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV) , 2023, pp. 3367–3375. [32] X. Hu, F. Sun, J. Liu, F. Xu, and X. Zhang, “St-sam: Sam-driven self-training framework for semi-supervised camouflaged object detection,” in Proc. ACM Int. Conf. Multimedia (ACMMM) , 2025, pp. 8194–8203. [33] K. Huang, T. Zhou, H. Fu, Y. Zhang, Y. Zhou, C. Gong, and D. Liang, “Learnable prompting sam-induced knowledge distillation for semi-supervised medical image segmentation,” IEEE Trans. Med. Imaging ,vol. 44, no. 5, pp. 2295–2306, 2025. [34] Y. Sun, H. Zhang, J. Qian, J. Yang, and L. Luo, “Asgnet: Adaptive spectrum guidance network for automatic polyp segmentation,” IEEE Trans. Circuits Syst. Video Technol. , 2026. [35] Z. Lu, Y. Zhang, Y. Zhou, Y. Wu, and T. Zhou, “Domain-interactive contrastive learning and prototype-guided self-training for cross-domain polyp segmentation,” IEEE Trans. Med. Imaging , 2024. [36] Y. Zhang, G. Chen, Y. He, H. Wu, and J. Qin, “Wavepolyp: Video polyp segmentation via hierarchical wavelet-based feature aggregation and inter-frame divergence perception,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2026. [37] Y. He, G. Chen, Y. Zhang, H. Wu, and J. Qin, “Hfsti-net: Hierarchical frequency-spatial-temporal interactions for video polyp segmentation,” in Proc. Int. Conf. Learn. Represent. (ICLR) , 2026. [38] Z. Fang, X. Guo, J. Lin, H. Wu, and J. Qin, “An embedding-unleashing video polyp segmentation framework via region linking and scale alignment,” in Proc. AAAI Conf. Artif. Intell. (AAAI) , vol. 38, no. 2, 2024, pp. 1744–1752. [39] J. Hu, J. Lin, J. Yan, and S. Gong, “Leveraging hallucinations to reduce manual prompt dependency in promptable segmentation,” Proc. Adv. Neural Inf. Process. Syst. (NeurIPS) , vol. 37, pp. 107 171–107 197, 2024. [40] T. Zhou, L. Li, X. Li, C.-M. Feng, J. Li, and L. Shao, “Group-wise learning for weakly supervised semantic segmentation,” IEEE Trans. Image Process. , vol. 31, pp. 799–811, 2021. [41] Y. Du, Z. Fu, and Q. Liu, “Pixel-level domain adaptation: A new perspective for enhancing weakly supervised semantic segmentation,” 
+
+IEEE Trans. Image Process. , vol. 33, pp. 4654–4669, 2024. [42] D. Zhang, H. Li, W. Zeng, C. Fang, L. Cheng, M.-M. Cheng, and J. Han, “Weakly supervised semantic segmentation via alternate self-dual teaching,” IEEE Trans. Image Process. , vol. 34, pp. 3086–3095, 2023. [43] L. Zhu, Y. Li, J. Fang, Y. Liu, X. Hao, W. Liu, and X. Wang, “Weaktr: Exploring plain vision transformer for weakly-supervised semantic seg-mentation,” IEEE Trans. Image Process. , 2026. IEEE TRANSACTIONS ON IMAGE PROCESSING 14 
+
+[44] X. Zhao, Z. Wu, S. Tan, D.-J. Fan, Z. Li, X. Wan, and G. Li, “Semi-supervised spatial temporal attention network for video polyp segmentation,” in Proc. Int. Conf. Med. Image Comput. Comput.-Assist. Interv. (MICCAI) . Springer, 2022, pp. 456–466. [45] Y. Li, Z. Zhu, Y. Zhang, Y. Chen, and Z. Yu, “Boost the inference with co-training: A depth-guided mutual learning framework for semi-supervised medical polyp segmentation,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR) , 2025, pp. 10 394–10 403. [46] G. Chen, X. Luo, H. Wu, and J. Qin, “Vpsentry: Semi-supervised video polyp segmentation via sentry-guided long-term prototype fusion with correlation dynamic propagation,” in Proc. AAAI Conf. Artif. Intell. (AAAI) , vol. 40, no. 4, 2026, pp. 2850–2858. [47] K. Huang, T. Zhou, H. Fu, Y. Zhang, Y. Zhou, and X.-J. Wu, “Uncertainty-aware cross-training for semi-supervised medical image segmentation,” IEEE Trans. Image Process. , 2025. [48] Y. Wang, B. Xiao, X. Bi, W. Li, and X. Gao, “Boundary-aware prototype in semi-supervised medical image segmentation,” IEEE Trans. Image Process. , vol. 33, pp. 5456–5467, 2024. [49] L. Cao, J. Li, and Y. Shi, “Background matters: A cross-view bidirec-tional modeling framework for semi-supervised medical image segmen-tation,” IEEE Trans. Image Process. , 2025. [50] Y. Niu, L. Yang, R. Xu, Y. Li, and Y. Chen, “Minet: Weakly-supervised camouflaged object detection through mutual interaction between region and edge cues,” in Proc. ACM Int. Conf. Multimedia (ACMMM) , 2024, pp. 6316–6325. [51] S. Gao, Q. Guo, Y. Feng, C. Chen, X. Wei, Y. Wang, and W. Zhang, “Progressive representation learning for weakly-supervised camouflaged object detection,” in Proc. ACM Int. Conf. Multimedia (ACMMM) , 2025, pp. 2752–2761. [52] F. Shen and J. Tang, “Imagpose: A unified conditional framework for pose-guided person generation,” Proc. Adv. Neural Inf. Process. Syst. (NeurIPS) , vol. 37, pp. 6246–6266, 2024. [53] F. Shen, H. Ye, J. Zhang, C. Wang, X. Han, and Y. Wei, “Advancing pose-guided image synthesis with progressive conditional diffusion models,” in Proc. Int. Conf. Learn. Represent. (ICLR) , vol. 2024, 2024, pp. 10 481–10 503. [54] C.-M. Chan, W. Chen, Y. Su, J. Yu, W. Xue, S. Zhang, J. Fu, and Z. Liu, “Chateval: Towards better llm-based evaluators through multi-agent debate, 2023,” arXiv preprint arXiv:2308.07201 , vol. 3, 2023. [55] T. Liang, Z. He, W. Jiao, X. Wang, Y. Wang, R. Wang, Y. Yang, S. Shi, and Z. Tu, “Encouraging divergent thinking in large language models through multi-agent debate,” in Proc. Conf. Empirical Methods Natural Lang. Process. (EMNLP) , 2024, pp. 17 889–17 904. [56] C. Qian, Z. Xie, Y. Wang, W. Liu, K. Zhu, H. Xia, Y. Dang, Z. Du, W. Chen, C. Yang et al. , “Scaling large language model-based multi-agent collaboration,” in Proc. Int. Conf. Learn. Represent. (ICLR) , vol. 2025, 2025, pp. 41 488–41 505. [57] S. Li, Z. Gao, and X. He, “Superpixel-guided iterative learning from noisy labels for medical image segmentation,” in Proc. Int. Conf. Med. Image Comput. Comput.-Assist. Interv. (MICCAI) . Springer, 2021, pp. 525–535. [58] S. Bai, K. Chen, X. Liu, J. Wang, W. Ge, S. Song, K. Dang, P. Wang, S. Wang, J. Tang, H. Zhong, Y. Zhu, M. Yang, Z. Li, J. Wan, P. Wang, W. Ding, Z. Fu, Y. Xu, J. Ye, X. Zhang, T. Xie, Z. Cheng, H. Zhang, Z. Yang, H. Xu, and J. Lin, “Qwen2.5-vl technical report,” arXiv preprint arXiv:2502.13923 , 2025. [59] A. Gu and T. Dao, “Mamba: Linear-time sequence modeling with selective state spaces,” arXiv preprint arXiv:2312.00752 , 2023. [60] W. Wang, E. Xie, X. Li, D.-P. Fan, K. Song, D. Liang, T. Lu, P. Luo, and L. Shao, “Pvt v2: Improved baselines with pyramid vision transformer,” 
+
+Comput. Vis. Media , vol. 8, pp. 415 – 424, 2021. [61] J. Bernal, F. J. Sanchez, G. Fernandez-Esparrach, D. Gil, C. Rodriguez, and F. Vilarino, “WM-DOVA maps for accurate polyp highlighting in colonoscopy: Validation vs. saliency maps from physicians,” Comput. Med. Imaging Graph. , vol. 43, pp. 99–111, 2015. [62] D.-P. Fan, M.-M. Cheng, Y. Liu, T. Li, and A. Borji, “Structure-measure: A new way to evaluate foreground maps,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV) , 2017, pp. 4548–4557. [63] D.-P. Fan, C. Gong, Y. Cao, B. Ren, M.-M. Cheng, and A. Borji, “Enhanced-alignment measure for binary foreground map evaluation,” 
+
+arXiv preprint arXiv:1805.10421 , 2018. [64] R. Margolin, L. Zelnik-Manor, and A. Tal, “How to evaluate fore-ground maps?” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR) , 2014, pp. 248–255. 
+
+Tong Wang is currently a Ph.D. candidate at the Key Laboratory of New Generation Artificial Intelligence Technology and Its Interdisciplinary Applications (Ministry of Education), Southeast University, Nan-jing, China. He is also a visiting student at Mo-hamed bin Zayed University of Artificial Intelligence (MBZUAI). His research interests include medical image analysis and multimodal models. 
+
+Siwen Wang received the B.S. and M.S. degrees in Information and Communication Engineering from Dalian University of Technology, Dalian, China, in 2017 and 2019, respectively. She is currently a Ph.D. candidate at Mohamed bin Zayed University of Arti-ficial Intelligence (MBZUAI). Her research interests include computer vision, pattern recognition, and medical image analysis. 
+
+Yaolei Qi received the B.E. degree from Southeast University, Nanjing, China, in 2019, where he is currently pursuing the Ph.D. degree with the Labora-tory of Image Science and Technology. His research interests lie in deep learning and AI for medical im-age processing, focusing on knowledge-driven and data-efficient methods for tubular structure analysis. Specifically, his work involves innovative network design, weakly-supervised learning, and computer-assisted diagnosis. 
+
+Jinxing Zhou received the B.E. and Ph.D. degrees from Hefei University of Technology, China. He is currently a Postdoctoral Researcher with the Depart-ment of Computer Vision at Mohamed bin Zayed University of Artificial Intelligence. His research interests include computer vision, audio-visual learn-ing, and multimedia content analysis. He has pub-lished over 40 papers in top-tier venues, including IEEE TPAMI, IJCV, IEEE TMM, CVPR, ECCV, ICML, and AAAI. 
+
+Yuting He received B.E. (2018) and Ph.D. (2023) from Hefei University of Technology and South-east University. Currently a Research Associate at Case Western Reserve University, he visited Western University, Canada (2022). His research focuses on efficient knowledge extraction for computer-aided diagnosis, surgery, and medical imaging. He has published 40+ papers in top venues, including Na-ture Communications, IEEE TPAMI/TMI, MedIA, CVPR, ICCV, and MICCAI. 
+
+Guanyu Yang (Senior Member, IEEE) received B.S. and M.S. degrees in biomedical engineering from Southeast University, China (2002, 2005). He joined the university in 2011 and is currently a Professor and Vice Dean of the School of Computer Science and Engineering. His research focuses on medical image analysis, biomedical processing, and AI for healthcare. He has published 60+ papers in top venues like IEEE TPAMI/TIP/TMI, MedIA, CVPR, ICCV, IJCAI, and MICCAI. 
+
+Yutong Xie is an Assistant Professor in the Com-puter Vision Department at MBZUAI. She was previously a Research Fellow at the University of Adelaide’s Australian Institute for Machine Learn-ing. Her research focuses on computer vision and machine learning for healthcare, particularly medical image analysis with limited annotations. She has published 60+ papers in venues including IEEE TPAMI, TMI, TIP, IJCV, MedIA, MICCAI, CVPR, ICCV, ECCV, NeurIPS, ACL, and EMNLP.
