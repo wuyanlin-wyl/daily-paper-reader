@@ -1,0 +1,791 @@
+Title: OpenBioRQ: Unsolved Biomedical Research Questions for Agents
+
+URL Source: https://arxiv.org/pdf/2606.21959v1
+
+Published Time: Tue, 23 Jun 2026 01:35:23 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# OpenBioRQ: Unsolved Biomedical Research Questions for Agents 
+
+# Minbyul Jeong 
+
+Upstage AI minstar@upstage.ai Dataset Code 
+
+Abstract 
+
+A working citation looks like proof—but the fact that a link resolves does not mean the cited paper supports the claim. I find that current agentic models rarely fabricate citations (over 99% resolve), yet roughly 15 .9% link to the wrong paper. Existing benchmarks miss this failure mode: when a question has a fixed answer key, a model can reproduce the expected source from that key rather than independently ver-ifying that the source supports the claim. I introduce Open-BioRQ , a retrieval-grounded agentic benchmark of 12 ,553 
+
+unsolved biomedical research questions across 12 domains that treats open questions as a faithfulness-and-abstention probe. To my knowledge, this is the first biomedical bench-mark to combine an agentic setting—where the model must issue multiple tool calls—with unsolved questions that have no answer key. Openness is verified against real follow-up evidence rather than a model’s parametric knowledge. Diffi-culty is empirical: I anchor it on questions that three open-weight reference models fail to answer, rather than on sub-jective hardness labels. On this hardest subset, held-out mod-els from the same lineage as the difficulty anchors solve only 
+
+∼17% , while three independent frontier agents (Gemini-3-Pro, Opus-4.7, GPT-5.5) span a wide 29 –60% range. The benchmark is thus hard, non-saturating (the best agent still leaves ∼33 –40% unsolved), and discriminating across capa-bility tiers. Beyond difficulty, I observe agentic collapse on the hardest questions, where agents stop using their tools. For the most collapse-prone model, blocking tool access entirely barely changes its score—so tools stop paying off exactly where they are needed most. A frozen per-question check-list raises inter-judge agreement from Spearman 0.35 to 0.82 .OpenBioRQ targets research assistance—evidence retrieval and faithful citation—not clinical decision support. 
+
+# 1 Introduction 
+
+When an agentic model answers a biomedical question and attaches a PMID, the resolvable identifier reads as evidence: a reader follows the link, the record exists, and the claim inherits the authority of the literature. For example, asked about the long-term safety of mRNA vaccines, a model re-ports that “vaccine efficacy remained ∼91% against symp-tomatic COVID-19” and cites PMID 34407296. The identi-fier resolves to a real, indexed article—but an ophthalmol-ogy study that never mentions a vaccine. The citation exists, 
+
+Copyright © 2026, Association for the Advancement of Artificial Intelligence (www.aaai.org). All rights reserved. Tool-using / agentic →    
+
+> Answer status: known → open
+> agentic ×unsolved
+> agentic, veri fi able static QA, known
+> MedQA
+> PubMedQA
+> MedMCQA
+> BioASQ
+> GPQA LAB-Bench
+> OLAPH HealthBench
+> GeneGPT
+> BioMysteryBench
+> (Anthropic '26)
+> OpenBioRQ
+> (ours)
+> closed-form QA
+> long-form (known ref.)
+> agentic, veri fi able
+> agentic, open (ours)
+
+Figure 1: Where OpenBioRQ sits among biomedical benchmarks : answer status (known → genuinely open) against tool use (static → agentic). Prior benchmarks— closed-form, long-form, and agentic-with-answers (e.g., BioMysteryBench)—all assume a known answer. Open-BioRQ alone targets unsolved questions, in the shaded agen-tic × unsolved quadrant, where wrong-paper citation, agen-tic collapse, and abstain-vs-confabulate become measurable. yet it does not support the claim. The failure is purely one of linking the claim to its source: the reported efficacy is roughly correct and the model even names the right trial in prose—only the emitted identifier points elsewhere. The ex-ample is a verbatim trace from my audit, not a hypothetical. Closed-form question answering (Tsatsaronis et al. 2015; Jin et al. 2019; Jin et al. 2021; Pal, Umapathi, and Sankara-subbu 2022) requires models to answer solvable questions, where the correct answer—and often its supporting source— is fixed in advance. Long-form question answering (Abacha et al. 2017; Abacha et al. 2019; Singhal et al. 2023a; Manes et al. 2024; Jeong et al. 2024) relaxes the answer format to free text, but still scores each response against a fixed gold answer and its curated reference, so faithfulness is judged by overlap with a pre-specified source rather than by whether the model’s own citations actually support its claims. Recently, agentic evaluations such as GeneGPT (Jin et al. 2024) and BioMysteryBench (Anthropic 2026) let models call external tools and gather evidence on their own, yet they still target questions with a verifiable ground-truth answer, leaving unchecked whether each retrieved paper ac-tually supports the claim it is attached to. 
+
+> arXiv:2606.21959v1 [cs.CL] 20 Jun 2026
+
+These three families differ in format but share a single assumption, a known answer, and so occupy three corners of an answer-status × agentic plane (Figure 1). The fourth corner is underexplored, and the reason to target it is struc-tural, not aesthetic. The failures I studied—wrong-paper ci-tation, agentic collapse, and the choice between abstaining and confabulating—surface only when the answer key is re-moved. When the answer is fixed in advance, a model can pass by echoing the source it was handed, and these failures have no room to appear. Thus, OpenBioRQ targets: 12 ,553 
+
+unsolved biomedical research questions across 12 domains. I pose them not to be answered against a key, but to be attempted—and I score how an agent behaves in the attempt. To my knowledge, it is the first benchmark in the agentic ×
+
+unsolved regime. Reframing the task this way turns evalua-tion into a faithfulness-and-abstention probe. I audit every citation an agent emits at two levels: (1) exis-tence, whether the identifier resolves to a real paper; (2) con-tent support, whether that paper actually supports the claim. One might expect these to rise and fall together. In biomedi-cal research, they come apart and are opposite to what other fields report. ResearchMath (Son et al. 2026) finds almost 
+
+54% of references in mathematical writing to be outright fabricated; biomedical agents rarely fabricate, with only 
+
+0.7% of 4,863 emitted citations failing to resolve. Of the citations that do resolve, 15 .9% are wrong-paper that does not support the claim it is attached to (an LLM-judge esti-mate; 10 .6% under a different-family judge, §5). Because a wrong-paper citation resolves, a reader is more inclined to trust it; it may therefore be more hazardous than an obvious fabrication—a severity gap I pose as a hypothesis. Scoring unsolved questions invites an immediate objec-tion: with no key, how do we know a question is genuinely open, and that it is genuinely hard? Three design choices answer this rather than assume it. (1) Framing a question as open is not enough—doing so alone collapses into confir-mation bias. Instead, a retrieval-grounded verifier re-judges each question against real follow-up evidence, and a re-audit of the 657 -question core finds none of them resolved; (2) the core retains only questions the open-weight reference roster jointly fails, and on this subset held-out models of the same lineage solve just 17% while three independent-lineage fron-tier agents span 29 –60% —hard at the open-weight tier, yet non-saturating and discriminating, since even the strongest agent leaves over a third unsolved; (3) answers are produced through multi-round tool use over ten biomedical REST APIs and graded against a frozen per-question checklist, which raises inter-judge agreement from Spearman 0.35 to 
+
+0.82 (§6). Beyond citations, OpenBioRQ surfaces an agentic col-lapse: on the hardest questions, agents abandon their tools, and for the most collapse-prone model, blocking tool use altogether barely changes performance—tool access stops paying off exactly where it should matter most (§5). Open-BioRQ is a research-assistance benchmark for evaluating literature synthesis and grounding, not a clinical decision-support tool, and must not be used to guide patient care. 
+
+# 2 Related Work 
+
+Biomedical question answering benchmarks. 
+
+The closed-form medical QA that trained a gen-eration of models is now largely exhausted as adiscriminator. On MedQA (Jin et al. 2021) and its kin (Tsatsaronis et al. 2015; Jin et al. 2019; Vilares and G´ omez-Rodr´ ıguez 2019; Hendrycks et al. 2021; Pal, Umapathi, and Sankarasubbu 2022), frontier systems—from the Med-PaLM line (Singhal et al. 2023a; Singhal et al. 2023b) onward—cluster so tightly that a recent evaluation finds specialized clinical tools and general LLMs statistically indistinguishable, clustered in an ∼8-point band at 88 –96% (Vishwanath et al. 2026). Harder, expert-written sets (GPQA (Rein et al. 2023), LAB-Bench (Laurent et al. 2024)) and even agentic biomedical evaluation (BioMys-teryBench (Anthropic 2026)) raise the ceiling, but they raise it within the same regime: every question still has a known, verifiable answer. BioMysteryBench makes the assumption explicit, choosing problems whose answers are verifiable by design. What OpenBioRQ inherits from this lineage is its scor-ing machinery, not its answer model. The closest precedent decomposes a free-text answer into reusable rubric state-ments: long-form MedLFQA/OLAPH grades each response against reference must-have/nice-to-have sentences (Jeong et al. 2024), and HealthBench against physician-written per-conversation criteria (Arora et al. 2025). Both still presup-pose an answer—the rubric measures how closely a re-sponse matches a curated reference. OpenBioRQ’s frozen per-question checklist is a direct descendant of that decom-position, carried to unsolved questions (JLA priority part-nerships, NICE guidance, the open-question literature) that have no consensus answer at construction time; I keep the decomposed-rubric machinery but change what it scores— from correctness against a reference to grounding and ac-knowledged uncertainty (§4). 
+
+Research-level and open-problem datasets. My con-struction methodology most directly extends ResearchMath-14k (Son et al. 2026): I adopt its agentic extract-then-refine pipeline, its LLM-judge self-containment audit (Open-BioRQ attains 85 .4% self-contained— 95% on the retrieval-verified track, 75% on expert-consensus; Appendix A), its MiniLM-L6 near-duplicate removal at cosine 0.90 , and its separation of behavioral from factuality characterization. I then extend it in two ways the open biomedical setting forces. First, openness cannot be taken on faith, so Open-BioRQ is retrieval-grounded: source-framing-only judgment collapsed to zero answered /unknown labels (a confirma-tion bias), and a retrieval-grounded status verifier instead re-confirms each core question against real follow-up evi-dence (none of the 657 met my resolution criterion). Second, where ResearchMath finds a “generation paradox” of fab-ricated references, the biomedical agents I evaluate barely fabricate at all, so I replace its single existence check with a two-level audit that continues to content support (§5) and exposes real papers that do not support the claim. Tool-using and agentic LLM evaluation. The multi-round paradigm I adopt was established by ReAct-style reasoning–action interleaving (Yao et al. 2023) and learned tool invocation (Schick et al. 2023), and a wave of general agentic benchmarks now scores whether a model can select, parameterize, and sequence tools to finish a task (Patil et al. 2023; Mialon et al. 2023; Qin et al. 2024; Yao et al. 2024; Trivedi et al. 2024; Wei et al. 2025; Jeong 2026). What unites them is a verifiable target: a run is correct only if it reaches the known answer or end-state. The same holds in medicine, where AgentClinic (Schmidgall et al. 2024) casts diagnosis as sequential agentic dialogue and MedA-gentBench (Jiang et al. 2025) scores tool use against a FHIR-compliant EHR—each grading against a correct diagnosis or a completed task. OpenBioRQ removes that target: with no verifiable answer, what I measure becomes grounding and abstention—the behavior actually correct on an unsettled question—which ties my setting to selective prediction and calibrated abstention (Kamath, Jia, and Liang 2020; Kada-vath et al. 2022). I use tools differently from GeneGPT (Jin et al. 2024), which couples an LLM to NCBI endpoints to improve access: the same ten-tool REST stack becomes for me an evaluation instrument, which is what lets me observe agentic collapse (§5)—a failure mode answer-only bench-marks cannot see. 
+
+Citation faithfulness, attribution, and grounding. Aline of work has measured how, and how often, model cita-tions go wrong: that LLMs fabricate plausible-looking refer-ences (Walters and Wilder 2023), whether a generated state-ment is attributable to its cited source (Bohnet et al. 2022; Rashkin et al. 2023), and how to make systems cite retrieved evidence inline (Gao et al. 2023). Closest to my L2 ques-tion, prior work audits whether the inline citations of gen-erative search engines actually support their statements— citation precision and recall, by human raters on general-domain queries (Liu, Zhang, and Liang 2023). I operational-ize that question over the citations agents themselves emit during multi-round tool use, rather than a curated statement– source set, and at scale in biomedicine—where the picture inverts the math and general-domain findings above: fabri-cation is near-zero ( ≈ 0.7% ), while real-but-unsupporting citation is the dominant failure. I propose no new attribution metric; the contribution is this empirical inversion (§5), with the severity gap posed as a hypothesis (Appendix D). 
+
+# 3 The OpenBioRQ Benchmark 
+
+One extracted fragment reads only “the pathophysiology of PSVD remains unclear” (PMID 40578802); OpenBioRQ’s refine pass turns it into a stand-alone question—“What is the pathophysiologic mechanism of portosinusoidal vascu-lar disorder (PSVD)?”—then attaches the three layers that make an unsolved question gradable. OpenBioRQ is a cor-pus of such questions, each carrying a retrieval-grounded openness label (is it actually still open?), an empirical dif-ficulty signal (do current models fail it?), and a frozen per-question checklist rubric (how is an answer scored?). The protocol that consumes those layers is deferred to §4; here           
+
+> Track Source Count
+> retrieval verif. PubMed / trials / arXiv 6,648
+> expert consensus JLA PSPs, NICE recs 5,905
+> priority setting WHO/CHNRI/NASEM, Delphi 525
+> expand Cochrane research gaps 483
+
+Table 1: The four OpenBioRQ tracks and their counts. The 
+
+retrieval verified and expert consensus 
+
+tracks form the 12 ,553 -question base corpus; the 
+
+priority setting and expand tracks are addi-tional and deduplicated against it. I describe how the corpus is built and audited. Construc-tion runs a crawl → extract → refine → dedup → export 
+
+pipeline, and the two label layers are then added on top of the exported text rather than baked into it, so each can be re-audited independently. All statistics below are for the text-deduplicated corpus; the pipeline mechanics, the rejected preprint source, worked example items with their checklists, and per-category counts are in Appendix A. 
+
+## 3.1 Tracks 
+
+Every question records the corpus track it came from, because the track is why I call it open (Table 1): 
+
+retrieval verified questions (from PubMed, trial registries, and arXiv) are open because real follow-up evidence says so; expert consensus questions are open because an authoritative body has declared them so—JLA Priority Setting Partnerships (James Lind Al-liance 2026) and NICE research recommendations (Na-tional Institute for Health and Care Excellence 2026); 
+
+priority setting draws on society agendas and WHO/CHNRI/NASEM/PCORI and Delphi documents via Europe PMC (Europe PMC 2026); and expand draws on Cochrane (Cochrane 2026) research-gap literature. 
+
+## 3.2 Construction Quality and Grounded Openness 
+
+Self-containment. A question is only useful in isola-tion if it reads without its source document—the PSVD rewrite is exactly that move—so I audit it directly: an LLM-judge check (n=500 ) finds 85 .4% of refined questions self-contained ( retrieval verified 95% ,
+
+expert consensus 75% ). The gain comes from the re-fine pass, as a before/after ablation shows—an extractor-only baseline is only 51 .6% self-contained, so refinement adds +33 .8 points. Near-duplicates are then collapsed by a MiniLM-L6 (Wang et al. 2020) cosine ≥ 0.90 screen over question text, which keeps distinct questions extracted from the same source paper (audit detail in Appendix A). 
+
+Retrieval-grounded openness. Openness is judged from real follow-up evidence, not from a model’s memory of how its source framed the problem—and the distinction is not cosmetic: source-framing-only refinement produced com-plete confirmation bias, labeling zero questions answered 0 250 500  
+
+> # questions in priority track ( n= 525)
+> 256
+> 49%
+> core: all-3 fail
+> 236
+> 45%
+> discriminating
+> 33 (6%)
+> easy
+> 94% are hard for ≥ 1 roster model
+
+(a) Empirical di ffi culty buckets   
+
+> GLM-5.1 Qwen3.6 DeepSeek-V4
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> mean checklist score
+> 0.32
+> 0.45
+> 0.31
+
+(b) Per-model di ffi culty Figure 2: Empirical difficulty on the question-granular priority setting track ( n=525 ). (a) bucket composition ( ∼49% core / 45% discriminating / 6% easy); (b) mean checklist score per roster model—all three fall below the 0.5 pass threshold. or unknown . The fix is to re-decide status only from ev-idence the model actually gathered. A retrieval-grounded Stage-2 judge does exactly this—citing evidence IDs, or else falling back to unknown —which makes resolution de-tectable at last: it changes the status of 56 .5% of a 200 -question sample and reaches unknown for 14% . Run over the hardest subset, a still-open re-audit of the 657 core ques-tions finds 0/657 with detectable resolution (narrative or guideline resolution is undetectable by this audit, and its re-call is unquantified). That the detector is not simply blind is confirmed by a contamination positive control— 34 injected known-contaminated items—which it catches at 100% re-call and 0% false-positive. Verbatim- and perplexity-based membership checks add a further negative: no memorization signature (all four audits in Appendix A). 
+
+## 3.3 Empirical Difficulty 
+
+Difficulty is assigned empirically rather than by hand: ev-ery question is answered with full tool access by three roster models—GLM-5.1 (Z.ai 2026b), Qwen3.6 (Qwen Team 2026b), and DeepSeek-V4 (DeepSeek-AI 2026)—and graded against its frozen checklist. A question is core ex-actly when all three fail it (checklist score < 0.5). On the cleanest track ( priority setting , labeled at question granularity end-to-end), this yields 49% core, 45% discrimi-nating, and only 6% easy (Figure 2a); the three roster models all sit below the 0.5 pass threshold in mean checklist score (Figure 2b), so the all-fail bucket is a property of the open-weight tier rather than of any single model. Across the full corpus the 12 ,553 questions spread over 12 level-one taxon-omy domains with no domain dominating (Figure 3); per-domain difficulty and citation breakdowns are deferred to Appendix C. 
+
+# 4 Evaluation Protocol 
+
+Consider an open question OpenBioRQ must grade—“Can therapies targeting the glymphatic system prevent or slow Alzheimer’s disease?” Its frozen checklist requires an an-swer to must mention AQP4 polarization as a mech-anistic target, must acknowledge that no glymphatic-0 1k 2k 3k  
+
+> # questions ( N= 12, 553)
+> Other
+> Rare & Orphan Diseases
+> Medical AI & Informatics
+> Genomics & Precision Medicine
+> Pharmacology & Drug Discovery
+> Cardiovascular Medicine
+> Infectious Disease & Immunology
+> Surgical Sciences
+> Oncology
+> Public Health & Epidemiology
+> Neuroscience & Psychiatry
+> Clinical Medicine
+> 86
+> 261
+> 319
+> 516
+> 723
+> 888
+> 1,081
+> 1,129
+> 1,451
+> 1,521
+> 1,551
+> 3,027
+
+Figure 3: Domain coverage: the 12 top-level taxonomy cate-gories over the OpenBioRQ corpus ( 12 ,553 questions); per-category counts are labelled directly on the bars. targeting therapy has entered an AD trial, and must avoid 
+
+claiming any such therapy is proven—so grading reduces to a handful of concrete, checkable verdicts. But evaluating genuinely unsolved questions is itself an open problem, for two reasons that compound. First, there is no single correct answer to grade against. Second, the qualities that matter on an open question—evidentiary grounding, calibrated uncer-tainty, and the avoidance of confident fabrication—are pre-cisely the ones brittle string- or embedding-overlap metrics cannot see. OpenBioRQ therefore couples two pieces: an agentic completion harness, in which a model actively gath-ers evidence through biomedical tools, and the per-question frozen checklist just illustrated, which converts open-ended grading into a set of concrete, reproducible verdicts (the end-to-end flow is in Appendix B, Figure 8). 
+
+## 4.1 Checklist Scoring 
+
+The natural first choice—asking a strong LLM to score each answer along a few abstract dimensions on a contin-uous scale (Zheng et al. 2023; Liu et al. 2023)—is unre-liable here, and for a specific reason: with no fixed ref-erent, different judges (and the same judge across runs) anchor those dimensions differently, a known hazard of LLM-as-judge protocols (Zheng et al. 2023) that motivates structured, rubric-based grading (Liu et al. 2023). The ef-fect is measurable—replacing free-form dimension scoring with the frozen checklist below raised inter-judge (LLM-vs-LLM) agreement from a Spearman correlation of 0.35 to 
+
+0.82 (human-expert agreement deferred; see Limitations). The core move is to lift grading from vague dimensions to a per-question checklist generated once and then frozen. For each question q, a strong model drafts five to eight concrete, checkable, question-specific criteria Cq = {(ti, w i)}i∈Iq ,each with a type ti and an importance weight wi ∈ { 1, 2, 3}:• must mention — a key fact, mechanism, or method the answer should include; • must acknowledge — an uncertainty, gap, or open as-pect it must flag (critical for unsolved questions); • must ground — a claim it must back with real cited ev-idence (PMID, trial, or tool result); • must avoid — a behavior that should not occur (assert-ing a definitive answer to an open question, fabricating citations, or falsely claiming the tools returned nothing). A judge reads only the answer text and its tool calls and assigns each criterion a verdict vi ∈ {1, 0.5, 0}
+
+(met/partial/not met; the partial value is the scale midpoint, not a tuned parameter). For must avoid the polarity is inverted— vi=1 means the prohibited behavior was correctly avoided—so a higher score can never reward confabulation. The question score is 
+
+score( q) = 
+
+P 
+
+> i∈Iq
+
+wivi
+
+P 
+
+> i∈Iq
+
+wi
+
+∈ [0 , 1] , (1) bounded and individually auditable. A model m solves q iff score Tm(q) ≥ 0.5 under a single deterministic ( T =0 , one attempt) completion—my headline 
+
+solve rate . I state the decoding temperature wherever it is used, because difficulty turns out to be decoding-sensitive (§5.3). The 0.5 cutoff is only a reporting convention, not a load-bearing threshold: my claims rest on the capability ordering and the cross-tier band, both fixed by the underly-ing mean scores ( 0.39 /0.44 /0.53 for the frontier agents) and therefore robust to where the cutoff is drawn. Freezing the checklist before grading is what drives the agreement gain, because every judge then evaluates the same criteria; it also makes the metric robust to agen-tic collapse, since a collapsed or hedging answer fails its must mention /must ground criteria rather than earning credit for fluent prose. The full notation—the temperature-parametric failure count FT , the core and frozen-core set-builders, the citation fetch-outcome algebra, and the openness-status constraint—is in Appendix B. 
+
+## 4.2 Agentic Harness and Gold Answers 
+
+Each question is answered through multi-round tool use rather than a single forward pass: a model receives the ques-tion and access to ten biomedical retrieval tools wrapping public REST APIs— pubmed , clinicaltrialsgov ,
+
+openfda , opentargets , chembl , uniprot ,
+
+pubchem , kegg , ncbi datasets , biomcp —and may interleave reasoning and tool calls for up to ten rounds before committing to a final answer. Each trace records the final answer, the ordered tool calls, token usage, and wall-clock time, and every question carries a unique task id 
+
+of the form source id#k , so multiple questions from one source paper are scored independently. The wrong-paper verdict the central result rests on is an LLM-cross-family proxy; agreement with human medical experts is deferred to future work, and I release a human-annotation set to enable it. Each question also comes with an LLM-synthesized “gold” answer, but I use it only as reference context when drafting rubrics—never as a target to match or a source of ground-truth citations. The reason is empirical, and it is the very hazard the paper studies: ≈ 100% of the gold answers’ cited PMIDs resolve, yet ≈ 74% are gold-misattributions (the cited work does not support the claim; LLM-judge, 
+
+n ≈ 360 , two-judge robust). Treating those citations as ground truth would propagate plausible-looking but unsup-ported attributions straight into the metric, so I instead as-sess grounding through the must ground criteria, which require the model’s own answer to cite genuinely support-ing evidence (full sub-finding in Appendix D). 
+
+# 5 Experiments and Analysis 
+
+I organize the study around three questions. First—the heart of this paper—when these agents cite the literature, are the citations real, and do the real ones support the claims they are attached to (§5.1)? Second, how do the agents be-have on open biomedical questions, and how much does that diverge across models (§5.2)? Third, how hard is the empirically-derived core set—for the roster that defined it and for held-out frontier agents—and how sensitive is that hardness to decoding (§5.3)? Unless noted, behavioral and citation analyses run over the 1,969 -question gold-answer slice (the L1/L2 audit covers the 4,863 citations the three roster models emit across their trajectories—the gold slice plus the priority and expand tracks), and core-set results over the 657 -question core (with a 423 -question frozen-core subset defined at T =0 ). All agentic runs share one harness (ten-tool, frozen-checklist; §4); Figure 4 previews the two headline results. Construction and contamination audits are in Appendix A; extended breakdowns, robustness checks, and the per-domain table are in Appendix C. 
+
+## 5.1 Two-Level Citation Factuality 
+
+Prior work asks the citation question too narrowly. Work on fabricated references in mathematical and general scientific writing (Walters and Wilder 2023; Son et al. 2026) treats a citation as a binary existence problem—does the identi-fier resolve? That test is necessary, but in biomedicine it is Supports?           
+
+> (L2)
+> Exists?
+> (L1) 0.7% fabricated
+> 15.9% wrong-paper
+> ≈1 in 6 real cites
+> (a) Existence is not correctness
+> 99.3% exist
+> 84% support
+> 020 40 60 80
+> Solve rate (%) [Wilson 95% CI]
+> Gemini-3-Pro
+> Opus-4.7
+> GPT-5.5
+> 28.8
+> 37.4
+> 37.8
+> 48.6
+> 59.6
+> 66.7
+> ~33–40% unsolved
+> even by the best agent
+> (b) No frontier agent saturates the core
+> Full core (657)
+> Frozen core (423)
+
+Figure 4: The two headline results. (a) Existence is not correctness: almost every citation exists (L1), yet 15 .9% of the real ones are wrong-paper citations that do not support their claims (L2)—an existence-only check is false comfort (per-model breakdown in Figure 5). (b) No frontier agent saturates the core: independent-lineage agents span a wide solve-rate range on the frozen ( 423 ) and full ( 657 ) core (Wilson 95% CIs), and even the best leaves a third or more unsolved. badly insufficient: a real PMID attached to a wrong clinical claim is a more consequential misattribution than an obvi-ously fake one, precisely because the identifier resolves and a downstream reader is more likely to trust it (a sourcing ar-gument; I make no patient-impact or claim-veracity claim). I therefore audit at two levels (Figure 4a; full per-model breakdown in Figure 5): L1, existence (does the identifier resolve?) and L2, content support (does the cited record support the claim?). 
+
+L1 — existence. A naive existence check badly over-counts fabrication by more than an order of magnitude— my first pass mis-scored transient rate-limit failures as miss-ing records—so I use a tristate fetch that counts only genuinely empty records as fabricated and re-checks tran-sient failures. On the corrected audit over 4,863 citations, biomedical agents almost never invent identifiers: Qwen3.6 reaches 99 .6% existence and DeepSeek-V4 99 .8% ; GLM-5.1 is the exception at 84 .7% (Wilson 95% CI [78 .2, 89 .5] ), its fabrications concentrated in trial NCT identifiers emitted “based on training knowledge.” Aggregated, only ≈ 35 of 
+
+4,863 identifiers are fabricated— 0.7%, the opposite of the 
+
+∼54% fake-reference rate reported for ResearchMath (Son et al. 2026) (per-model L1 in Figure 5). An L1-only audit would conclude—incorrectly—that citation quality is excel-lent. Existence is not correctness. L2 — content support and the wrong-paper failure. 
+
+The real story lives at L2. For every resolving citation, my primary GLM-5.1 judge reads the cited record’s title and abstract and decides whether it supports , partially supports , or does not support its claim; a real iden-tifier that does not support is a wrong-paper citation— PMID 34407296 is one such. After correcting a claim-extraction artifact (below), over 4,649 real citations (Table 2) 
+
+15 .9% are wrong-paper under this primary judge. The pat-tern inverts L1: DeepSeek-V4 and Qwen3.6, which almost never fabricate, are nonetheless wrong on 13 .1% and 20 .2% 
+
+of their real citations—so the wrong-paper finding survives dropping the small-sample GLM-5.1 ( n=97 ; Table 2) en-tirely. The 15 .9% is micro-averaged (DeepSeek-V4 domi-nates the pool; the macro-average is a higher ≈ 30 .0% , in-flated by GLM-5.1’s rate). 
+
+The wrong-paper rate is robust to the judge. I re-judged the entire L2 population with an independent different-family judge (Opus-4.7). Both rank GLM-5.1 worst and DeepSeek-V4 best, and agree on the binary verdict at Co-hen’s κ = 0.755 (n=118 ). One artifact had to be cor-rected first: a claim-extraction bug left ∼11% of snippets as bare reference fragments, which a judge with no claim to assess defaulted to non-support; after re-extracting and re-judging those under both judges (themselves wrong-paper 
+
+20 .4% either way), the definitive rates are 15 .9% [14.9, 17.0] (primary GLM, n=4 ,649 ) and 10 .6% [9.7, 11.5] (Opus, 
+
+n=4 ,745 )—two judge families, not a single-judge artifact. The estimate is bracketed on both sides: a full-text re-judge (16 .1% , n=149 ) runs higher than abstract-only, and count-ing the large “partial” bin ( 28 .1% ) as non-support would push it higher still. Conversely, a preliminary non-expert hu-man spot-check flags fewer, agreeing on the clear cases but only at binary κ=0 .29 /0.51 (vs the LLM-vs-LLM 0.755 ). I therefore read 15 .9% as a judge-relative estimate pending expert adjudication (Appendices C, D). 
+
+Why L2 is the consequential level. A wrong-paper ci-tation is a misattribution that surface-citation (Gao et al. 2023) and fabrication (Walters and Wilder 2023) audits GLM-5.1 Qwen3.6 DSV4  
+
+> 0
+> 25
+> 50
+> 75
+> 100
+> % of cited IDs that exist
+> 84.7%
+> 99.6% 99.8%
+
+(a) L1 — do the citations exist?        
+
+> GLM-5.1 Qwen3.6 DSV4 Overall
+> 0
+> 25
+> 50
+> 75
+> 100
+> % of existing citations
+> 39
+> 57
+> n= 97
+> 30
+> 50
+> 20
+> n= 1210
+> 41
+> 46
+> 13
+> n= 3342
+> 37
+> 47
+> 16
+> n= 4649
+
+(b) L2 — do they support the claim?   
+
+> supports claim partial wrong paper
+
+Figure 5: The two-level citation audit at full per-model resolution (Figure 4a pools these). L1 (left): emitted citations almost all exist, with GLM-5.1 the exception (fabricating mostly trial NCT identifiers). L2 (right): of the real citations, the fraction whose cited paper supports the local claim (green=yes, orange=partial, red (hatched)=wrong-paper). Existence ̸ = correctness.                             
+
+> Model Real Supp. Part. Wrong-paper % cites %%GLM Opus
+> GLM-5.1 97 4.139 .256 .7†64 .9
+> Qwen3.6 1,210 29 .849 .920 .213 .0
+> DeepSeek-V4 3,342 41 .245 .813 .17.6
+> Overall 4,649 37 .446 .715 .910 .6
+
+Table 2: L2 content-support audit on resolving identi-fiers. Wrong-paper = the identifier exists but does not sup-port the claim. Two independent judges (GLM-5.1, Opus-4.7) read title +abstract and rank GLM-5.1 worst despite 
+
+its near-perfect existence; rates are LLM-judge estimates (15 .9% /10 .6% overall). †n=97 , small-sample-fragile. cannot catch. The defect is one of linking a claim to its source, not reasoning: a wrong-paper citation shows no de-tectable association with whether the answer is otherwise grounded ( must ground ; independence not refuted rather than demonstrated; Appendix C). The citation is the au-dit trail a reader follows, and a resolvable-but-unsupporting PMID silently breaks it even where the answer looks well-grounded—so OpenBioRQ treats L2 content support as the citation metric of record. 
+
+## 5.2 Behavioral Analysis of Tool-Using Agents 
+
+The agents diverge as sharply in how they engage as in what they cite. Over the 1,969 -question set (Figure 6; full per-model table in Table 6, Appendix C) I measure the non-attempt rate, the zero-tool collapse rate (an answer with no tool call—parametric recitation), average tool calls, and the cite-rate. Even here the models split: DeepSeek-V4 almost always attempts ( 0.8% non-attempt) but collapses to zero tools most often ( 31 .3% ); GLM-5.1 issues the most tool calls ( 12 .6) yet has a far higher non-attempt rate ( 26 .2% ); and the cite-rate spans ∼10 × (GLM 3.9% vs DeepSeek-V4 
+
+38 .5% ). The split widens on the harder, question-granular pri-ority track, where agentic collapse appears in two of the three roster models—two independent lineages . GLM-5.1’s non-attempt rate jumps to 69 % (zero-tool 65% ) and DeepSeek-V4’s to 62 % (zero-tool 62% ), each abandoning its tools to decline or recite from memory, while Qwen3.6 stays engaged (zero-tool 22% , flat). That split makes the col-lapse neither a single-model pathology nor an artifact of the questions alone—a model-divergent failure that final-answer benchmarks (Son et al. 2026) cannot see (per-model break-down in Appendix C). 
+
+## 5.3 Agentic Baseline on the Core Set 
+
+How hard is the core for frontier tool-using agents—the ros-ter that defined it and held-outs that did not? The buckets were defined at T =0 .3, where all three roster models scored near 0.3 and solve rate was effectively zero; re-measuring the same core at T =0 flips it: the full 657 -question core be-comes much more solvable (GLM-5.1 26 .6% ). Empirical difficulty is decoding-sensitive ; the “ ≈ 0% ” was a T =0 .3
+
+artifact. I therefore define the frozen core : the 423 of 657 
+
+questions all three roster models still fail at T =0 (Table 3). 
+
+Hard and discriminating, not an absolute ceiling. 
+
+Same-lineage open-weight held-outs—GLM-5 (Z.ai 2026a) and Qwen3.5-397B (Qwen Team 2026a)—solve only ∼17% (16 .6% , 16 .8% ; overlapping CIs), and an older Qwen3-235B (Qwen Team 2025) just 2.1% , so the hardness is not a single-roster artifact. The stronger test is independent-lineage frontier agents (Gemini-3-Pro, Opus-4.7, GPT-5.5), Non-attempt Zero      
+
+> tool-call
+> Cites ≥ 1 ref
+> 0
+> 10
+> 20
+> 30
+> 40
+> % of trajectories
+> 26
+> 21
+> 4
+> 20 20
+> 24
+> 1
+> 31
+> 38
+> citation rate varies ∼10 ×
+> GLM-5.1 Qwen3.6 DeepSeek-V4
+
+Figure 6: Behavioral divergence across the three roster mod-els on the 1,969 set: non-attempt rate, agentic collapse rate, and citation rate. Behaviors differ by up to ∼10 ×; on the harder priority track both GLM-5.1 and DeepSeek-V4 col-lapse to near-zero tool use while Qwen3.6 stays engaged. which reveal a capability range— 28 .8% , 37 .8% , 59 .6% (or-dering and ∼31-point spread preserved on the churn-stable subset; §5.5). The picture is sharper than “ ∼17%”: the frozen core is hard at the roster’s open-weight tier, yet non-saturating and discriminating—a strong frontier agent solves a majority while even the best leaves ∼40% unsolved. Be-cause all three independent lineages find it non-trivial, the circularity concern is substantially addressed, though the set is by construction selected on roster failures. 
+
+Tools confer no measurable advantage. A no-tool abla-tion of GLM-5.1 solves 30 .8% [27.3, 34.4] of the full core vs 26 .6% [23.4, 30.1] with tools—overlapping Wilson CIs, so the data do not support that tools help (I anchor to the full core because on the frozen core the roster scores 0% 
+
+by construction). This is the same-temperature counterpart of the agentic collapse of §5.2: GLM-5.1 is the model most prone to abandoning its tools. The parity replicates on an independent, non-collapsing model: GPT-5.5 solves 59 .6% 
+
+[54.8, 64.1] with tools vs 55 .6% [50.8, 60.2] without. It is not a rubric artifact: decomposing GLM-5.1’s score by cri-terion type, the no-tool condition is at least as high on ev-ery type— must ground included, exactly where retrieval should help (Appendix C). 
+
+Robust to the checklist judge and across domains. Two pre-specified checks confirm the range is not an artifact (detail in Appendix C): a different-family judge (Opus-4.7, 
+
+2,498 pairs) shifts each solve rate by ≤ 4.1 points while preserving the ordering and the frontier-vs-held-out separa-tion; and across the 12 L1 domains the frozen core spans all twelve, wrong-paper is comparable ( 8–18% ), and the range holds within the largest—only agentic collapse is domain-dependent.                                                            
+
+> Model Developer Full-core (657) Frozen (423) solve% [CI] solve% [CI]
+> Roster — defines the buckets
+> GLM-5.1 Zhipu 26 .6[23.4, 30.1] 0∗
+> Qwen3.6 Alibaba 11 .7[9.5, 14.4] 0∗
+> DeepSeek-V4 DeepSeek 6.2[4.6, 8.3] 0∗
+> Held-out — same lineage as roster
+> GLM-5 Zhipu 26 .1[22.9, 29.6] 16 .6[13.3, 20.4] Qwen3.5-397B Alibaba 22 .8[19.7, 26.1] 16 .8[13.6, 20.7] Qwen3-235B (old) Alibaba 3.5[2.3, 5.2] 2.1[1.1, 4.0]
+> Held-out — independent lineage (closed-API frontier)
+> Gemini-3-Pro Google 37 .4[33.8, 41.2] 28 .8[24.7, 33.3] Opus-4.7 Anthropic 48 .6[44.8, 52.4] 37 .8[33.3, 42.5] GPT-5.5 OpenAI 66 .7[63.0, 70.2] 59 .6[54.8, 64.1]
+> No-tool ablation
+> GLM-5.1 (no tools) Zhipu 30 .8[27.3, 34.4] 19 .9[16.3, 23.9] GPT-5.5 (no tools) OpenAI 60 .8[57.0, 64.5] 55 .6[50.8, 60.2]
+
+Table 3: Agentic leaderboard on the core set (T =0 , ten-tool harness; no-tool ablations excepted); brackets are Wil-son 95% binomial CIs. ∗Roster frozen-core solve rate is 0
+
+by construction, so the two columns use different denom-inators and are not comparable : a frontier agent’s frozen-core score is its rate on the subset hardest for the roster .Independent-lineage frontier agents span a wide capability range yet even the best leaves a third or more unsolved (non-saturating); tool access confers no measurable advantage. Full-core frontier cells combine frozen-core judging ( 423 )with a fresh T =0 pass on the 234 -item complement (§5.5). 
+
+## 5.4 OpenBioRQ Measures What Closed-Form Medical QA Cannot 
+
+On MedQA the same six open-weight models sit in a saturated 3.9-point band ( 89 .9–93 .8% ); on OpenBioRQ they span 7.6× (Figure 7, Table 4). The dissociation is sharp pairwise—DeepSeek-V4 and GLM-5 are within 0.2
+
+MedQA points yet ∼4× apart on OpenBioRQ, and the top MedQA model (Qwen3.5-397B) is beaten on OpenBioRQ by GLM-5.1. This is a resolution gap, not zero shared sig-nal: it is carried by the band and pairwise inversions, not the weak rank correlations ( ρ=0 .14 core, 0.73 three-exam aver-age; both n=6 ). 
+
+## 5.5 Reproducibility of the Frozen Core 
+
+A second independent T =0 re-decode overturns my own difficulty headline: membership churns under re-sampling (46 .5% of boundary items and 34 .7% of near-threshold deep-failures flip), so the frozen core is a single-sample snapshot. I therefore retract an earlier 85 .8% retention estimate and report no single retention figure. The churn is a property of the selection, not the results: every model is scored on the identical 423 -item set (a fixed released ar-tifact), the frontier range is unchanged on the churn-stable subset ( 24 .6/32 .7/55 .5% on the 346 items stable across both decodes), and the citation and openness audits are com-puted elsewhere and untouched. The core is also not idiosyn-cratic to the three roster models: re-deriving the all-three-fail set from alternate triples preserves Jaccard 0.70 –0.77 under 90 92 94 96 98 
+
+MedQA-USMLE accuracy (%)  
+
+> 0
+> 20
+> 40
+> 60
+> OpenBioRQ frozen-core
+> solve rate (%)
+> GLM-5 Qwen3.5-397B
+> Qwen3-235B
+> Gemini-3-Pro
+> Opus-4.7
+> GPT-5.5
+> Held-out (same lineage)
+> Frontier (independent lineage)
+
+Figure 7: Closed-form MedQA saturates while OpenBioRQ spreads. Held-out (blue, same-lineage) and frontier (red, independent-lineage) models all fall in a narrow MedQA band (shaded), yet their OpenBioRQ frozen-core solve rate ranges widely (the roster scores 0 on the frozen core by construction and is omitted; see Table 4 for the full core). MedQA has saturated out of discriminating range—a few points of MedQA map to a ∼30-point OpenBioRQ swing. This is a resolution gap (MedQA cannot separate models OpenBioRQ separates), not a claim that the two measure unrelated abilities; the weak rank correlations are reported in §5.4.                                   
+
+> Closed-form acc. (%) OpenBioRQ Model MedQA PubMedQA MedMCQA core
+> GLM-5.1 91 .079 .779 .926 .6
+> Qwen3.6 90 .380 .575 .811 .7
+> DeepSeek-V4 90 .179 .378 .96.2
+> GLM-5 89 .980 .078 .726 .1
+> Qwen3.5-397B 93 .880 .480 .622 .8
+> Qwen3-235B 90 .778 .377 .53.5
+> range MedQA 89 .9–93 .8(3.9pt) 3.5–26 .6
+
+Table 4: OpenBioRQ measures a dimension closed-form medical QA does not: the six open-weight models cluster in a narrow MedQA band (saturation) but spread widely on OpenBioRQ full-core solve rate, and the best MedQA model is not the best on OpenBioRQ. Closed-form sets use deter-ministic decoding, exact-match grading, < 0.5% unparsed. a single swap and recovers 72% under a full same-lineage swap, so it is largely a property of the open-weight capabil-ity tier (full churn and roster-robustness accounting in Ap-pendix C). 
+
+# 6 Discussion and Limitations 
+
+Openness is dated, not eternal. Openness is an as-of property of OpenBioRQ, not a permanent one: a question open when its source is written may resolve months later as a trial reads out. I pin it down with a retrieval-grounded status verifier rather than parametric belief—a re-audit of the 657 
+
+core found none resolved (§3)—and, because the property is dated, I release per-item source records for independent re-verification and treat periodic re-auditing as a maintenance obligation rather than a one-time guarantee. 
+
+Limitations. The robustness checks I lean on (cross-family judge swaps, per-domain breakdowns, re-decode sta-bility, roster-composition variation) are pre-specified probes of fixed headline claims, not a search over hypotheses—and I report all of them, including the deep-failure test that over-turned my own 85 .8% retention figure. • The L2 wrong-paper rate is a judge-relative estimate; only a preliminary non-expert human spot-check, not domain-expert validation, exists so far. An indepen-dent different-family judge and a full-text re-judge both leave the rate intact; the domain-expert κ study is de-ferred (§5; Appendix D). • Difficulty is a single T =0 snapshot and the frozen-core selection churns. A second T =0 decode churns membership, so I report no single retention figure ,though the range is essentially unchanged on items sur-viving both decodes (§5.5). Difficulty is also model-relative—“hard” means hard for today’s open-weight roster, with the strongest frontier agent still solving a ma-jority. • Scoring a new model still needs live tools. Because re-running the live selection yields a substantially different core, I release the fixed 423 -item task id list and a tool-response replay cache rather than a re-runnable pro-cedure; the full release mechanics are in Appendix D. Extended discussion (construction-method transfer, the gold-citation sub-finding, licensing, dual-use, and ethics) is in Appendix D. 
+
+# 7 Conclusion 
+
+I presented OpenBioRQ, a retrieval-grounded benchmark of unsolved biomedical research questions for tool-using agents—the first agentic biomedical benchmark I am aware of to target questions with no answer key, scoring ground-ing and abstention instead of a settled answer. Three proper-ties make it work, each answering a worry the open setting raises: openness is verified rather than assumed (a retrieval-grounded status verifier corrects the confirmation bias of source-framing refinement; narrative resolution remains un-detectable by this audit), difficulty is empirical rather than hand-labeled (a non-saturating frontier range on a frozen core; §5.3), and evaluation is agentic by construction (multi-round tool use over ten biomedical APIs graded by frozen checklist rubrics). My central finding is that existence is not correctness :biomedical agents almost never invent identifiers ( ≈ 0.7% 
+
+over 4,863 citations, the opposite of other domains (Son et al. 2026)), yet roughly 15 .9% of their real citations are wrong-paper ( 10 .6% under a different-family judge; a judge-relative estimate pending expert validation)—a re-solvable PMID attached to a claim it does not support, invis-ible to an L1-only check. The same setting surfaces agentic collapse: on the hardest questions GLM-5.1 and DeepSeek-V4 give zero-tool answers 65% /62% of the time, and a no-tool ablation confers no measurable advantage. The take-away for biomedical RAG and literature-synthesis systems is concrete—an existence check is false comfort, so L2 con-tent support, not L1 existence, is the reliability guardrail ,a caution that extends to LLM-generated reference answers (§4). I will validate the checklist judge against human ex-perts for a calibrated Cohen’s κ and release the deferred SFT corpus from the 8,931 trajectories already collected. I release OpenBioRQ with per-item source records as a research-assistance instrument for measuring and improving literature grounding—explicitly not clinical decision sup-port, and no score should be read as fitness to inform patient care. 
+
+# References 
+
+[Abacha et al. 2017] Abacha, A. B.; Agichtein, E.; Pinter, Y.; and Demner-Fushman, D. 2017. Overview of the medical question answering task at trec 2017 liveqa. In TREC .[Abacha et al. 2019] Abacha, A. B.; Mrabet, Y.; Sharp, M.; Goodwin, T. R.; Shooshan, S. E.; and Demner-Fushman, D. 2019. Bridging the gap between consumers’ medication questions and trusted answers. In MedInfo .[Allen Institute for AI 2026] Allen Institute for AI. 2026. Semantic Scholar Academic Graph API. 
+
+https://www.semanticscholar.org/ . Accessed 2026. [Anthropic 2026] Anthropic. 2026. Biomys-terybench: Evaluating claude’s bioinformatics research capabilities. Hugging Face dataset, huggingface.co/datasets/Anthropic/BioMysteryBench-full. 99 expert-written bioinformatics problems with objective, verifiable answers; accessed 2026. [Arora et al. 2025] Arora, R. K.; Wei, J.; Soskin Hicks, R.; Bowman, P.; Qui˜ nonero-Candela, J.; Tsimpourlas, F.; Shar-man, M.; Shah, M.; Vallone, A.; Beutel, A.; Heidecke, J.; and Singhal, K. 2025. HealthBench: Evaluating large language models towards improved human health. arXiv preprint arXiv:2505.08775; OpenAI. arXiv:2505.08775; 5,000 physician-rubric multi-turn health conversations. [Bohnet et al. 2022] Bohnet, B.; Tran, V. Q.; Verga, P.; Aha-roni, R.; Andor, D.; Soares, L. B.; Ciaramita, M.; Eisen-stein, J.; Ganchev, K.; Herzig, J.; Hui, K.; Kwiatkowski, T.; Ma, J.; Ni, J.; Saralegui, L. S.; Schuster, T.; Cohen, W. W.; Collins, M.; Das, D.; Metzler, D.; Petrov, S.; and Webster, K. 2022. Attributed question answering: Evaluation and mod-eling for attributed large language models. arXiv preprint arXiv:2212.08037. arXiv:2212.08037. [Cochrane 2026] Cochrane. 2026. Cochrane Library. 
+
+https://www.cochranelibrary.com/ . Accessed 2026. [DeepSeek-AI 2026] DeepSeek-AI. 2026. DeepSeek-V4-Flash. Hugging Face model card, 
+
+deepseek-ai/DeepSeek-V4-Flash . The exact model evaluated. [Europe PMC 2026] Europe PMC. 2026. Europe PMC. 
+
+https://europepmc.org/ . Literature database and citation index. Accessed 2026. [Gao et al. 2023] Gao, T.; Yen, H.; Yu, J.; and Chen, D. 2023. Enabling large language models to generate text with cita-tions. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing (EMNLP) , 6465– 6488. Association for Computational Linguistics. [Gebru et al. 2021] Gebru, T.; Morgenstern, J.; Vecchione, B.; Vaughan, J. W.; Wallach, H.; Daum´ e III, H.; and Craw-ford, K. 2021. Datasheets for datasets. Communica-tions of the ACM 64(12):86–92. doi:10.1145/3458723; arXiv:1803.09010. [Hendrycks et al. 2021] Hendrycks, D.; Burns, C.; Basart, S.; Zou, A.; Mazeika, M.; Song, D.; and Steinhardt, J. 2021. Measuring massive multitask language understand-ing. In International Conference on Learning Representa-tions (ICLR) . arXiv:2009.03300. [James Lind Alliance 2026] James Lind Alliance. 2026. James Lind Alliance Priority Setting Partnerships. 
+
+https://www.jla.nihr.ac.uk/ . Accessed 2026. [Jeong et al. 2024] Jeong, M.; Hwang, H.; Yoon, C.; Lee, T.; and Kang, J. 2024. OLAPH: Improving factuality in biomedical long-form question answering. In Findings of the Association for Computational Linguistics: EMNLP 2024 . arXiv:2405.12701; introduces the MedLFQA bench-mark (LiveQA, MedicationQA, HealthSearchQA, K-QA). [Jeong 2026] Jeong, M. 2026. Healthcare ai gym for medical agents. arXiv preprint arXiv:2605.02943 .[Jiang et al. 2025] Jiang, Y.; Black, K. C.; Geng, G.; Park, D.; Zou, J.; Ng, A. Y.; and Chen, J. H. 2025. MedAgent-Bench: A realistic virtual EHR environment to benchmark medical LLM agents. arXiv preprint arXiv:2501.14654. arXiv:2501.14654; 300 physician-written EHR agent tasks. [Jin et al. 2019] Jin, Q.; Dhingra, B.; Liu, Z.; Cohen, W.; and Lu, X. 2019. PubMedQA: A dataset for biomedical research question answering. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP) , 2567–2577. Association for Computational Linguistics. [Jin et al. 2021] Jin, D.; Pan, E.; Oufattole, N.; Weng, W.-H.; Fang, H.; and Szolovits, P. 2021. What disease does this patient have? a large-scale open domain question answering dataset from medical exams. Applied Sciences 11(14):6421. arXiv:2009.13081; doi:10.3390/app11146421. [Jin et al. 2024] Jin, Q.; Yang, Y.; Chen, Q.; and Lu, Z. 2024. GeneGPT: Augmenting large language models with domain tools for improved access to biomedical information. Bioinformatics 40(2):btae075. doi:10.1093/bioinformatics/btae075. [Kadavath et al. 2022] Kadavath, S.; Conerly, T.; Askell, A.; Henighan, T.; Drain, D.; Perez, E.; Schiefer, N.; Hatfield-Dodds, Z.; DasSarma, N.; Tran-Johnson, E.; Johnston, S.; El-Showk, S.; Jones, A.; Elhage, N.; Hume, T.; Chen, A.; Bai, Y.; Bowman, S.; Fort, S.; Ganguli, D.; Hernandez, D.; Jacobson, J.; Kernion, J.; Kravec, S.; Lovitt, L.; Ndousse, K.; Olsson, C.; Ringer, S.; Amodei, D.; Brown, T.; Clark, J.; Joseph, N.; Mann, B.; McCandlish, S.; Olah, C.; and Kaplan, J. 2022. Language models (mostly) know what they know. arXiv preprint arXiv:2207.05221. arXiv:2207.05221. [Kamath, Jia, and Liang 2020] Kamath, A.; Jia, R.; and Liang, P. 2020. Selective question answering under do-main shift. In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics (ACL) ,5684–5696. Association for Computational Linguistics. arXiv:2006.09462. [Laurent et al. 2024] Laurent, J. M.; Janizek, J. D.; Ruzo, M.; Hinks, M. M.; Hammerling, M. J.; Narayanan, S.; Pon-napati, M.; White, A. D.; and Rodriques, S. G. 2024. LAB-Bench: Measuring capabilities of language models for biology research. arXiv preprint arXiv:2407.10362. arXiv:2407.10362. [Liu et al. 2023] Liu, Y.; Iter, D.; Xu, Y.; Wang, S.; Xu, R.; and Zhu, C. 2023. G-Eval: NLG evaluation using GPT-4 with better human alignment. In Proceedings of the 2023 Conference on Empirical Methods in Natural Lan-guage Processing (EMNLP) , 2511–2522. Association for Computational Linguistics. arXiv:2303.16634. [Liu, Zhang, and Liang 2023] Liu, N. F.; Zhang, T.; and Liang, P. 2023. Evaluating verifiability in generative search engines. In Findings of the Association for Computational Linguistics: EMNLP 2023 , 7001–7025. Association for Computational Linguistics. arXiv:2304.09848. [Manes et al. 2024] Manes, I.; Ronn, N.; Cohen, D.; Ber, R. I.; Horowitz-Kugler, Z.; and Stanovsky, G. 2024. K-qa: A real-world medical q&a benchmark. arXiv preprint arXiv:2401.14493 .[medRxiv 2026] medRxiv. 2026. medRxiv: The Preprint Server for Health Sciences. 
+
+https://www.medrxiv.org/ . Accessed 2026. [Mialon et al. 2023] Mialon, G.; Fourrier, C.; Swift, C.; Wolf, T.; LeCun, Y.; and Scialom, T. 2023. GAIA: A benchmark for general AI assistants. arXiv preprint arXiv:2311.12983. arXiv:2311.12983. [National Institute for Health and Care Excellence 2026] National Institute for Health and Care Excel-lence. 2026. NICE Research Recommendations. 
+
+https://www.nice.org.uk/ . Accessed 2026. [Pal, Umapathi, and Sankarasubbu 2022] Pal, A.; Umapathi, L. K.; and Sankarasubbu, M. 2022. MedMCQA: A large-scale multi-subject multi-choice dataset for medical domain question answering. In Proceedings of the Conference on Health, Inference, and Learning (CHIL) , volume 174 of Pro-ceedings of Machine Learning Research , 248–260. [Patil et al. 2023] Patil, S. G.; Zhang, T.; Wang, X.; and Gon-zalez, J. E. 2023. Gorilla: Large language model connected with massive APIs. arXiv preprint arXiv:2305.15334. Go-rilla / APIBench; arXiv:2305.15334. [Qin et al. 2024] Qin, Y.; Liang, S.; Ye, Y.; Zhu, K.; Yan, L.; Lu, Y.; Lin, Y.; Cong, X.; Tang, X.; Qian, B.; Zhao, S.; Hong, L.; Tian, R.; Xie, R.; Zhou, J.; Gerstein, M.; Li, D.; Liu, Z.; and Sun, M. 2024. ToolLLM: Facilitating large lan-guage models to master 16000+ real-world APIs. In Inter-national Conference on Learning Representations (ICLR) .arXiv:2307.16789. [Qwen Team 2025] Qwen Team. 2025. Qwen3-235B-A22B. Hugging Face model card, 
+
+Qwen/Qwen3-235B-A22B . Held-out evaluation model. 
+
+https://huggingface.co/Qwen/Qwen3-235B-A22B .[Qwen Team 2026a] Qwen Team. 2026a. Qwen3.5-397B-A17B. Hugging Face model card, Qwen/Qwen3.5-397B-A17B .Held-out evaluation model. 
+
+https://huggingface.co/Qwen/Qwen3.5-397B-A17B .[Qwen Team 2026b] Qwen Team. 2026b. Qwen3.6-35B-A3B. Hugging Face model card, 
+
+Qwen/Qwen3.6-35B-A3B . The exact model evalu-ated. [Rashkin et al. 2023] Rashkin, H.; Nikolaev, V.; Lamm, M.; Aroyo, L.; Collins, M.; Das, D.; Petrov, S.; Tomar, G. S.; Turc, I.; and Reitter, D. 2023. Measuring attribution in natu-ral language generation models. Computational Linguistics 
+
+49(4):777–840. doi:10.1162/coli a 00486. [Rein et al. 2023] Rein, D.; Hou, B. L.; Stickland, A. C.; Petty, J.; Pang, R. Y.; Dirani, J.; Michael, J.; and Bow-man, S. R. 2023. GPQA: A graduate-level google-proof Q&A benchmark. arXiv preprint arXiv:2311.12022. arXiv:2311.12022. [Schick et al. 2023] Schick, T.; Dwivedi-Yu, J.; Dess` ı, R.; Raileanu, R.; Lomeli, M.; Zettlemoyer, L.; Cancedda, N.; and Scialom, T. 2023. Toolformer: Language models can teach themselves to use tools. In Advances in Neural Infor-mation Processing Systems (NeurIPS) . arXiv:2302.04761. [Schmidgall et al. 2024] Schmidgall, S.; Ziaei, R.; Harris, C.; Reis, E.; Jopling, J.; and Moor, M. 2024. AgentClinic: A multimodal agent benchmark to evaluate AI in simulated clinical environments. arXiv preprint arXiv:2405.07960. arXiv:2405.07960. [Singhal et al. 2023a] Singhal, K.; Azizi, S.; Tu, T.; Mah-davi, S. S.; Wei, J.; Chung, H. W.; Scales, N.; Tanwani, A.; Cole-Lewis, H.; Pfohl, S.; Payne, P.; Seneviratne, M.; Gamble, P.; Kelly, C.; Babiker, A.; Sch¨ arli, N.; Chowdh-ery, A.; Mansfield, P.; Demner-Fushman, D.; Ag¨ uera y Ar-cas, B.; Webster, D.; Corrado, G. S.; Matias, Y.; Chou, K.; Gottweis, J.; Tomasev, N.; Liu, Y.; Rajkomar, A.; Barral, J.; Semturs, C.; Karthikesalingam, A.; and Natarajan, V. 2023a. Large language models encode clinical knowledge. Na-ture 620(7972):172–180. doi:10.1038/s41586-023-06291-2; arXiv:2212.13138. [Singhal et al. 2023b] Singhal, K.; Tu, T.; Gottweis, J.; Sayres, R.; Wulczyn, E.; Hou, L.; Clark, K.; Pfohl, S.; Cole-Lewis, H.; Neal, D.; Schaekermann, M.; Wang, A.; Amin, M.; Lachgar, S.; Mansfield, P.; Prakash, S.; Green, B.; Domi-nowska, E.; Ag¨ uera y Arcas, B.; Tomasev, N.; Liu, Y.; Wong, R.; Semturs, C.; Mahdavi, S. S.; Barral, J.; Webster, D.; Cor-rado, G. S.; Matias, Y.; Azizi, S.; Karthikesalingam, A.; and Natarajan, V. 2023b. Towards expert-level medical ques-tion answering with large language models. arXiv preprint arXiv:2305.09617. arXiv:2305.09617; Med-PaLM 2. [Son et al. 2026] Son, G.; Yi, S.; Gwak, M.; Ko, H.; Jang, W.; and Yu, Y. 2026. ResearchMath-14K: Scaling research-level mathematics via agents. arXiv preprint arXiv:2605.28003. arXiv:2605.28003. [Trivedi et al. 2024] Trivedi, H.; Khot, T.; Hartmann, M.; Manku, R.; Dong, V.; Li, E.; Gupta, S.; Sabharwal, A.; and Balasubramanian, N. 2024. AppWorld: A control-lable world of apps and people for benchmarking interactive coding agents. In Proceedings of the 62nd Annual Meet-ing of the Association for Computational Linguistics (ACL) ,16022–16076. Association for Computational Linguistics. arXiv:2407.18901; ACL 2024 Best Resource Paper. [Tsatsaronis et al. 2015] Tsatsaronis, G.; Balikas, G.; Malakasiotis, P.; Partalas, I.; Zschunke, M.; Alvers, M. R.; Weissenborn, D.; Krithara, A.; Petridis, S.; Polychronopou-los, D.; Almirantis, Y.; Pavlopoulos, J.; Baskiotis, N.; Gallinari, P.; Arti` eres, T.; Ngomo, A.-C. N.; Heino, N.; Gaussier, E.; Barrio-Alvers, L.; Schroeder, M.; Androut-sopoulos, I.; and Paliouras, G. 2015. An overview of the BIOASQ large-scale biomedical semantic indexing and question answering competition. BMC Bioinformatics 
+
+16:138. doi:10.1186/s12859-015-0564-6. [U.S. National Library of Medicine 2026] U.S. Na-tional Library of Medicine. 2026. ClinicalTrials.gov. 
+
+https://clinicaltrials.gov/ . API v2. Accessed 2026. [Vilares and G´ omez-Rodr´ ıguez 2019] Vilares, D., and G´ omez-Rodr´ ıguez, C. 2019. HEAD-QA: A healthcare dataset for complex reasoning. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , 960–966. Association for Computational Linguistics. [Vishwanath et al. 2026] Vishwanath, K.; Ghosh, M.; Alyakin, A.; Alber, D. A.; Aphinyanaphongs, Y.; and Oermann, E. K. 2026. Generalist large language models outperform clinical tools on medical benchmarks. Nature Medicine . arXiv:2512.01191. [Walters and Wilder 2023] Walters, W. H., and Wilder, E. I. 2023. Fabrication and errors in the bibliographic cita-tions generated by ChatGPT. Scientific Reports 13:14045. doi:10.1038/s41598-023-41032-5. [Wang et al. 2020] Wang, W.; Wei, F.; Dong, L.; Bao, H.; Yang, N.; and Zhou, M. 2020. MiniLM: Deep self-attention distillation for task-agnostic compression of pre-trained transformers. In Advances in Neural Information Processing Systems (NeurIPS) . arXiv:2002.10957. [Wei et al. 2025] Wei, J.; Sun, Z.; Papay, S.; McKinney, S.; Han, J.; Fulford, I.; Chung, H. W.; Passos, A. T.; Fedus, W.; and Glaese, A. 2025. BrowseComp: A simple yet challenging benchmark for browsing agents. arXiv preprint arXiv:2504.12516; OpenAI. arXiv:2504.12516. [Yao et al. 2023] Yao, S.; Zhao, J.; Yu, D.; Du, N.; Shafran, I.; Narasimhan, K.; and Cao, Y. 2023. ReAct: Synergiz-ing reasoning and acting in language models. In Inter-national Conference on Learning Representations (ICLR) .arXiv:2210.03629. [Yao et al. 2024] Yao, S.; Shinn, N.; Razavi, P.; and Narasimhan, K. 2024. τ -bench: A benchmark for tool-agent-user interaction in real-world domains. arXiv preprint arXiv:2406.12045. arXiv:2406.12045. [Z.ai 2026a] Z.ai. 2026a. GLM-5. Hugging Face model card, zai-org/GLM-5 . Held-out evaluation model. 
+
+https://huggingface.co/zai-org/GLM-5 .[Z.ai 2026b] Z.ai. 2026b. GLM-5.1. Hugging Face model card, zai-org/GLM-5.1 . The exact model evaluated (served as GLM-5.1-FP8). [Zheng et al. 2023] Zheng, L.; Chiang, W.-L.; Sheng, Y.; Zhuang, S.; Wu, Z.; Zhuang, Y.; Lin, Z.; Li, Z.; Li, D.; Xing, E. P.; Zhang, H.; Gonzalez, J. E.; and Stoica, I. 2023. Judging LLM-as-a-judge with MT-Bench and Chat-bot Arena. In Advances in Neural Information Process-ing Systems (NeurIPS), Datasets and Benchmarks Track .arXiv:2306.05685. Technical Appendix A Construction, Openness, and Difficulty Details 
+
+Construction pipeline. The corpus is built by a five-stage pipeline, crawl → extract → refine → dedup → export .In brief: authoritative open-problem sources are crawled; an LLM extract agent lifts the distinct open questions each source raises (uncapped, so one paper can yield several, each with a unique task id ); an LLM refine agent rewrites every question to stand alone and tags it with taxonomy, tool, and difficulty hints (self-containment 51 .6% → 85 .4% ); near-duplicate question text is removed (MiniLM-L6 cosine 
+
+≥ 0.90 ); and the OpenBioRQ corpus of 12 ,553 questions over 12 domains is exported. Two labelings are then layered on additively: retrieval-grounded openness (a status verifier feeding a Stage-2 judge) and empirical, model-derived diffi-culty (all-three-fail → core → frozen core at T =0 ). 
+
+Crawl. Documents are harvested from authoritative sources that frame open problems rather than report closed results (the per-track sources are detailed in §3.1). 
+
+Extract. Each crawled document is passed to a Claude command-line extractor that lifts the distinct open research questions it raises. Extraction is not capped at one question per document: a single source paper can yield several ques-tions. 
+
+Refine. A second Claude pass enriches each extracted question with (i) a taxonomy label over 12 level-one cat-egories, (ii) three-axis difficulty hints, (iii) a mapping to the relevant medical MCP tools, and (iv) an initial 
+
+open status with reasoning. The single-pass, tool-less status assigned here is later replaced by a retrieval-grounded judgment. 
+
+Dedup. Near-duplicate questions are collapsed with a sentence-embedding screen: questions whose MiniLM-L6 (Wang et al. 2020) embeddings have cosine similarity ≥
+
+0.90 are treated as duplicates. The dedup is over question text, so the multiple distinct questions extracted from one source paper are retained; only genuinely identical questions collapse. 
+
+Export. The deduplicated questions are exported as the OpenBioRQ corpus, organized into four named tracks— 
+
+retrieval verified , expert consensus ,
+
+priority setting , and expand —whose sizes and intended uses are given under Corpus statistics below. 
+
+## A.1 Self-Containment Audit 
+
+A question is only useful in isolation if it can be read with-out its source document; the refine pass is what makes it standalone. On an LLM-judged random sample of the 
+
+Construction-quality metric Value 
+
+Self-containment, overall ( n=500 ) 85 .4% 
+
+retrieval verified track 95% 
+
+expert consensus track 75% 
+
+Self-containment, extractor-only 51 .6% 
+
+refine pass contribution +33 .8 pts Dedup threshold (MiniLM-L6 cosine) ≥ 0.90 
+
+Status flip (source →retrieval, n=200 ) 56 .5% 
+
+Still-open audit, core set 0/657 resolved Hard contamination, core set ( n=657 ) 0% 
+
+Hard contamination, expand track ( n=483 ) 0% 
+
+Table 5: Construction-quality summary: self-containment lift from the refine pass, dedup threshold, grounded status-flip rate, and the still-open / hard-contamination audits. refined output ( n = 500 ), 85 .4% of questions are self-contained, up from 51 .6% for the extractor-only baseline— a +33 .8-point lift attributable to the refine pass alone (Ta-ble 5). The gain is uneven across tracks: the retrieval verified track comes out substantially cleaner ( 95% )than expert consensus (75% ). 
+
+## A.2 Retrieval-Grounded Openness 
+
+A question’s openness is judged from real follow-up ev-idence, not from a model’s memory of how the source framed the problem. The original source-framing-only re-finer produced complete confirmation bias: the corpus con-tained zero answered or unknown labels. A retrieval-grounded Stage-2 judge re-decides openness only from gath-ered follow-up evidence, making resolution detectable. 
+
+Stage 1: evidence gathering. A non-LLM verifier (status verifier.py ) dispatches on the source id 
+
+type to gather follow-up evidence: PubMed PMIDs are re-solved to their citing papers and abstracts via the Europe PMC citation index (Europe PMC 2026); trial NCT identi-fiers are checked against ClinicalTrials.gov v2 status, com-pletion, and results (U.S. National Library of Medicine 2026); and arXiv identifiers are expanded through Seman-tic Scholar citations (Allen Institute for AI 2026). (I found NCBI elink “citedin” unreliable for PMIDs and use Eu-rope PMC as the primary follow-up source.) The bundle of gathered evidence IDs and snippets is attached to each ques-tion. 
+
+Stage 2: grounded re-judgment. A Claude judge (stage2 judge.py ) re-decides open status only from the gathered evidence and must cite evidence IDs present in the bundle; hallucinated citations are re-jected and the item falls back to unknown , so the 
+
+answered /unknown labels that source-framing never reached become attainable. On a random sample of 200 retrieval-verified questions, grounded re-judgment changes the status label of 56 .5% of them and assigns unknown to 14% (unreachable under source-framing), confirming that the “open” label is grounded in evidence rather than an arti-fact of the source’s framing. 
+
+Still-open audit. To confirm that the hardest questions genuinely survive grounded re-judgment, I ran a still-open audit over the 657 core questions (the trial-completed and no-follow-up flagged subset). Under grounded re-judgment, 
+
+0/657 were confirmed resolved—no detectable resolution. Narrative or guideline resolution is undetectable by this au-dit, and its recall is unquantified. A positive control vali-dates the structured-contamination detector: on 34 injected known-contaminated items (real completed-with-results tri-als relabeled open, and templated source ids) it achieves 
+
+100% recall ( 34 /34 ) and 0/12 false-positives on genuine-open negatives—not a blind detector. I do not claim the same for the openness verifier’s recall against narrative lit-erature resolution (a confirmatory study or guideline that is not a trial-status field or template): that is bounded by my conservative, evidence-based criterion rather than positive-controlled, and may miss not-yet-indexed consolidation. 
+
+Membership / anti-memorization check. As a further membership check, the evaluated question string is the LLM-refined self contained question , not source text. Over the frozen core it shares a median longest-verbatim span of only 3 words with its source phrasing (me-dian question length 22 words; token Jaccard 0.23 ), and 
+
+86 .5% of questions share ≤ 5 consecutive verbatim words. So exact-string memorization of a benchmark question is largely precluded by construction—this verbatim-overlap result is the load-bearing membership argument. A model-based check is consistent with it: under GLM-5.1 the frozen-core questions are higher-perplexity than MedQA-USMLE—a long-public benchmark very likely in pretraining corpora—by 1.61 nats/token (mean log-prob 
+
+−3.22 vs −1.61 , n=200 each), i.e. the core shows no stronger memorization signature than a set I already expect to be seen. I treat this as corroborating rather than inde-pendent: per-token perplexity confounds memorization with question length and syntactic complexity, and the probe uses a single roster-lineage model, so it should not be over-read. Both checks target surface memorization (exact strings, perplexity) and would not detect paraphrased exposure of a question’s underlying problem in pretraining; since my items are LLM-rephrasings of public sources this cannot be excluded—though with no answer key to recall, such expo-sure confers little advantage, since rote retrieval of a settled answer is exactly what an open question denies. 
+
+## A.3 Empirical Difficulty 
+
+Difficulty is read off model behavior rather than as-signed by hand. Every question is answered with full tool access by the three roster models—GLM-5.1 (Z.ai 2026b), Qwen3.6 (Qwen Team 2026b), and DeepSeek-V4 (DeepSeek-AI 2026)—and graded against its frozen checklist rubric. A question is labeled core exactly when all three fail it (checklist score < 0.5). On the cleanest, question-granular priority setting track ( n=525 ), 
+
+49% of questions are core, 45% discriminating, and 6% easy (256 /236 /33 of 525 ; the bucket composition and per-model mean scores are Figure 2 in the main body). 
+
+Rejected source: preprints. I trialed medRxiv (medRxiv 2026) abstracts as an additional source and rejected them. Preprint abstracts overwhelmingly report results rather than frame open questions, so extraction yields almost nothing usable; crawling is instead concentrated on priority-setting and research-gap documents. 
+
+Question granularity. Because extraction produces sev-eral distinct questions per source paper, the unit of evaluation must be the question, not the paper. Ev-ery question therefore carries a unique task id of the form source id#k (e.g., PMID:38345416#0 ). Key-ing rubrics, traces, and judgments on source id alone would silently collapse co-extracted questions to source-paper granularity and conflate their (often different) diffi-culties; the #k suffix prevents this collapse, keeping co-extracted questions as the distinct items they are. 
+
+Corpus statistics. OpenBioRQ is a single dataset organized into four named tracks. The retrieval verified (6,648 ) and expert consensus (5,905 )tracks form the 12 ,553 -question base corpus; the 
+
+priority setting track adds 525 questions and the expand track adds 483 , each deduplicated against the base. A gold-answer-bearing slice of 1,969 questions (mcp benchmark with gold.jsonl ) is used for rubric generation and agentic evaluation. Openness is an as-of property: openness labels and difficulty scores reflect their snapshot date and are reproducible against that snapshot. The live literature and tool APIs move, however, so labels gathered at different dates may differ; re-running the affected audits refreshes them. The corpus distribution across the 12 level-one taxonomy categories is shown in the main body (Figure 3). 
+
+Example questions and checklists. To make the unit of evaluation concrete, I show two representative items verba-tim, each with its frozen per-question checklist of weighted criteria typed must mention / must acknowledge /
+
+must ground / must avoid (§4). Example 1 — Pharmacology & Drug Discovery, open .“Can therapeutic interventions targeting the glymphatic sys-tem (the brain’s perivascular waste clearance pathway) be used to prevent or slow the progression of Alzheimer’s dis-ease?” • must mention (w3): sleep enhancement or orexin-receptor antagonists (e.g. suvorexant) as preclinical in-terventions that enhance clearance. • must mention (w2): AQP4 polarization/localization as a key mechanistic target. • must acknowledge (w3): no therapy specifically tar-geting the glymphatic system has entered clinical trials for AD. • must acknowledge (w3): enhancing glymphatic clearance in humans may not be sufficient to meaning-fully alter AD. • must ground (w2): cites real preclinical evidence (e.g. Xie et al. 2013, Lundgaard et al.). • must avoid (w3): does not claim glymphatic-targeting therapies are proven to prevent or slow AD in humans. • must avoid (w2): does not fabricate clinical-trial re-sults or citations for human efficacy. Example 2 — Medical AI & Informatics, open . “How should astrocytes be incorporated into mechanistic, theoret-ical, and computational models of neural circuits to better understand the pathophysiology of neurological and psychi-atric diseases with known astrocytic involvement?” • must mention (w3): the tripartite-synapse model and calcium-dependent gliotransmitter release. • must mention (w2): mean-field or network models incorporating astrocytic glutamate uptake or potassium buffering. • must acknowledge (w3): no widely adopted, stan-dardized computational framework currently exists for integrating astrocytes. • must acknowledge (w3): the difficulty of defining astrocytic computational primitives (e.g. spatially dis-tributed calcium signals). • must ground (w2): cites real established frameworks (e.g. Araque et al., De Pitta et al.). • must avoid (w3): does not claim a universally ac-cepted astrocyte framework already exists. • must avoid (w2): does not fabricate citations or falsely claim tools returned nothing. The must avoid criteria operationalize the wrong-paper and fabrication hazards directly at grading time, and the 
+
+must acknowledge criteria reward calibrated abstention on what remains unsettled. 
+
+# B Definitions, Notation, and Harness 
+
+This appendix makes the evaluation of §4 precise, one defi-nition at a time. Figure 8 sketches the end-to-end flow the definitions below formalize. I start from the per-question checklist score and the solve rate it thresholds; build the empirical-difficulty buckets that carve out the core and frozen core; and state the citation and openness predicates behind the wrong-paper and grounded-openness numbers. I close with why a frozen checklist, rather than a free-form judge, is what keeps these definitions stable when an agent collapses. 
+
+Checklist score. The score of an answer is how much of its frozen checklist it satisfies, weighted by each criterion’s importance. In detail: for a question q with frozen checklist 
+
+Cq = {(ti, w i)}i∈Iq , each criterion has a type ti—one of 
+
+must mention , must acknowledge , must ground ,
+
+must avoid —and a weight wi ∈ { 1, 2, 3}, with |Iq | ∈ 
+
+[5 , 8] . A judge assigns a verdict vi ∈ { 1, 0.5, 0} via the map μ : {met , partial , not met } → { 1, 0.5, 0}; the partial value 0.5 is the midpoint of the verdict scale, chosen for in-terpretability rather than fit. I make no robustness claim to its exact value. One type runs the other way. For must avoid 
+
+criteria the polarity is inverted: vi=1 means the prohib-ited behavior—fabricating a citation, or asserting a defini-tive answer to an open question—was correctly avoided, so a higher score never rewards confabulation. The ques-tion score is then score( q) =   P  
+
+> i∈Iq
+
+wivi
+
+/  P  
+
+> i∈Iq
+
+wi
+
+
+
+(Eq. 1), and it is well-defined and bounded: because wi ≥ 1
+
+and |Iq | ≥ 5 the denominator P 
+
+> i∈Iq
+
+wi > 0, and since each 
+
+vi ∈ [0 , 1] the score lies in [0 , 1] —a range the must avoid 
+
+inversion preserves. 
+
+Solve rate. The solve rate , my headline metric, is the plainest quantity the score supports: the fraction of a fixed question set a model solves under a single deterministic try. Precisely, a model m solves q iff score Tm(q) ≥ τ with τ =0 .5
+
+(the superscript T records the decoding temperature), and the headline number fixes T =0 —deterministic, one attempt. I avoid the label “pass @k” on purpose: there k is a sample count , whereas my 0.5 is a score threshold over a fixed de-nominator. Symmetrically, m fails q iff score Tm(q) < 0.5,and the difficulty threshold used throughout the main text is exactly this τ =0 .5 instance. 
+
+Empirical difficulty, core, and frozen core. Difficulty here is not assigned by hand; it is read off the roster. Fix the roster M of models— |M |=3 , namely {GLM-5.1, Qwen3.6, DeepSeek-V4 }—and let FT (q) = |{ m ∈ M :score Tm(q) < 0.5}| count how many of them fail q at temperature T . The empirical-difficulty bucket is just that count: q is all3 fail iff F0.3(q) = |M |, all3 pass iff 
+
+F0.3(q) = 0 , and split otherwise. The core keeps only the all-fail items that also survive the audits, as below, 
+
+C = {q : F0.3(q) = |M | ∧ resolved( q)=0 
+
+∧ hardContam( q)=0 },
+
+i.e. the all-roster-fail items—at the temperature T =0 .3 at which the buckets were originally defined—that addition-ally pass the openness and contamination checks, where 
+
+resolved( q), hardContam( q) ∈ {0, 1} are the indicator outcomes of the audits of §3.2 (detailed in Appendix A). The frozen core then tightens this one step further, keeping only the items that stay all-roster-fail under deterministic de-coding, 
+
+C⋆ = {q ∈ C : F0(q) = |M |} ⊆ C ,
+
+which removes items that only looked hard under stochastic decoding—so 423 ⊆ 657 by construction. 
+
+Citation audit and openness predicates. Two predicates turn raw audit outcomes into the numbers I report. Take Open question 
+
+> unsolved;
+> no answer key
+
+Agentic harness 
+
+> reason ↔ act · ≤ 10 rounds
+> 10 biomedical REST tools
+
+Trajectory 
+
+> answer + cited
+> PMIDs + tools
+
+Frozen checklist     
+
+> mention · acknowledge ·
+> ground · avoid (w 1–3)
+> score ≥0.5 →solve rate
+
+Citation audit  
+
+> L1: does the ID exist?
+> L2: does it support?
+> →wrong-paper rate
+
+Figure 8: The OpenBioRQ evaluation flow (companion to the construction pipeline in Appendix A). One open question—with no answer key, plus its frozen per-question checklist—is answered by an agentic harness that interleaves reasoning and tool calls (up to ten rounds) over ten biomedical REST APIs. The resulting trace (final answer, cited PMIDs, tool calls) is graded by two independent measures: the frozen checklist (weighted; ≥ 0.5 = solve) yields the solve rate , and the two-level citation audit (L1 existence, L2 support) yields the wrong-paper rate —the apparatus behind my difficulty and citation findings, respectively. citations first. Each emitted identifier carries a fetch out-come fetch ∈ { found , notfound , transient }, and L1 
+
+existence counts notfound as fabrication while excluding 
+
+transient . For a found citation, an L2 support label 
+
+supp ∈ { yes , partial , no } asks whether the cited record actually substantiates the claim; the wrong-paper case is the narrow one, found ∧ supp =no , and I compute wrong-paper rates over found citations only. Openness is the second predicate. The Stage-2 status S(q) takes values in 
+
+{open , partially answered , answered , unknown } and is tied to the gathered evidence set E(q): every identifier it cites must lie in that set, cites( S(q)) ⊆ E(q) (§3.2). Agree-ment is always measured between judge pairs—Spearman over per-answer checklist scores for the LLM-vs-LLM correlation, and Cohen’s κ over the wrong-paper categories. 
+
+Rubric generation. The rubric generator is held to one rule: every criterion must be binary-checkable and instance-grounded. “Identifies AQP4 depolarization as a candidate mechanism” is admissible; “Discusses the mechanism well” is not. It must also emit at least one must acknowledge 
+
+and one must avoid criterion per question, so that cali-brated uncertainty and the absence of fabrication are always scored rather than left to the judge’s discretion. 
+
+Robustness to agentic collapse. A practical advantage of checklist scoring is its robustness to agentic collapse. On the hardest questions, models frequently degrade into non-attempts or zero-tool traces. A continuous free-form judge tends to award such empty or hedging answers partial credit for fluent prose—blurring the very distinction the bench-mark is designed to expose. The frozen checklist instead withholds credit precisely where it matters: a collapsed an-swer fails its must mention and must ground criteria and, if it falsely claims the tools yielded nothing, also fails 
+
+must avoid , so the score reflects the absence of grounded substance rather than surface fluency. This keeps the diffi-culty buckets stable and makes the resulting core set a reli-able target for measuring progress. 
+
+# C Extended Experiments and Robustness 
+
+Each headline in §5 is a pooled number; here I open it up. I begin with the citation audit at full per-model resolution and its robustness probes; the behavioral breakdown; the no-tool ablation by criterion; two robustness checks (checklist judge, domains); and the reproducibility accounting behind the frozen core. 
+
+## C.1 Citation Audit: Robustness Probes 
+
+The full per-model L1/L2 breakdown is Figure 5 in the main body; here I report the robustness probes behind the headline wrong-paper rate. 
+
+Conservative floor: the partial bin. Wrong-paper ex-cludes the large “partial” bin ( 28 .1% of evaluable citations under the Opus judge). A strict binary re-judge of sub-stantive partials (tangential, wrong-population, or wrong-direction support counted as not-supporting) flips a sizable fraction to “no” (in a 25 -item probe, 10 /25 = 40% flip), so folding partials in would push the upper bound to ∼25% ;the “no”-only definition under-reports rather than inflates the failure. 
+
+Wrong-paper by identifier type. Splitting by identifier type, trial-registry citations are misused more often than publication citations: under the Opus judge, NCT trial IDs are wrong-paper 20 .3% (47 /231 ) versus 13 .0% for PMIDs ( 593 /4,545 )—mirroring their higher fabrication at L1 (GLM-5.1’s invented identifiers were predominantly NCT IDs). Model Non- Zero-tool Avg Cite-attempt collapse tools rate             
+
+> GLM-5.1 26 .2% 20 .8% 12 .63.9%
+> Qwen3.6 19 .5% 19 .6% 6.123 .9%
+> DeepSeek-V4 0.8% 31 .3% 8.338 .5%
+
+Table 6: Behavioral analysis on the 1,969-question set. Mod-els diverge sharply on every axis. Cite-rate spans roughly 
+
+10 × (GLM 3.9% vs. DeepSeek-V4 38 .5% ). 
+
+Wrong-paper is a sourcing defect, not a marker of un-grounded reasoning. Across 879 jointly-labeled answers (those with audited citations), a wrong-paper citation shows no detectable association with whether the answer satisfies the must ground criterion: risk ratio 1.07 (95% CI 0.88 –
+
+1.31 ). The decoupling is not an artifact of a lenient ground-ing check. Of the must ground -passing answers that carry a wrong-paper citation, 73% also carry a genuinely support-ing one (every answer cites ≥ 2 sources); and under a strict grounding definition (requiring an actually-supporting cita-tion) the association is still null (RR 1.06 , 95% CI 0.99 –
+
+1.13 ; odds-ratio point estimate 1.33 [0.93 , 1.89 ], so indepen-dence is not refuted rather than positively established). The join is at answer rather than per-claim granularity. The take-away: wrong-paper is a sourcing-integrity defect that per-sists even in answers that otherwise look well-grounded, so neither an existence check nor a grounding-reward signal would surface it. 
+
+## C.2 Behavioral Divergence 
+
+The starkest gap is the cite-rate: it spans roughly 10 × across the roster—GLM 3.9% versus DeepSeek-V4 38 .5% —so the three models barely agree on whether to ground at all—and that is only one axis; they diverge as sharply on the others. The full per-model breakdown over the 1,969 -question set is in Table 6 (the figure is in the main body, Figure 6). 
+
+Agentic collapse is concentrated on the hardest track— and multi-model. On the broad 1,969 -set the zero-tool rate is only moderate for all three roster models (Ta-ble 6: 20 .8/19 .6/31 .3% ). Collapse is specific to the harder, question-granular priority track, where two of the three jump sharply: GLM-5.1 to 65 .3% zero-tool (non-attempt 69 .1% ,up from 26 .2% ) and DeepSeek-V4 to 62 .3% (non-attempt 
+
+62 .3% , up from 0.8% ), while Qwen3.6 barely moves ( 22 .1% 
+
+zero-tool, non-attempt 26 .3% ). Because collapse spans two independent developers (Zhipu and DeepSeek) it is not a single-model idiosyncrasy; because the third (Alibaba’s Qwen3.6) resists, it is not forced by the questions alone. It is a model-divergent, non-monotone failure, not a uni-form law—a structural axis of open-question behavior that answer-only benchmarks cannot register. 
+
+## C.3 No-Tool Ablation: Criterion Decomposition 
+
+The tool-parity result is not a rubric artifact. Decomposing GLM-5.1’s score by criterion type over the 656 matched core questions, the no-tool condition scores at least as high on every type, and its largest gains are on must mention 
+
+(factual recall, 32 .5 → 40 .2) and must avoid (77 .7 →
+
+84 .7), not on the abstention-credit must acknowledge 
+
+(5.5 → 7.5, the smallest gain). Even on must ground —which rewards citing real supporting evidence, exactly where retrieval should help—tools confer no advantage (17 .1 with tools vs 19 .3 without). 
+
+## C.4 Leaderboard Robustness to the Checklist Judge 
+
+Because the leaderboard is graded by a GLM-5.1 checklist judge (same lineage as a roster model), I re-grade the frozen-core solve rate of all six non-roster models with an inde-pendent different-family judge (Opus-4.7, 2,498 question-model pairs). Per-model solve rate shifts by at most 4.1
+
+points (Gemini-3-Pro 28 .8 → 27 .8, Opus-4.7 37 .8 → 40 .5,GPT-5.5 59 .6 → 58 .4, held-out GLM-5 16 .6 → 20 .7); the per-question solve label agrees at Cohen’s κ = 0 .65 , and both the frontier ordering (Gemini < Opus < GPT-5.5) and the frontier-vs-held-out separation (min frontier 27 .8% >
+
+max held-out 20 .7% ) survive intact (the Opus rates are over the successfully-parsed subset of the 423 per model). The capability range is therefore not an artifact of the GLM-lineage judge. 
+
+## C.5 Per-Domain Breakdown 
+
+Because every headline is a pooled number, I re-aggregate each by the L1 taxonomy (Table 7) and ask which findings survive the split. Three hold up; one does not. Take wrong-paper first: its Opus rate runs from 8.1% in Surgical to 
+
+18 .1% in Genomics—a narrow band in which no single spe-cialty drives the pooled rate, so the defect is not a Clinical-Medicine artifact. The frozen core is similarly spread: it spans all twelve domains, the largest share being Clinical Medicine at 21 .5% , so it is not a single-specialty benchmark wearing a general label. The frontier capability range sur-vives the split too, and holds within domains: in each of the four largest the Gemini < Opus < GPT-5.5 ordering is pre-served and GPT-5.5 solves a majority—Clinical Medicine 
+
+24 → 38 → 62 , Neuroscience 23 → 37 → 62 , Oncology 27 →
+
+38 → 60 , Infectious Disease 38 → 48 → 50 —with only mi-nor inversions in low-n domains. The one finding that does not survive uniformly is agentic collapse: GLM-5.1’s zero-tool rate peaks in Medical AI & Informatics ( 43 .9% ) and Surgical Sciences ( 29 .0% ) but falls to 10 .5% in Oncology, suggesting collapse is triggered more where the biomedical APIs return sparse hits. 
+
+## C.6 Reproducibility of the Frozen Core: Full Accounting 
+
+I re-decode all three roster models a second time at T =0 ,five days later (testing live-API and agentic nondetermin-ism; the model output itself is deterministic), and re-judge on the same rubric. Per-question scores reproduce closely (mean absolute checklist-score delta 0.09 –0.14 ; fail-label agreement 0.78 –0.81 ). Membership, however, churns: of the boundary-proximal items 46 .5% flip, and a direct test of the near-threshold “deep” failures (max-of-3 in [0 .35 , 0.40) )rc wp frontier solve rate coll. Domain % % Gem Opus GPT %                                                                        
+
+> Clinical Med 21 .513 .724 .238 .561 .525 .2
+> Neuro/Psych 19 .912 .022 .636 .961 .916 .6
+> Oncology 13 .014 .627 .338 .260 .010 .5
+> Infect/Immun 9.515 .237 .547 .550 .022 .2
+> Public Health 6.612 .635 .725 .053 .623 .8
+> Surgical 5.98.148 .040 .072 .029 .0
+> Cardiovascular 5.713 .341 .737 .554 .214 .9
+> Genomics 5.718 .125 .025 .070 .824 .8
+> Pharm/Drug 4.714 .130 .050 .070 .020 .7
+> Medical AI 4.312 .811 .133 .338 .943 .9
+> Rare Disease †2.112 .444 .455 .644 .420 .0
+> Other †1.221 .620 .020 .060 .00.0
+
+Table 7: Per-domain breakdown over the 12 L1 taxonomy categories. rc% : share of the 423 frozen core; wp% : Opus-judge wrong-paper rate; frontier solve rate : Gemini-3-Pro / Opus-4.7 / GPT-5.5 on the frozen core; coll.% : GLM-5.1 zero-tool collapse rate. The frontier range (Gem < Opus <
+
+GPT) holds in every domain with n ≥ 18 , and wrong-paper is broadly comparable across domains. †n < 10 frozen-core items—not interpretable. finds 34 .7% (17 /49 ) also flip to pass—driven by live-API drift and erratic agentic tool use (Qwen3.6 and DeepSeek-V4 account for 19 of 23 flips). I therefore retract an ear-lier 85 .8% retention estimate (which had assumed deep-failures fixed) and report no single retention figure; the frozen core is a single-T =0 snapshot, not a seed-stable par-tition. The churn is a property of the selection, not the com-parisons. Recomputing the frontier range on the 346 items stable across both decodes gives 24 .6/32 .7/55 .5% (vs the full-423 28 .8/37 .8/59 .6% )—same ordering and ∼31-point spread—and the 77 flipped items are simply easier for the frontier agents ( 48 .1/61 .0/77 .9% ). The core is also not id-iosyncratic to the three roster models: re-deriving the all-three-fail set from alternate triples preserves Jaccard 0.70 –
+
+0.77 under a single-model substitution and recovers 72% 
+
+(Jaccard 0.58 ) under a full same-lineage roster swap, so the core is largely a property of the open-weight capability tier. I test only removals; whether a re-decode adds items with a different frontier profile would require re-decoding the non-core questions, which I leave to future work. 
+
+# D Extended Discussion, Release, and Ethics 
+
+Why citation severity is a medical, not a math, problem. 
+
+My two-level audit is motivated by a severity asymmetry I hypothesize is specific to medicine. In a domain like mathe-matics, a fabricated reference is academic sloppiness (Wal-ters and Wilder 2023; Son et al. 2026); in medicine, I ar-gue, a real identifier (a resolvable PMID or NCT number) attached to an unsupported clinical claim is plausibly a more consequential misattribution, because the resolving identi-fier can lend false authority and a downstream reader may be more likely to trust the claim because the link works. (This is a sourcing and attribution argument, not a clinical-harm measurement: I do not study patient impact, claim verac-ity, or reader trust.) This is why L1-existence alone is the wrong instrument: emitted identifiers almost always exist (≈ 0.7% non-existent over 4,863 citations, the opposite of ResearchMath’s ≈ 54% fabrication rate), so the meaning-ful failure mode lives at L2—real papers cited for claims they do not support ( 15 .9% of real citations overall, a judge-relative LLM estimate—see the non-expert spot-check be-low). Existence is not correctness, and in biomedicine the gap between them is the reliability story. 
+
+Open questions as a faithfulness-and-abstention probe. 
+
+Hand a model an open question and it has two basic moves: 
+
+abstain —honestly flag that the literature does not settle the matter—or confabulate —assert a confident answer, often pinned to an unsupporting citation. Both of my headline findings are failures of this choice. Agentic collapse is ab-stention taken to its degenerate extreme: the agent stops en-gaging altogether rather than commit. Wrong-paper citation is the opposite failure, confabulation dressed in a resolv-able source link: a definitive answer made to look sourced. Closed-form QA can expose neither, because the answer is already given; open questions are what make the abstain-vs-confabulate trade-off the object of measurement. 
+
+Empirical, model-derived difficulty as a transferable construction method. The difficulty-labeling recipe— answer every candidate with a roster of models and bucket by all-model failure (solve rate)—is a contribution indepen-dent of the biomedical content, and it earns that indepen-dence through three properties. It needs no hand-labeling: difficulty is read off the roster’s answers rather than assigned by an annotator, so a human never has to judge what is hard. It scales with corpus size: adding candidates costs only more model passes, not more human effort, so the labeled pool grows as cheaply as the raw pool. And it is intrinsically non-saturating: as models improve, items that were “core” mi-grate to “discriminating” and a fresh core can be redefined against the current frontier, so the benchmark never perma-nently bottoms out the way a fixed human-labeled set does. The method is domain-agnostic—it should transfer to any setting where a frozen, checkable rubric can be generated, a reusable way to build hard benchmarks without human dif-ficulty annotation. My own two corrections carry the generalizable lessons for anyone using this recipe in an agentic setting. First, em-pirical difficulty measured under stochastic decoding can be partly a sampling artifact: my “solve rate ≈ 0% ” core dis-solved to ∼1 in 4 solvable once I re-measured at T =0 —so pipelines that bucket by model failure must fix and report the decoding temperature. Second, even at T =0 the signal is not reproducible if the environment is live, because run-to-run tool drift and er-ratic agentic behavior churn membership ( 34 .7% of even my near-threshold “deep” failures flip on a re-decode, §5.5). The recipe for agentic difficulty is therefore not just “bucket by all-model failure” but “bucket by all-model failure over a frozen tool environment”—one must record and replay the tool responses (a difficulty signal taken over a moving envi-ronment is not reproducible, whatever the temperature). The frozen replay cache I release (Data availability) is the con-crete instantiation. 
+
+A standalone insight: synthesized gold answers are citation-unreliable. Separately from the model-trajectory audit, I surface a finding of independent interest: LLM-synthesized gold answers cite ≈ 100% real PMIDs but point to the wrong paper ≈ 74% of the time (the full LLM-judge audit, n ≈ 360 ; §4). This is not a single-judge artifact: an independent different-family judge (Opus-4.7) re-judging a stratified sample puts the wrong-paper rate at 72 .8% , against the primary judge’s 73 .5% on the same keys ( n=147 ). (The two judges agree at the item level as well, but I do not lean on the inter-judge κ here: with a ∼73% base rate it is inflated and uninformative; the load-bearing fact is sim-ply that both families report ≈ 73% .) The claim still rests on title +abstract rather than full text and is not human-adjudicated, but it carries the same two-judge floor as my trajectory result. The finding cuts two ways. For my internal use it is conservative: if gold citations are even partly unreli-able, grounding against them is unsafe, which is why I grade against rubrics instead. As a standalone cautionary result— for the now-common practice of using LLM-generated ref-erence answers as ground truth—it is robust to the choice of judge. I keep this audit strictly separate from the trajectory-citation audit and never use gold citations as a target. 
+
+On the LLM-in-the-loop construction and subject–judge overlap. Every stage of OpenBioRQ—question extrac-tion, refinement, openness verification, difficulty bucketing, and grading—uses LLMs, and the same families (GLM, Qwen, DeepSeek) appear as both subjects and, for GLM-5.1, the primary judge. I do not treat this as benign; I con-trol for it with a single design principle applied through-out: every headline number is reproduced by an independent different-family judge, Opus-4.7, chosen because it shares no lineage with the roster. Opus-4.7 re-judges the entire L2 citation population ( 10 .6% vs the primary 15 .9% ; binary 
+
+κ=0 .755 ), re-grades the full leaderboard (every solve rate within 4.1 points, range and frontier-vs-held-out separation preserved, κ=0 .65 ), and re-judges the gold-citation audit (72 .8% vs 73 .5% on the same keys). The frozen per-question checklist further limits judge discretion—both judges score the same pre-committed criteria, which is what lifts inter-judge Spearman from 0.35 to 0.82 —so the residual risk is a shared bias of two unrelated model families against the same evidence, a substantially weaker failure mode than single-family anchoring. The one control I cannot fully substitute for is human expertise: I ran a preliminary non-expert hu-man spot-check on the released n=50 set (next paragraph), but a domain-expert κ study remains future work. I also flag openness labeling as the most prompt-sensitive stage, which is why I replaced source-framing refinement with the retrieval-grounded status verifier and re-audited the core (Appendix A). 
+
+Preliminary non-expert human spot-check of the wrong-paper rate. To begin closing the human-validation gap, a non-expert author (reading title +abstract, not a domain clinician) annotated the released blind n=50 set— 50 L2 ci-tations subsampled from the κ-frame and stratified toward LLM wrong-paper verdicts and judge disagreements, with the LLM labels withheld. The annotator marked 6/50 as wrong-paper ( 12% ) against 18 /50 (36% ) for the primary GLM judge and 11 /50 (22% ) for Opus on the same items. The two readings are informative in opposite ways. Con-cordance on clear cases: both LLM judges flagged 5 of the annotator’s 6 wrong-papers ( 83% )—including blatant cross-domain misattributions (an environmental-chemistry paper cited for a myeloma claim; the opening example’s ophthal-mology paper cited for a COVID-vaccine efficacy claim)— so the qualitative finding is human-confirmed. 
+
+Divergence on borderline cases: the LLM judges flag many more (GLM +13 , Opus +6 citations the non-expert judged as supporting), so wrong-paper binary agreement is only κ=0 .29 (GLM) / 0.51 (Opus), well below the LLM-vs-LLM κ=0 .755 . This is genuinely two-sided: either the LLM judges over-flag borderline support (so the true rate is below 15 .9% ), or the non-expert reader is fooled by topic-match—marking an on-topic paper as “supporting” when it does not establish the specific claim, which is precisely the resolvable-but-unsupporting hazard this paper is about (so an expert would catch more, not fewer). I cannot adju-dicate between these without domain experts, which is ex-actly why the expert-κ study is the priority next step. The sample is stratified, so 12 /36 /22% are not population rates (κ is the comparable quantity); I release the filled annota-tions and per-item notes. This corroborates that wrong-paper citations are real and human-recognizable on unambiguous cases, while the precise rate is judge-relative and awaits ex-pert calibration. 
+
+Data availability, licensing, and release. What I release is the extracted and refined questions, each carrying per-item source pointers—identifiers such as PMIDs, NCT numbers, and arXiv IDs, together with the originating body—but not the verbatim source text. The split is deliberate: keeping the pointers lets anyone re-verify openness and difficulty, while withholding the source text respects the per-source terms of the bodies I draw on. Those bodies span the open-question literature—JLA priority-setting partnerships, NICE research recommendations, and Cochrane research-gap literature— and the resolution services, Europe PMC and arXiv. Because I ship only the pointers, a downstream user resolves each one against its original service under that service’s own terms, rather than receiving redistributed text from me. Licensing and the distribution URL will accompany the release. The release will be accompanied by a datasheet (Ge-bru et al. 2021) documenting, beyond the usual sourcing, composition, and intended use, the items an agentic bench-mark specifically requires: the MCP tool/API endpoints and their access dates, the as-of snapshot date that fixes open-ness labels, the frozen-core ID list, the tool-response replay cache, the per-domain result tables, and the blind, stratified n=50 held-out human-annotation set staged for the deferred expert-κ study. For the replay cache I document its coverage contract ex-plicitly: each of the 423 frozen-core ids has a replayable trace for all six models (roster traces are filtered from the 
+
+657 -item core to the 423 ; the three frontier agents were run natively on the 423 ), so every cell of the leaderboard is backed by a cached trace. For openness, I release per-item audit records for all 657 core questions (each ques-tion’s resolution flag, follow-up count, source year, and the verifier’s detail string), and for the 174 of them carrying a detailed Stage-2 judgment I additionally release the judge’s cited evidence identifiers and reasoning. Exact re-derivation of the 0/657 result against a frozen literature would still re-quire persisting the full Stage-1 evidence bundles (the raw follow-up abstracts and snippets), which the audit summa-rizes rather than stores—I flag this as a reproducibility gap to close, since otherwise a re-audit re-queries a literature that has moved. 
+
+The benchmark is a frozen artifact, not a re-runnable se-lection. The membership churn of §5.5 carries a release implication: because re-running the live agentic selection yields a 30 –46% -different frozen core, I ship the frozen core as a frozen artifact, not as a procedure to re-execute. The release therefore includes (i) the fixed list of the 423 frozen-core task id s (my T =0 snapshot) and (ii) a tool-response replay cache—the ordered tool calls and the responses each graded run actually saw ( ∼29 k calls over the six roster and frontier agents). The cache is keyed by the specific (tool, arguments) tuples each run emitted, and agents issue almost entirely distinct free-text queries (cross-model query overlap is < 1% ). Thus it makes the six audited runs deterministically replayable and re-gradable (e.g. under a new judge), and it fixes the frozen-core selection. It is an audit/replay artifact, not a query-keyed environment, so scoring a new model still re-quires live tool access. I release a replay-with-live-fallback harness for this: it re-grades each audited run offline at 
+
+∼100% cache hit, and for a new model serves any match-ing cached response while falling back to live tools for the rest—which, given the < 1% cross-model query overlap, is 
+
+∼99% of calls. I also release the tool endpoints and the as-of snapshot date so a new run is comparable. Seed-averaging the selection is an alternative, but it still requires live access and re-decoding, and still drifts as the literature moves; I therefore treat the frozen cache as the pri-mary reproducibility mechanism and seed-averaging as sec-ondary. The replay cache stores the harness’s truncated re-sponse previews rather than full upstream payloads, which suffices to reproduce what each agent conditioned on. 
+
+Dual-use. I note a dual-use risk. A registry of open clini-cal questions, paired with a demonstrated recipe for attach-ing real PMIDs to unsupporting claims, could in principle be misused to manufacture authoritative-looking medical mis-information. Several properties mitigate this. OpenBioRQ is framed and released as a research-assistance evaluation; the audit is diagnostic, not generative (it measures misattribu-tion rather than producing it); and I release no fine-tuned model. The resource is intended to help detect and reduce unreliable sourcing, not to produce it. 
+
+Ethics and data sourcing. OpenBioRQ is constructed from authoritative public sources—the open-question liter-ature and priority-setting and clinical-guidance bodies such as the James Lind Alliance and NICE—and queries public biomedical APIs (PubMed, ClinicalTrials.gov, OpenFDA, Open Targets, ChEMBL, and others) that expose no pri-vate patient data. I release per-item source records for every question so that openness status, source framing, and audit decisions are reproducible and independently re-verifiable. Given the safety framing above, I intend the resource to be used for evaluating and improving literature grounding, not for any patient-facing deployment.

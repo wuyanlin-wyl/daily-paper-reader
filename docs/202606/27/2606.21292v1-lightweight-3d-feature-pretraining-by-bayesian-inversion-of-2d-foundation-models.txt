@@ -1,0 +1,535 @@
+Title: Lightweight 3D Feature Pretraining by Bayesian Inversion of 2D Foundation Models
+
+URL Source: https://arxiv.org/pdf/2606.21292v1
+
+Published Time: Tue, 23 Jun 2026 00:52:27 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Lightweight 3D Feature Pretraining by Bayesian Inversion of 2D Foundation Models 
+
+Marwane Hariat 1 Gianni Franchi 2 David Filliat 2 Antoine Manzanera 1∗
+
+> 1
+
+U2IS, ENSTA – Institut Polytechnique de Paris, Palaiseau, France 
+
+> 2
+
+Pôle Recherche, Agence Ministérielle pour l’IA de Défense, Palaiseau, France 
+
+{marwane.hariat, antoine.manzanera, gianni.franchi}@ensta.fr {david.filliat}@polytechnique.edu 
+
+# Abstract 
+
+We present Casper3D, a lightweight probabilistic framework for converting noisy multi-view 2D foundation-model embeddings into a latent 3D semantic repre-sentation. We model view-level semantic features as noisy observations of an underlying 3D semantic state and infer this state with a set-based variational model that incorporates relative pose during multi-view reasoning. Casper3D is trained by predicting held-out semantic observations from novel viewpoints, while remaining aligned with visual and text semantic spaces for open-vocabulary 3D understanding. The framework is backbone-agnostic and applies to both language-aligned and self-supervised embeddings. Experiments show that Casper3D produces more stable 3D semantics than simple multi-view pooling, especially in ambiguous and noisy settings. 
+
+# 1 Introduction 
+
+A central goal of perception is to recover stable properties of the physical world from partial and view-dependent measurements. Images are such measurements: they do not directly reveal the underlying three-dimensional scene, but rather record its projection under a particular camera pose, illumination, occlusion pattern, and surrounding context. Modern pretrained vision and vision-language models, such as DINO [ 3, 27 , 31 ], CLIP [ 29 , 44 , 24 ], and masked autoencoders [ 13 ], transform these image measurements into powerful semantic feature spaces. These models have become widely used as backbones for 2D tasks including classification, segmentation, detection, and depth estimation [ 1 , 12 , 10 ]. Yet their representations remain fundamentally attached to image coordinates. In contrast, the physical world is organized in three dimensions. A point on a table, a chair, or a wall exists independently of the camera from which it is observed. Its semantic identity is not created by a particular view, even though each view may reveal a partial and noisy signature of it. This distinction is crucial for 3D scene understanding: we would like to attach feature embeddings not to pixels, but to physical points {pi ∈ R3}Ni=1 . For each point pi, the desired embedding should represent an intrinsic property of that point in the scene: a view-invariant semantic state that persists across observations. This motivates the following physical interpretation. Given a 3D point pi, there exists an unobserved latent representation zi ∈ Rd, which encodes the semantic content of the physical point. A 2D foundation model does not observe zi directly. Instead, when the point is seen from a camera view j,the model produces a feature observation xij ∈ Rd that depends both on the latent state zi and on the viewing condition Tj . The image feature is therefore a measurement, not the object itself. It is 
+
+> ∗Corresponding author. Preprint.
+> arXiv:2606.21292v1 [cs.CV] 19 Jun 2026
+
+affected by projection, scale, viewpoint, occlusion, local image context, and the inductive biases of the pretrained model. From this perspective, lifting 2D features into 3D is not merely a geometric alignment problem. It is a Bayesian inverse problem: recover the hidden, view-independent semantic state of a physical point from multiple noisy, view-dependent measurements. Formally, given the set of observations Ci =
+
+{(xij , T j )}Mi
+
+> j=1
+
+, we seek to infer the latent state that explains them. The desired 3D representation is not a single observed 2D feature, nor an arbitrary average of observed features, but the latent cause underlying all of them. Most existing approaches adopt a lift-and-aggregate strategy [ 42 , 28 , 32 ]. Using camera intrinsics, poses, and depth, each 3D point is projected into the images where it is visible. Features from a pretrained 2D model are sampled at the corresponding image locations and fused by average pooling, weighted averaging, voting, or similar deterministic rules: ei = PMi 
+
+> j=1
+
+wij xij . This approach is simple and often effective, but it implicitly assumes that the 3D feature can be estimated as a weighted mean of its 2D measurements. In this paper, we propose Casper3D (Canonical Semantic Probabilistic Embeddings for 3D )a probabilistic framework for lifting pretrained 2D foundation-model features into 3D. Casper3D treats 3D feature lifting as a Bayesian inverse problem. For each 3D point pi, we assume a latent semantic variable zi, and model each 2D feature observation as noisy observations generated by a view-dependent measurement process: xij ∼ pθ (x | zi, T j ). The main objective is then to recover the posterior distribution p(zi | C i), which represents what can be inferred about the intrinsic 3D semantic state from all available views. This posterior formulation naturally distinguishes between the physical representation of the point and the observations induced by particular cameras. It also provides a principled way to represent uncertainty: points seen from many consistent views should yield concentrated posteriors, whereas points seen from few or conflicting views should remain uncertain. Since exact posterior is intractable, Casper3D introduces a lightweight view-conditioned variational model. The encoder receives an unordered set of 2D feature measurements and viewing conditions, 
+
+Ci = {(xij , T j )}Mi
+
+> j=1
+
+, and produces an amortized posterior approximation qϕ(zi | C i). The decoder is conditioned on both the inferred latent state and a target viewing condition, and is trained to predict held-out 2D feature observations. In this way, the model is forced to separate the intrinsic component of the point representation, encoded in zi, from the extrinsic component induced by viewpoint, encoded through Tj . We use held-out feature prediction as a self-supervised objective for learning a view-stable latent 3D semantic representation. Once inferred, the resulting 3D feature field can be used for multiple downstream tasks. We focus on open-vocabulary 3D semantic segmentation as a primary application. 
+
+Contributions. To summarize, our contributions are as follows: • We formulate 2D-to-3D foundation-model feature lifting as a Bayesian inverse problem, where each 3D point has an unobserved view-invariant semantic state and each 2D feature is a noisy, view-dependent observation of that state. • We introduce Casper3D , a probabilistic latent-variable framework for learning 3D fea-ture fields from multi-view 2D pretrained features. Casper3D uses a lightweight view-conditioned variational model to infer posterior distributions over latent 3D point features from unordered, variable-size sets of 2D observations, and is trained through held-out view prediction to separate view-stable semantic content from view-dependent measurement effects. • We demonstrate Casper3D on open-vocabulary 3D semantic segmentation, showing im-proved robustness and accuracy over aggregation-based feature lifting methods. 
+
+# 2 Related Work 
+
+Multi-view 2D feature lifting. A common strategy for transferring 2D semantics to 3D is to associate image observations with geometry and fuse them across views. SemanticFusion [ 26 ]follows this idea using SLAM [ 36 ], but remains closed-set. Recent open-vocabulary methods replace 2Figure 1: Overview of Casper3D 
+
+supervised predictors with pretrained 2D models: ConceptFusion [ 16 ] lifts SAM-based [ 19 ] and global image features into 3D; FeatureRealisticFusion [ 25 ] learns a neural field with an iMAP-like backend [ 33 ]; OpenMask3D [ 34 ], OpenIns3D [ 15 ], and OV3D [ 45 ] lift SAM-guided masks [ 19 ] to 3D instances. Multi-view recognition methods such as PointCLIP [ 42 ] and MV-CLIP [ 32 ] aggregate CLIP features or logits across rendered views. For point-level segmentation, OpenScene [ 28 ] and CLIP-FO3D [ 41 ] lift and distill CLIP-aligned features, while Semantic Abstraction [ 11 ], later text-supervised methods [ 17 , 43 ], RegionPLC [ 38 ], PLA/CLIP2Scene-style methods [ 7, 5], and DITR [ 20 ]use 2D foundation-model supervision through text, region, or feature correspondences. These works show the value of 2D foundation models for 3D perception, but typically obtain 3D features by selecting, averaging, distilling, or fusing view-dependent observations. We instead infer a posterior over an unobserved latent 3D semantic state. 
+
+Bayesian inverse problems. Our formulation follows the spirit of Bayesian inverse problems, where an unknown latent quantity is inferred from noisy measurements rather than directly aggregated. For example, dark-matter mass mapping infers an unobserved matter field from observational tracers [ 30 ]. In our case, the desired 3D semantic feature is also unobserved and only measured through view-dependent 2D foundation-model features. Unlike physical inverse problems, where the latent field and measurement process may be physically defined, and recent methods use diffusion models [14] with Langevin-based or improved posterior samplers [ 40 , 35 ], our latent state is an abstract semantic variable with no ground-truth target. We therefore learn a lightweight amortized posterior qϕ(zi | C i).
+
+Set-based variational models. Our encoder must handle unordered sets with a variable number of views. Deep Sets [ 39 ], Set Transformers [ 22 ], and SetVAE [ 18 ] provide tools for permutation-invariant and variational set modeling. Unlike standard set generation, and unlike order-dependent ViT positional encodings [ 8], our viewing condition is part of the physical measurement process. We therefore combine set-based posterior inference with view-conditioned decoding. 
+
+Held-out feature prediction. Predicting held-out features from target views is related to view-conditioned novel-view synthesis [ 23 ]. However, we do not render RGB images or geometry; we use held-out foundation-feature prediction as a self-supervised signal for learning a view-stable latent 3D representation. 
+
+# 3 Method 
+
+Casper3D (Canonical Semantic Probabilistic Embeddings for 3D ) is a probabilistic method for lifting pretrained 2D foundation-model features into 3D. Its central idea is that a 3D point has an underlying semantic state, but this state is never directly observed. We only observe its 2D measurements through different cameras. This creates an important difficulty: there is no ground-truth latent 3D feature to supervise. We do not know what the “correct” internal 3D representation of CLIP, DINO, or any other vision-language 3(a) Multihead Attention Block (MAB).   
+
+> (b) Pooling by Multihead Attention (PMA). S: learned seed vectors.
+> (c) Our new Pose-aware Attention Block (PAB)
+> (d) Our Encoder (e) Our Decoder
+
+Figure 2: Overview of our proposed architecture. More details in Appendix. model should be. We only observe view-dependent 2D features sampled from images. Therefore, learning a 3D feature field cannot be posed as standard supervised regression. Instead, we formulate it as probabilistic inference: the model must infer a distribution over possible latent 3D states that are compatible with the available measurements. This is the main departure from deterministic feature lifting. Existing methods often collapse all observed 2D features into one embedding by averaging or weighted fusion. Casper3D instead treats these observations as noisy physical measurements and asks: which latent 3D state could have generated them? 
+
+3.1 A Latent Physical State, Not an Averaged Feature 
+
+As mentioned previously, Casper3D therefore introduces a latent variable zi for each 3D point 
+
+pi ∈ R3. This latent variable is not a supervised target. It is an inferred physical semantic state: the hidden representation that explains how the point appears across views. Since this state is unobserved and may be ambiguous, we infer a posterior distribution rather than a single deterministic embedding: 
+
+qϕ(zi | C i) = N  zi; μi, diag( σ2 
+
+> i
+
+) . (1) The mean μi ∈ Rd represents the most likely latent state given the available views. The scale σi ∈ Rd
+
+represents epistemic uncertainty about this state. When observations are dense and consistent, the posterior can become sharp. When observations are sparse, noisy, or contradictory, the posterior remains uncertain. This uncertainty is not an auxiliary output; it is a direct consequence of the fact that the true latent 3D feature is never observed. 
+
+3.2 Learning Without a Ground-Truth 3D Latent Space 
+
+A key challenge is that we cannot supervise zi directly. There is no dataset that provides the true CLIP-like or DINO-like feature of a physical 3D point independent of all views. The latent space must therefore be identified indirectly. Casper3D learns this space through a simple physical principle: a correct latent state should predict measurements of the same point from views that were not used to infer it. During training, we split the measurements of a point into a context set Ci and a held-out set Hi.The context set Ci is used to infer the latent state zi through the posterior qϕ(zi | C i). The held-out set Hi is used to test whether this inferred state can explain unseen measurements (xik , T k) with 
+
+Tk ∈ SE (3) the camera-to-world pose of that view. This provides a self-supervised training signal without requiring ground-truth 3D features z⋆i . The encoder estimates qϕ(zi | C i). The decoder receives a sample from this posterior and a target viewing condition, and predicts the feature that should be observed from that view: ˆxik = Decoder θ (zi, T k).4Thus, Casper3D is trained by cross-view prediction rather than input reconstruction. The model succeeds only if the latent state inferred from some views contains information that generalizes to other views of the same physical point. We model each held-out 2D feature as a noisy, view-conditioned measurement of the latent 3D state: 
+
+xik ∼ pθ (x | zi, T k) .
+
+Thus, different views of the same point may induce different observed features due to viewpoint, scale, visibility, occlusion, and feature-extractor uncertainty. 
+
+3.3 Training Objective 
+
+For clarity, we write the held-out set as: Hi = {(xik , T k)}Ni 
+
+> k=1
+
+, Ni = |H i|. We also separate the held-out features and poses: X H 
+
+> i
+
+= {xik }Ni 
+
+> k=1
+
+, T H 
+
+> i
+
+= {Tk}Ni 
+
+> k=1
+
+. Our goal is to explain held-out observations from the context observations and the held-out poses. Because the latent state is unknown, we marginalize over possible latent explanations: 
+
+log pθ
+
+ X H 
+
+> i
+
+| C i, T H
+
+> i
+
+ = log 
+
+Z
+
+pθ
+
+ X H 
+
+> i
+
+| zi, Ci, T H
+
+> i
+
+ p(zi) d zi. (2) In practice, we optimize the negative ELBO: 
+
+LELBO (i) = Lheldout (i) + β KL [ qϕ (zi | C i) ∥ p(zi)] . (3) The held-out term is: 
+
+Lheldout (i) = −Ezi∼qϕ(·|C i)
+
+" NiX
+
+> k=1
+
+log pθ (xik | zi, Ci, T k)
+
+#
+
+. (4) In our implementation, we use a cosine loss between the predicted held-out feature ˆxik and the observed feature xik :
+
+Lheldout (i) = 1
+
+NiNiX
+
+> k=1
+
+[1 − cos (ˆ xik , x ik )] . (5) 
+
+3.4 Difference from a Classical VAE 
+
+Although Casper3D uses variational inference, it is not a classical VAE applied to 2D features. In a standard VAE, the encoder observes an input and the decoder reconstructs that same input: 
+
+x → z → ˆx. The latent variable is therefore encouraged to preserve the information needed to reproduce the observed sample.Casper3D changes the role of the latent variable. The encoder receives a set of context measurements, but the decoder must predict different measurements from held-out views: 
+
+Ci → zi, (zi, T k) → ˆxik , (xik , T k) /∈ C i. (6) This distinction is central. If the model reconstructed the context features, it could simply encode view-specific artifacts: the particular camera pose, occlusion pattern, scale, or local image context. By predicting held-out views, Casper3D forces the latent variable to capture what is stable across the measurement process. The target view Tk is given to the decoder, so view-dependent variation can be explained there rather than stored in the latent state. In this sense, Casper3D turns the VAE objective into a physical posterior-predictive problem. The latent variable is useful only if it explains measurements of the same 3D point that were not used to infer it. Our network architecture differs from typical SetTransformers [ 22 , 18 ] because we make the attention blocks camera-pose-aware, as shown in Figure 2. Let us define N as the cardinality of the context set 
+
+C (we omit the index i for simplicity). Instead of considering camera to world poses Tj , we consider relative poses. Let us define Tl→k = T −1 
+
+> k
+
+Tl Coordinate of view frame l expressed in coordinate of view frame k. We can then define the tensor of relative poses over context views: 
+
+TC→C = {Tl→k}l,k ∈ SE (3) N ×N (7) 5Hence, TC→C ∈ RN ×N ×12 because each relative pose is a 3 × 4 matrix. We inject this relative pose information both in the query and in the bias of the multi-head attention as explained in Figure 2. Similarly, instead of considering the camera to world poses of held-out observations when decoding, we consider the relative poses of each held-out view with respect to each context view: TH→C ,we concatenate this pose information with the latent space Z to predict the held-out 2D feature as displayed in Figure 2. 
+
+Definition 1 (Permutation Equivariance and Invariance) . Let Sn be the symmetric group on n
+
+elements, and let x = ( x1, . . . , x n) ∈ X n. For any π ∈ Sn, define the permuted input as π · x =(xπ(1) , . . . , x π(n)).A function f : X n → Y n is permutation equivariant if 
+
+f (π · x) = π · f (x), ∀π ∈ Sn, ∀x ∈ X n. (8) A function g : X n → Y is permutation invariant if 
+
+g(π · x) = g(x), ∀π ∈ Sn, ∀x ∈ X n. (9) 
+
+Proposition 1 (Permutation Equivariance of the PAB Block) . Let PAB : X n → Y n denote the proposed Pose-aware Attention Block. Then, for any permutation π ∈ Sn and any input X ∈ X n,the PAB block is permutation equivariant: 
+
+PAB( π · X) = π · PAB( X).
+
+Proof. The proof is provided in Appendix. 
+
+Proposition 2 (Permutation Invariance of the Encoder) . Let Enc : X n → Y denote the proposed encoder. Then, for any permutation π ∈ Sn and any input X ∈ X n, the encoder is permutation invariant: 
+
+Enc( π · X) = Enc( X).
+
+Proof. The proof is provided in Appendix. 
+
+3.5 Language-Compatible 3D Features 
+
+For downstream task such as open-vocabulary segmentation with a CLIP VLM for instance, the inferred 3D features must remain compatible with text embeddings. So, we map it back to the original foundation-model embedding space: 
+
+ei = hψ (zi). (10) We therefore add a text-prototype likelihood. Given a text prototype sc, we define: 
+
+pψ (ci | zi) = exp (cos( ei, s c)/τ )
+
+PKc′=1 exp (cos( ei, s c′ )/τ ) . (11) The text loss is: 
+
+Ltext (i) = − log pψ (ci | zi). (12) This term does not define the latent state by itself. Instead, it aligns the inferred physical representation with the language-aligned space of the pretrained model. The latent state is still primarily learned through cross-view measurement prediction. At inference time, we use: ei = hψ (μi)
+
+3.6 Weak Anchoring to the Original Feature Space 
+
+We also use the average lifted feature as a weak anchor: ai = PMi 
+
+> j=1
+
+wij xij .
+
+The alignment loss is: Lavg (i) = 1 − cos( ei, a i).
+
+This term should not be interpreted as assuming that the average feature is the correct 3D representa-tion. Rather, it keeps the inferred feature from drifting too far from the original pretrained feature space. The average feature acts as a weak measurement, while the latent state is learned through posterior-predictive consistency. 63.7 Full Objective 
+
+The full training loss is: 
+
+L(i) = Lview (i) + β KL [ qϕ(zi | C i) ∥ p(zi)] + λtext Ltext (i) + λavg Lavg (i). (13) The role of each term is distinct. The view prediction term learns the latent state by asking it to explain unseen measurements. The KL term models uncertainty and regularizes the unobserved latent space. The text term preserves semantic compatibility with language. The average-alignment term softly anchors the output to the original feature space. Together, these terms allow Casper3D to learn a 3D feature field without ever observing ground-truth 3D features. 
+
+3.8 Inference 
+
+At test time, all available measurements are used as context. The encoder estimates: 
+
+(μi, σ i) = Encoder ϕ(Ci). (14) The final 3D feature is: 
+
+ei = hψ (μi). (15) For open-vocabulary segmentation, each point is assigned to the closest text prototype: 
+
+ˆci = arg max  
+
+> c
+
+cos( ei, s c). (16) The posterior scale σi provides an uncertainty estimate over the inferred physical state. This uncer-tainty is especially useful in regions with sparse views, inconsistent observations, object boundaries, or strong occlusions. 
+
+# 4 Experiments 
+
+We evaluate Casper3D on annotation-free open-vocabulary 3D semantic segmentation . Our goal is to test whether the posterior-inferred 3D semantic field learned by Casper3D is more semantically coherent than direct deterministic 2D-to-3D feature lifting. Given a reconstructed point cloud, we reproject each 3D point into multiple images, collect the corresponding 2D semantic features and relative poses, and infer a latent 3D embedding using the posterior in Eq. 15. At test time, each 3D point is classified by similarity between its inferred embedding and text prototypes. This setup directly measures whether probabilistic multi-view semantic inference improves 3D semantic organization beyond simple aggregation. 
+
+4.1 Experimental Setup Datasets. We evaluate on three standard indoor 3D benchmarks. ScanNet [6 ] contains diverse RGB-D indoor scenes with 1 201 training and 312 validation scans, together with depth, camera poses, and intrinsics that enable multi-view 2D–3D lifting. Following common practice, we map the ScanNet label other furniture to other . We also evaluate on ScanNet200 , which extends ScanNet to 200 semantic categories and substantially increases vocabulary size and long-tail difficulty. Finally, we report results on Matterport3D [4], a large-scale RGB-D dataset with complex building interiors and denser scene coverage. Together, these datasets test both standard indoor open-vocabulary segmentation and robustness under larger semantic vocabularies. 
+
+Task and evaluation protocol. For each 3D point, we gather all valid reprojected 2D observations, infer a latent 3D semantic embedding, and classify the point by similarity to text embeddings. We report mean Intersection-over-Union (mIoU) and mean Accuracy (mAcc) , the standard metrics for open-vocabulary 3D segmentation. Unless otherwise specified, all text prototypes are built from the same prompt set across methods. 
+
+Implementation details. We retain only geometrically valid reprojections satisfying |z −d(u, v )| <δ d (u, v ), where z is the reprojected depth and d(u, v ) is the observed pixel depth; we use δ = 0 .05 .7Method Test-Time Images ScanNet ScanNet200 Matterport3D mIoU mAcc mIoU mAcc mIoU mAcc                                                                                            
+
+> 2D fusion Zero-shot
+> MaskCLIP-3D [21] ✓9.7 21.6 ––––MSeg Voting [21] ✓45.6 54.4 ––33.4 39.0 OpenScene-2D [28] ✓50.0 62.7 ––32.3 40.0 CLIP-FO3D, feature projection [41] ✓27.6 47.7 ––––
+> 2D fusion w/ training
+> Ours ✓64.6 75.5 11.0 18.1 50.4 65.1
+> 3D point-cloud training
+> OpenScene + 3D Distillation [28] ✗52.9 63.2 7.3 –41.9 51.2 PLA [7] ✗––1.8 –––RegionPLC [38] ✗––6.5 –––OV3D [17] ✗57.3 72.9 8.7 –45.8 62.4 CLIP-FO3D [41] ✗30.2 49.1 ––––PGOV3D [43] ✗59.5 73.2 9.3 17.1 ––
+> Ours + 3D Distillation ✗65.8 76.7 14.2 22.6 53.2 66.6
+> Fully supervised upper bound
+> Fully supervised ✗72.0 80.7 23.9 32.9 55.7 67.4
+
+Table 1: Annotation-free open-vocabulary 3D semantic segmentation on ScanNet, ScanNet200, and Matterport3D. Casper3D consistently improves over prior zero-shot and trained 2D-fusion methods, and remains competitive with methods that additionally optimize a 3D backbone. We train with learning rate 5 × 10 −5, batch size 512 , cosine decay, and 5 000 warmup steps. Training is done on 1 NVIDIA RTX A6000 GPU. The variational objective uses KL annealing for 100 000 
+
+steps, with β = 10 −4, λtext = 0 .1, and λavg = 0 .05 . Each epoch contains 10 000 steps and training runs for 50 epochs. We use up to 40 observations per point, with at most 20 context views and 
+
+20 held-out views; missing observations are handled by padding and masking. For text prototype matching in Eq. 11, we use temperature 0.05 . Unless otherwise noted, our default 2D semantic teacher is TIPSv2 [2]. Additional implementation details are provided in the Appendix. 
+
+4.2 Main Results: Annotation-Free Open-Vocabulary 3D Segmentation 
+
+Table 1 compares Casper3D against three families of methods: (i) zero-shot 2D feature fusion methods, (ii) 2D fusion methods with training, and (iii) methods that additionally train a 3D backbone. Our method consistently improves over prior annotation-free approaches across all datasets. Notably, Casper3D substantially outperforms direct zero-shot lifting methods, showing that strong 2D semantic features alone are not sufficient to obtain a stable 3D semantic field. This supports our central hypothesis: 3D semantics should be inferred as a latent variable from noisy multi-view evidence rather than obtained by direct feature projection or voting. A second important observation is that Casper3D is already highly competitive without 3D backbone distillation. This isolates the gain from probabilistic multi-view semantic inference itself. When combined with optional 3D distillation, performance further improves on all datasets, increasing the margin over previous 3D-training methods and narrowing the gap to full supervision. These results indicate that Casper3D provides a strong 3D semantic representation on its own, while remaining complementary to downstream 3D backbone training. Further qualitative results are given in Appendix, Figures 4 and 5. 
+
+4.3 Ablations and Analysis Backbone-agnostic semantic inference. Table 2a shows that Casper3D is not tied to a specific 2D semantic backbone. Replacing the underlying 2D foundation model consistently changes the quality of the inferred 3D field in the expected direction: stronger 2D semantic encoders yield stronger 3D representations. This confirms that Casper3D can exploit improvements in foundation-model quality without modifying the 3D inference architecture. 82D Feature ScanNet mIoU ∆
+
+MaskCLIP [44] 60.8 –CLIP-DINOiser [37] 62.3 +1 .5
+
+OpenSeg [9] 63.4 +2 .6
+
+TIPSv2 [2] 64.6 +3 .8
+
+(a) Performance with different 2D VLM back-bones. Metric Value 
+
+FLOPs ↓ 0.64G Inference Time ↓ 14.4 ms Training Time ↓ 41.6 h Parameters ↓ 35.6M Peak GPU Memory ↓ 150 MB (b) Efficiency. 
+
+Table 2: Casper3D can benefit from stronger 2D foundations models while remaining compact and efficient. Full 32 24 20 16 12 8 4           
+
+> Number of input views
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> mIoU (%)
+> 46.6
+> 41.5 39.2 35.6
+> 30.8 29.7
+> 23.4 20.1
+> 64.6 64.8 63.7 64.2
+> 59.8 57.5 56.3 56.0
+> Avg. 2D features Ours
+
+Figure 3: Robustness to sparse views. Compared with directly averaging 2D features across views. 
+
+Latent structure versus deterministic averaging. In Appendix, Figure 6 compares the seman-tic geometry induced by simple average aggregation and by the latent representation inferred by Casper3D .Across multiple representative scenes, latent embeddings exhibit tighter class-local neigh-borhoods and markedly reduced inter-class overlap, while average aggregation leads to fragmented clusters and stronger semantic mixing. 
+
+Robustness to sparse views. Figure 3 shows that our method remains substantially more stable as the number of available views decreases, even in the highly sparse setting with only 4 views. In contrast, directly averaging 2D features degrades rapidly as view coverage becomes sparse, highlighting the benefit of our inferred 3D feature field. 
+
+Efficiency. Table 2b reports model size and runtime statistics. FLOPs, inference latency, and peak GPU memory are measured for a single forward pass with batch size 1, 20 context observations, and 
+
+20 held-out observations; inference latency is averaged over 100 runs after 10 warmup iterations on a single GPU. Casper3D remains lightweight, requiring only 0.64 G FLOPs, 14 .4 ms inference time, and 150 MB peak GPU memory. This makes it practical as a semantic inference module and complementary to heavier 3D distillation pipelines. 
+
+# 5 Conclusion 
+
+Casper3D frames 3D semantic fusion as probabilistic inference over noisy multi-view foundation-model features. By combining set-based variational inference, relative-pose-aware reasoning, and held-out observation prediction, it learns a more stable 3D semantic representation than naive multi-view aggregation. The method remains compatible with open-vocabulary language supervision and different geometry providers, making it a simple and general approach for self-supervised 3D semantic understanding. 
+
+Limitations and future work. A current limitation of Casper3D is that it relies on ground-truth 3D geometry to reproject features across 2D views during training and evaluation or assumes access to accurate scene geometry. A natural next step is to replace this requirement with off-the-shelf 3D estimation models, feed-forward 3D scene prediction methods, enabling Casper3D to operate in settings where ground-truth 3D geometry is unavailable. 9References 
+
+[1] S. Amir, Y. Gandelsman, S. Bagon, and T. Dekel. Deep vit features as dense visual descriptors. arXiv preprint arXiv:2112.05814 , 2(3):4, 2021. [2] B. Cao, K. Chen, K.-K. Maninis, K. Chen, A. Karpur, Y. Xia, S. Dua, T. Dabral, G. Han, B. Han, et al. Tipsv2: Advancing vision-language pretraining with enhanced patch-text alignment. arXiv preprint arXiv:2604.12012 , 2026. [3] M. Caron, H. Touvron, I. Misra, H. Jégou, J. Mairal, P. Bojanowski, and A. Joulin. Emerging properties in self-supervised vision transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 9650–9660, 2021. [4] A. Chang, A. Dai, T. Funkhouser, M. Halber, M. Niessner, M. Savva, S. Song, A. Zeng, and Y. Zhang. Matterport3d: Learning from rgb-d data in indoor environments. arXiv preprint arXiv:1709.06158 , 2017. [5] R. Chen, Y. Liu, L. Kong, X. Zhu, Y. Ma, Y. Li, Y. Hou, Y. Qiao, and W. Wang. Clip2scene: Towards label-efficient 3d scene understanding by clip. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 7020–7030, 2023. [6] A. Dai, A. X. Chang, M. Savva, M. Halber, T. Funkhouser, and M. Nießner. Scannet: Richly-annotated 3d reconstructions of indoor scenes. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 5828–5839, 2017. [7] R. Ding, J. Yang, C. Xue, W. Zhang, S. Bai, and X. Qi. Pla: Language-driven open-vocabulary 3d scene understanding. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pages 7010–7019, 2023. [8] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai, T. Unterthiner, M. Dehghani, M. Min-derer, G. Heigold, S. Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929 , 2020. [9] G. Ghiasi, X. Gu, Y. Cui, and T.-Y. Lin. Scaling open-vocabulary image segmentation with image-level labels. In European conference on computer vision , pages 540–557. Springer, 2022. [10] X. Gu, T.-Y. Lin, W. Kuo, and Y. Cui. Open-vocabulary object detection via vision and language knowledge distillation. arXiv preprint arXiv:2104.13921 , 2021. [11] H. Ha and S. Song. Semantic abstraction: Open-world 3d scene understanding from 2d vision-language models. arXiv preprint arXiv:2207.11514 , 2022. [12] M. Hamilton, Z. Zhang, B. Hariharan, N. Snavely, and W. T. Freeman. Unsupervised semantic segmentation by distilling feature correspondences. arXiv preprint arXiv:2203.08414 , 2022. [13] K. He, X. Chen, S. Xie, Y. Li, P. Dollár, and R. Girshick. Masked autoencoders are scalable vision learners. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 16000–16009, 2022. [14] J. Ho, A. Jain, and P. Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. [15] Z. Huang, X. Wu, X. Chen, H. Zhao, L. Zhu, and J. Lasenby. Openins3d: Snap and lookup for 3d open-vocabulary instance segmentation. In European Conference on Computer Vision , pages 169–185. Springer, 2024. [16] K. M. Jatavallabhula, A. Kuwajerwala, Q. Gu, M. Omama, T. Chen, A. Maalouf, S. Li, G. Iyer, S. Saryazdi, N. Keetha, et al. Conceptfusion: Open-set multimodal 3d mapping. arXiv preprint arXiv:2302.07241 ,2023. [17] L. Jiang, S. Shi, and B. Schiele. Open-vocabulary 3d semantic segmentation with foundation models. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 21284– 21294, 2024. [18] J. Kim, J. Yoo, J. Lee, and S. Hong. Setvae: Learning hierarchical composition for generative modeling of set-structured data. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 15059–15068, 2021. [19] A. Kirillov, E. Mintun, N. Ravi, H. Mao, C. Rolland, L. Gustafson, T. Xiao, S. Whitehead, A. C. Berg, W.-Y. Lo, et al. Segment anything. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4015–4026, 2023. 
+
+10 [20] K. Knaebel, K. Yilmaz, D. de Geus, A. Hermans, D. Adrian, T. Linder, and B. Leibe. Dino in the room: Leveraging 2d foundation models for 3d segmentation. arXiv preprint arXiv:2503.18944 , 2025. [21] J. Lambert, Z. Liu, O. Sener, J. Hays, and V. Koltun. Mseg: A composite dataset for multi-domain semantic segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pages 2879–2888, 2020. [22] J. Lee, Y. Lee, J. Kim, A. Kosiorek, S. Choi, and Y. W. Teh. Set transformer: A framework for attention-based permutation-invariant neural networks. In International conference on machine learning , pages 3744–3753. PMLR, 2019. [23] R. Liu, R. Wu, B. Van Hoorick, P. Tokmakov, S. Zakharov, and C. Vondrick. Zero-1-to-3: Zero-shot one image to 3d object. In Proceedings of the IEEE/CVF international conference on computer vision , pages 9298–9309, 2023. [24] T. Lüddecke and A. Ecker. Image segmentation using text and image prompts. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 7086–7096, 2022. [25] K. Mazur, E. Sucar, and A. J. Davison. Feature-realistic neural fusion for real-time, open set scene understanding. In 2023 IEEE International Conference on Robotics and Automation (ICRA) , pages 8201–8207. IEEE, 2023. [26] J. McCormac, A. Handa, A. Davison, and S. Leutenegger. Semanticfusion: Dense 3d semantic mapping with convolutional neural networks. In 2017 IEEE International Conference on Robotics and automation (ICRA) , pages 4628–4635. IEEE, 2017. [27] M. Oquab, T. Darcet, T. Moutakanni, H. Vo, M. Szafraniec, V. Khalidov, P. Fernandez, D. Haziza, F. Massa, A. El-Nouby, et al. Dinov2: Learning robust visual features without supervision. arXiv preprint arXiv:2304.07193 , 2023. [28] S. Peng, K. Genova, C. Jiang, A. Tagliasacchi, M. Pollefeys, T. Funkhouser, et al. Openscene: 3d scene understanding with open vocabularies. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 815–824, 2023. [29] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, et al. Learning transferable visual models from natural language supervision. In International conference on machine learning , pages 8748–8763. PmLR, 2021. [30] D. Royo, B. Zhao, A. Muñoz, D. Gutierrez, and K. L. Bouman. Mapping dark-matter clusters via physics-guided diffusion models. arXiv preprint arXiv:2603.14503 , 2026. [31] O. Siméoni, H. V. Vo, M. Seitzer, F. Baldassarre, M. Oquab, C. Jose, V. Khalidov, M. Szafraniec, S. Yi, M. Ramamonjisoa, et al. Dinov3. arXiv preprint arXiv:2508.10104 , 2025. [32] D. Song, X. Fu, N. Liu, W.-Z. Nie, W.-H. Li, L.-J. Wang, Y. Yang, and A.-A. Liu. Mv-clip: Multi-view clip for zero-shot 3d shape recognition. IEEE Transactions on Circuits and Systems for Video Technology ,35(9):8767–8779, 2025. [33] E. Sucar, S. Liu, J. Ortiz, and A. J. Davison. imap: Implicit mapping and positioning in real-time. In 
+
+Proceedings of the IEEE/CVF international conference on computer vision , pages 6229–6238, 2021. [34] A. Takmaz, E. Fedele, R. W. Sumner, M. Pollefeys, F. Tombari, and F. Engelmann. Openmask3d: Open-vocabulary 3d instance segmentation. arXiv preprint arXiv:2306.13631 , 2023. [35] F. Wang and K. L. Bouman. Sample-efficient evidence estimation of score based priors for model selection. 
+
+arXiv preprint arXiv:2602.20549 , 2026. [36] T. Whelan, R. F. Salas-Moreno, B. Glocker, A. J. Davison, and S. Leutenegger. Elasticfusion: Real-time dense slam and light source estimation. The International Journal of Robotics Research , 35(14):1697–1716, 2016. [37] M. Wysocza´ nska, O. Siméoni, M. Ramamonjisoa, A. Bursuc, T. Trzci´ nski, and P. Pérez. Clip-dinoiser: Teaching clip a few dino tricks for open-vocabulary semantic segmentation. In European Conference on Computer Vision , pages 320–337. Springer, 2024. [38] J. Yang, R. Ding, W. Deng, Z. Wang, and X. Qi. Regionplc: Regional point-language contrastive learning for open-world 3d scene understanding. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 19823–19832, 2024. 
+
+11 [39] M. Zaheer, S. Kottur, S. Ravanbakhsh, B. Poczos, R. R. Salakhutdinov, and A. J. Smola. Deep sets. 
+
+Advances in neural information processing systems , 30, 2017. [40] B. Zhang, W. Chu, J. Berner, C. Meng, A. Anandkumar, and Y. Song. Improving diffusion inverse problem solving with decoupled noise annealing. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 20895–20905, 2025. [41] J. Zhang, R. Dong, and K. Ma. Clip-fo3d: Learning free open-world 3d scene representations from 2d dense clip. In Proceedings of the IEEE/CVF international conference on computer vision , pages 2048–2059, 2023. [42] R. Zhang, Z. Guo, W. Zhang, K. Li, X. Miao, B. Cui, Y. Qiao, P. Gao, and H. Li. Pointclip: Point cloud understanding by clip. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 8552–8562, 2022. [43] S. Zhang, S. Zhang, J. Deng, Y. Shen, M. Ma, and Y. Zhang. Pgov3d: Open-vocabulary 3d semantic segmentation with partial-to-global curriculum. In Proceedings of the 33rd ACM International Conference on Multimedia , pages 5070–5079, 2025. [44] C. Zhou, C. C. Loy, and B. Dai. Extract free dense labels from clip. In European conference on computer vision , pages 696–712. Springer, 2022. [45] M. Zhou, C. He, R. Wang, and X. Chen. Ov3d-cg: Open-vocabulary 3d instance segmentation with contextual guidance. In Proceedings of the IEEE/CVF International Conference on Computer Vision ,pages 5305–5314, 2025. 
+
+12 A Proofs 
+
+Lemma 1 (MAB is Equivariant with respect to its query and Invariant with respect to its value) . .Let MAB( Q, V ) be the Multihead Attention Block of Set Transformer, where Q ∈ Rn×d is the query input and V ∈ Rm×d is the key-value input. Let π ∈ S be a permutation. Then 
+
+MAB( π · Q, V ) = π · MAB( Q, V ),
+
+and 
+
+MAB( Q, π · V ) = MAB( Q, V ).
+
+This Lemma results from the Multi-head attention equation and is proved in [22]. 
+
+Lemma 2 (Query Equivariance of MAB with Query-Permuted Bias) . Let MAB B (Q, V ) denote a Multihead Attention Block with additive attention bias B ∈ Rn×m, where Q ∈ Rn×d is the query input and V ∈ Rm×d is the key-value input. Let π ∈ Sn be a permutation of the query indices. If the bias is permuted in the same way as the queries, then 
+
+MAB π·B (π · Q, V ) = π · MAB B (Q, V ).
+
+Proof. It suffices to prove the result for a single attention head, since multi-head attention is ob-tained by concatenating several heads and applying shared linear maps, which preserve permutation equivariance. For one attention head with additive bias B, define 
+
+Att B (Q, V ) = softmax 
+
+ QW Q(V W K )⊤
+
+√d + B
+
+
+
+V W V .
+
+Let 
+
+A := QW Q(V W K )⊤
+
+√d + B. 
+
+Then, after permuting the query input and the bias by the same permutation π, the attention logits become 
+
+(π · Q)WQ(V W K )⊤
+
+√d + π · B = π · QW Q(V W K )⊤
+
+√d + π · B
+
+= π ·
+
+ QW Q(V W K )⊤
+
+√d + B
+
+
+
+= π · A. 
+
+Since the softmax is applied row-wise, it commutes with row permutations: 
+
+softmax( π · A) = π · softmax( A).
+
+Therefore, 
+
+Att π·B (π · Q, V ) = softmax 
+
+ (π · Q)WQ(V W K )⊤
+
+√d + π · B
+
+
+
+V W V
+
+= softmax( π · A)V W V
+
+=  π · softmax( A)V W V
+
+= π · (softmax( A)V W V )= π · Att B (Q, V ).
+
+Thus, a single biased attention head is permutation equivariant with respect to the query input when the bias is permuted in the same way. The multi-head attention layer preserves this property because each head satisfies the same equivari-ance relation and the output projection is applied row-wise with shared parameters. The remaining operations in MAB , namely residual connections, layer normalization, and row-wise feed-forward networks, are also applied identically to each row and therefore commute with the action of π. Hence, 
+
+MAB π·B (π · Q, V ) = π · MAB B (Q, V ).
+
+13 Lemma 3 (Permutation Invariance of PMA) . Let PMA denote pooling by multihead attention with a learned seed matrix S. Then, for any permutation π ∈ Sn and any X ∈ Rn×d,
+
+PMA( π · X) = PMA( X).
+
+Proof. Since rFF is applied row-wise with shared parameters, it is permutation equivariant: 
+
+rFF( π · X) = π · rFF( X).
+
+Therefore, 
+
+PMA( π · X) = MAB  S, rFF( π · X)
+
+= MAB  S, π · rFF( X)
+
+= MAB  S, rFF( X)
+
+= PMA( X).
+
+The third equality follows from Lemma 1. 
+
+Proposition 1 (Permutation Equivariance of the PAB Block) .
+
+Proof. Let X ∈ RN ×d denote the set of multi-view features, and let 
+
+P (X) := TC→C ∈ RN ×N ×9
+
+denote the corresponding pairwise relative-pose tensor. We assume that the pose tensor is permutation equivariant, i.e., for every permutation π ∈ SN ,
+
+P (π · X) = π · P (X),
+
+where the action of π on P (X) permutes the view indices consistently. Define the intermediate pose-aware representation 
+
+Φ( X) := rFF(Concat( X, PMA( P (X)))) .
+
+We first show that Φ is permutation equivariant. Using the equivariance of P , Lemma 3, and the row-wise equivariance of rFF , we obtain 
+
+Φ( π · X) = rFF(Concat( π · X, PMA( P (π · X)))) = rFF(Concat( π · X, PMA( π · P (X)))) by P (π · X) = π · P (X)= rFF(Concat( π · X, PMA( P (X)))) by Lemma 3 
+
+= π · rFF(Concat( X, PMA( P (X)))) by row-wise equivariance of rFF = π · Φ( X).
+
+By definition of the PAB block, shown in Figure 2c, 
+
+PAB( X) = MAB P (X)(Φ( X), Φ( X)) ,
+
+where P (X) is used as the additive pose-dependent attention bias. Therefore, 
+
+PAB( π · X) = MAB P (π·X)(Φ( π · X), Φ( π · X)) = MAB π·P (X)(π · Φ( X), π · Φ( X)) by P (π · X) = π · P (X) and Φ( π · X) = π · Φ( X)= MAB π·P (X)(π · Φ( X), Φ( X)) by Lemma 1 
+
+= π · MAB P (X)(Φ( X), Φ( X)) by Lemma 2 
+
+= π · PAB( X).
+
+Hence, PAB is permutation equivariant. 
+
+Proposition 2 (Permutation Invariance of the Encoder) . Let Enc be the encoder as described in Figure 2d obtained by composing permutation-equivariant PAB blocks, followed by a permutation-14 invariant PMA layer. Then, for any permutation π ∈ SN and any input X ∈ RN ×d,
+
+Enc( π · X) = Enc( X).
+
+Proof. Let the encoder be defined as 
+
+Enc( X) := PMA(PAB L ◦ · · · ◦ PAB 1(X)) ,
+
+where each PAB ℓ is permutation equivariant. Define 
+
+H0 := X, Hℓ := PAB ℓ(Hℓ−1), ℓ = 1 , . . . , L. 
+
+Since each PAB ℓ is permutation equivariant, we have, by induction, 
+
+Hℓ(π · X) = π · Hℓ(X), ℓ = 1 , . . . , L. 
+
+In particular, 
+
+HL(π · X) = π · HL(X).
+
+Finally, since PMA is permutation invariant, we obtain 
+
+Enc( π · X) = PMA( HL(π · X)) = PMA( π · HL(X)) = PMA( HL(X)) = Enc( X).
+
+Therefore, the PAB encoder is permutation invariant. 
+
+# B Implementation Details 
+
+2D semantic features. Our default 2D semantic teacher is OpenSeg. For each valid 2D reprojection of a 3D point, we extract a 768 -dimensional semantic feature and store it together with view identity and geometric metadata. In all main experiments reported in the paper, the Set-VAE operates on these OpenSeg features, although the architecture itself is backbone-agnostic. 
+
+Geometric preprocessing. We preprocess each scene by reprojecting 3D points into all available RGB-D views using camera intrinsics and extrinsics. A reprojected observation is considered valid only if it satisfies geometric and visibility constraints. We use a relative depth consistency rule between the reprojected depth and the observed depth map, together with a border exclusion heuristic to remove unstable image-edge projections. The resulting valid observations are grouped by 3D point. For each 3D point, we store: its 3D coordinates, the list of valid view ids, the corresponding 2D semantic features, and the associated camera extrinsics. We additionally precompute the average feature across valid observations for each point, which is used as a baseline and as an auxiliary alignment target during training. 
+
+Training samples. Training is performed on scene chunks. Each training sample is constructed by first selecting a scene, then sampling a chunk of 2048 3D points from that scene. For each point, we sample up to 20 context views and up to 20 held-out target views. The fraction of observations allocated to context is capped by max_context_frac =0.6. When fewer observations are available, we use padding and binary masks. At training time, the model receives the context observations and is trained to predict the semantic embeddings of held-out observations. 
+
+Observation representation. Each context observation is represented by a 1024 -dimensional semantic feature. Pairwise relative pose features are computed between context views and are used as pairwise attention biases in the encoder. Held-out target views are represented by their relative pose with respect to the context views and are used by the decoder for conditional prediction. 
+
+Network Architecture. Our architecture takes as input a set of 1024 -dimensional semantic tokens. An input linear layer first maps these features to an encoder dimension of 1024 . The encoder consists of 4 stacked self-attention blocks with 8 attention heads, LayerNorm, and dropout probability 0.05 .Relative pose information is injected through a dedicated pose encoder that takes 14 -dimensional pose descriptors as input and maps them to attention-space biases using a hidden size of 64 and output size 128 , with dropout 0.05 .15 After encoder processing, we reduce the set representation using a learned seed-based reducer with 4
+
+seeds. This reduced representation is passed through 2 latent layers with latent dimension 512 . The posterior latent variable has dimension 512 . The decoder uses 4 attention heads, a hidden dimension of 512 , 2 hidden layers, and dropout 0.05 . A final projection head maps the latent representation back to CLIP-compatible semantic space using 2 hidden layers of size 1024 .
+
+Latent objective. We train the variational model with a held-out semantic reconstruction objective and a KL regularizer. The held-out reconstruction loss is computed in feature space using cosine similarity. The KL term is weighted by 10 −4 and linearly annealed over the first 100 ,000 optimization steps. We do not use free bits in the reported experiments. 
+
+Semantic alignment losses. In addition to the held-out reconstruction objective, we use two auxiliary semantic alignment terms. First, we align the predicted 3D semantic representation with the mean aggregated 2D semantic embedding of the same 3D point, using weight λavg = 0 .05 . Second, we align the inferred representation with text space using text prototypes, with weight λtext = 0 .1.Text similarity uses temperature 0.05 . Unless otherwise noted, text prototypes are built with the LAION-style prompt templates. 
+
+Optimization. We train with Adam using learning rate 5 × 10 −5, β1 = 0 .9, β2 = 0 .999 , and weight decay 10 −4. We use gradient clipping with maximum norm 1.0. The learning rate follows a warmup-cosine schedule with 5,000 warmup steps and minimum learning-rate ratio 0.01 . Training runs for 50 epochs, with 10 ,000 optimization steps per epoch. 
+
+Batching and data loading. We use a batch size of 512 for training. Data loading uses 16 workers and prefetch factor 4. All experiments are run on a NVIDIA RTX A6000. 
+
+Voxelization and evaluation protocol. For 3D evaluation, we voxelize the point cloud using voxel size 0.02 . This is used only for evaluation and comparison on standard 3D segmentation metrics. In the default evaluation setting, we use 20 context views per point. 
+
+Reproducibility. All architectural and optimization hyperparameters used in the main experiments are fixed in the public configuration file. In particular, the encoder depth, number of heads, latent dimension, number of context and target views, optimizer settings, KL annealing schedule, and alignment-loss weights are kept constant across the main ScanNet experiments. 
+
+B.1 More results 
+
+16 Figure 4: Qualitative comparison between ground-truth semantic maps and Casper3D predictions. Top: ground truth. Bottom: predicted outputs. 17 Figure 5: Additional qualitative comparison between ground-truth semantic maps and Casper3D predictions. Top: ground truth. Bottom: predicted outputs. 18 Average Latent (a) Scene 1    
+
+> Average Latent (b) Scene 2
+> Average Latent (c) Scene 3
+> Average Latent (d) Scene 4
+
+Figure 6: t-SNE visualizations of point embeddings on representative ScanNet scenes. Compared with deterministic average aggregation, the latent features inferred by Casper3D form tighter same-class clusters and exhibit less inter-class mixing, indicating a more structured semantic field. 19
