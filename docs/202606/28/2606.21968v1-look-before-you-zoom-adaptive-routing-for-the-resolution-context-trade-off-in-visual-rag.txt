@@ -1,0 +1,403 @@
+Title: Look Before You Zoom: Adaptive Routing for the Resolution-Context Trade-off in Visual RAG
+
+URL Source: https://arxiv.org/pdf/2606.21968v1
+
+Published Time: Tue, 23 Jun 2026 01:36:21 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+## Look Before You Zoom: Adaptive Routing for the Resolution-Context Trade-off in Visual RAG 
+
+Oanh N. Tran 1 Thanh Quoc Hung Le 1 Oscar Chew 2 Kuan-Hao Huang *,2 
+
+Khoa D. Doan *,1 
+
+> 1
+
+VinUni-Illinois Smart Health Center, VinUniversity 2Texas A&M University {26oanh.tn, 21hung.ltq, khoa.dd}@vinuni.edu.vn {oscarchew, khhuang}@tamu.edu 
+
+> *
+
+Corresponding authors 
+
+Abstract 
+
+Vision-Language Models (VLMs) struggles as query-relevant objects become smaller. To ad-dress this, recent training-free approaches dy-namically retrieve and zoom into local image re-gions. However, we show that indiscriminately applying retrieval ignores a critical vulnerabil-ity: the resolution–context trade-off . Patch-based zooming recovers details for small tar-gets, but can split large objects and destroy global spatial context; attention-based retrieval better preserves large objects, but remains less reliable on tiny details; and global perception is often fastest when retrieval is unnecessary. Motivated by these failure modes, we intro-duce ViRGo (Visual Retrieval or Global Percep-tion), a lightweight framework that formulates visual retrieval as an adaptive routing problem. ViRGo estimates object scale from the VLM’s intrinsic localization heads during the initial forward pass and combines it with semantic token confidence to select between global per-ception, patch-based retrieval, and attention-based retrieval with minimal additional com-putation. Experiments across multiple VQA benchmarks and object-size groups show that ViRGo improves the accuracy–efficiency trade-off: it matches patch retrieval on small details, leverages attention-based retrieval for larger ob-jects, and reduces inference time by routing to the global baseline when zooming is unneces-sary. 
+
+1 Introduction 
+
+Vision-Language Models (VLMs) have recently achieved strong performance in visual question an-swering (VQA) by jointly reasoning over images and text (Liu et al., 2023b,a, 2024; Team, 2025). However, their ability to handle objects at varying scales remains limited. While VLMs reliably cap-ture large, salient objects, fixed-resolution visual encoders often dilute fine-grained features, causing small but relevant details to be overlooked (Zhang et al., 2024a). A growing line of work addresses this issue through training-free visual retrieval, which dy-namically zooms into local image regions to en-hance resolution (Zhou et al., 2025; Wang et al., 2025). These approaches are particularly effective for small objects, but we observe that applying retrieval indiscriminately introduces a key limita-tion, which we term the resolution–context trade-off (Sec. 3.2). While local zooming improves fine-detail perception, it can disrupt global spatial context, especially for large objects. This fragmen-tation weakens the model’s ability to reason about object relationships and can degrade performance. Moreover, always-on retrieval incurs significant computational overhead (details in Table. 5). To-gether, these suggest that existing visual retrieval methods leave a more basic question unanswered: 
+
+Should retrieval be applied at all? 
+
+To better understand this behavior, we analyze three common inference paradigms: global percep-tion, patch-based retrieval (Wang et al., 2025), and attention-based retrieval (Zhou et al., 2025). Our analysis reveals that these approaches behave dif-ferently across object scales Fig. 3a. Patch-based retrieval is most effective for small targets, but can fall below global perception when large objects are fragmented. In contrast, attention-based retrieval can preserve spatial context while suppressing irrel-evant background noise, allowing it to outperform the global baseline in some large-object settings. These observations suggest that different strategies are optimal under different conditions. Motivated by this, we frame visual reasoning as a routing problem: When should a model rely on global perception, and when should it perform visual re-trieval? This decision is non-trivial as object scale and task difficulty are unknown at inference time. To address this, we propose ViRGo (Vi sual 
+
+Retrieval or Global Perception Router), alightweight routing module that adaptively selects between global inference, attention-based cropping, 1
+
+> arXiv:2606.21968v1 [cs.CV] 20 Jun 2026
+
+and patch-based retrieval. ViRGo operates by ex-tracting a zero-shot geometric proxy for object scale directly from the VLM’s intrinsic signals (de-tails in Section 3.4). More broadly, our work extends retrieval-augmented generation (RAG) to the visual domain by introducing visual RAG routing : deciding not only what to retrieve, but whether and how to re-trieve. Our contributions are: • Identification of the Resolution–Context Trade-off: In Sec. 3.2, we analyze how visual retrieval strategies behave across object scales. Patch-based retrieval recovers fine-grained de-tails but may fragment large objects, while global perception and attention-based retrieval better preserve context yet are less reliable on small targets. • Dynamic Scale Estimation via Intrinsic Sig-nals: We propose a mechanism for estimating perceptual difficulty by combining implicit bounding boxes from the VLM’s intrinsic lo-calization heads with model confidence to con-struct a geometric proxy for object scale. • Adaptive Accuracy–Efficiency Routing: We introduce ViRGo, a lightweight visual RAG router that achieves a better accuracy–latency trade-off across multiple VQA datasets by selectively applying retrieval only when nec-essary, consistently operating above existing methods on the Pareto frontier (Fig. 5). 
+
+2 Related Work 
+
+2.1 Perception Challenges in VLMs 
+
+VLMs typically rely on fixed-resolution visual en-coders (e.g., 336 × 336 in LLaVA), which can lead to information loss when processing high-resolution images. This limitation is particu-larly critical for visual question answering (VQA), where small but semantically important objects may be overlooked due to the perception limita-tion of VLMs (Zhang et al., 2025). To address this issue, prior work has explored several directions. High-resolution visual en-coders (Wei et al., 2024; Lu et al., 2024; Li et al., 2024b; Ge et al., 2024) enhance percep-tion by incorporating stronger visual backbones (e.g., SAM (Kirillov et al., 2023), ConvNeXt (Liu et al., 2022)) or architectural modifications such as cross-attention and adapters. While these ap-proaches improve fine-grained understanding, they often require substantial architectural changes and additional training. Input augmentation meth-ods (Liu et al., 2024; Li et al., 2024a; Chen et al., 2024; Zhang et al., 2024b) divide the input image into multiple patches, encode each patch indepen-dently, and aggregate the representations for down-stream reasoning. Although this strategy improves local detail and it highly effective, this scaling nat-urally increases computational cost and presents challenges in maintaining global spatial coherence. 
+
+2.2 Retrieval-Augmented Generation in Multimodal Systems 
+
+Retrieval-augmented generation (RAG) has been widely studied in both textual and multimodal set-tings (Chang et al., 2021; Han et al., 2017; Xia et al., 2024; Yu et al., 2024), where external informa-tion is retrieved to enhance model predictions. Re-cent work extends this paradigm to vision-language tasks by retrieving query-relevant image regions in-stead of textual documents (Wang et al., 2024; Shen et al., 2024; Wu and Xie, 2023). Methods such as (Wang et al., 2025; Zhou et al., 2025) dynam-ically zoom into informative regions using struc-tured search strategies that better preserve object relationships, leading to improved performance on small-object and relational queries. However, these approaches inherently introduce a trade-off: while zooming enhances local detail, it may lose the global context while incurring additional latency due to iterative retrieval. In fact, in the LLM do-main, universal application of retrieval is known to even degrade accuracy due to noisy retrieval (Guo et al., 2025; Jeong et al., 2024), suggesting oppor-tunities for adaptive decision strategies. 
+
+Our Perspective. We formulate visual percep-tion as a routing problem. Rather than commit-ting to a single inference strategy, we ask: When should a model rely on global perception, and when should it perform visual retrieval? Specif-ically, we adaptively choose between global per-ception, attention-based cropping, and patch-based retrieval as the decision making process on an input. This extends RAG in the visual domain by intro-ducing a key decision dimension: not only how to retrieve, but whether and how to retrieve under the resolution–context trade-off. 23 Motivations: Understanding the Resolution–Context Trade-off 
+
+3.1 Background 
+
+A typical VLM consists of three main components: (1) a visual encoder (e.g., CLIP (Radford et al., 2021)), (2) a projector, and (3) an LLM. The visual encoder processes an image by dividing it into a grid of fixed-size patches and extracting features for each patch. The projector then maps these visual features into the input space of the LLM, allow-ing the model to reason over both image and text. This design limits how the model handles objects at different sizes. Because the image is resized to a fixed resolution (e.g., 336 × 336 ), small objects occupy very few patches and can be overlooked by the model (see left panel of Fig. 2). Retrieval-based methods address this issue by selecting image re-gions using an external retriever and zooming in before passing them to the model (Wang et al., 2025). Nevertheless, zoomed-in patches may cover only part of the object and lose surrounding con-text, making it harder for the model to understand the full scene. In this section, we investigate this resolution-context trade-off when universally ap-plying either global perception or retrieval-based zooming. 
+
+3.2 Resolution–Context Trade-off 
+
+To better understand the resolution–context trade-off, we analyze three representative inference paradigms in VLM-based VQA: 1. Global perception (baseline), which pro-cesses the entire image at a fixed resolution; 2. Attention-based retrieval , which adaptively retrieves and zooms into salient regions us-ing model’s attention (we use ViCrop (Zhang et al., 2025) as a representative). 3. Patch-based retrieval , where the model re-trieves and zooms into local regions (we use RAP (Wang et al., 2025) as a representative). 
+
+Setup. We conduct our analysis on two comple-mentary benchmarks. GQA (Hudson and Manning, 2019) evaluates compositional visual reasoning over real-world scenes with diverse object scales, while V∗ Bench (Wu and Xie, 2023) provides high-resolution images with fine-grained, detail-sensitive queries. Both datasets include ground-truth bounding boxes, enabling us to estimate ob-ject scale for controlled analysis. We partition vstar_bin0 
+
+> gqa_bin0
+> gqa_bin1
+> gqa_bin2
+> gqa_bin3
+> gqa_bin4
+> gqa_bin5
+> gqa_bin6
+> gqa_bin7
+> Dataset Bin
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> 600
+> Number of Visual Tokens
+
+Figure 1: Object size distribution 
+
+GQA into bins based on the relative size of the target object. Figure 1 shows the distribution of ob-ject sizes and image resolutions across these bins. 
+
+3.3 Observations: Scale-Dependent Failure Modes 
+
+We reveal two complementary failures that explain the trade-off between image resolution and spatial context. The first failure occurs for small objects, which occupy only a few visual tokens and are therefore difficult for standard global inference and attention-based cropping to detect. The second failure occurs for large objects, which can be di-vided across multiple zoomed-in patches, causing patch-based retrieval to lose surrounding spatial context and object-level relationships. We study these failures both qualitatively and quantitatively by comparing global perception, attention-based cropping, and patch-based retrieval across object scales. 
+
+Loss of Detail in Small Objects. The left panel of Figure 2 shows that global perception often fails on small, localized targets. Since VLMs process images at a fixed resolution, small objects occupy only a tiny fraction of the visual tokens and their features become diluted by surrounding context. Consequently, the model fails to localize the target and produces hallucinated answers. In contrast, retrieval-based zooming enlarges the target region, allowing the visual encoder to recover fine-grained details and correctly answer the query. 
+
+Loss of Context in Large Objects. The right panel of Figure 2 shows the opposite failure mode for large objects. Fixed-grid retrieval fragments large objects across multiple patches, removing the global spatial context required for recognition. 3Q:  Is there  a stool  in the image?           
+
+> Original Image Model's A  ention
+> GT: Yes
+> No
+> Yes
+> Zoomed Image Model's A  ention
+> Q: What animal is climbing the pine? GT: Bear
+> Monkey
+> Bear
+> Original Image
+> 3x3 Grid Spli  ing
+> ZoomEye
+
+a) Loss of Detail  
+
+> Retrieved Patches
+
+b) Loss of Spatial Context Figure 2: Qualitative examples of the resolution–context trade-off. (a) Loss of detail : For small objects, global perception fails because the target occupies only a few visual tokens, while zooming into the relevant region restores fine-grained detail and yields the correct answer. (b) Loss of spatial context : For large objects, patch-based retrieval can split the target across regions, losing global structure and surrounding context, leading to incorrect prediction. Vstar_b0  
+
+> GQA_b0
+> GQA_b1
+> GQA_b2
+> GQA_b3
+> GQA_b4
+> GQA_b5
+> GQA_b6
+> GQA_b7
+> Dataset + Bin (Increasing Object Size )
+> 0.45
+> 0.50
+> 0.55
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> Accuracy
+> RAP
+> Baseline
+> ViCrop
+
+(a) Accuracy comparison Vstar_b0  
+
+> GQA_b0
+> GQA_b1
+> GQA_b2
+> GQA_b3
+> GQA_b4
+> GQA_b5
+> GQA_b6
+> GQA_b7
+> Dataset + Bin (Increasing Object Size )
+> 10 0
+> 10 1
+> 10 2
+> Response Time (s) (Log Scale)  RAP
+> Baseline
+> ViCrop
+
+(b) Response time (log scale) 
+
+Figure 3: Comparison of RAP (orange), ViCrop (green) and Baseline (blue) across datasets. Left: accuracy across bins. Right: response time per sample (log scale). Higher bins correspond to larger ground-truth regions. 
+
+As a result, the model only observes partial object regions and generates locally plausible but incor-rect predictions. This demonstrates that excessive patch-based retrieval can harm recognition when global context is essential. 
+
+Quantitative Trends Across Object Scales. We further provide a large-scale analysis of the resolution–context trade-off in Figure 3. Figure 3a compares accuracy across V*Bench and GQA bins, where higher GQA bins correspond to larger target regions. RAP performs best on V*Bench, where queries often require fine-grained perception of very small targets. However, as object size in-creases, patch-based retrieval becomes less con-sistently beneficial and often falls below the global baseline on GQA bins. This trend supports the qualitative observation above: zooming helps when the target is too small to perceive globally, but it becomes harmful when the target is already visi-ble and retrieval fragments the object or removes useful context. Figure 3b shows that this accuracy trade-off is also tied to efficiency. RAP consistently incurs the largest response time because it requires itera-tive retrieval and multiple zoomed-in evaluations. In contrast, the global baseline is the fastest, and attention-based cropping provides an intermedi-ate option that can suppress irrelevant background while avoiding some of the fragmentation caused by rigid patch retrieval. Starting from the larger GQA bins, processing the full image is often both more accurate and substantially faster than always applying patch-based retrieval. The resolution–context trade-off shows that no single perception strategy is uniformly optimal, motivating an adaptive mechanism that selects the strategy best suited to each input. This perspective 4LN L(N-1) L1  ... L2         
+
+> Q: What color is the bucket?
+> GT: White
+> Original Image
+> Localization Head
+> Black
+> Red
+> White
+> Green
+> Output Scores
+> 0.70
+> 0.15
+> 0.10
+> 0.05
+> Router
+> Object
+> Bounding
+> Box Size
+> Top-1
+> Con  dence
+> Score
+> Image
+> Resolution
+> Features
+> RAP
+> White Black
+> Step 1: Feature Extraction Step 3: Retrieval (if selected) Step 2: Router Training
+> Vision-Language Model
+> Baseline ViCrop
+> Selected
+
+Figure 4: Overview of ViRGo. Given an input image and question, ViRGo first performs a global forward pass through the N -layer vision-language model to extract zero-shot routing signals. These include an implicit object bounding-box size from localization heads, the top-1 confidence score, and the image resolution. The extracted features are passed to a lightweight router, which selects the most suitable perception strategy among global inference, patch-based retrieval with RAP, and attention-based cropping with ViCrop. In this example, the global model initially predicts “Black,” while the router selects ViCrop to focus on the relevant image region and recover the correct answer, “White.” 
+
+is also consistent with human visual processing, where the visual system adaptively shifts between global scene understanding and focused attention depending on the task and visual complexity (Tor-ralba et al., 2006). In this section, we describe ViRGo, an adaptive router that decides whether the VLM should rely on Visual Retrieval or Global Per-ception during inference time. The overall work-flow of ViRGo is illustrated in Figure 4: an initial global forward pass provides zero-shot routing fea-tures, which are then used by a lightweight router to select the most suitable perception strategy among global perception, RAP, and ViCrop. 
+
+3.4 Zero-Shot Feature Extraction 
+
+To dynamically decide the visual processing strat-egy, the VLM must be able to estimate the physi-cal scale of the queried object without relying on ground-truth annotations. Inspired by recent in-terpretability studies, where spatial grounding is implicitly encoded within a sparse subset of the LLM’s attention heads (Kang et al., 2025; Zhang et al., 2025), we propose to aggregate the attention weights from these heads, often called localization heads, over the visual tokens during the initial for-ward pass, and extract a soft localization map. The extracted features are as follows: 1. Implicit Object Scale ( bb _size ): The spatial bounding box size extracted directly from the VLM’s localization heads (Kang et al., 2025), serving as a geometric proxy for the target ob-ject’s physical scale within the image. These specific heads exhibit strong, consistent at-tention patterns that spatially align with the semantic objects currently being generated in the text, even though the VLM is trained purely on text-generation objective. 2. Semantic Confidence (top _token _prob ):The probability of the highest-scoring ini-tially generated token, used as a proxy for the model’s internal certainty. This signal comple-ments object scale: even when the estimated object size is large, low confidence may indi-cate that the model is uncertain or attending to the wrong visual evidence. In such cases, retrieval may still be beneficial. 3. Source Image Size (image _resolution ):The raw resolution of the input image. While small objects often benefit from zoom-in re-trieval, this assumption can fail when the source image itself has insufficient resolution. In such cases, aggressive cropping may pro-duce low-quality patches that fall below the visual encoder’s effective recognition thresh-old, making retrieval detrimental. Image reso-lution therefore helps the router identify when zoom-in retrieval should be avoided. 
+
+4 Proposed Method: ViRGo 
+
+We formulate adaptive perception routing using three independent binary decision models corre-sponding to: 0: Global Baseline, 1: Attention-based Retrieval (ViCrop), and 2: Patch-based Re-5Dataset N (all) N (train) N (dev) N (test)                                                 
+
+> GQA bin-0 200 40 32 128 GQA bin-1 200 40 32 128 GQA bin-2 200 40 32 128 GQA bin-3 200 40 32 128 GQA bin-4 200 40 32 128 GQA bin-5 200 40 32 128 GQA bin-6 200 40 32 128 GQA bin-7 200 40 32 128 HR-Bench4K 800 160 128 512 TextVQA 200 40 32 128 V*Bench 191 38 30 123
+> Total 2791 558 446 1787
+> Table 1: Detailed Dataset statistics for training and eval-uation splits.
+
+trieval (RAP). Each lightweight XGBoost router predicts the suitability of its corresponding strat-egy from the extracted routing features, and its output is further calibrated into a comparable confi-dence score. During inference, the final perception strategy is selected based on the highest calibrated prediction score under a minimal-computation pref-erence, enabling routing decisions with minimum additional overhead. Detailed implementation is in App. A. 
+
+5 Experiments 
+
+5.1 Experimental Setup Datasets. We evaluate the methods on multiple VQA benchmark, including subset of GQA (Hud-son and Manning, 2019), V ∗ Bench (Wu and Xie, 2023), HR-Bench 4K (Wang et al., 2024), sub-set of TextVQA (Singh et al., 2019). For datasets where no official split is provided, we create a train/dev/test split and report results on the held-out test set. The number of test samples for each dataset is summarized in Table 1. These datasets cover a wide range of object scales. Details on training, validation, and test splits are provided in the Appendix. 
+
+Label Construction. For each sample, we eval-uate all three strategies and assign the label repre-senting the method with both the correct answer and the least computation, ensuring a preference efficiency. If all methods fail, the label defaults to global visual processing. 
+
+VLM Backbones. We use LLaVA-v1.5-7B and LLaVA-v1.5-13B (fixed resolution) and LLaVA-OneVision-0.5B (LLaVA-ov-0.5B) and Qwen3-VL (dynamic resolution) in our experiments. 
+
+Baselines. We compare our approach with RAP (patch-based retrieval) and ViCrop (attention-based retrieval), besides the original VLM visual process-ing, i.e., global perception (baseline). All methods follow the original paper’s experimental setup, in-cluding the instruction to generate a single token for evaluation consistency. For routing, we also include a random router as a baseline. 
+
+Evaluation Metrics. We report Accuracy (Exact Match, %) and total inference time (seconds). For our method, the reported time includes both routing and response generation. 
+
+5.2 Performance Results 
+
+Across both fixed- and dynamic-resolution back-bones, ViRGo consistently achieves the best per-formance by dynamically choosing between Base-line, ViCrop, and RAP. For LLaVA-v1.5-7B, ViRGo reaches 63.2%, outperforming the Base-line (+8.6%) and both ViCrop and RAP ( +2.3%). On LLaVA-v1.5-13B, ViRGo achieves 65.3%, im-proving over the Baseline (+7.8 %), ViCrop (+4.1 %), and RAP (+2.1 %). For Qwen3-VL-2B, ViRGo obtains 70.2%, surpassing the Baseline (+5.8 %) and RAP (+2.0 %), while ViCrop performs below baseline. Even in the challenging case of LLaVA-ov-0.5B, where standalone ViCrop and RAP both underperform the Baseline, ViRGo still improves performance to 59.2% (+0.8%) comparing to the Baseline. Overall, these results demonstrate that adaptive routing is consistently more effective than relying on any single fixed inference strategy. 
+
+5.3 Time Complexity Analysis 
+
+Table 5 shows the inference time (in seconds) across all methods. The results for ViRGo al-ready include both the routing overhead and gener-ation time. Global perception remains the fastest method across all settings, with ViCrop consis-tently being the second fastest. In contrast, RAP is the most computationally expensive configuration. ViRGo achieves faster computation compared to RAP while maintaining stronger accuracy; for ex-ample, ViRGo’s computation is 49.9% and 35.5% less than those of RAP on LLaVA-v1.5-7B and LLaVA-ov-0.5B, respectively. On small-object samples, ViRGo has the highest computation as crop-based reasoning is frequently required. In contrast, ViRGo achieves the largest time savings on medium and large objects by rout-ing many samples directly to the global perception. 6Method Small object (N = 763) Overall Medium object (N = 512) Overall Large object (N = 512) Weighted Avg ↑                                                                                                                                                                                                                                 
+
+> VsB HR4K G0 G1–G3 TextVQA G4–G7
+> Fixed Resolution Model
+> LLaVA-v1.5-7B 36.6 35.0 45.3 37.0 68.2 40.6 61.3 74.0 54.6 - ViCrop 55.3 48.6 48.4 49.7 68.2 50.0 63.7 74.8 60.9 - RAP 69.1 50.6 48.4 53.2 68.0 44.5 62.1 71.1 60.9 +Random 56.9 45.7 45.3 47.4 67.2 44.5 61.5 74.6 59.3
+> + ViRGo (Ours) 69.1 52.5 53.1 55.3 68.8 46.9 63.3 75.0 63.2
+> * Oracle 78.9 66.6 60.2 67.5 78.4 59.4 73.6 78.5 72.4 LLaVA-v1.5-13B 42.3 41.8 45.3 42.5 69.0 40.6 61.9 75.4 57.5 - ViCrop 52.9 47.3 48.4 48.4 69.5 48.4 64.3 77.3 61.2 - RAP 69.1 58.0 50.0 58.5 64.8 46.9 60.4 73.2 63.2 +Random 58.5 47.3 51.6 49.8 67.2 46.1 61.9 75.6 60.7
+> + ViRGo (Ours) 67.5 58.0 52.3 58.6 69.3 46.9 63.7 76.8 65.3
+> * Oracle 78.1 69.0 59.4 68.8 77.9 60.2 73.4 80.7 73.5
+> Dynamic Resolution Model
+> LLaVA-ov-0.5B 43.1 44.3 56.3 46.1 65.1 60.9 64.1 70.9 58.4 - ViCrop 46.3 43.4 49.2 44.8 60.9 60.9 62.3 69.7 57.0 - RAP 48.8 45.7 52.3 47.3 60.9 62.5 61.3 71.1 58.1 +Random 48.8 46.5 56.3 48.5 60.9 60.2 60.7 69.3 58.0
+> + ViRGo (Ours) 48.0 46.7 56.3 48.5 64.8 60.2 63.7 70.7 59.2
+> * Oracle 64.2 57.8 60.9 59.4 70.8 69.5 70.5 74.8 67.0 Qwen3-VL-2B 64.2 54.1 55.5 56.0 66.7 75.0 68.8 72.5 64.4 -ViCrop 57.7 52.3 53.1 53.3 62.0 72.7 64.7 67.0 60.5 -RAP 78.9 70.9 53.1 69.2 64.6 64.8 64.6 70.1 68.2 +Random 63.4 59.2 50.0 58.3 64.6 72.7 66.6 70.1 64.1
+> + ViRGo (Ours) 78.9 71.1 56.3 69.9 66.4 75.0 68.6 72.5 70.2
+> * Oracle 88.6 77.5 61.7 76.7 75.5 78.9 76.4 78.5 77.1
+
+Table 2: Accuracy (%) across datasets. G1–G3 and G4–G7 denote averaged GQA bins. The Overall columns denote the weighted average score within each object-size category, while Weighted Avg denotes the weighted average across all datasets in the table. Bold indicates the best performance, while underlining indicates the second-best. 
+
+Method Small Medium Large Total ↓
+
+LLaVA-v1.5-7B 541 399 395 1335 - ViCrop 4074 1026 934 6034 - RAP 71506 11252 6427 89185 + ViRGo 39374 3341 1911 44626 
+
+LLaVA-ov-0.5B 1080 156 104 1340 - ViCrop 18438 1721 1080 21239 - RAP 67961 7913 5278 81152 + ViRGo 50182 1517 682 52381 
+
+Table 3: Total inference time between methods (s). ViRGo includes both routing and generation time. 
+
+In conclusion, across all evaluated backbones, ViRGo achieves a better accuracy–efficiency trade-off than standalone inference strategies as illus-trated in Fig. 5. The router exhibits consistent and expected behavior: relying on RAP for difficult small-object cases while favoring the less expen-sive global perception or ViCrop for medium and large objects. 
+
+5.4 Routing Decision Analysis 
+
+Figure 6 shows the routing distribution of ViRGo. As we can observe, for fixed-resolution models such as LLaVA-v1.5-7B, the router strongly favors RAP for small objects while increasingly select-ing global perception for large objects. A similar trend appears on dynamic-resolution models such as Qwen3-VL-2B, but with a stronger preference toward the global perception as the native models are already more capable on various object sizes. This suggests that ViRGo allocates expensive crop-based inference only when necessary. 
+
+5.5 Ablation on the Zero-Shot Features 
+
+Feature Small Medium Large W-Avg ↑
+
+(1) 52.9 63.3 74.2 62.0 (2) 52.8 64.1 72.7 61.7 (3) 50.7 63.9 75.0 61.4 (1), (2) 53.5 63.3 74.2 62.2 (2), (3) 53.0 62.7 74.2 61.8 (1), (3) 53.5 63.3 74.2 62.2 
+
+ViRGo 58.3 63.3 75.0 63.2 
+
+Table 4: Comparison of and Accuracy between different feature ablation. 
+
+We analyze the contribution of three routing fea-tures: (1) model confidence, (2) object size, and (3) image resolution. As shown in Table 4, using a single feature or pairwise combinations yields 710 3 10 4 10 5 
+
+> Total Time (Seconds) - Log Scale
+> 54
+> 56
+> 58
+> 60
+> 62
+> 64
+> Weighted Average Accuracy (%)
+> Baseline
+> ViCrop RAP
+> ViRGo
+> Speed vs. Accuracy Trade-off (LLaVA-v1.5-7B)
+> Baseline
+> ViCrop
+> RAP
+> ViRGo
+> Pareto Frontier
+
+(a) LLaVA-v1.5-7B 10 3 10 4 10 5 
+
+> Total Time (Seconds) - Log Scale
+> 56
+> 58
+> 60
+> 62
+> 64
+> 66
+> Weighted Average Accuracy (%)
+> Baseline
+> ViCrop
+> RAP
+> ViRGo
+> Speed vs. Accuracy Trade-off (LLaVA-v1.5-13B)
+> Baseline
+> ViCrop
+> RAP
+> ViRGo
+> Pareto Frontier
+
+(b) LLaVA-v1.5-13B 10 3 10 4 10 5 
+
+> Total Time (Seconds) - Log Scale
+> 55
+> 56
+> 57
+> 58
+> 59
+> 60
+> Weighted Average Accuracy (%)
+> Baseline
+> ViCrop
+> RAP
+> ViRGo
+> Speed vs. Accuracy Trade-off (LLaVA-ov-0.5B)
+> Baseline
+> ViCrop
+> RAP
+> ViRGo
+> Pareto Frontier
+
+(c) LLaVA-ov-0.5B 
+
+Figure 5: Speed vs. Accuracy Pareto Frontier. Weighted average accuracy across different datasets compared to total inference time (log scale) for (a) LLaVA-v1.5-7B, (b) LLaVA-v1.5-13B, and (c) LLaVA-ov-0.5B. The dashed line illustrates the Pareto frontier. 0 20 40 60 80 100 
+
+> Routing Percentage (%)
+> Large
+> Medium
+> Small
+> Routing Distribution Across Dataset Categories
+> Baseline
+> ViCrop
+> RAP
+
+(a) LLaVA-1.5-7B routing distribution 0 20 40 60 80 100 
+
+> Routing Percentage (%)
+> Large
+> Medium
+> Small
+> Routing Distribution Across Dataset Categories
+> Baseline
+> ViCrop
+> RAP
+
+(b) Qwen3-VL-2B routing distribution 
+
+Figure 6: Routing distribution across dataset categories for different perception strategies. 
+
+limited performance , with weighted averages rang-ing from 61.4% to 62.2%. In contrast, the full ViRGo router achieves the best overall performance at 63.2%, including a substantial improvement on small objects (+4.8% over the best ablation). These results show that model confidence, object scale, and image quality provide complementary signals for robust adaptive routing. 
+
+6 Conclusion 
+
+In this work, we identify the resolution-context trade-off in three visual perception paradigms — global, attention-based, and retrieval-based— and propose ViRGo, a simple and lightweight yet effec-tive router that decides whether to perform retrieval-based processing based on zero-shot features ex-tracted from the model. Our experiments show ViRGo improves performance and efficiency by avoiding unnecessary computation. ViRGo’s ef-fectiveness suggests a promising direction toward more adaptive and resource-efficient visual reason-ing systems, where inference strategies are dynam-ically selected according to the visual demands of the input rather than fixed a priori. 
+
+7 Limitations 
+
+Although ViRGo improves the accuracy–efficiency trade-off through adaptive routing, several limita-tions remain. The current router primarily relies on coarse geometric and confidence-based signals. While simple and effective for distinguishing small-versus large-object scenarios, these mainly cap-ture geometric aspects of visual perception, leaving other factors that may influence routing decisions— such as relational reasoning, compositional under-standing, or multi-object interactions— unexplored. This limitation is further reflected in the substantial gap between ViRGo and the Oracle routing perfor-mance, suggesting that the current routing signals do not yet fully characterize the underlying per-ception difficulty. Furthermore, ViRGo currently routes among a fixed set of predefined and repre-sentative perception strategies (global perception, ViCrop, and RAP). More diverse strategies could further improve the routing’s performance, which we leave for future studies. 8References 
+
+Yingshan Chang, Mridu Baldevraj Narang, Hisami Suzuki, Guihong Cao, Jianfeng Gao, and Yonatan Bisk. 2021. Webqa: Multihop and multimodal qa. 
+
+2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 16474–16483. Kezhen Chen, Rahul Thapa, Rahul Chalamala, Ben Athiwaratkun, Shuaiwen Leon Song, and James Zou. 2024. Dragonfly: Multi-resolution zoom su-percharges large visual-language model. ArXiv ,abs/2406.00977. Chunjiang Ge, Sijie Cheng, Ziming Wang, Jiale Yuan, Yuan Gao, Jun Song, Shiji Song, Gao Huang, and Bo Zheng. 2024. Convllava: Hierarchical back-bones as visual encoder for large multimodal models. 
+
+ArXiv , abs/2405.15738. Yucan Guo, Miao Su, Saiping Guan, Zihao Sun, Xi-aolong Jin, Jiafeng Guo, and Xueqi Cheng. 2025. Routerag: Efficient retrieval-augmented generation from text and graph via reinforcement learning. 
+
+arXiv preprint arXiv:2512.09487 .Xintong Han, Zuxuan Wu, Phoenix X. Huang, Xiao Zhang, Menglong Zhu, Yuan Li, Yang Zhao, and Larry S. Davis. 2017. Automatic spatially-aware fashion concept discovery. 2017 IEEE International Conference on Computer Vision (ICCV) , pages 1472– 1480. Drew A Hudson and Christopher D Manning. 2019. Gqa: A new dataset for real-world visual reasoning and compositional question answering. In Proceed-ings of the IEEE/CVF conference on computer vision and pattern recognition , pages 6700–6709. Soyeong Jeong, Jinheon Baek, Sukmin Cho, Sung Ju Hwang, and Jong C Park. 2024. Adaptive-rag: Learn-ing to adapt retrieval-augmented large language mod-els through question complexity. In Proceedings of the 2024 Conference of the North American Chap-ter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Pa-pers) , pages 7036–7050. Seil Kang, Jinyeong Kim, Junhyeok Kim, and Seong Jae Hwang. 2025. Your large vision-language model only needs a few attention heads for visual grounding. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 9339–9350. Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloé Rolland, Laura Gustafson, Tete Xiao, Spencer Whitehead, Alexander C. Berg, Wan-Yen Lo, Piotr Dollár, and Ross B. Girshick. 2023. Segment anything. 2023 IEEE/CVF International Conference on Computer Vision (ICCV) , pages 3992–4003. Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Yanwei Li, Ziwei Liu, and Chunyuan Li. 2024a. Llava-onevision: Easy visual task transfer. Preprint , arXiv:2408.03326. Yanwei Li, Yuechen Zhang, Chengyao Wang, Zhisheng Zhong, Yixin Chen, Ruihang Chu, Shaoteng Liu, and Jiaya Jia. 2024b. Mini-gemini: Mining the poten-tial of multi-modality vision language models. IEEE Transactions on Pattern Analysis and Machine Intel-ligence , 48:3530–3543. Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. 2023a. Improved baselines with visual instruc-tion tuning. Haotian Liu, Chunyuan Li, Yuheng Li, Bo Li, Yuanhan Zhang, Sheng Shen, and Yong Jae Lee. 2024. Llava-next: Improved reasoning, ocr, and world knowledge. Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. 2023b. Visual instruction tuning. Zhuang Liu, Hanzi Mao, Chaozheng Wu, Christoph Fe-ichtenhofer, Trevor Darrell, and Saining Xie. 2022. A convnet for the 2020s. 2022 IEEE/CVF Confer-ence on Computer Vision and Pattern Recognition (CVPR) , pages 11966–11976. Haoyu Lu, Wen Liu, Bo Zhang, Bingxuan Wang, Kai Dong, Bo Liu, Jingxiang Sun, Tongzheng Ren, Zhu-oshu Li, Hao Yang, and 1 others. 2024. Deepseek-vl: towards real-world vision-language understanding. 
+
+arXiv preprint arXiv:2403.05525 .Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sas-try, Amanda Askell, Pamela Mishkin, Jack Clark, and 1 others. 2021. Learning transferable visual models from natural language supervision. In International conference on machine learning , pages 8748–8763. PmLR. Haozhan Shen, Kangjia Zhao, Tiancheng Zhao, Ruochen Xu, Zilun Zhang, Mingwei Zhu, and Jianwei Yin. 2024. Zoomeye: Enhancing multi-modal llms with human-like zooming capabilities through tree-based image exploration. arXiv preprint arXiv:2411.16044 .Amanpreet Singh, Vivek Natarajan, Meet Shah, Yu Jiang, Xinlei Chen, Dhruv Batra, Devi Parikh, and Marcus Rohrbach. 2019. Towards vqa models that can read. In Proceedings of the IEEE/CVF con-ference on computer vision and pattern recognition ,pages 8317–8326. Qwen Team. 2025. Qwen3 technical report. Preprint ,arXiv:2505.09388. Antonio Torralba, Aude Oliva, Monica S Castelhano, and John M Henderson. 2006. Contextual guidance of eye movements and attention in real-world scenes: the role of global features in object search. Psycho-logical review , 113(4):766. Wenbin Wang, Liang Ding, Minyan Zeng, Xiabin Zhou, Li Shen, Yong Luo, and Dacheng Tao. 2024. Divide, conquer and combine: A training-free framework for high-resolution image perception in multimodal large language models. ArXiv , abs/2408.15556. 
+
+9Wenbin Wang, Yongcheng Jing, Liang Ding, Yingjie Wang, Li Shen, Yong Luo, Bo Du, and Dacheng Tao. 2025. Retrieval-augmented perception: High-resolution image perception meets visual rag. arXiv preprint arXiv:2503.01222 .Haoran Wei, Lingyu Kong, Jinyue Chen, Liang Zhao, Zheng Ge, Jinrong Yang, Jianjian Sun, Chunrui Han, and Xiangyu Zhang. 2024. Vary: Scaling up the vision vocabulary for large vision-language model. In European Conference on Computer Vision , pages 408–424. Springer. Penghao Wu and Saining Xie. 2023. V*: Guided vi-sual search as a core mechanism in multimodal llms. 
+
+arXiv preprint arXiv:2312.14135 .Peng Xia, Peng Xia, Kangyu Zhu, Haoran Li, Haoran Li, Weijia Shi, Sheng Wang, Linjun Zhang, James Zou, and Huaxiu Yao. 2024. Mmed-rag: Versatile multimodal rag system for medical vision language models. ArXiv , abs/2410.13085. Shi Yu, Chaoyue Tang, Bokai Xu, Junbo Cui, Jun-hao Frank Ran, Yukun Yan, Zhenghao Liu, Shuo Wang, Xu Han, Zhiyuan Liu, and Maosong Sun. 2024. Visrag: Vision-based retrieval-augmented generation on multi-modality documents. ArXiv ,abs/2410.10594. Jiarui Zhang, Jinyi Hu, Mahyar Khayatkhoei, Filip Ilievski, and Maosong Sun. 2024a. Exploring percep-tual limitation of multimodal large language models. 
+
+arXiv preprint arXiv:2402.07384 .Jiarui Zhang, Mahyar Khayatkhoei, Prateek Chhikara, and Filip Ilievski. 2025. Mllms know where to look: Training-free perception of small visual details with multimodal llms. arXiv preprint arXiv:2502.17422 .Yifan Zhang, Qingsong Wen, Chaoyou Fu, Xue Wang, Zhang Zhang, Liang Wang, and Rong Jin. 2024b. Beyond llava-hd: Diving into high-resolution large multimodal models. ArXiv , abs/2406.08487. Yunqi Zhou, Chengjie Jiang, Chun Yuan, and Jing Li. 2025. Look where it matters: Training-free ultra-hr remote sensing vqa via adaptive zoom search. arXiv preprint arXiv:2511.20460 .
+
+10 Appendix Overview 
+
+This appendix provides additional details on the experimental setup, evaluation protocol, and effi-ciency analysis for ViRGo. Appendix A describes the dataset construction and router implementa-tion details, including the train/dev/test split and the lightweight XGBoost configuration used for adaptive routing. Appendix B defines the object-scale evaluation protocol used to group exam-ples into small-, medium-, and large-object cases across datasets. Appendix C reports the complete inference-time results across all evaluated back-bones, providing further evidence that ViRGo im-proves the accuracy–efficiency trade-off by avoid-ing unnecessary retrieval when global perception is sufficient. 
+
+A ViRGo Detailed Setup 
+
+Dataset Setup. To evaluate generalization, we combine data from multiple VQA datasets. The data is first split 20% into training, the remaining data is then split 20% for validation, and the re-maining for test sets, with label balancing applied where possible. The final training set contains ap-proximately 558 samples. 
+
+Implementation Details. We implement the router using a lightweight gradient-boosted deci-sion tree (XGBoost). We use shallow trees (max depth = 2) with regularization. The model is trained using multiclass log loss, with validation data used for early stopping. We find that this simple model is sufficient to achieve good routing performance with minimal computational overhead. 
+
+B Evaluation Protocol 
+
+We evaluate performance across different object scales: • Small-object cases: Adaptive retrieval im-proves accuracy over base VQA. High-resolution datasets include V*Bench, and HR-Bench4K; low-resolution includes GQA bin-0. • Medium-object cases: GQA bin-1, bin-2, bin-3, and TextVQA. • Large-object cases: Adaptive retrieval avoids unnecessary zoom and outperforms always-zoom RAP baselines. This includes GQA bin-4 to bin-7. 
+
+C Inference Time Analysis                                                                         
+
+> Method Small Medium Large Total ↓
+> LLaVA-v1.5-7B 541 399 395 1335 - ViCrop 4074 1026 934 6034 - RAP 71506 11252 6427 89185 +ViRGo 39374 3341 1911 44626 LLaVA-v1.5-13B 642 618 488 1748 - ViCrop 5135 2167 1470 8773 - RAP 77503 10079 6108 93690 +ViRGo 75247 4667 2115 82039 LLaVA-ov-0.5B 1080 156 104 1340 - ViCrop 18438 1721 1080 21239 - RAP 67961 7913 5278 81152 +ViRGo 50182 1517 682 52381 Qwen3-VL 519 148 105 773 - ViCrop 1359 458 339 2156 - RAP 47549 2047 1057 50564 +ViRGo 42195 515 349 43058
+> Table 5: Comparison of total inference time between methods (s). ViRGo includes both routing and genera-tion time.
+
+We provide the complete inference-time results in Table 5. All numbers report total wall-clock inference time in seconds over the corresponding evaluation subsets. For ViRGo, the reported time includes both the initial global forward pass used to extract routing features and the final response generation after the selected perception strategy is executed. Global perception is consistently the fastest strat-egy, since it requires only a single forward pass over the original image. ViCrop introduces addi-tional overhead due to attention-based cropping, but remains substantially faster than RAP. RAP is the most expensive strategy across all backbones because it performs iterative patch retrieval and evaluates multiple zoomed-in regions. In contrast, ViRGo substantially reduces the cost of always-on patch retrieval by invoking expensive crop-based processing only when the router predicts that re-trieval is beneficial. This behavior is most evident on medium-and large-object subsets, where ViRGo frequently routes samples to global perception or ViCrop rather than RAP. For example, on LLaVA-v1.5-7B, ViRGo reduces total inference time from 89,185 seconds with RAP to 44,626 seconds, a 50.0% re-duction. On LLaVA-ov-0.5B, ViRGo reduces total inference time from 81,152 seconds to 52,381 sec-onds, a 35.5% reduction. The savings are smaller but still present for LLaVA-v1.5-13B and Qwen3-VL, where ViRGo reduces RAP inference time by 12.4% and 14.8%, respectively. These results 11 support the main finding that adaptive routing im-proves the accuracy–efficiency trade-off by avoid-ing unnecessary high-resolution retrieval, espe-cially when the target object is already sufficiently visible in the global image. 12
