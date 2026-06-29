@@ -1,0 +1,1236 @@
+Title: 4DVLT: Dynamic Scene Understanding with Worldline-Centered Vision-Language Tracking
+
+URL Source: https://arxiv.org/pdf/2606.22631v1
+
+Published Time: Tue, 23 Jun 2026 02:51:46 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# 4DVLT: Dynamic Scene Understanding with Worldline-Centered Vision-Language Tracking 
+
+Chaoyue Li 1,†, Boxue Yang 2,†, Shengyao Zhou 3,†,Haoyang Wu 1, Rui Qian 2, Linfeng Zhang 2,∗
+
+> 1
+
+Huazhong University of Science and Technology 
+
+> 2
+
+Shanghai Jiao Tong University 
+
+> 3
+
+Zhejiang University 
+
+hustlichaoyue@hust.edu.cn , zhanglinfeng@sjtu.edu.cn 
+
+> †
+
+Equal contribution. ∗Corresponding author. 
+
+Abstract 
+
+4D dynamic scene understanding requires grounding language to a persistent worldline that binds identity, metric 3D motion, and synchronized multi-view 2D projections. Existing paradigms capture only part of this structure: large multimodal models reason over rich visual evidence but rarely preserve metric topology, while vision-language tracking remains tied to fragmented 2D or 3D outputs and local continuation. We therefore introduce 4DVLT , a worldline-centered task for instruction-conditioned 4D dynamic scene understanding in fully observed multi-view video, and Instruct-4D , a benchmark with 129.4K question-answer pairs, 64.7K target entities, 851 scenes, and 9 reasoning-oriented query types. To address this setting, we present 4DTrack , which casts instruction-conditioned tracking as graph-conditioned worldline inference through an object-centric 4D state graph, metric-guided rout-ing, bidirectional decoding, and kinematic calibration. On Instruct-4D, 4DTrack-Qwen3.5-9B reaches 62.68 TGA Top1 and surpasses the best adapted VLT baseline by 19.62 points. These results show that worldline-centered modeling improves both target grounding and recovered worldline quality. The project page is available at https://github.com/mikubaka88/4DVLT. 
+
+## 1 Introduction 
+
+4D dynamic scene understanding requires a stable account of physical entities as visual evidence changes. We call this object-centric 4D abstraction Worldline : it binds semantic identity, metric 3D motion, and synchronized multi-view 2D projections. This view exposes two coupled requirements. A model must keep the referred physical entity stable over time, and it must express the same entity in a unified 2D/3D, multi-view form rather than in isolated image-plane or metric fragments. As illustrated in Figure 1, the key challenge thus lies not only in single-frame object localization, but in semantically interpreting complex instructions to obtain a globally valid worldline throughout 4D dynamic space-time. Existing paradigms capture only part of this structure. LMMs reason effectively over semantically compressed video evidence [2, 19, 47, 57], yet they rarely preserve the metric structure and temporal topology needed for precise grounding in dynamic scenes. Vision-language tracking (VLT) offers a natural interface for grounding language to a target [10, 23, 25, 31, 32, 55], but the VLT formulation itself remains fragmented across output spaces. Standard 2D VLT grounds language to frame-wise boxes, emerging 3D VLT moves toward metric target states but remains tied to local continuation or limited view assumptions [3, 7, 8, 16, 24, 26, 33, 37, 50], and multi-camera tracking models cross-view geometry without instruction-conditioned target selection. As a result, the field still lacks a unified 2D/3D, multi-view VLT formulation for instruction-conditioned understanding of one persistent entity across time and views. 1
+
+> arXiv:2606.22631v1 [cs.CV] 21 Jun 2026
+
+LMM 2D/3D VLT              
+
+> Multi-View Video
+> Single-View Video Instruction Multi-View Video
+> Instruction
+> Instruction
+> Calibration
+> Find the
+> Person
+> near
+> [X,Y,Z] (at
+> t=1.7s )
+> Track the
+> Person
+> with
+> Brown
+> pants
+> Track the
+> Person
+> near [X,Y,Z] at
+> t=1.7s
+> [x] [y] [z] [t] ……[x] [y] [z] ……
+> ……
+> WildTrack NuScenes
+> 4D Grounding
+> tn
+> t1
+> worldline worldline
+
+c       
+
+> Multi-view 2D & 3D Tracking
+> tnt1t1tn
+> Temporal Worldline
+> Understanding
+> 4D Spatial-Temporal Instruction
+> Target Grounding &
+> Metric Localization
+> t=1
+> t=2
+> ...
+> t=n
+> State
+> [x] [y] [z] [t]
+> [t] [t]
+> Multi-View 2D 3D
+> Geometry …[t] Quert
+> Object-Centric
+> 4D State Graph
+> Large Multimodal
+> Model
+> Metric-Guided
+> Routing
+> Bidirectional Worldline
+> Inference
+> Kinematic-Prior Joint
+> Decoding
+
+Figure 1: From existing paradigms to 4DVLT. LMMs lack metric tracking and conventional VLT is limited to a single 2D or 3D view; 4DVLT instead recovers a calibrated multi-view worldline from video and an instruction. The right panel summarizes 4DTrack, while the lower panels show Instruct-4D and benchmark-level performance. This gap is clearest in queries such as Disambiguation , Reverse Reasoning , Trajectory Shape ,and Kinematic Shift , where language must resolve identity, metric target grounding, and temporal evo-lution jointly. Existing 2D and emerging 3D language-guided trackers still rely largely on local association [14, 24, 33]. Multi-camera and 3D tracking model geometry and cross-view correspondence more explicitly [20, 45], but they are not instruction-conditioned. Related grounding formulations output boxes, tubes, masks, or partial temporal states [6, 13, 35, 36, 48] rather than one persistent 4D object representation that unifies 3D motion and synchronized multi-view 2D projections. To study this formulation, we introduce 4D Vision-Language Tracking (4DVLT) , a task in which a model receives a fully observed multi-view video clip, camera calibration, and a natural-language query, and must identify the referred target together with its complete worldline. This formulation extends VLT from local target following to unified multi-view 2D/3D worldline estimation and makes Reverse Reasoning, Trajectory Shape, and Kinematic Shift queries well posed in the offline setting. We further construct Instruct-4D , a benchmark with 129.4K question-answer pairs, 64.7K target entities, 851 scenes, and 9 reasoning-oriented query types. These query types fall into two families: (i) target grounding and metric localization ; (ii) temporal and worldline understanding . The four primary metrics follow the same split: TGA Top1 and TGA emphasize grounding ability, while WQS and CTQ emphasize worldline quality. This perspective suggests that target grounding and worldline recovery should be solved jointly rather than as loosely coupled per-frame decisions. Guided by this insight, we develop 4DTrack , a unified multi-view 2D/3D VLT framework that organizes observations into an object-centric 4D state graph, contracts ambiguity through instruction-conditioned metric-guided routing, decodes the target worldline bidirection-ally, and refines it with a kinematic prior. On Instruct-4D, 4DTrack-Qwen3.5-9B reaches 62.68 TGA Top1 ,improving over the best adapted VLT baseline by 19.62 points. This result supports unified worldline-centered modeling as an effective route to instruction-conditioned 4D dynamic scene understanding. 2AlloWL          
+
+> 313 Trajectories
+> 626 QA Instruction
+> EgoWL
+> 64 386 Trajectories
+> 128 772 QA Instruction
+> (c) Instruct-4D Statistics
+> (a) Type of Instructions (b) Instruct-4D Construction
+> WildTrack NuScenes
+> Stage 1 : Dataset-Specific Geometry Processing
+> Matched Multi-View 2D/3D Annotations
+> Depth Calibration
+> Matched
+> tn
+> t1
+> Stage 2 : Structured Clues Generation by VLM
+> (d) Instruct-4D Metrics
+> TGA TOP1 TGA
+> CTQ WQS
+> Grounding-Oriented
+> Worldline-Oriented
+> :Spatial-Temporal Instruction Generation
+> adult jeans
+> bag ···
+> Human Verification
+> Keyframe Sampling
+> Appearance Annotation
+> QA
+> 3D Geometry
+> Spatiotemporal Anchors Motion
+> Low speed
+> Dense
+> High speed
+> Sparse
+> VLM
+> LLM
+> Clues
+> Extension
+
+Figure 2: Instruct-4D at a glance. (a) Nine instruction types; (b) geometry processing, structured-clue extraction, and verified instruction generation from nuScenes and WildTrack; (c) EgoWL/AlloWL statistics (129.4K instructions and 64.7K trajectories in total); and (d) grounding-oriented ( TGA Top1 , TGA ) and worldline-oriented ( WQS , CTQ ) metrics. In summary, our contributions are four-fold: 
+
+• We introduce 4DVLT, a worldline-centered formulation for instruction-conditioned 4D dynamic scene understanding that unifies target identity, metric 3D motion, and synchronized multi-view 2D pro-jections within one VLT output. 
+
+• We construct Instruct-4D, a large-scale benchmark with 129.4K question-answer pairs, 64.7K target entities, and 851 scenes, together with 9 query types and 4 primary metrics. 
+
+• We develop 4DTrack, a unified multi-view 2D/3D VLT framework for 4D dynamic scene understand-ing, built on the view that target grounding, 3D motion estimation, and multi-view 2D projection recovery should be solved jointly within one prediction problem. 
+
+• Experiments on Instruct-4D show that 4DTrack delivers large gains over adapted VLT baselines and improves every matched LMM backbone on the two-subset aggregate in both target grounding and worldline quality, supporting unified worldline-centered modeling as an effective formulation for instruction-conditioned 4D dynamic scene understanding. 
+
+## 2 Related Work 
+
+Vision-Language and Geometric Tracking. Vision-language tracking (VLT) begins with language-specified target following [10, 23, 31] and has progressively moved toward dedicated language benchmarks and tighter coupling between grounding and tracking [25, 32, 55]. Recent VLT work improves cross-modal fusion and target-reference modeling [14, 28, 30, 39–41, 49, 53], while memory or adaptive-prompt mech-anisms strengthen temporal adaptation under target variation [11, 21, 24, 42]. Emerging extensions also push VLT beyond 2D boxes toward monocular 3D target following [33] or use LMMs to refine tracking descriptions [22, 46]. In parallel, multi-camera and 3D tracking develop stronger geometric state modeling for dynamic scenes. Methods such as MUTR3D [45] and Time3D [20] explicitly reason over cross-view correspondence, metric object states, and temporal associations. Together these lines leave a gap: VLT remains frame-wise and language-bound, while geometric tracking is multi-view but category-driven; nei-ther yields a unified output coupling identity, 3D motion, and multi-view 2D projections over a complete worldline. 3LMMs for Scene Understanding. Large multimodal models (LMMs) have greatly broadened visual reasoning [1, 2, 19, 47, 57], while 3D-aware LMMs and language-grounding methods improve metric scene understanding in static settings [6, 34, 43, 51, 52, 56]. For dynamic scenes, spatio-temporal video grounding and referring video object segmentation predict box tubes or masks [13, 35, 36, 48], and recent MLLM efforts explicitly study 4D scene understanding, spatio-temporal reasoning, or dynamic object grounding in videos [17, 38, 44, 54]. These directions broaden scene-level reasoning in dynamic videos, but none formulate the problem as language-conditioned recovery of a metrically grounded, multi-view-synchronized worldline. 
+
+## 3 Task Definition and Benchmark 
+
+3.1 4DVLT Task Definition 
+
+4DVLT is an offline task for instruction-conditioned 4D dynamic scene understanding. Given a fully observed multi-view video clip V = {Ict | t = 1 , . . . , T, c = 1 , . . . , C }, camera calibration K, and a natural-language query q, the model must identify the referred target y and estimate its complete worldline 
+
+Wy = {zt}t∈T y . Here Ty denotes the temporal support of target y, and each state zt binds semantic identity, 3D metric motion, and synchronized multi-view 2D projections. The task therefore requires recovering the full spatiotemporal evolution of one referred entity rather than isolated frame-level localization. 4DVLT combines four requirements that are usually studied separately: natural-language grounding, metric 3D reasoning, multi-view observation, and complete worldline output. Standard 2D VLT and emerging 3D VLT focus on frame-wise target states [23, 24, 33, 55]; spatio-temporal video grounding and referring video object segmentation output tubes or masks [13, 35, 36, 48]; static 3D grounding localizes a single object in a scene [6]; and track retrieval stops at identity prediction. By contrast, 4DVLT requires one model to identify the correct physical entity and recover a temporally coherent 3D worldline consistent with synchronized multi-view 2D observations. 
+
+3.2 Instruct-4D Benchmark 
+
+As summarized in Figure 2, Instruct-4D is organized into two complementary subsets that probe 4D dynamics under contrasting observer frames: Instruct4D-EgoWorldline (EgoWL ), built on nuScenes [4], captures worldlines observed from a co-moving frame in which the observer translates with the scene and motion is intrinsically relative; and Instruct4D-AlloWorldline (AlloWL ), built on WildTrack [5], captures worldlines observed from a world-anchored frame in which a stationary multi-view array fixes the reference and motion admits absolute reading. Each sample pairs a natural-language query with exactly one target identity and its complete ground-truth worldline, together with aligned multi-view 2D trajectories whenever the target is visible. The two subsets thus expose 4DVLT to the relative and absolute limits of 4D dynamics: EgoWL emphasizes outdoor scenes with rich object categories, motion patterns, and scene layouts, while AlloWL emphasizes dense pedestrian scenes with severe occlusion. In total, Instruct-4D contains 129.4K question-answer pairs, 64.7K target entities, and 851 scenes. Instruct-4D derives its queries systematically from calibrated 3D tracks, synchronized multi-view ob-servations, and temporally anchored scene events rather than from unconstrained free-form annotation. The resulting benchmark covers geometric relations, camera-aware spatial descriptions, motion cues, and temporal reasoning, while each sample remains tied to a single referred identity and a single ground-truth worldline. This design keeps supervision physically grounded and scalable, so benchmark difficulty arises from scene ambiguity and temporal reasoning rather than underspecified language. 
+
+3.3 Evaluation Perspectives and Query Taxonomy 
+
+Instruct-4D is organized so that target grounding under metric scene structure and worldline understanding over time remain separately measurable. The benchmark contains 9 query types, split by whether they 4primarily probe metric target grounding or temporal/worldline reasoning.The metrics follow the same split: one pair emphasizes referred-target grounding, and the other worldline quality. 
+
+Target Grounding and Metric Localization: Disambiguation, Absolute 3D Position, Relative 3D Proximity, and 3D Volume Geometry examine whether language can identify the correct entity through physically meaningful relations rather than appearance alone. 
+
+Temporal and Worldline Understanding: Spatiotemporal Anchor, Reverse Reasoning, Trajectory Shape, Kinematic Shift, and Motion Residual examine whether language can constrain the target’s evolu-tion over time. 
+
+3.4 Metrics 
+
+We use four primary metrics. TGA evaluates target identification over the full prediction, TGA Top1 isolates first-timestamp grounding, and WQS together with CTQ evaluate recovered worldline quality. Let N
+
+denote the number of evaluation samples. For sample i, let y∗ 
+
+> i
+
+be the ground-truth target identity, ˆWi
+
+the predicted worldline, mi the identity matched by the evaluator over the full prediction, and Ωi the set of timestamps aligned between prediction and ground truth; |Ωi| denotes the number of such timestamps. Let t ∈ Ωi index aligned timestamps and c index camera views. We denote by ci,t and c∗ 
+
+> i,t
+
+the predicted and ground-truth 3D centers at time t, respectively; by ˆbci,t and bc, ∗ 
+
+> i,t
+
+the predicted and ground-truth 2D boxes in view c, respectively; and by vci,t , ˆvci,t ∈ { 0, 1} the ground-truth visibility and prediction-validity indicators, respectively. We write IoU( ·, ·) for box intersection-over-union and ∥ · ∥ 2 for the Euclidean norm. For identity matching, we define 
+
+δ(a, b ) = 
+
+> {
+
+1, a = b, 
+
+0, a̸ = b. (1) 
+
+Grounding Diagnostics and Target Grounding. TGA measures whether the matched identity equals the ground-truth referred identity over the full prediction, indicating sequence-level target grounding under metric scene ambiguity: 
+
+TGA = 1
+
+N
+
+> N∑
+> i=1
+
+δ(mi, y ∗ 
+
+> i
+
+). (2) To isolate grounding at the first evaluated state, we define TGA Top1 . Let t(1)  
+
+> i
+
+= min Ω i denote the first aligned timestamp and let m(1)  
+
+> i
+
+be the identity associated with the prediction at t(1)  
+
+> i
+
+. Because 4DVLT is an offline task, the model may use the complete observed clip when producing this prediction; TGA Top1 
+
+localizes the evaluation to the earliest aligned state rather than imposing a causal evidence restriction. It therefore measures whether the recovered worldline is anchored to the referred target at its first evaluated timestamp. Then 
+
+TGA Top1 = 1
+
+N
+
+> N∑
+> i=1
+
+δ(m(1)  
+
+> i
+
+, y ∗ 
+
+> i
+
+). (3) 
+
+Worldline Quality. For each sample, we compute a score Qi that combines 3D trajectory accuracy, visible-view 2D alignment, and visible-view coverage under the shared evaluator. It indicates how faithfully the recovered worldline matches the target’s physical motion and synchronized multi-view observations beyond identity prediction alone. The exact component definitions and weights are deferred to Appendix B. 
+
+Aggregate Metrics. Averaging Qi over all samples yields the Worldline Quality Score: 
+
+WQS = 1
+
+N
+
+> N∑
+> i=1
+
+Qi. (4) Conditioning the same score on correct grounding yields 
+
+CTQ =  
+
+> ∑Ni=1
+
+δ(mi, y ∗ 
+
+> i
+
+)Qi 
+
+> ∑Ni=1
+
+δ(mi, y ∗ 
+
+> i
+
+) + ϵ . (5) 5Multi-View Video Calibration Instruction 
+
+# Track the 
+
+# person near [X,Y,Z] at 
+
+# t=1.7 s 
+
+Query Features Tokenizer Candidate Detection Status Front-end Tokenizer 
+
+t=1 
+
+t=2 
+
+... 
+
+t=n 
+
+Build 4D State Graph 
+
+Query-relevant Subgraph 
+
+Metric-Guided Routing 
+
+Bidirectional Worldline Infer 
+
+# Forward Backward 
+
+# Wordline Decoder 
+
+Physically Calibrated Unified Output 
+
+Alignment 
+
+Quert Token ··· [t] State Token ··· [t] Geometry Token ··· [t] 
+
+Inference 
+
+Kinematic-Prior 
+
+Joint Beam Search 
+
+Large 
+
+Multimodal 
+
+Model 
+
+multimodal reasoning over 
+
+graph+text+geometry 
+
+## Training Loss 
+
+= 𝐀 𝐀𱰀𝐀𴀀𝐀𝐀𝐀 + 𝐀 𝐀𝐀𝐀𰠀𴀀𝐀𝐀𝐀 
+
++ 𝐀 𝐀𱰀𝐀𴀀𝐀 + 𝐀 𝐀𰠀𝐀𳐀𝐀 + 𝐀 𝐀𱰀𝐀𴀀 Figure 3: Overview of 4DTrack. State, query, and geometry tokens form a 4D graph that is contracted by metric-guided routing, decoded bidirectionally with kinematic-prior beam search, and aligned into a unified 3D trajectory and synchronized multi-view 2D boxes. Here ϵ is a small constant for numerical stability. Accordingly, TGA and TGA Top1 indicate whether the referred entity is found at the sequence and first-timestamp levels, while WQS and CTQ indicate unconditional and correctly grounded worldline quality, respectively. We also report ADE 3D and SR 3D @1m 
+
+as supplementary diagnostics in the experiments tables. 64 Methodology 
+
+4.1 Overview 
+
+As shown in Figure 3, 4DTrack treats 4DVLT as query-conditioned worldline inference rather than frame-wise target selection. Given a calibrated multi-view clip and a language query q, a front-end extracts candidate 3D object states together with retained per-view 2D evidence. We organize these candidates into an object-centric 4D state graph, contract it to a query-relevant subgraph, and decode the referred target as a complete worldline. The decoded states define the 3D trajectory, while a view-aware alignment head refines retained per-view support when available and predicts a camera-aware fallback box otherwise. This forms a single inference chain, mirroring the module analysis in Tables 3–5. The 4D state graph defines the admissible object evolutions, routing removes query-irrelevant ambiguity before sequence rea-soning, bidirectional decoding exploits the fully observed offline setting of 4DVLT, and a kinematic prior calibrates the resulting path once the candidate set has been narrowed. Training follows the same pro-gression: route warmup stabilizes candidate contraction, bidirectional worldline learning fits the routed sequence model, and consistency calibration activates the full objective for temporal and multi-view re-finement. Detailed prompt construction, explicit objective expansions, and the exact staged schedule are deferred to Appendix A. 
+
+4.2 Worldline-Centered 4D State Space 
+
+Because 4DVLT couples identity, geometry, visibility, and cross-view support over time, we represent each clip as an object-centric 4D state graph G = ( Vs, Es) whose nodes are candidate object states and whose edges encode temporally feasible transitions. At each timestamp t, the front-end produces Nt candidate 3D states {zit}Nt
+
+> i=1
+
+. Each state stores appear-ance cues, 3D position and extent, timestamp, visibility, and retained per-view 2D support. We encode state zit into a state embedding hit as 
+
+hit = ϕproj 
+
+> (
+
+ait, git, uit
+
+> )
+
+, (6) where ait, git, and uit denote appearance, geometry, and auxiliary attributes, respectively, and ϕproj (·)
+
+denotes a learned projector into the shared state-embedding space. Serialized as temporally ordered state-and-edge tokens, the graph allows the language backbone to reason over candidate object evolutions rather than isolated detections. A valid worldline is thus a path on G selecting one compatible state at each step within the target temporal support. 
+
+4.3 Query-Conditioned Candidate Contraction 
+
+Many Instruct-4D queries hinge on metric relations, interaction context, or temporal conditions rather than appearance alone. Decoding on the full graph is unnecessarily ambiguous, so before sequence reasoning 4DTrack contracts G into a query-relevant subgraph ˆG that preserves the candidate states and transitions most compatible with the instruction. Given query q and the candidate state embeddings {hi} from Eq. (6), let ru,i denote latent-query-to-node similarity, atext  
+
+> i
+
+global text-node relevance, and δu,i the centered offset from node i to the metric anchor of latent query u. The routing logit is 
+
+ℓu,i = ru,i + αsatext  
+
+> i
+
++ αm
+
+> (
+
+− ∥δu,i ∥22
+
+ˆσ2 
+
+> u
+
++ ϵ + βχ reach (i)
+
+> )
+
+, (7) where (ˆ pu, ˆσu) is the corresponding anchor-scale pair, χreach (i) indicates participation in a valid transition, and αs, αm, and β weight the semantic, metric, and reachability terms. Averaging the softmax probabilities induced by ℓu,i over latent queries yields a keep weight for each candidate state; the router then retains the per-frame top-M states and closes them under one-hop reachability to form ˆG. This contraction removes 7much of the ambiguity before autoregressive decoding, consistent with the strong routing effect in Table 3; the exact aggregation and masking details are deferred to Appendix A. 
+
+4.4 Offline Bidirectional Worldline Inference 
+
+On the routed subgraph, 4DTrack predicts the referred target as a single worldline rather than a set of independent frame-wise identities. Let W = ( z1, . . . , z L) denote a forward worldline of length L and let 
+
+W(f ) = W, W(b) = ←−W. Suppressing shared conditioning on q and ˆG(d), the same decoder factorizes both temporal directions as 
+
+pd(W(d)) = 
+
+> L∏
+> t=1
+
+pd(z(d) 
+
+> t
+
+| z(d) 
+
+> <t
+
+), d ∈ { f, b }. (8) Training optimizes matched forward, reverse, and cross-direction consistency terms on the target worldline; the exact loss expansion is given in Appendix A. This objective is most valuable when target grounding depends on non-local temporal support, including Reverse Reasoning and Trajectory Shape queries. 
+
+4.5 Physically Calibrated Unified Output 
+
+Even after routing, the decoded path should remain physically plausible and view-consistent. Let ˆP = P( ˆG)
+
+be the feasible path set, and let smt and spt denote the model and kinematic step scores. We then decode 
+
+ˆW = arg max  
+
+> W∈ ˆP
+> ∑
+> t
+> [
+
+αqsmt + (1 − αq)spt
+
+> ]
+
+, (9) where smt = log pmodel (zt+1 | z≤t, q, ˆG), spt = −Et(zt+1 ), and αq is a query-type-dependent mixing coeffi-cient between semantic and kinematic evidence. It is set higher for semantic disambiguation and lower for motion-centric queries, allowing the same decoder to shift between language-dominant and physics-dominant scoring. This role is isolated by the Kin. ablation in Table 5. Once the worldline is selected, the unified output is 
+
+ˆY = ({ct}Lt=1 , {ˆbct }t,c 
+
+> )
+
+, (10) where ct = c(ˆ zt) denotes the 3D center of the selected state at step t, and ˆbct its view-aware 2D box in camera c. The 3D trajectory is read directly from the selected states. For each camera, the alignment head locally refines retained 2D support when it is visible and otherwise predicts a fallback box from the decoded state and camera embedding. Training jointly supervises routed sequence prediction, query-relevant state selection, and visible-view alignment; the full objective expansion and staged schedule are given in Appendix A. 
+
+## 5 Experiments 
+
+5.1 Experimental Setup 
+
+Protocol. Unless noted otherwise, 4DTrack is trained sequentially on Instruct4D-EgoWorldline (EgoWL) and then on Instruct4D-AlloWorldline (AlloWL), and the final checkpoint is evaluated through the same Instruct-4D interface. The default model uses a frozen Qwen3.5-9B backbone [27], 4-bit QLoRA adapters [9, 15], and trainable graph, routing, node, and view-alignment heads. The main comparison and query-type analysis report macro-averages across the two subsets. In the module analysis, the routing and temporal/physical refinement tables use the same macro-average, while the graph table keeps EgoWL and AlloWL separate to expose how explicit temporal connectivity behaves under egocentric and allocentric observation. The three subsections that follow evaluate worldline-centered modeling from complementary angles: benchmark-level comparison, per-query challenge analysis, and component ablation. 8Models TGA Top1 ↑ TGA ↑ WQS ↑ CTQ ↑ ADE 3D ↓ SR 3D @1m ↑                                                                                       
+
+> VLT Baselines
+> JointNLT [55] 37.04 15.17 18.89 48.79 8.82 26.08 UVLTrack [25] 43.06 17.43 21.84 55.76 8.33 25.58 GLAD [41] 42.18 19.65 22.08 52.54 8.20 26.08 DUTrack [21] 42.48 18.03 22.17 56.38 8.05 25.66
+> Open-Source Models
+> Llama-3-8B-Instruct [12] 6.44 19.28 13.61 50.02 13.60 12.72 Mistral-7B-v0.2 [18] 7.51 20.98 14.22 51.69 13.80 12.36 Qwen2.5-VL-7B-Instruct [29] 11.03 22.74 15.12 51.10 13.78 14.79 Qwen3.5-9B [27] 14.12 10.13 13.99 55.90 13.71 11.38
+> 4DTrack Framework
+> 4DTrack-Llama-3-8B-Instruct 25.16 (↑18.72) 20.66 (↑1.38) 21.45 (↑7.84) 64.04 (↑14.02) 11.93 (↓1.67) 21.39 (↑8.67)
+> 4DTrack-Mistral-7B-v0.2 31.53 (↑24.02) 28.04 (↑7.06) 30.11 (↑15.89) 67.84 (↑16.15) 8.05 (↓5.75) 29.34 (↑16.98)
+> 4DTrack-Qwen2.5-VL-7B-Instruct 50.37 (↑39.34) 48.91 (↑26.17) 47.61 (↑32.49) 74.69 (↑23.59) 4.71 (↓9.07) 47.24 (↑32.45)
+> 4DTrack-Qwen3.5-9B 62.68
+> (↑48.56)
+> 51.93
+> (↑41.80)
+> 55.18
+> (↑41.19)
+> 85.57
+> (↑29.67)
+> 3.67 (↓10.03) 58.27
+> (↑46.89)
+
+Table 1: Main comparison on Instruct-4D , macro-averaged across EgoWL and AlloWL. Metrics follow Section 3.4; higher is better except ADE 3D . Open-Source Models are evaluated through the shared 4DVLT interface without the trained 4DTrack pipeline; 4DTrack Framework adapts the same backbones inside the full pipeline. Green values denote per-model gains over the matched backbone. 
+
+Baselines and Metrics. We compare 4DTrack with four adapted VLT baselines—JointNLT [55], UVL-Track [25], GLAD [41], and DUTrack [21]—and with four LMM backbones evaluated under the same 4DVLT interface: Llama-3-8B-Instruct [12], Mistral-7B-v0.2 [18], Qwen2.5-VL-7B-Instruct [29], and Qwen3.5-9B [27]. Appendix C details how all methods are mapped to the shared evaluator. The primary metrics follow Section 3.4; Table 1 additionally reports ADE 3D and SR 3D @1m .
+
+5.2 Main Comparison 
+
+Benchmark-Level Performance. If worldline-centered modeling is effective, it should improve target grounding and trajectory quality together, since identity, 3D motion, and multi-view projections are solved within a single inference chain. Table 1 bears this out. 4DTrack-Qwen3.5-9B leads every primary metric: 62.68 TGA Top1 , 51.93 TGA , 55.18 WQS , and 85.57 CTQ . Compared to the strongest adapted VLT baseline, first-timestamp grounding improves by 19.62 points and worldline quality by 33.01 points. ADE 3D drops from 8.05 m to 3.67 m. 
+
+Effect over Matched Backbones. The matched-backbone results show that the aggregate improvement is not limited to the largest model. Adding 4DTrack to Qwen3.5-9B raises TGA Top1 by 48.56 points and cuts ADE 3D by 10.03 m. The aggregate pattern holds across backbones: 4DTrack-Qwen2.5-VL-7B gains 
+
+39.34 TGA Top1 and 32.49 WQS points over its matched counterpart, and even the weaker Llama-3-8B backbone improves by 18.72 and 7.84 points on the same two metrics. General-purpose LMMs do not spontaneously recover metric worldline structure; the graph-routing-decoding formulation supplies it. 
+
+Shared Evaluation Protocol. All rows in Table 1 use the same 4DVLT evaluator, isolating method differences from evaluation artifacts. Under this shared protocol, explicit worldline inference improves both identity grounding and the metric trajectory attached to that identity on the reported two-subset aggregates. The per-subset decomposition in Appendix E also exposes a few weaker-backbone exceptions, so the gains should not be interpreted as uniform across every dataset–metric pair. 9Query EgoWL AlloWL 
+
+TGA Top1 ↑ ADE 3D ↓ TGA Top1 ↑ ADE 3D ↓
+
+Target Grounding & Metric Localization 
+
+3D Volume Geometry 74.86 4.91 42.86 2.22 
+
+Absolute 3D Position 76.80 4.71 64.29 2.26 
+
+Disambiguation 76.73 4.74 21.43 3.81 
+
+Relative 3D Proximity 76.35 5.00 46.15 2.40 
+
+Temporal & Worldline Understanding 
+
+Spatiotemporal Anchor 73.50 5.24 66.67 3.17 
+
+Reverse Reasoning 74.61 5.10 41.18 2.41 
+
+Trajectory Shape 79.62 4.13 66.67 1.75 
+
+Kinematic Shift 80.03 4.66 44.44 2.65 
+
+Motion Residual 77.40 4.20 83.33 1.03 
+
+Table 2: 4DTrack-Qwen3.5-9B per-query-type performance on Instruct-4D. G-VolGeo G-AbsPos G-Disamb G-RelProx 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+> TGA Top 1 (%)
+> 16.9
+> 9.6
+> 13.3
+> 9.8
+> 58.9
+> 70.5
+> 49.1
+> 61.2
+
+Target Grounding & 
+
+Metric Localization     
+
+> w/o 4DTrack
+> w/ 4DTrack
+> T-SptAnc T-RevRsn T-TrajShp T-KinShf T-MotRes
+
+0
+
+20 
+
+40 
+
+60 
+
+80  
+
+> TGA Top 1 (%)
+> 6.5
+> 15.4 14.4
+> 17.6
+> 31.5
+> 70.1
+> 57.9
+> 73.2
+> 62.2
+> 80.4
+
+Temporal & 
+
+Worldline Understanding    
+
+> w/o 4DTrack
+> w/ 4DTrack
+> G-VolGeo G-AbsPos G-Disamb G-RelProx
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10 
+
+12 
+
+14 
+
+16 
+
+18         
+
+> ADE 3D (m)
+> 13.9 13.7 13.7 13.8
+> 3.6 3.5
+> 4.3
+> 3.7
+> w/o 4DTrack
+> w/ 4DTrack
+> T-SptAnc T-RevRsn T-TrajShp T-KinShf T-MotRes
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10 
+
+12 
+
+14 
+
+16 
+
+18     
+
+> ADE 3D (m)
+> 13.7 13.4
+> 14.1 13.6 13.6
+> 4.2 3.8
+> 2.9
+> 3.7
+> 2.6
+> w/o 4DTrack
+> w/ 4DTrack
+
+Figure 4: Per-query effects of 4DTrack , macro-averaged across EgoWL and AlloWL. The top row reports TGA Top1 (higher is better) and the bottom row ADE 3D (lower is better); the two columns separate the query families. Blue/orange bars denote 4DTrack and gray bars the matched backbone without it. 10 5.3 Query-Type Analysis 
+
+Instruct-4D contains nine query types that probe distinct reasoning capabilities, from metric localization to temporal understanding. Table 2 reports 4DTrack-Qwen3.5-9B per-query performance on each dataset, and Fig. 4 shows the gain over the matched backbone. The results reveal a clear gradient: performance is highest when the query can be answered by reading motion or metric structure off the decoded worldline, and lowest when the query demands fine-grained identity disambiguation among physically similar alternatives. 
+
+Queries That Align with Worldline Structure. The strongest macro-averaged queries are Motion Residual, Trajectory Shape, and Absolute 3D Position, with TGA Top1 values of 80.37, 73.15, and 70.55, respectively. Only Motion Residual exceeds 70 on both subsets; Trajectory Shape and Absolute 3D Position remain stronger on EgoWL than on AlloWL. Each has a natural counterpart in the 4DTrack pipeline. Motion Residual asks whether a target is stationary or moving slowly; the worldline directly encodes velocity, so the answer is a property of the decoded path rather than a separate inference. Trajectory Shape benefits from the bidirectional decoder, which resolves path curvature by seeing both past and future frames. Absolute 3D Position leverages the metric anchors in the routing step: when the query specifies a 3D location, routing naturally prunes candidates far from that region. In these cases the model’s structure and the query’s structure are aligned—the worldline is not just the output format but an informative intermediate representation that carries the answer. 
+
+The Disambiguation Bottleneck. The hardest queries are Disambiguation and Reverse Reasoning, and their difficulty is sharply dataset-dependent. Disambiguation reaches 76.73 TGA Top1 on EgoWL but only 21.43 on AlloWL, a gap of 55.30 points that is larger than any other query’s dataset gap. Reverse Reasoning follows the same pattern, at 74.61 versus 41.18. Both categories demand relational reasoning: Disambiguation requires distinguishing a target from nearby lookalikes, and Reverse Reasoning requires anchoring identity from temporally inverted evidence. EgoWL’s broader category, motion, and layout diversity provides more discriminative cues. AlloWL’s crowded pedestrian scenes reduce these distinctions: candidates share appearance, motion profile, and spatial proximity, so even the correct worldline is hard to separate from plausible alternatives. This gradient sharpens the paper’s central argument: the 4DTrack pipeline is most effective when the query can be reduced to how an entity moves or where it sits in space—in those cases the worldline carries the answer directly. When the question is which of several nearly identical entities is being referred to, the worldline provides useful temporal context but cannot fully resolve the ambiguity. The gap between these two regimes defines the current frontier: 4DTrack has made metric and temporal reasoning tractable within a unified framework, and the remaining errors center on integrating finer-grained relational evidence into the same worldline inference. 
+
+5.4 Ablation Study for Module Analysis 
+
+The ablation isolates each component’s contribution to the inference chain. We use Graph, Route, Bidir., and Kin. as shorthand for the four 4DTrack modules. Minimal runs the frozen LMM backbone with direct decoding on the raw candidate pool—none of the four components are active. Full is the complete pipeline. A w/o prefix means that component is removed from Full. In all three tables, gray values mark the Minimal baseline and green superscripts show the gain over the nearest reference row (Minimal for single-component variants, the corresponding w/o row for Full). Because these rows compare different operating points, the gains are diagnostic rather than additive: they identify which metric dimension each component supports, not an independent decomposition of the Full score. 
+
+Routing Contraction. Table 3 examines query-conditioned candidate contraction using the same two-subset macro-average as the main comparison. Route only produces the largest single-component gain in any table: TGA Top1 rises by 37.84 points, TGA by 24.15 , WQS by 23.40 , and CTQ by 12.24 
+
+over Minimal. The magnitude makes sense—without routing, the decoder searches over every candidate detection in every frame; with routing, the query’s metric constraints prune this space to the few candidates that match. Most importantly, Route only already reaches 62.43 TGA Top1 , only 0.25 points below Full. Thus, the first-timestamp anchoring gain is driven almost entirely by routing rather than being distributed 11 uniformly across all four modules. The remaining modules act mainly after this initial selection: relative to Route only, Full adds 17.13 TGA , 11.07 WQS , and 16.45 CTQ points, showing that graph-based connectivity, bidirectional decoding, and physical refinement primarily help maintain the selected identity and recover a higher-quality complete worldline. Removing routing from Full costs 31.20 TGA Top1 , 23.55 
+
+TGA , 25.28 WQS , and 3.29 CTQ points. This asymmetry is informative: routing is load-bearing for selecting the correct entity, whereas CTQ —which conditions on correct grounding—changes much less when routing is removed. The large WQS drop partly reflects the resulting grounding failures because 
+
+WQS is unconditional, and should not be attributed solely to degraded trajectory refinement. 
+
+Object-Centric Graph. Table 4 isolates the 4D state graph. As a standalone component, Graph only lifts WQS by 13.31 and 2.59 points on EgoWL and AlloWL, and improves CTQ by 5.36 and 12.55 
+
+points. Removing the graph from Full degrades WQS by 20.15 on EgoWL and 10.02 on AlloWL, while 
+
+CTQ falls by 2.71 and 8.76 , respectively. Unlike routing, the graph is therefore supported most directly by the worldline-oriented metrics: it supplies temporally coherent candidate connectivity once the target search space has been narrowed. The larger EgoWL WQS effect is consistent with its more diverse motion patterns, while the larger AlloWL CTQ effect indicates that graph structure improves the recovered path among correctly grounded crowded-scene examples. 
+
+Temporal and Physical Refinement. Table 5 reports averages on Instruct-4D. Bidir. and Kin. serve complementary roles. Bidir. alone raises TGA and CTQ by 12.64 and 9.05 points over Minimal, re-spectively, consistent with its intended role in queries that depend on non-local temporal evidence, such as Reverse Reasoning and Trajectory Shape. Because the table does not include a symmetric w/o Bidir. row, this result is a standalone diagnostic rather than a marginal contribution inside Full. Kin. alone tells a different story: TGA Top1 improves by only 2.21 points, but TGA rises by 12.50 , WQS by 7.39 , and 
+
+CTQ by 14.85 . The gap between TGA Top1 and TGA shrinks from 13.94 to 3.65 points. As a standalone component, the physics prior therefore contributes little to initial anchoring but helps preserve identity and trajectory quality over the sequence. In the full pipeline, removing Kin. costs 23.54 points of TGA 
+
+and 16.59 of WQS , confirming that physical calibration is load-bearing for sequence-level recovery. Its 
+
+10.59 -point leave-one-out effect on TGA Top1 should be read as an interaction with the routed graph and bidirectional decoder, not as an additive first-timestamp gain: Route only already nearly matches Full on that metric. 
+
+Summary. The ablation supports a metric-specific rather than uniform contribution story. Routing is the primary load-bearing component for first-timestamp target selection and accounts for nearly all of Full’s 
+
+TGA Top1 capability. The graph, bidirectional decoder, and kinematic calibration do not provide a com-parable additional first-timestamp gain once routing is active; their evidence lies mainly in sequence-level grounding, unconditional worldline recovery, and correctly grounded trajectory quality. The four modules therefore form a coupled inference chain with different responsibilities, rather than four interchangeable sources of improvement across every metric.                          
+
+> Variant TGA Top1 ↑TGA ↑WQS ↑CTQ ↑
+> Minimal 24.59 10.65 20.71 56.88 Route only 62.43 (↑37.84) 34.80 (↑24.15) 44.11 (↑23.40) 69.12 (↑12.24)
+> w/o Route 31.48 28.38 29.90 82.28 Full 62.68 (↑31.20 )51.93 (↑23.55 )55.18 (↑25.28 )85.57 (↑3.29 )
+
+Table 3: Routing contraction ablation on Instruct-4D. Route only nearly matches Full on first-timestamp grounding, while Full adds larger gains on sequence-level grounding and worldline quality. 12 Variant EgoWL AlloWL                            
+
+> WQS ↑CTQ ↑WQS ↑CTQ ↑
+> Minimal 23.02 74.97 18.40 38.79 Graph only 36.33 (↑13.31) 80.33 (↑5.36) 20.99 (↑2.59) 51.34 (↑12.55)
+> w/o Graph 52.68 90.86 27.50 68.80 Full 72.83 (↑20.15 )93.57 (↑2.71 )37.52 (↑10.02 )77.56 (↑8.76 )
+
+Table 4: Object-centric graph ablation on Instruct-4D, emphasizing its effects on unconditional and cor-rectly grounded worldline quality.                                  
+
+> Variant TGA Top1 ↑TGA ↑WQS ↑CTQ ↑
+> Minimal 24.59 10.65 20.71 56.88 Bidir. only 36.76 (↑12.17) 23.29 (↑12.64) 25.24 (↑4.53) 65.93 (↑9.05)
+> Kin. only 26.80 (↑2.21) 23.15 (↑12.50) 28.10 (↑7.39) 71.73 (↑14.85)
+> w/o Kin. 52.09 28.39 38.59 78.10 Full 62.68 (↑10.59 )51.93 (↑23.54 )55.18 (↑16.59 )85.57 (↑7.47 )
+
+Table 5: Temporal and physical refinement ablation on Instruct-4D. Single-component and leave-one-out gains are diagnostic at different operating points and are not additive. 
+
+## 6 Conclusion 
+
+4DVLT frames instruction-conditioned 4D dynamic scene understanding as complete worldline estimation from fully observed multi-view clips. On Instruct-4D, 4DTrack improves both target grounding and world-line quality over adapted VLT baselines, with the strongest performance on queries whose metric or tempo-ral constraints can be expressed directly over the recovered worldline. Dense same-category disambiguation remains the main challenge, particularly in AlloWL. The results indicate that organizing observations into an object-centric 4D state graph, contracting ambiguity through instruction-conditioned routing, and de-coding bidirectionally with kinematic calibration provides a practical route to offline, calibrated, multi-view dynamic scene understanding. Extending this formulation to partial observability, weaker calibration, and richer interaction remains an important direction. 13 References 
+
+[1] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. Gpt-4 technical report. 
+
+arXiv preprint arXiv:2303.08774 , 2023. [2] Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, Antoine Miech, Iain Barr, Yana Hasson, Karel Lenc, Arthur Mensch, Katie Millican, Malcolm Reynolds, Roman Ring, Eliza Rutherford, Serkan Cabi, Tengda Han, Zhitao Gong, Sina Samangooei, Marianne Monteiro, Jacob Menick, Sebastian Borgeaud, Andrew Brock, Aida Nematzadeh, Sahand Sharifzadeh, Mikolaj Binkowski, Ricardo Barreira, Oriol Vinyals, Andrew Zisserman, and Karen Simonyan. Flamingo: A visual language model for few-shot learning. Advances in Neural Information Processing Systems , pages 1–54, 2022. doi: 10.52202/068431-1723. [3] Luca Bertinetto, Jack Valmadre, João F. Henriques, Andrea Vedaldi, and Philip H. S. Torr. Fully-convolutional siamese networks for object tracking. In Gang Hua and Hervé Jégou, editors, Computer Vision ECCV 2016 Workshops , volume 9914, pages 850–865. Springer International Publishing, 2016. ISBN 978-3-319-48880-6 978-3-319-48881-3. doi: 10.1007/978-3-319-48881-3_56. [4] Holger Caesar, Varun Bankiti, Alex H. Lang, Sourabh Vora, Venice Erin Liong, Qiang Xu, Anush Krishnan, Yu Pan, Giancarlo Baldan, and Oscar Beijbom. nuScenes: A multimodal dataset for autonomous driving. In 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 11618–11628. IEEE, 2020. ISBN 978-1-7281-7168-5. doi: 10.1109/CVPR42600.2020. 01164. [5] Tatjana Chavdarova, Pierre Baque, Stephane Bouquet, Andrii Maksai, Cijo Jose, Timur Bagautdinov, Louis Lettry, Pascal Fua, Luc Van Gool, and Francois Fleuret. WILDTRACK: A multi-camera HD dataset for dense unscripted pedestrian detection. In 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 5030–5039. IEEE, 2018. ISBN 978-1-5386-6420-9. doi: 10.1109/ CVPR.2018.00528. [6] Dave Zhenyu Chen, Angel X. Chang, and Matthias NieSSner. ScanRefer: 3D object localization in RGB-D scans using natural language. In Andrea Vedaldi, Horst Bischof, Thomas Brox, and Jan-Michael Frahm, editors, Computer Vision ECCV 2020 , volume 12365, pages 202–221. Springer Inter-national Publishing, 2020. ISBN 978-3-030-58564-8 978-3-030-58565-5. doi: 10.1007/978-3-030-58565-5_13. [7] Xin Chen, Bin Yan, Jiawen Zhu, Dong Wang, Xiaoyun Yang, and Huchuan Lu. Transformer tracking. In 2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 8122– 8131. IEEE, 2021. ISBN 978-1-6654-4509-2. doi: 10.1109/CVPR46437.2021.00803. [8] Xin Chen, Houwen Peng, Dong Wang, Huchuan Lu, and Han Hu. SeqTrack: Sequence to se-quence learning for visual object tracking. In 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 14572–14581. IEEE, 2023. ISBN 979-8-3503-0129-8. doi: 10.1109/CVPR52729.2023.01400. [9] Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and Luke Zettlemoyer. Qlora: Efficient finetuning of quantized llms. Advances in neural information processing systems , 36:10088–10115, 2023. [10] Qi Feng, Vitaly Ablavsky, Qinxun Bai, and Stan Sclaroff. Siamese natural language tracker: Tracking by natural language descriptions with siamese trackers. In 2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 5847–5856. IEEE, 2021. ISBN 978-1-6654-4509-2. doi: 10.1109/CVPR46437.2021.00579. 14 [11] Xiaokun Feng, Xuchen Li, Shiyu Hu, Dailing Zhang, Meiqi Wu, Jing Zhang, Xiaotang Chen, and Kaiqi Huang. MemVLT: Vision-language tracking with adaptive memory-based prompts. In Advances in Neural Information Processing Systems 37 (NeurIPS 2024) , 2024. doi: 10.52202/079017-0476. [12] Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, et al. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 , 2024. [13] Xin Gu, Heng Fan, Yan Huang, Tiejian Luo, and Libo Zhang. Context-guided spatio-temporal video grounding. Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,pages 1–13, 2024. doi: 10.1109/CVPR52733.2024.01735. [14] Mingzhe Guo, Zhipeng Zhang, Liping Jing, Haibin Ling, and Heng Fan. Divert more attention to vision-language object tracking. IEEE Transactions on Pattern Analysis and Machine Intelligence , 46 (12):8600–8618, 2024. ISSN 0162-8828, 2160-9292, 1939-3539. doi: 10.1109/TPAMI.2024.3409078. [15] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Liang Wang, Weizhu Chen, et al. Lora: Low-rank adaptation of large language models. Iclr , 1(2):3, 2022. [16] Lianghua Huang, Xin Zhao, and Kaiqi Huang. GOT-10k: A large high-diversity benchmark for generic object tracking in the wild. IEEE Transactions on Pattern Analysis and Machine Intelligence , 43(5): 1562–1577, 2021. ISSN 0162-8828, 2160-9292, 1939-3539. doi: 10.1109/TPAMI.2019.2957464. [17] Yuzhi Huang, Kairun Wen, Rongxin Gao, Dongxuan Liu, Yibin Lou, Jie Wu, Jing Xu, Jian Zhang, Zheng Yang, Yunlong Lin, et al. Thinking in dynamics: How multimodal large language models perceive, track, and reason dynamics in physical 4d world. arXiv preprint arXiv:2603.12746 , 2026. [18] Albert Q. Jiang, Alexandre Sablayrolles, Arthur Mensch, Chris Bamford, Devendra Singh Chaplot, Diego de las Casas, Florian Bressand, Guillaume Lengyel, Guillaume Lample, Lucile Saulnier, et al. Mistral 7b. arXiv preprint arXiv:2310.06825 , 2023. [19] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. BLIP-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. Proceedings of the International Conference on Machine Learning , pages 1–13, 2023. [20] Peixuan Li and Jieyu Jin. Time3d: End-to-end joint monocular 3d object detection and tracking for autonomous driving. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 3885–3894, 2022. [21] Xiaohai Li, Bineng Zhong, Qihua Liang, Zhiyi Mo, Jian Nong, and Shuxiang Song. Dynamic updates for language adaptation in visual-language tracking. Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 1–10, 2025. doi: 10.1109/CVPR52734.2025.01785. [22] Xuchen Li, Xiaokun Feng, Shiyu Hu, Meiqi Wu, Dailing Zhang, Jing Zhang, and Kaiqi Huang. DTLLM-VLT: Diverse text generation for visual language tracking based on LLM. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW) , pages 7283–7292. IEEE, 2024. ISBN 979-8-3503-6547-4. doi: 10.1109/CVPRW63382.2024.00724. [23] Zhenyang Li, Ran Tao, Efstratios Gavves, Cees G M Snoek, and Arnold W M Smeulders. Tracking by natural language specification. Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , pages 1–9, 2017. doi: 10.1109/CVPR.2017.777. [24] Xinqi Liu, Li Zhou, Zikun Zhou, Jianqiu Chen, and Zhenyu He. MambaVLT: Time-evolving multi-modal state space model for vision-language tracking. Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 1–15, 2025. doi: 10.1109/CVPR52734.2025.00816. 15 [25] Yinchao Ma, Yuyang Tang, Wenfei Yang, Tianzhu Zhang, Jinpeng Zhang, and Mengxue Kang. Unifying visual and vision-language tracking via contrastive learning. Proceedings of the AAAI Conference on Artificial Intelligence , 38(5):4107–4116, 2024. ISSN 2374-3468, 2159-5399. doi: 10.1609/aaai.v38i5.28205. [26] Matthias Müller, Adel Bibi, Silvio Giancola, Salman Alsubaihi, and Bernard Ghanem. TrackingNet: A large-scale dataset and benchmark for object tracking in the wild. In Vittorio Ferrari, Martial Hebert, Cristian Sminchisescu, and Yair Weiss, editors, Computer Vision ECCV 2018 , volume 11205, pages 310–327. Springer International Publishing, 2018. ISBN 978-3-030-01245-8 978-3-030-01246-5. doi: 10.1007/978-3-030-01246-5_19. [27] Qwen Team. Qwen3.5: Towards native multimodal agents, February 2026. URL https://qwen.ai/ blog?id=qwen3.5. [28] Yanyan Shao, Shuting He, Qi Ye, Yuchao Feng, Wenhan Luo, and Jiming Chen. Context-aware integration of language and visual references for natural language tracking. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 19208–19217. IEEE, 2024. ISBN 979-8-3503-5300-6. doi: 10.1109/CVPR52733.2024.01817. [29] Qwen Team. Qwen2.5-vl, January 2025. URL https://qwenlm.github.io/blog/qwen2.5-vl/. [30] Jingchao Wang, Kaiwen Zhou, Zhijian Wu, Kunhua Ji, Dingjiang Huang, and Yefeng Zheng. Vptracker: Global vision-language tracking via visual prompt and mllm. arXiv preprint arXiv:2512.22799 , 2025. [31] Xiao Wang, Chenglong Li, Rui Yang, Tianzhu Zhang, Jin Tang, and Bin Luo. Describe and attend to track: Learning natural language guided structural representation and visual attention for object tracking. arXiv preprint arXiv:1811.10014 , 2018. [32] Xiao Wang, Xiujun Shu, Zhipeng Zhang, Bo Jiang, Yaowei Wang, Yonghong Tian, and Feng Wu. Towards more flexible and accurate object tracking with natural language: Algorithms and benchmark. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 13763– 13773, 2021. [33] Hongkai Wei, Yang Yang, Shijie Sun, Mingtao Feng, Xiangyu Song, Qi Lei, Hongli Hu, Rong Wang, Huansheng Song, Naveed Akhtar, and Ajmal Saeed Mian. Mono3DVLT: Monocular-video-based 3D visual language tracking. Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 1–11, 2025. doi: 10.1109/CVPR52734.2025.01296. [34] Changli Wu, Haodong Wang, Jiayi Ji, Yutian Yao, Chunsai Du, Jihua Kang, Yanwei Fu, and Liujuan Cao. Mvggt: Multimodal visual geometry grounded transformer for multiview 3d referring expression segmentation. arXiv preprint arXiv:2601.06874 , 2026. [35] Dongming Wu, Tiancai Wang, Yuang Zhang, Xiangyu Zhang, and Jianbing Shen. OnlineRefer: Asimple online baseline for referring video object segmentation. In 2023 IEEE/CVF International Conference on Computer Vision (ICCV) , pages 2749–2758. IEEE, 2023. ISBN 979-8-3503-0718-4. doi: 10.1109/ICCV51070.2023.00259. [36] Jiannan Wu, Yi Jiang, Peize Sun, Zehuan Yuan, and Ping Luo. Language as queries for referring video object segmentation. In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 4964–4974. IEEE, 2022. ISBN 978-1-6654-6946-3. doi: 10.1109/CVPR52688.2022. 00492. [37] Botao Ye, Hong Chang, Bingpeng Ma, Shiguang Shan, and Xilin Chen. Joint feature learning and relation modeling for tracking: A one-stream framework. In Shai Avidan, Gabriel Brostow, Moustapha Cissé, Giovanni Maria Farinella, and Tal Hassner, editors, Computer Vision ECCV 2022 , volume 16 13682, pages 341–357. Springer Nature Switzerland, 2022. ISBN 978-3-031-20046-5 978-3-031-20047-2. doi: 10.1007/978-3-031-20047-2_20. [38] Xingyilang Yin, Chengzhengxu Li, Jiahao Chang, Chi-Man Pun, and Xiaodong Cun. Mllm-4d: To-wards visual-based spatial-temporal intelligence. arXiv preprint arXiv:2603.00515 , 2026. [39] Chunhui Zhang, Xin Sun, Yiqian Yang, Li Liu, Qiong Liu, Xi Zhou, and Yanfeng Wang. All in one: Exploring unified vision-language tracking with multi-modal alignment. In Proceedings of the 31st ACM International Conference on Multimedia , pages 5552–5561. ACM, 2023. ISBN 979-8-4007-0108-5. doi: 10.1145/3581783.3611803. [40] Guangtong Zhang, Bineng Zhong, Qihua Liang, Zhiyi Mo, Ning Li, and Shuxiang Song. One-stream stepwise decreasing for vision-language tracking. IEEE Transactions on Circuits and Systems for Video Technology , 34(10):9053–9063, 2024. ISSN 1051-8215, 1558-2205. doi: 10.1109/TCSVT.2024.3395352. [41] Guangtong Zhang, Bineng Zhong, Shirui Yang, Yang Wang, and Tian Bai. Aware distillation for robust vision-language tracking under linguistic sparsity. Proceedings of the AAAI Conference on Artificial Intelligence , pages 1–9, 2026. doi: 10.1609/aaai.v40i15.38237. [42] Huanlong Zhang, Jingchao Wang, Jianwei Zhang, Tianzhu Zhang, and Bineng Zhong. One-stream vision-language memory network for object tracking. IEEE Transactions on Multimedia , 26:1720–1730, 2024. ISSN 1520-9210, 1941-0077. doi: 10.1109/TMM.2023.3285441. [43] Jiahui Zhang, Yurui Chen, Yueming Xu, Ze Huang, Jilin Mei, Chunhui Chen, Yanpeng Zhou, Yu-Jie Yuan, Xinyue Cai, Guowei Huang, et al. From flatland to space: Teaching vision-language models to perceive and reason in 3d. Advances in Neural Information Processing Systems , 38, 2026. [44] Qiyao Zhang, Shuhua Zheng, Jianli Sun, Chengxiang Li, Xianke Wu, Zihan Song, Zhiyong Cui, Yisheng Lv, and Yonglin Tian. Uav-track vla: Embodied aerial tracking via vision-language-action models. arXiv preprint arXiv:2604.02241 , 2026. [45] Tianyuan Zhang, Xuanyao Chen, Yue Wang, Yilun Wang, and Hang Zhao. Mutr3d: A multi-camera tracking framework via 3d-to-2d queries. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 4537–4546, 2022. [46] Yu Zhang, Yiming Sun, Mi Zhang, Fan Yu, Shaoxiang Chen, Yang Li, Changbo Wang, Jianke Zhu, and Steven C.H. Hoi. ChatTracker: Enhancing visual tracking via LLM-driven iterative description refinement. IEEE Transactions on Pattern Analysis and Machine Intelligence , pages 1–18, 2026. ISSN 0162-8828, 2160-9292, 1939-3539. doi: 10.1109/TPAMI.2026.3674357. [47] Yuanhan Zhang, Jinming Wu, Wei Li, Bo Li, Zejun Ma, Ziwei Liu, and Chunyuan Li. Llava-video: Video instruction tuning with synthetic data. arXiv preprint arXiv:2410.02713 , 2024. [48] Zhu Zhang, Zhou Zhao, Yang Zhao, Qi Wang, Huasheng Liu, and Lianli Gao. Where does it ex-ist: Spatio-temporal video grounding for multi-form sentences. In 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 10665–10674. IEEE, 2020. ISBN 978-1-7281-7168-5. doi: 10.1109/CVPR42600.2020.01068. [49] Haojie Zhao, Xiao Wang, Dong Wang, Huchuan Lu, and Xiang Ruan. Transformer vision-language tracking via proxy token guided cross-modal fusion. Pattern Recognition Letters , 168:10–16, 2023. ISSN 01678655. doi: 10.1016/j.patrec.2023.02.023. [50] Haojie Zhao, Bin Yan, Dong Wang, Xuesheng Qian, Xiaoyun Yang, and Huchuan Lu. Effective local and global search for fast long-term tracking. IEEE Transactions on Pattern Analysis and Machine Intelligence , 45(1):460–474, 2023. ISSN 0162-8828, 2160-9292, 1939-3539. doi: 10.1109/TPAMI.2022. 3153645. 17 [51] Duo Zheng, Shijia Huang, and Liwei Wang. Video-3D LLM: Learning position-aware video represen-tation for 3D scene understanding. Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 1–14, 2025. doi: 10.1109/CVPR52734.2025.00841. [52] Duo Zheng, Yanyang Li, Liwei Wang, et al. Learning from videos for 3d world: Enhancing mllms with 3d vision geometry priors. Advances in neural information processing systems , 38:20560–20586, 2026. [53] Yaozong Zheng, Bineng Zhong, Qihua Liang, Guorong Li, Rongrong Ji, and Xianxian Li. Towards unified token learning for vision-language tracking. IEEE Transactions on Circuits and Systems for Video Technology , pages 1–11, 2024. doi: 10.1109/TCSVT.2023.3301933. [54] Hanyu Zhou and Gim Hee Lee. Llava-4d: Embedding spatiotemporal prompt into lmms for 4d scene understanding. In The Fourteenth International Conference on Learning Representations , 2025. [55] Li Zhou, Zikun Zhou, Kaige Mao, and Zhenyu He. Joint visual grounding and tracking with natural language specification. In 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 23151–23160. IEEE, 2023. ISBN 979-8-3503-0129-8. doi: 10.1109/CVPR52729.2023. 02217. [56] Chenming Zhu, Tai Wang, Wenwei Zhang, Jiangmiao Pang, and Xihui Liu. LLaVA-3D: A simple yet effective pathway to empowering LMMs with 3D capabilities. Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 1–18, 2025. doi: 10.1109/ICCV51701.2025.00409. [57] Deyao Zhu, Jun Chen, Xiaoqian Shen, Xiang Li, and Mohamed Elhoseiny. Minigpt-4: Enhancing vision-language understanding with advanced large language models. Proceedings of the International Conference on Learning Representations , pages 1–15, 2024. 18 Appendix 
+
+In the appendix, we provide additional method details including graph-conditioned prompt construction, metric-guided routing, view-aware 2D alignment, bidirectional supervision, kinematic prior, and the full training recipe (Section A), metric component details (Section B), baseline adaptation details (Section C), scope of the final quantitative presentation, and additional qualitative cases (Section F). 
+
+## A Additional Method Details 
+
+This appendix records the implementation-level details deferred from Section 4 so that the main text can keep the worldline-inference story compact while preserving technical completeness. 
+
+Graph-Conditioned Prompt and Parameter-Efficient Backbone. The graph-conditioned input is serialized as a single causal sequence combining the routed state graph and the language query: 
+
+S = ⟨g⟩ Seq( ˆG) ⟨/g ⟩ ⟨ q⟩q⟨/q ⟩⟨ a⟩. (11) where Seq( ˆG) serializes the routed graph by frame, node, and edge blocks. The discrete node token only reserves a position in the sequence; the actual graph information is injected into the following soft slot: 
+
+H(0) [pos i] ← ϕproj (ai, gi, ui), (12) where the projector maps appearance, geometry, and auxiliary features into the backbone hidden space: 
+
+ϕproj (a, g, u) = W2 LN(GELU( W1[a; g; u])) . (13) The graph-conditioned LM uses a 4-bit Qwen3.5-9B backbone with LoRA adapters on the self-attention query and value projections: 
+
+W ′ 
+
+> k,ℓ
+
+= Wk,ℓ + αr Bk,ℓ Ak,ℓ , k ∈ { q, v }. (14) so the worldline generator adapts the language backbone without full-parameter finetuning. 
+
+Metric-Guided Routing and Node Decoding. Let t denote the pooled text feature from the backbone and let ni be the projected embedding of candidate node i. Text-node semantic relevance is scored by 
+
+atext  
+
+> i
+
+= ⟨Wtt, W nni⟩√D . (15) For each latent query u with embedding qu, the router predicts a query-conditioned metric anchor and scale, 
+
+[ˆ pu; log ˆ σu] = ϕanc ([ qu; t]) , (16) and evaluates a centered inverse-variance metric bias with δi = pi − ¯pvalid and β = softplus( ρ):
+
+mu,i = − ∥δi − ˆpu∥22
+
+ˆσ2 
+
+> u
+
++ ϵ + β χ reach (i). (17) Here ¯pvalid is the mean valid-node position in the current clip and χreach (i) indicates whether node i par-ticipates in at least one valid transition edge. Let ru,i denote the averaged headwise query-node similarity and πu,i = softmax( ℓu)i. The latent-query routing logits and marginal node probabilities are then 
+
+ℓu,i = ru,i + αsatext  
+
+> i
+
++ αmmu,i , wi = 1
+
+Nq
+
+> ∑
+> u
+
+πu,i . (18) Per frame, the router keeps the top-M nodes according to wi and closes them under one-hop reachability to form the routed subgraph ˆG and keep mask M. During training, the ground-truth node at each valid step is force-merged into M to avoid cold-start masking; inference uses the pure router output. 19 At the answer prefix position s, the hidden state used to predict the next worldline node is 
+
+ht = H[last] [s − 1 + t]. (19) With τ ′ = exp( τ ), the NodeHead applies a cosine scorer. Let ¯qt = LN q(Whht) and ¯ki = LN k(ni). Then 
+
+logit t,i = τ ′
+
+√D ⟨¯qt, ¯ki⟩, (20) followed by a frame-and-subgraph mask 
+
+logit t,i ← logit t,i + Mt,i , (21) where Mt,i = 0 on valid routed nodes at frame t and Mt,i = −10 4 otherwise. This makes the worldline decoder reason over the routed candidate set rather than over the full graph. 
+
+View-Aware 2D Alignment. Once a node sequence is selected, each state retains a per-view support box ψct together with its visibility indicator 1ct . With xct = [ ht; ecam (c); ψct ; 1ct ], the alignment head predicts 
+
+∆bct = ∆ max · tanh (ϕres (xct )), (22) Let ¯bct = σ(ϕfb ([ ht; ecam (c)]) ) be the fallback box, and set 
+
+ˆbct = ¯bct + 1ct (˜bct − ¯bct ), (23) where ˜bct = clip [0 ,1] 4 (ψct + ∆ bct ). When support is visible, the head performs only a local refinement around the anchor; otherwise, it falls back to a camera-aware box predictor driven by the decoded hidden state. 
+
+Bidirectional Supervision and the Full Objective. With teacher-forced supervision on the ground-truth worldline W∗ and its reversed ordering ←−W∗, and suppressing the shared conditioning on q and the routed graph, the forward and backward sequence losses are 
+
+Lf = −
+
+> L
+
+∑
+
+> t=1
+
+log pf (z∗ 
+
+> t
+
+| z∗
+
+> <t
+
+), (24) 
+
+Lb = −
+
+> L
+
+∑
+
+> t=1
+
+log pb(¯ z∗ 
+
+> t
+
+| ¯z∗
+
+> <t
+
+), (25) Let ˜ptb = Π( pL−t+1  
+
+> b
+
+) and d(p, q ) = KL( p∥q) + KL( q∥p). The bidirectional consistency term is 
+
+Lcons = 12L
+
+> L
+
+∑
+
+> t=1
+
+d(ptf , ˜ptb), (26) where Π( ·) aligns the reverse-time distribution back to the forward candidate set at the same absolute timestamp. With clipped marginal ˜wb,i = clip( wb,i , ϵ, 1 − ϵ), the router is supervised by 
+
+Lroute = 1
+
+BN 
+
+∑
+
+> b,i
+
+BCE(˜ yb,i , ˜wb,i ), (27) where ˜yb,i is the target marginal over ground-truth worldline nodes and any query-required one-hop inter-action context nodes. Let ℓ2D (ˆb, b ∗) = λ1 SmoothL1( ˆb, b ∗) + λiou (1 − IoU( ˆb, b ∗)) . The alignment head is trained on visible-view supervision only: 
+
+Lalign = 1
+
+∑ 
+
+> t,c
+
+mct
+
+∑
+
+> t,c
+
+mct ℓ2D (ˆbct , b c, ∗ 
+
+> t
+
+), (28) 20 with mct denoting the visible-view supervision mask. The full training objective is therefore 
+
+L = λf Lf + λbLb + λrLr + λaLa + λcLc. (29) where (Lr, La, Lc) = ( Lroute , Lalign , Lcons ) for compactness. 
+
+Kinematic Prior and Joint Beam Search. For candidate successor j after states zt−1 and zt, let 
+
+v− 
+
+> t
+
+= pzt − pzt−1 be the previous displacement. We define candidate velocity and acceleration as 
+
+vt(j) = pj − pzt , at(j) = vt(j) − v− 
+
+> t
+
+, (30) and the corresponding kinematic energy is 
+
+Et(j) = τv∥vt(j)∥2 + τa∥at(j)∥2, (31) which yields the physics prior log pphys (j | zt−1, z t) = −Et(j). Let ˜ℓmτ and ˜ℓpτ denote the renormalized model and physics log-scores of the selected step. At inference time, beam search accumulates 
+
+score( z0: t) = ∑ 
+
+> τ≤t
+> [
+
+αq ˜ℓmτ + (1 − αq)˜ℓpτ
+
+> ]
+
+, (32) where both log-probabilities are renormalized over the routed candidates in the current frame before accumulation. In practice, αq is a query-type-dependent coefficient: it is preset higher for semantic disambiguation-style queries and lower for motion-centric queries such as Trajectory Shape, Kinematic Shift, and Motion Residual. The beam search can therefore shift between language-dominant and physics-dominant scoring without implying that αq is learned from each individual query. 
+
+Training Recipe. The paper uses the same three-stage curriculum under the sequential EgoWL →AlloWL training flow. Stage 1 (route warmup) keeps LoRA frozen and emphasizes candidate contraction with 
+
+λf = 0 .1, λb = 0 , and λc = 0 . Stage 2 (bidirectional early training) enables LoRA and uses matched forward/backward sequence supervision with λf = λb = 1 , while keeping λc = 0 . Stage 3 (consistency calibration) preserves the routing and alignment terms used in the preceding stage and activates the consistency loss with λc = 0 .2. The sampling curriculum follows the same logic: early training emphasizes simpler grounding-heavy queries and short worldlines, while late training upweights Reverse Reasoning, Trajectory Shape, Kinematic Shift, and Motion Residual, together with hard cases involving close neighbors, visibility flips, and large second-order motion change. The model architecture itself does not change across datasets; only the candidate graphs, camera layouts, and scene statistics differ. 
+
+Ablation Protocol Note. The module tables isolate components that can be switched on or off without redefining the rest of the inference chain. The full-model removal rows directly evaluate routing, graph, and kinematic-prior deletions, but do not include a symmetric “Bidir.=off” row: bidirectional decoding changes the decoder parameterization and sequence supervision themselves, so a drop-in removal would no longer be like-for-like. Its role is therefore reflected through the single-component diagnostic and the staged training recipe rather than through a strict full-model deletion. 
+
+## B Metric Component Details 
+
+The main text keeps the aggregate benchmark metrics and defers the exact construction of the per-sample worldline-quality score Qi to this appendix. Let Ωi denote the aligned timestamps between prediction and ground truth for sample i, and let c index camera views. We denote by ci,t and c∗ 
+
+> i,t
+
+the predicted and ground-truth 3D centers, by ˆbci,t and bc, ∗ 
+
+> i,t
+
+the predicted and ground-truth 2D boxes, and by vci,t , ˆvci,t ∈ { 0, 1}
+
+the ground-truth visibility and prediction-validity indicators. The metric chain proceeds from per-sample trajectory and projection quality to Qi, then aggregates Qi over all samples as WQS , and finally averages the same score over correctly grounded samples as CTQ .21 Per-sample 3D trajectory error is measured as 
+
+ADE 3D ,i = 1
+
+|Ωi|
+
+∑
+
+> t∈Ωi
+
+∥ci,t − c∗
+
+> i,t
+
+∥2. (33) On visible views, we measure 2D overlap Ii and coverage as 
+
+Ii =
+
+∑ 
+
+> t,c
+
+vci,t IoU( ˆbci,t , b c, ∗ 
+
+> i,t
+
+)
+
+∑ 
+
+> t,c
+
+vci,t 
+
+, (34) 
+
+VCov i =
+
+∑ 
+
+> t,c
+
+vci,t ˆvci,t 
+
+∑ 
+
+> t,c
+
+vci,t 
+
+. (35) We then map 3D error to a bounded accuracy term 
+
+q3D  
+
+> i
+
+= exp( −ADE 3D ,i /σ 3D ), q3D  
+
+> i
+
+∈ (0 , 1] , (36) and combine the three components as 
+
+Qi = 100 · λ3D q3D  
+
+> i
+
++ λ2D Ii + λcov VCov i
+
+λ3D + λ2D + λcov 
+
+, (37) where λ3D , λ2D , and λcov balance the 3D, 2D, and visible-coverage terms, respectively. In all reported experiments, we set λ3D = λ2D = λcov = 1 , so Qi is the equally weighted percentage score over 3D accuracy, visible-view 2D overlap, and visible-view coverage. The benchmark-level worldline score is then 
+
+WQS = 1
+
+N
+
+> N
+
+∑
+
+> i=1
+
+Qi. (38) Conditioning the same per-sample quality on correct grounding gives 
+
+CTQ = 
+
+∑Ni=1 δ(mi, y ∗ 
+
+> i
+
+)Qi
+
+∑Ni=1 δ(mi, y ∗ 
+
+> i
+
+) + ϵ . (39) As supplementary diagnostics, we report the dataset-level mean trajectory error 
+
+ADE 3D = 1
+
+N
+
+> N
+
+∑
+
+> i=1
+
+ADE 3D ,i , (40) and the success rate 
+
+SR 3D @1m = 1
+
+N
+
+> N
+
+∑
+
+> i=1
+
+1[ADE 3D ,i < 1m] , (41) where 1[·] is the indicator function. These supplementary quantities expose absolute metric error and the fraction of trajectories whose average 3D error remains below one meter, respectively. 
+
+## C Baseline Adaptation Details 
+
+All rows in Table 1 share the same 4DVLT evaluation interface. Published VLT baselines keep their native trackers and objectives, and are wrapped into a common multi-view worldline evaluator rather than rewritten as 4DTrack variants. For each question, we form per-camera sequences, initialize the tracker from the shared candidate graph without ground-truth box leakage, run the tracker forward and backward on each camera, and then lift the resulting 2D box streams back onto the same candidate-node pool used by 4DTrack. This keeps the front-end candidate pool and the final evaluator fixed across methods. The LMM block follows the same matched-evaluation principle. The Open-Source Models group reports the same backbone families evaluated through the shared 4DVLT interface without the trained 4DTrack graph-routing-decoding pipeline. The 4DTrack Framework group reports the same backbones adapted inside the full pipeline under the same Instruct-4D finetuning and evaluation protocol, so the comparison isolates the contribution of worldline-centered structure rather than dataset exposure. 22 Query “ At t=44.0s , track the pedestrian and output their complete trajectory. ”           
+
+> 3D · C am 62D · C am 12D · C am 7
+> GT 4DTrack (ours) JointNLT [CVPR'23] UVLTrack [AAAI'24] GLAD [AAAI'25] DUTrack [CVPR'25] Qwen3.5-9B (w/o 4DTrack)
+
+Type: 3D Volume Geometry Figure 5: 3D Volume Geometry (AlloWL). The query selects the pedestrian ranked 14th by 3D bounding-box volume at t=44 .0 s. Columns show sampled timestamps; rows show 3D boxes in Camera 6 and synchronized 2D boxes in Cameras 1 and 7. Green dashed boxes denote ground truth, red boxes denote 4DTrack, and the remaining colors follow the embedded legend. 
+
+## D Scope of the Final Quantitative Presentation 
+
+The final paper keeps the macro-averaged main comparison, the query-type table, and grouped module-analysis tables in the main text. The main comparison combines VLT baselines with two LMM groups: 
+
+Open-Source Models , which reports the same backbones evaluated through the shared 4DVLT interface without the trained 4DTrack pipeline, and 4DTrack Framework , which reports the same backbones adapted under 4DTrack. The appendix retains a per-subset decomposition of this same selected comparison so that aggregate gains and dataset-specific exceptions remain visible. Broader single-dataset backbone sweeps beyond the selected models, forgetting-versus-adaptation de-compositions, finer-grained difficulty slices, mixed-training comparisons, and engineering checks are omit-ted. They remain useful for internal diagnosis, but they either change the data regime rather than the method, rely on small sample counts, or no longer sharpen the main claims once the paper is organized around task effectiveness, benchmark difficulty, and module evidence. Accordingly, the retained per-subset table is a decomposition of the reported main comparison rather than a separate backbone sweep or training-regime experiment. Additive build-up results are folded into the grouped module tables instead of being shown as a separate appendix table. 
+
+## E Per-Subset Main Results with Per-Model Deltas 
+
+Table 6 decomposes the macro-averaged main comparison into EgoWL and AlloWL results and includes per-model gain/loss deltas between the 4DTrack Framework and the corresponding Open-Source Model baselines. 
+
+## F Additional Qualitative Cases 
+
+We provide one qualitative case for each of the nine Instruct-4D query types in Figures 5–13: 3D Volume Geometry, Absolute 3D Position, Disambiguation, Kinematic Shift, Relative 3D Proximity, Reverse Rea-soning, Spatiotemporal Anchor, Motion Residual, and Trajectory Shape. Each figure compares 4DTrack with the ground truth and representative baselines at sampled timestamps and views, complementing the quantitative query-type analysis. 23 Query “ At t=2.5s , there is a pedestrian standing approximately 0.8 m east and 10.2 m north of the world origin, at a height of 0.91 m. Track this pedestrian and output 
+
+their complete trajectory. ”
+
+Type: Absolute 3D Position 
+
+> 3D · Cam5 2D · Cam3 2D · Cam7 2D · Cam1
+
+GT 4DTrack (ours) JointNLT [CVPR'23] UVLTrack [AAAI'24] GLAD [AAAI'25] DUTrack [CVPR'25] Qwen3.5-9B (w/o 4DTrack) Figure 6: Absolute 3D Position (AlloWL). The query grounds a pedestrian by a metric offset from the world origin at t=2 .5 s. Columns show sampled timestamps; rows show 3D boxes in Camera 5 and synchronized 2D boxes in Cameras 3, 7, and 1. Box colors follow the embedded legend. Query “ At t=119.0s , two pedestrians are only 2.39m apart . One is a pedestrian in a black jacket blue jeans at (8.25, 13.43, 0.91) and the other is a pedestrian in a black 
+
+jacket white jeans at (6.88, 11.47, 0.91) . Track the pedestrian in a black jacket blue jeans at (8.25, 13.43, 0.91) , NOT the pedestrian in a black jacket white jeans at 
+
+(6.88, 11.47, 0.91) . Output the target's complete trajectory. ”
+
+Type: Disambiguation 
+
+> 3D · Cam2 2D · Cam1 2D · Cam6 2D · Cam3
+
+GT 4DTrack (ours) JointNLT [CVPR'23] UVLTrack [AAAI'24] GLAD [AAAI'25] DUTrack [CVPR'25] Qwen3.5-9B (w/o 4DTrack) 
+
+Figure 7: Disambiguation (AlloWL). The query distinguishes two similarly dressed pedestrians only 2.39 m apart using clothing and metric-position cues. Columns show sampled timestamps; rows show 3D boxes in Camera 2 and synchronized 2D boxes in Cameras 1, 6, and 3. Box colors follow the embedded legend. 24 Method TGA Top1 ↑ TGA ↑ WQS ↑ CTQ ↑ ADE 3D ↓ SR 3D @1m ↑
+
+nuScenes VLT Baselines 
+
+JointNLT [55] [CVPR’23] 40.74 21.51 22.34 54.76 13.78 28.53 UVLTrack [25] 47.87 24.07 26.24 62.12 12.68 31.59 GLAD [41] 48.09 24.58 26.37 61.90 12.49 31.79 DUTrack [21] [CVPR’25] 47.71 25.27 26.70 62.18 12.13 32.27 
+
+Open-Source Models 
+
+Llama-3-8B-Instruct [12] 12.87 12.09 14.23 73.17 23.31 12.37 Mistral-7B-v0.2 [18] 12.08 11.57 14.50 78.93 23.46 11.75 Qwen2.5-VL-7B-Instruct [29] 12.26 11.17 13.61 73.95 23.92 11.88 Qwen3.5-9B [27] 12.54 11.43 13.83 72.07 23.62 11.51 
+
+4DTrack Framework 
+
+Llama-3-8B-Instruct [12] 14.04 (↑1.17) 10.93 (↓1.16) 14.66 (↑0.43) 71.82 (↓1.35) 21.26 (↓2.05) 12.84 (↑0.47) 
+
+Mistral-7B-v0.2 [18] 41.48 
+
+> (↑29.40)
+
+35.49 
+
+> (↑23.92)
+
+34.91 
+
+> (↑20.41)
+
+77.05 (↓1.88) 13.11 
+
+> (↓10.35)
+
+37.12 
+
+> (↑25.37)
+
+Qwen2.5-VL-7B-Instruct [29] 63.49 
+
+> (↑51.23)
+
+59.58 
+
+> (↑48.41)
+
+61.14 
+
+> (↑47.53)
+
+92.30 
+
+> (↑18.35)
+
+7.22 (↓16.70) 60.03 
+
+> (↑48.15)
+
+Qwen3.5-9B [27] 76.34 
+
+> (↑63.80)
+
+69.55 
+
+> (↑58.12)
+
+72.83 
+
+> (↑59.00)
+
+93.57 
+
+> (↑21.50)
+
+4.83 (↓18.79) 74.62 
+
+> (↑63.11)
+
+WildTrack VLT Baselines 
+
+JointNLT [55] [CVPR’23] 33.33 8.82 15.43 42.81 3.85 23.62 UVLTrack [25] 38.24 10.78 17.43 49.39 3.97 19.57 GLAD [41] 36.27 14.71 17.79 43.17 3.91 20.37 DUTrack [21] [CVPR’25] 37.25 10.78 17.63 50.58 3.96 19.04 
+
+Open-Source Models 
+
+Llama-3-8B-Instruct [12] 0.00 26.47 12.98 26.87 3.88 13.07 Mistral-7B-v0.2 [18] 2.94 30.39 13.93 24.44 4.14 12.96 Qwen2.5-VL-7B-Instruct [29] 9.80 34.31 16.62 28.25 3.63 17.69 Qwen3.5-9B [27] 15.69 8.82 14.15 39.72 3.79 11.25 
+
+4DTrack Framework 
+
+Llama-3-8B-Instruct [12] 36.27 
+
+> (↑36.27)
+
+30.39 (↑3.92) 28.24 
+
+> (↑15.26)
+
+56.25 
+
+> (↑29.38)
+
+2.59 (↓1.29) 29.94 
+
+> (↑16.87)
+
+Mistral-7B-v0.2 [18] 21.57 
+
+> (↑18.63)
+
+20.59 (↓9.80) 25.31 
+
+> (↑11.38)
+
+58.62 
+
+> (↑34.18)
+
+2.98 (↓1.16) 21.56 (↑8.60) 
+
+Qwen2.5-VL-7B-Instruct [29] 37.25 
+
+> (↑27.45)
+
+38.24 (↑3.93) 34.07 
+
+> (↑17.45)
+
+57.08 
+
+> (↑28.83)
+
+2.19 (↓1.44) 34.45 
+
+> (↑16.76)
+
+Qwen3.5-9B [27] 49.02 
+
+> (↑33.33)
+
+34.31 
+
+> (↑25.49)
+
+37.52 
+
+> (↑23.37)
+
+77.56 
+
+> (↑37.84)
+
+2.52 (↓1.27) 41.91 
+
+> (↑30.66)
+
+Table 6: Per-subset main comparison on Instruct-4D. Metric definitions follow Section 3.4; higher is better except ADE 3D . Open-Source Models report the same backbones evaluated through the shared 4DVLT interface without the trained 4DTrack pipeline, and 4DTrack Framework reports the same backbones adapted inside the full pipeline under the same Instruct-4D finetuning and evaluation protocol. Tiny green/red values in the 4DTrack Framework rows denote the per-model gain/loss against the same backbone in Open-Source Models. 25 Query “ Track the walking pedestrian who experienced a sudden acceleration near t=11.4s and output their complete trajectory. ”
+
+Type: Kinematic Shift 
+
+> 3D 2D
+
+GT 4DTrack (ours) JointNLT [CVPR'23] UVLTrack [AAAI'24] GLAD [AAAI'25] DUTrack [CVPR'25] Qwen3.5-9B (w/o 4DTrack) Figure 8: Kinematic Shift (EgoWL). The query identifies a pedestrian through a sudden acceleration near t=11 .4 s. Columns follow the target across changing ego-camera views, with 3D boxes above and 2D boxes below. Box colors follow the embedded legend. Query “ At t=142.0s , track the pedestrian in a red jacket blue jeans that is the 4th closest to camera 5 and output their complete trajectory. ”
+
+Type: Relative 3D Proximity 
+
+> 3D · Cam2 2D · Cam5 2D · Cam1 2D · Cam3
+
+GT 4DTrack (ours) JointNLT [CVPR'23] UVLTrack [AAAI'24] GLAD [AAAI'25] DUTrack [CVPR'25] Qwen3.5-9B (w/o 4DTrack) 
+
+Figure 9: Relative 3D Proximity (AlloWL). The query selects the pedestrian ranked fourth closest to Camera 5 at t=142 .0 s. Columns show sampled timestamps; rows show 3D boxes in Camera 2 and synchronized 2D boxes in Cameras 5, 1, and 3. Box colors follow the embedded legend. 26 Query “ A car is currently at (239.28, 920.99, 0.84) at t=16.0s . Trace back which areas this car passed through over the past 16.0s and output their full 3D historical  
+
+> trajectory.
+
+”
+
+Type: Reverse Reasoning 
+
+> 3D 2D
+
+GT 4DTrack (ours) JointNLT [CVPR'23] UVLTrack [AAAI'24] GLAD [AAAI'25] DUTrack [CVPR'25] Qwen3.5-9B (w/o 4DTrack) Figure 10: Reverse Reasoning (EgoWL). The query anchors a car at its state at t=16 .0 s and asks for the preceding 16-second trajectory. Columns trace the target backward through changing ego-camera views, with 3D boxes above and 2D boxes below. Box colors follow the embedded legend. Query “ Track the pedestrian in a black jacket black pants who entered the scene from the right at t=190.5s and was located at (4.80, 17.23, 0.90) at t=195.5s . Output  
+
+> their complete trajectory.
+
+”
+
+Type: Spatiotemporal Anchor 
+
+> 3D · Cam2 2D · Cam1 2D · Cam3 2D · Cam6
+
+GT 4DTrack (ours) JointNLT [CVPR'23] UVLTrack [AAAI'24] GLAD [AAAI'25] DUTrack [CVPR'25] Qwen3.5-9B (w/o 4DTrack) 
+
+Figure 11: Spatiotemporal Anchor (AlloWL). The query links a right-side entry event at t=190 .5 s to a later metric position at t=195 .5 s. Columns show sampled timestamps; rows show 3D boxes in Camera 2 and synchronized 2D boxes in Cameras 1, 3, and 6. Box colors follow the embedded legend. 27 Query “ Track the pedestrian who stayed nearly stationary from t=171.0s to t=179.5s (total displacement only 12.32m over 8.5s) and output their complete trajectory. ”
+
+Type: Motion Residual 
+
+> 3D · Cam1 2D · Cam2 2D · Cam6 2D · Cam3
+
+GT 4DTrack (ours) JointNLT [CVPR'23] UVLTrack [AAAI'24] GLAD [AAAI'25] DUTrack [CVPR'25] Qwen3.5-9B (w/o 4DTrack) Figure 12: Motion Residual (AlloWL). The query identifies a pedestrian from its residual displacement over t=171 .0–179 .5 s. Columns show sampled timestamps; rows show 3D boxes in Camera 1 and synchro-nized 2D boxes in Cameras 2, 6, and 3. Box colors follow the embedded legend. Query “ Track the car who moved overall northward from t=0.0s to t=6.5s and output their complete trajectory. ”
+
+Type: Trajectory Shape 
+
+> 3D 2D
+
+GT 4DTrack (ours) JointNLT [CVPR'23] UVLTrack [AAAI'24] GLAD [AAAI'25] DUTrack [CVPR'25] Qwen3.5-9B (w/o 4DTrack) 
+
+Figure 13: Trajectory Shape (EgoWL). The query selects the car whose trajectory moves overall northward during t=0 .0–6.5 s. Columns follow the target across changing ego-camera views, with 3D boxes above and 2D boxes below. Box colors follow the embedded legend. 28
