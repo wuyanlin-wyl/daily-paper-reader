@@ -1,0 +1,543 @@
+Title: Listening makes Vision Clear for VLMs
+
+URL Source: https://arxiv.org/pdf/2606.23763v1
+
+Published Time: Wed, 24 Jun 2026 00:03:04 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Listening makes Vision Clear for VLMs 
+
+Yiyang Chen 1, Yixin Tan 1, and Binrui Shen 1
+
+Beijing Normal University 
+
+Abstract. Recent work typically assesses vision–language consistency using attention distributions of answer-side tokens. However, we observe that highest attention regions are not always consistent with the in-tended semantic token. This probably stems from decoding drift, where language priors from previously generated answer tokens accumulate and mismatch with visual attention. Besides the priors from previous answer tokens, we find that structural tokens (e.g., modality boundary mark-ers) may encompass the entire context and generate high attention to areas unrelated to the target. To avoid these distortions and provide consistency evaluation for large VLMs, we adopt prompt-side semantics and propose Prompt-Vision Token Activation Map (PV-TAM). PV-TAM further incorporates a filter to remove systematic bias induced by modality boundary markers (e.g., <vision start> , <vision end> ). Un-like traditional methods that evaluate overlap solely through masks while ignoring activation intensity, our metrics leverage the peak distribution of attention to measure the alignment between prompts and visual re-gions. In experiments, PV-TAM consistently improves both attention-based and IoU-style localization metrics over answer-side baselines on various datasets. 
+
+## 1 Introduction 
+
+Vision–language models (VLMs) have achieved impressive multimodal capabili-ties and are increasingly used in tasks that require reliable semantic alignment between text and vision. Language–vision semantic consistency is crucial for en-suring that VLM predictions are grounded in the right visual area rather than language priors, enabling reliable interpretation, evaluation, and visual ground-ing [30,38,17,39]. In this work, we use consistency to assess the degree of align-ment between a visual region and its corresponding semantic token. Most exist-ing approaches estimate such alignment from attention maps of answer tokens during decoding[22,1]. However, we notice that aligning language and vision solely on the answer side may not accurately reflect consistency. In practice, the highest attention regions are not always consistent with the intended semantic token [36,31]. Take fig. 1 as an example, given a ”duck neck” query, attention fails to localize the neck and instead highlights the duck wing region. This misalignment might lie in decoding drift, where language priors from previously generated answer tokens accumulate in the growing context and gradually dominate the prompt–vision relation. To avoid this issue, we shift the perspective from answer-side generation    
+
+> arXiv:2606.23763v1 [cs.CV] 22 Jun 2026 2Chen. et al.
+> Fig. 1. A representative example showing the sensitivity of TAM to preceding con-text [22]. The more red indicates higher attention. But highest attention region is not consistent with the intended semantic area neck . We can see that the input text is a sentence where prior words actually hurt the vision-language alignment.
+
+to prompt-side semantics, where the queried tokens are fixed inputs. From a probabilistic perspective, the generated answer content is inherently influenced by prior context [5,28]. The semantic information of the current output is not independent of context, potentially introducing drift phenomena. Conversely, tokens on the fixed prompt side provide more stable token-to-vision grounding. Based on these insights, we propose a prompt-based attention map framework that extracts and denoises token-to-vision activation maps from prompt tokens by suppressing structural-token attention, and evaluates localization precision with two metrics: TDR and TGR. Specifically, we make three contributions: 
+
+– Prompt-Vision Token Activation Map. We propose a prompt-side frame-work to address language-vision alignment without relying on answer-side generations to reduce drift and contextual entanglement. 
+
+– Structure-Token Denoising. We identify structural tokens surrounding the target semantic span and show that their activation maps mainly capture structural bias rather than semantics. We justify removing structural-token attention to obtain a denoised token activation map for the target semantics. 
+
+– Alignment-Oriented Evaluation. We designed two localization metrics: TDR to quantify global coverage and TGR to quantify coverage within target semantic regions. These metrics provide a novel perspective for evaluating the accuracy of prompt-to-vision alignment. Together, these components form a framework that turns prompt tokens into a practical diagnostic tool for VLMs in semantic alignment analysis. In experi-ments, our method outperforms or matches prior interpretability baselines (e.g., CAM[15], CP-LRP[3], Attention Rollout[1], TAM[22]) on TGR/TDR and Min-Dist, demonstrating consistently improved prompt-to-vision alignment. Listening makes Vision Clear for VLMs 3
+
+## 2 Related Works 
+
+2.1 Vision-Language Models 
+
+Recent VLMs typically relied on visual and language inputs. After tokenizing and concatenating them, the token sequence was fed into cross-modal Trans-formers to learn language-visual alignment for tasks such as VQA, retrieval, and referring expression comprehension. UNITER and OSCAR explicitly modeled token–region matching in multi-task pretraining, and further strengthened cross-modal binding with object tags or alignment objectives [8,21]. VinVL pushed this line forward by improving the visual region representations themselves , demon-strating that stronger detection features lead to substantial gains in downstream cross-modal understanding and localization [40]. Localization capability has been incorporated more directly into pretrain-ing. MDETR modulates DETR with text queries, enabling end-to-end text-conditioned detection [16]. RegionCLIP and GLIP introduce region-level con-trastive alignment or joint objectives that combine detection with phrase align-ment, improving open-vocabulary transferability [41,20,38,19]. Meanwhile, as ViT-style patch tokens become the dominant visual representation, cross-modal interaction increasingly shifts to the token level, providing a structural basis for analyzing token-wise visual dependence inside modern VLMs. At the evaluation level, phrase grounding (PG) and referring expression grounding (RECG) still largely rely on IoU-style criteria[7,18]; datasets such as Flickr30k Entities pro-vide stable phrase–box annotations for entity-to-region evaluation [25]. However, these evaluations emphasize final mask quality and do not directly capture the consistency of language and vision in VLMs. 
+
+2.2 Attention Interpretability and Evaluation 
+
+A broad literature visualizes attention weights or gradient-based attributions to explain where a model attends. Typical examples include Grad-CAM for gradient-based localization and SmoothGrad for noise-reduced saliency [29,33]. However, attention is not necessarily equivalent to causal contribution[36]. At-tention weights can be redistributed without significantly changing the out-put, which may yield plausible but weakly faithful explanations. In multimodal models, gradient-based localization and perturbation-style validation have been used to provide more testable explanations[10], while quantitative protocols for saliency evaluation can be sensitive to implementation choices and exhibit instability[24]. Another line of work exploits Transformer structure, like select-ing several heads, to obtain more stable attention patterns[17]. But stability alone does not guarantee that a map faithfully reflects a specific token’s visual evidence-especially under autoregressive generation[6]. 
+
+2.3 Priors, Hallucination, and Noisy Supervision in VLMs 
+
+In generative VLMs, the output follows an autoregressive mechanism. Each newly generated token is influenced not only by the image but also by semantic 4 Chen. et al. 
+
+priors and accumulated contextual states. Prior studies in VQA suggest that the model may be biased towards utilizing language information rather than fully leveraging multimodal information. As a result, it can still deliver high-confidence supervised task results even with insufficient visual information, while unsupervised generative tasks such as image captioning often exhibit hallucina-tion, generating entities that do not exist in the image[12,2,27]. During model training and prediction, the language-visual mapping built based on generated labels may be amplified due to the dominance of language priors or distorted due to supervision alignment bias[32,14]. The problems arising from prior knowl-edge, hallucination, and noise necessitate better evaluation criteria to assess true language-visual relationship. 
+
+## 3 Methods 
+
+3.1 Problem Formulation 
+
+We consider Transformer-based VLMs. Given an image I, a vision encoder pro-duces a sequence of visual tokens Tv = {tvi }Nv
+
+> i=1
+
+, tvi ∈ Rd. A text prompt P is tokenized and embedded into prompt tokens Tp = {tpj }Np
+
+> j=1
+
+. At decoding step k,the previously generated answer tokens are T <k a = {tam}k−1
+
+> m=1
+
+, and the full token sequence is T≤k = Tv ⊕ T p ⊕ T <k a . In layer l and head h, let Q(l,h ) = W (l,h ) 
+
+> Q
+
+T≤k
+
+and K(l,h ) = W (l,h ) 
+
+> K
+
+T≤k, where W (l,h ) 
+
+> Q
+
+, W (l,h ) 
+
+> K
+
+∈ Rdk ×d denote the query and key projection matrices that map the token sequence T≤k to the dk-dimensional latent space of the h-th attention head in the l-th layer. The causal self-attention weights are 
+
+A(l,h ) = Softmax Q(l,h )K(l,h )⊤
+
+√dk
+
++ M
+
+!
+
+∈ RN ×N , (1) where N = Nv + Np + k − 1 and M is the causal mask whose entries are 0 for valid positions and −∞ for masked future tokens[34]. For a text token t, we extract its attention toward visual tokens as a vector 
+
+a(l,h )(t) = 
+
+h
+
+A(l,h ) 
+
+> t,t v
+> 1
+
+, . . . , A (l,h )
+
+> t,t vNv
+
+i⊤
+
+∈ RNv . (2) Assuming the visual tokens form a flattened 2D grid ( Nv = H′W ′), we reshape the attention vector a(l,h )(t) ∈ RNv into a spatial attention map in RH′×W ′
+
+. The map is then bilinearly upsampled to the original image resolution to produce a dense token-to-visual activation map. 
+
+3.2 Explain Inconsistency through Prior Context Interference 
+
+For decoding step j, an autoregressive VLM predicts a next-token distribution 
+
+pθ (tj | I , T<j ), (3) Listening makes Vision Clear for VLMs 5
+
+where T<j = Tv ⊕ T p ⊕ T <j a is the full prefix context. To localize tj , we extract a token-to-vision activation map Aj, · ∈ RNv (definition and aggregation are given in section 3.1). Ideally, the spatial evidence supporting token tj should reflect the image I and the semantics of tj , and thus be (approximately) invariant to irrelevant variations in the prefix context. Concretely, we desire 
+
+Aj, · ≈ gθ (I, t j ), (4) while in practice, because the model is causal and autoregressive, 
+
+Aj, · = gθ (I, T≤j ), T≤j = Tv ⊕ T p ⊕ T <j a ⊕ tj , (5) so Aj, · is generally prefix-conditioned .We empirically attribute the mismatch between eq. (4) and eq. (5) to three confounding pathways: (i) prompt-induced priors from Tp, (ii) generated-answer priors from T <j a through residual accumulation, and (iii) language-model priors dominating when visual evidence is ambiguous. Therefore, the next-token distribution eq. (3) becomes less sensitive to I and more driven by textual context. 
+
+Proposition 1 (Autoregressive Context Contamination). Consider a causal self-attention Transformer in which, for at least one head used by the attribution extractor, the attention from position j to some previous position 
+
+j′ < j can be non-zero. Then the representation at step j and any activation map derived from it depend on the previous context. Let eT<j denote an alterna-tive prefix context obtained by changing at least one token in T<j while keeping the image I fixed, where eAj, · is the activation map produced under eT<j . In par-ticular, there exist prefixes T<j and eT<j such that 
+
+(I, t j ) fixed , T<j ̸ = eT<j ⇒ Aj, ·̸ = eAj, ·. (6) Note: Full proof is provided in the supplementary material (Sec. A.1). 
+
+Remark 1 (When can contamination disappear?). Equality in eq. (6) would re-quire that the attribution-relevant representation at position j is effectively in-sensitive to all earlier tokens, which is a highly restrictive condition and does not hold in standard autoregressive Transformers. 
+
+Remark 2 (Connection to PV-TAM). Proposition 1 motivates extracting attri-bution using prompt-side query tokens. Specifically, PV-TAM places target con-cepts as fixed prompt tokens and computes their token-to-vision activation maps from representations that do not depend on the variable generated prefix T <j a .This avoids the autoregressive contamination in eq. (6) and yields more stable token–region alignment. 6 Chen. et al. Input Modalities 
+
+> Input Prompt
+
+Vision Language Backbone   
+
+> Mirror
+> Car
+> Tokenizer
+> <im_end>
+> <vision_end>
+> ...
+> Mean Pooling
+> Car Side
+> Mirror Side
+> Patch Embedding
+> Image
+> Position
+> &Positional
+> Embedding
+> Layer 1 Layer L
+> Decoder -Only
+> Architecture
+
+... 
+
+> L-number of
+> layers
+> Decoder Block
+> 28 Heads
+> . . .
+> 28 Heads
+> LayerNorm
+> Feed -Forward
+> Neural Network
+> LayerNorm
+> Masked
+> Self -Attention
+
++
+
++
+
+> Features
+> Decoder: Last Layer
+
+Output & Evaluation 
+
+> Generative Output
+> Perfect Result
+> Metrics
+> Raw Activation Maps
+
+Prompt -Vision Token Activation Map  Module     
+
+> Prompt Token Guided Alignment
+> Attention
+> side
+> Denoising Filter
+> Text
+> . . .
+> Query
+> Image Tokens
+> Key Value
+> Input Raw Map
+> Structural Token Maps
+> elimination
+> De noised Map Left
+> Delimiter
+> Right
+> Delimiter
+> Bias Estimation
+> ReLU Truncation
+> Head -wise mean pooling in layer l
+> Mean Pooling over Heads
+> . . .
+> Token 1
+> Token 2
+> Token 3
+> <im_end>
+> mirror
+> <vision_end>
+
+Fig. 2. PV-TAM framework. It builds on a decoder-only backbone to perform align-ment. The raw attention map is taken from the last-layer attention weights. We apply three components in refining attention map:(i) prompt-token guided alignment, us-ing the prompt token as the query to attend to vision tokens and reduce semantic interference;(ii) a denoising filter to remove systematic bias introduced by structural tokens;(iii) head-wise mean pooling to aggregate attention maps. 
+
+3.3 PV-TAM: Prompt-Vision Token Activation Map PV-TAM Extraction. To reduce inconsistency, we use prompt-side target tokens rather than answer-side tokens. As shown in Figure 2, given a set of target tokens Ttarget = {t1, . . . , t m}, we construct an augmented sequence 
+
+Taug = Tv ⊕ T target ∈ R(Nv +m)×d, (7) For each target token ti, we extract its prompt-to-vision attention vector 
+
+a(l,h )(ti) and aggregate across heads by mean pooling: 
+
+PV -TAM (l)(ti) = 1
+
+|H| 
+
+X
+
+h∈H 
+
+a(l,h )(ti) ∈ RNv . (8) In general, we use the attention from the last transformer layer. The resulting vector is reshaped to H′ × W ′ and upsampled to the image resolution. 
+
+Structural Bias Elimination. Prompt-side attention can still contain spa-tial bias introduced by special structure tokens, like modality delimiters(e.g., 
+
+<vision start> , <vision end> , <im start> , <im end> ). Let At denote the PV-TAM of a target token, then As
+
+1, As
+
+2 denote the PV-TAM maps of the two adja-cent special tokens. We estimate the structure bias by their mean and subtract Listening makes Vision Clear for VLMs 7
+
+it from the target response: 
+
+Dt = At − 12 (As 
+
+> 1
+
++ As
+
+> 2
+
+) , (9) followed by ReLU truncation to keep positive evidence: 
+
+Dt ← max( 0, Dt). (10) 
+
+Assumption 1 (Additive decomposition) For each visual position i ∈ [Nv ],the target token’s attention decomposes as 
+
+Ati = Asig  
+
+> i
+
++ Asp  
+
+> i
+
++ εti, (11) 
+
+where Asig ≥ 0 is the semantic information, Asp ≥ 0 is the structural bias shared with neighboring special tokens, and εt is residual noise with E[εti] = 0 .
+
+Assumption 2 (Weak semantic decomposition) Special tokens carry neg-ligible semantic information, so their attention maps satisfy 
+
+Ask 
+
+> i
+
+= Asp  
+
+> i
+
++ δ(k), k ∈ { 1, 2}, (12) 
+
+where δ(k) 
+
+> i
+
+is a position-dependent deviation. 
+
+Assumption 3 (Unbiased boundary deviations) We assume the deviations have zero mean under the randomness of previous contexts: 
+
+E
+
+h
+
+δ(k) 
+
+> i
+
+| I , Tv , Tp
+
+i
+
+= 0 , ∀ i ∈ [Nv ], k ∈ { 1, 2}. (13) 
+
+Proposition 2 (Structural Bias Elimination). Under Assumptions 1–3, the unbiased map satisfies 
+
+Dt := At − 12
+
+ As 
+
+> 1
+
++ As
+
+> 2
+
+ = Asig + εt, (14) 
+
+where Asig is the target’s semantic signal and εt is zero-mean residual noise. 
+
+Full proof is provided in the supplementary material (Sec. A.2). 
+
+Corollary 1 ( ℓ1 error bound after ReLU truncation). Let ˆDt = max( 0, Dt)
+
+denote the ReLU-truncated map ( eq. (10) ). Then 
+
+ˆDt − Asig  
+
+> 1
+
+≤ ∥ εt∥1, (15) 
+
+with equality if εt = 0.Proof. Since Asig ≥ 0 and ReLU is 1-Lipschitz, 
+
+ˆDt − Asig  
+
+> 1
+
+= max( 0, Asig + εt) − Asig  
+
+> 1
+
+≤ ∥ εt∥1.⊓⊔ (16) Therefore, using only one flanking special token introduces a systematic error of δ(k) 
+
+> i
+
+per position, while bilateral mean cancels this error. 8 Chen. et al. 
+
+Foreground-Guided Refinement. Even after denoising, salient but irrele-vant background regions may dominate the response. We optionally apply a foreground probability mask F ∈ [0 , 1] H×W obtained from an off-the-shelf back-ground removal model (rembg) and refine the activation by 
+
+Arefined  
+
+> t
+
+= Dt ⊙ F , (17) where ⊙ is the element-wise product. We report results both with and without this refinement to separate the core attribution signal from external mask priors. 
+
+3.4 Evaluation for Prompt-Token Alignment 
+
+To quantitatively assess the alignment between an activation map and the target semantic part, we introduce three complementary metrics to capture the relia-bility of token-to-region alignment: (i) the fraction of attention weights concen-trated inside the target region, (ii) whether the dominant attention corresponds to the target region, and (iii) the geometric distance between salient peaks and the target center. In contrast to IoU-style metrics that depend solely on overlap between binarized masks, our metrics directly measure the attention distribution 
+
+and salient responses relative to the target, making them more sensitive to fail-ure modes such as attention drift, background-induced saliency, and multi-peak activations. Let A ∈ RH×W denote the PV-TAM of target token, and Ωt ⊆ { 1, . . . , H } × {1, . . . , W } denote ground-truth mask. For PartImageNet [13], we obtain the binary activation mask Ωd of the foreground object using rembg [11], a well-maintained background removal tool based on U 2-Net [26]. We discard samples where rembg fails to cover the ground-truth mask, ensuring Ωd ∩ Ωt = Ωt. Since RefCOCO[37] requires global information for semantic understanding, we do not apply foreground-guided refinement in section 3.3. 
+
+Target–Global Ratio (TGR) TGR measures the proportion of total activa-tion energy that falls inside the target-part region. A higher TGR indicates that the explanation is globally concentrated on the intended target. 
+
+TGR = 
+
+P 
+
+> (x,y )∈Ωt
+
+A(x, y )
+
+P 
+
+> (x,y )
+
+A(x, y ) . (18) 
+
+Target–Dominant Ratio (TDR) Let Ωd denote the dominant region ex-tracted by rembg [11]. It is defined as: 
+
+TDR = 
+
+P 
+
+> (x,y )∈Ωt
+
+A(x, y )
+
+P 
+
+> (x,y )∈Ωd
+
+A(x, y ) . (19) By restricting the evaluation to the foreground mask, attention can more effec-tively concentrate on target-related regions within the object, free from interfer-ence by background noise. Listening makes Vision Clear for VLMs 9
+
+Min Distance (Min-Dist) We extract a set of candidate saliency peaks 
+
+{pk}Kk=1 from one PV-TAM. Let M denote the target mask representing the ground-truth part region. To eliminate resolution mismatch, we compute dis-tances in normalized coordinates [0 , 1] × [0 , 1]. The distance from peak pk to the mask M is defined as the minimum distance to all pixels in the mask: 
+
+dk = min 
+
+> m∈M
+
+r (pk[x] − m[x]) 2
+
+W 2 + (pk[y] − m[y]) 2
+
+H2 , (20) where W, H are the image width and height. For sample s, the minimum distance is obtained as:  ˆds = min  
+
+> k
+
+dk. (21) In our experiments, the maximum value of K is set to 5. Nevertheless, scenarios where K < 5 are encountered in practice. In the extreme case where K = 0 (i.e., no peaks detected), we assign ˆds = 1 as the worst-case value. The dataset-level MinDist is formulated as: 
+
+MinDist = 1
+
+N
+
+> N
+
+X
+
+> s=1
+
+ˆds. (22) Lower MinDist indicates better alignment between salient peak and the true center. 
+
+Obj-IoU and Mean-IoU. Following the format of Object-IoU in TAM[22], we compute the intersection-over-union (IoU) between the binary activation map and the ground truth object mask. Unlike the Otsu [23] thresholding method used in TAM, we apply spatial mean thresholding to each activation map and use the resulting IoU value as Mean-IoU .
+
+## 4 Experiments 
+
+4.1 Setup 
+
+We use multiple open-source VLMs, including Qwen2-VL[35], Qwen2.5-VL[4] and InternVL[9]. For answer-side baselines, we standardize the prompt as "Focus on the target in the image. Note that only the word ‘target’ can be returned." For baselines that require binarization, we follow the original im-plementation and apply Otsu[23] thresholding to obtain binary masks. 
+
+4.2 Datasets PartImageNet [13] is a part-segmentation benchmark for fine-grained region alignment and a referring-expression benchmark for language-conditioned local-ization. It provides pixel-level part annotations for object categories, enabling quantitative evaluation of whether a token-to-visual activation map aligns with 10 Chen. et al. 
+
+Table 1. Comparison of part-aware explanation quality on PartImageNet-OOD using Qwen2-VL-7B model[35]. ↑ indicates higher is better. # denotes results with emphasis on the target token. We use the attention from the last transformer layer, but for Attention Rollout[3], we use the last three layers.                                
+
+> Method TGR ↑(×10 2) TDR ↑(×10 2) Min Dist ↓(×10 −1)CAM [42] 7.03 5.25 0.77 CAM #[42] 8.47 6.2 0.72 CP-LRP [3] 4.12 6.02 0.71 CP-LRP #[3] 3.63 6.02 0.71 Attention Rollout [1] 2.46 3.09 1.62 TAM[22] 6.63 5.21 1.25 TAM #[22] 8.29 6.36 1.10 Ours(Prompt-side) 9.67 7.26 0.65
+
+Table 2. Cross-model generalization under Qwen and InternVL in PartImageNet-OOD.                                          
+
+> Backbone TGR ↑(×10 2)TDR ↑(×10 2)Min Dist ↓(×10 −1)Ours TAM #Ours TAM #Ours TAM #
+> Qwen2-VL-2B[35] 4.87 8.13 4.08 5.21 0.91 1.24 Qwen2-VL-7B[35] 9.67 8.29 7.26 6.36 0.65 1.10 Qwen2.5-VL-3B[4] 4.21 5.02 2.96 3.23 1.12 1.26 Qwen2.5-VL-7B[4] 7.60 5.34 6.08 5.26 0.92 1.04 InternVL3-1B[43] 3.42 2.36 5.70 3.34 0.81 1.47
+
+the target part region. RefCOCO [37] is a referring expression comprehension dataset where each sample consists of an image, a natural language referring expression, and a ground-truth bounding box for the referred object. We uti-lize RefCOCO to investigate whether object semantics incorporating adjectival modifiers can be aligned. 
+
+4.3 Quantitative analysis 
+
+We report a quantitative evaluation of prompt-to-region consistency across mul-tiple models and datasets. To encourage stronger consistency in answer-side at-tention, we compare our approach with state-of-the-art interpretability methods, including TAM[22], Grad-CAM[29], CP-LRP[3], and Attention Rollout[1]. Overall, Table 1 presents results under Qwen2.5-VL-7B[4]. Our method achieves the best TGR/TDR and the lowest MinDist, indicating that attention is both more concentrated on the target region and more accurately localized in terms of peak position. Table 2 reports the cross-model results covering both the Qwen se-ries and InternVL models. Our method achieves strong performance on medium-scale models such as Qwen2-VL-7B and Qwen2.5-VL-7B, with the best results obtained by Qwen2.5-VL-7B. Notably, the proposed method also demonstrates clear advantages on smaller models, outperforming baseline on InternVL3-1B. To provide a more fine-grained analysis across different semantic categories, Table 3 reports the Obj-IoU and win-rate comparisons. Overall, our method Listening makes Vision Clear for VLMs 11 
+
+achieves performance comparable to the SOTA answer-side interpretability ap-proach TAM[22] (Baseline). Specifically, on Qwen2-VL-7B[35], our method shows stronger attention to fine-grained semantic parts such as bicycle head, aeroplane head, aeroplane tail, and bottle mouth, indicating improved localization of se-mantically relevant regions under distribution shift. 
+
+Table 3. Class-level comparison on PartImageNet-OOD. We report the mean Object-level IoU (Obj-IoU) used in TAM[22]. Win rate is percentage of samples where our method outperforms baseline.                                                                          
+
+> Class Qwen2-VL-7B[35] Qwen2.5-VL-7B[4] Baseline Ours Win-rate ↑Baseline Ours Win-rate ↑
+> Car side mirror 2.02 1.99 57.62 1.98 5.05 68.04
+> Bicycle head 2.14 3.11 81.58 3.59 1.13 51.79
+> Bicycle seat 5.58 4.99 58.08 6.40 1.42 27.94 Boat sail 25.37 17.72 34.19 24.86 14.01 23.22 Aeroplane head 18.97 26.56 68.66 19.00 13.46 41.26 Aeroplane engine 12.88 11.50 44.20 11.47 5.93 26.15 Aeroplane wing 10.36 9.00 44.92 9.51 8.14 50.87
+> Aeroplane tail 14.81 20.35 64.00 8.00 13.79 71.64
+> Bottle mouth 4.01 15.55 87.72 13.39 10.55 48.28 Bottle body 18.37 25.32 61.90 26.15 22.58 41.18 Total 10.13 10.26 57.20 10.53 7.86 46.81
+
+For the prompt-side approach proposed in this paper, we systematically com-pared prompt-side and answer-side methods in Table 4 and Table 5. Experimen-tal results demonstrate that on the Qwen-VL-7B[35], the prompt-side method exhibits significant advantages, with overall performance superior to various answer-side methods. On the PartImageNet[13] and RefCOCO[37] datasets, this method achieves optimal results on both attention intensity metrics and IoU-style metrics, indicating that the method not only accurately focuses on target semantic regions but also exhibits higher attention. These results further vali-date that autoregressive answer tokens are prone to contextual drift, whereas prompt-side strategies provide more stable visual-language alignment. In the ablation study (Table 6), we analyze the contribution of each module. The results show that both the prompt-side semantic module and the denoising module are indispensable for achieving attention-aligned PVTAM and obtaining strong performance. 
+
+4.4 Qualitative analysis 
+
+To provide a more intuitive analysis of PV-TAM’s attention behavior, Figure 3 presents visualization results from PartImageNet[13] and RefCOCO[37]. The first row of examples, sourced from PartImageNet[13], analyzes the model’s abil-ity to focus on detailed regions of objects. Comparing against the ground-truth mask reveals that PV-TAM achieves higher localization accuracy in detail re-gions, capturing object structural boundaries more precisely. 12 Chen. et al. 
+
+Table 4. Controlled study on token sources. Most baselines define token-to-visual maps on answer-side tokens, thus prompt-side maps are not applicable. Our method supports both prompt-side PV-TAM and answer-side extraction under identical evalu-ation on datasets PartImageNet . Prompt-side results are not applicable for baselines due to definition mismatch. †TGR, TDR are reported in units of 10 2, and MinDist in 10 −1.# represents last token.                                                                                                                                                                          
+
+> Backbone Method Source TGR ↑TDR ↑Obj-IOU ↑MeanIOU ↑MinDist ↓
+> Qwen2-VL-2B[35]
+> Ours prompt 4.87 4.08 8.23 8.48 0.91
+> Ours answer 4.19 4.76 5.46 7.97 1.42 TAM[22] answer 5.50 3.54 7.50 8.18 1.63 TAM[22] answer #8.13 5.21 10.11 9.29 1.24 CAM[15] answer 4.28 3.47 7.37 8.05 0.98 CAM[15] answer #5.44 4.00 7.77 8.15 0.95 Attention Rollout[1] answer 1.46 2.47 6.08 7.79 1.02 CP-LRP[3] answer 1.50 3.16 4.08 7.26 1.20 CP-LRP[3] answer #1.61 3.19 3.56 6.77 1.14 Qwen2-VL-7B[35]
+> Ours prompt 9.67 7.26 10.26 9.82 0.65
+> Ours answer 4.96 4.77 7.41 8.56 0.97 TAM[22] answer 6.63 5.21 7.11 7.25 1.25 TAM[22] answer #8.29 6.36 10.13 8.95 1.10 CAM[15] answer 7.03 5.25 7.80 8.12 0.77 CAM[15] answer #8.47 6.20 8.61 8.38 0.72 Attention Rollout[1] answer 2.46 3.09 8.02 8.52 1.62 CP-LRP[3] answer 4.12 4.61 6.60 8.16 0.71 CP-LRP[3] answer #3.63 4.39 6.49 8.14 0.71 Qwen2.5-VL-7B[4]
+> Ours prompt 7.60 6.08 7.86 8.36 0.92 Ours answer 8.42 5.71 5.23 6.97 1.18 TAM[22] answer 5.78 4.06 7.49 7.71 1.22 TAM[22] answer #5.34 5.26 10.51 9.17 1.04 CAM[15] answer 3.97 5.06 8.17 8.17 1.10 CAM[15] answer #4.67 4.35 8.84 8.33 0.89 Attention Rollout[1] answer 2.80 3.03 8.11 8.26 1.61 CP-LRP[3] answer 5.11 4.42 6.55 7.69 0.87 CP-LRP[3] answer #5.81 4.51 6.50 7.72 0.81
+
+The subsequent three examples are from the RefCOCO[37]. In complex scenes containing multiple objects, PV-TAM accurately localizes the target subject, whereas TAM exhibits noticeable attention diffusion. While TAM partially fo-cuses on the target entity, inaccuracies persist in boundary regions. In contrast, CAM’s attention distribution is relatively dispersed, and other methods largely fail to effectively focus on the target area. The final two Dish examples demonstrate attention performance in the pres-ence of similar distracting objects. Results indicate that TAM[22] struggles to distinguish similar targets based on attributive information, whereas PV-TAM accurately identifies the target object and maintains clear boundary localization. 
+
+## 5 Discussion 
+
+It is noteworthy that the technical reports for Qwen2.5-VL[4] and InternVL[9] did not explicitly treat token-level alignment as a training objective. However, the results in Table 5 indicate that prompt-side token extraction consistently Listening makes Vision Clear for VLMs 13 
+
+Table 5. Controlled study on token sources. Most baselines define token-to-visual maps on answer-side tokens, thus prompt-side maps are not applicable. Our method supports both prompt-side PV-TAM and answer-side extraction under identical eval-uation on datasets RefCOCO . †TGR and MinDist are reported in units of 10 2 and 10 −1, respectively.                                                                             
+
+> Backbone Method Source TGR ↑Obj-IOU ↑Mean-IOU ↑MinDist ↓
+> Qwen2-7B
+> Ours prompt 15.77 14.27 22.42 0.23
+> Ours answer 4.39 2.92 10.51 1.97 CAM[15] answer 4.64 9.05 10.85 0.56 CAM[15] answer #5.23 11.58 12.58 0.55 Attention Rollout[1] answer 5.96 5.54 13.42 0.77 CP-LRP[3] answer 5.22 6.57 11.57 0.64 CP-LRP[3] answer #6.07 8.43 12.39 0.41 Qwen2.5-7B
+> Ours prompt 8.98 9.47 16.78 0.46
+> Ours answer 5.84 4.41 9.06 1.09 CAM[15] answer 3.10 8.88 9.28 1.10 CAM[15] answer #3.48 10.20 10.45 0.93 Attention Rollout[1] answer 6.15 7.43 12.70 0.53 CP-LRP[3] answer 4.62 5.49 10.67 0.82 CP-LRP[3] answer #4.91 6.38 11.22 0.70
+
+Table 6. Ablation study on PartImageNet-OOD and RefCOCO using Qwen-2.5-VL-7B. We isolate each component’s contribution by removing or replacing one factor at a time. w/o Filter denotes removing the denoising module. w/o Prompt-side denotes using the generated answer-side as text input.                             
+
+> PartImageNet[13] RefCOCO[37] TGR ↑TDR ↑MinDist ↓TGR ↑Obj-IOU ↑Mean-IOU ↑MinDist ↓
+> All Modules 7.60 6.08 0.92 8.98 9.47 16.78 0.46
+> w/o Filter 4.27 2.58 1.18 3.30 1.42 10.57 1.85 w/o Prompt-side 8.42 5.71 1.18 5.84 4.41 9.06 1.09
+
+generates stronger local attention compared to answer-side . This phenomenon suggests that fine-grained word-region alignment may naturally emerge as a byproduct during the training of VLMs. We hypothesize that this arises from the functional constraints imposed by the prompt-following generation process: to produce correct, visually grounded outputs, the model must associate component-relevant semantic units in the prompt with local visual information. This establishes stable attention patterns even without token-level alignment losses during training. 
+
+Implications for Knowledge Distillation, Training. Prompt-side expla-nations can serve as lightweight grounding signals for knowledge distillation: ac-tivation maps function as soft pseudo-masks, providing component labels and vi-sual region alignment supervision for smaller models. Additionally, the proposed metrics can be leveraged to introduce alignment-aware regularization constraints during training, further enhancing visual-language alignment capabilities. 
+
+Limitations. Attention alignment does not necessarily imply causal expla-nation, and the gains are category-dependent (Tables 3). Developing class-aware prompting and adaptive filtering to mitigate failure cases is an important direc-14 Chen. et al. CAM          
+
+> Aeroplane Head
+> CR -LRP PV -TAM Attention Rollout TAM PV -TAM (answer)
+> Dish in top right
+> corner
+> Girl in pink shirt
+> Dish with carrots
+> in it
+> Ground -Truth
+
+Fig. 3. Visual comparison between PV-TAM and baselines. The red highlights the target token. The expected high level of attention indicated by these red areas should reside in the semantic region corresponding to that token; the more precise the better. 
+
+tion. 
+
+## 6 Conclusion 
+
+This work revisits language-vision alignment in VLMs from prompt-side seman-tics. We identify that existing methods for extracting activation maps can suffer from decoding drift, undermining alignment when relying on generated answer tokens. To address this drift and improve alignment, we propose PV-TAM to lever-age prompt tokens as language inputs. We further introduce structural denois-ing filter for subtracting spatial bias. Ultimately, special metrics (TGR, TDR, MinDist) are designed to precisely quantify attention alignment. Experiments on PartImageNet and RefCOCO demonstrate that PV-TAM significantly outperforms existing baselines in part-level attention, with consis-tent gains across diverse models (Qwen2-VL, Qwen2.5-VL, InternVL). Notably, prompt-side results always surpass answer-side under Qwen2-VL-7B [35], sug-gesting that alignment-relevant attention patterns emerge during prompt encod-ing rather than answer generation. We hope this work motivates future research into prompt-centric explana-tion mechanisms and their applications in model debugging, distillation, and trustworthy multimodal systems. Listening makes Vision Clear for VLMs 15 
+
+## Acknowledgements 
+
+Please insert your acknowledgments here. 
+
+## References 
+
+1. Abnar, S., Zuidema, W.: Quantifying attention flow in transformers. In: Juraf-sky, D., Chai, J., Schluter, N., Tetreault, J. (eds.) Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics. pp. 4190–4197. Asso-ciation for Computational Linguistics, Online (Jul 2020). https://doi.org/10. 18653/v1/2020.acl-main.385 
+
+2. Agrawal, A., Batra, D., Parikh, D., Kembhavi, A.: Don’t just assume; look and answer: Overcoming priors for visual question answering. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 4971–4980 (2018) 3. Ali, A., Schnake, T., Eberle, O., Montavon, G., M¨ uller, K.R., Wolf, L.: Xai for transformers: Better explanations through conservative propagation. In: Interna-tional conference on machine learning. pp. 435–451. PMLR (2022) 4. Bai, S., Chen, K., Liu, X., Wang, J., Ge, W., Song, S., Dang, K., Wang, P., Wang, S., Tang, J., et al.: Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923 (2025) 5. Bengio, S., Vinyals, O., Jaitly, N., Shazeer, N.: Scheduled sampling for sequence prediction with recurrent neural networks. Advances in neural information pro-cessing systems 28 (2015) 6. Chefer, H., Gur, S., Wolf, L.: Transformer interpretability beyond attention visu-alization. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 782–791 (June 2021) 7. Chen, J., Wei, F., Zhao, J., Song, S., Wu, B., Peng, Z., Chan, S.H.G., Zhang, H.: Revisiting referring expression comprehension evaluation in the era of large multimodal models. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 513–524 (2025) 8. Chen, Y.C., Li, L., Yu, L., El Kholy, A., Ahmed, F., Gan, Z., Cheng, Y., Liu, J.: Uniter: Universal image-text representation learning. In: Computer Vision – ECCV 2020: 16th European Conference, Glasgow, UK, August 23–28, 2020, Proceedings, Part XXX. p. 104–120. Springer-Verlag, Berlin, Heidelberg (2020). https://doi. org/10.1007/978-3-030-58577-8_7 
+
+9. Chen, Z., Wu, J., Wang, W., Su, W., Chen, G., Xing, S., Zhong, M., Zhang, Q., Zhu, X., Lu, L., et al.: Internvl: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 24185–24198 (2024) 10. Fong, R., Patrick, M., Vedaldi, A.: Understanding deep networks via extremal perturbations and smooth masks. In: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) (October 2019) 11. Gatis, D.: rembg: Remove image backgrounds. https://github.com/ danielgatis/rembg (2022) 12. Goyal, Y., Khot, T., Summers-Stay, D., Batra, D., Parikh, D.: Making the v in vqa matter: Elevating the role of image understanding in visual question answering. In: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) (July 2017) 16 Chen. et al. 13. He, J., Yang, S., Yang, S., Kortylewski, A., Yuan, X., Chen, J.N., Liu, S., Yang, C., Yu, Q., Yuille, A.: Partimagenet: A large, high-quality dataset of parts. In: European Conference on Computer Vision. pp. 128–145. Springer (2022) 14. Jia, C., Yang, Y., Xia, Y., Chen, Y.T., Parekh, Z., Pham, H., Le, Q., Sung, Y.H., Li, Z., Duerig, T.: Scaling up visual and vision-language representation learning with noisy text supervision. In: International conference on machine learning. pp. 4904–4916. PMLR (2021) 15. Jiang, P.T., Zhang, C.B., Hou, Q., Cheng, M.M., Wei, Y.: Layercam: Exploring hierarchical class activation maps for localization. IEEE Transactions on Image Processing (2021) 16. Kamath, A., Singh, M., LeCun, Y., Synnaeve, G., Misra, I., Carion, N.: Mdetr -modulated detection for end-to-end multi-modal understanding. In: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV). pp. 1780– 1790 (October 2021) 17. Kang, S., Kim, J., Kim, J., Hwang, S.J.: Your large vision-language model only needs a few attention heads for visual grounding. In: Proceedings of the Computer Vision and Pattern Recognition Conference. pp. 9339–9350 (2025) 18. Kazemzadeh, S., Ordonez, V., Matten, M., Berg, T.: Referitgame: Referring to objects in photographs of natural scenes. In: Proceedings of the 2014 conference on empirical methods in natural language processing (EMNLP). pp. 787–798 (2014) 19. Li, C., Liu, H., Li, L., Zhang, P., Aneja, J., Yang, J., Jin, P., Hu, H., Liu, Z., Lee, Y.J., et al.: Elevater: A benchmark and toolkit for evaluating language-augmented visual models. Advances in Neural Information Processing Systems 35 , 9287–9301 (2022) 20. Li, L.H., Zhang, P., Zhang, H., Yang, J., Li, C., Zhong, Y., Wang, L., Yuan, L., Zhang, L., Hwang, J.N., Chang, K.W., Gao, J.: Grounded language-image pre-training. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 10965–10975 (June 2022) 21. Li, X., Yin, X., Li, C., Zhang, P., Hu, X., Zhang, L., Wang, L., Hu, H., Dong, L., Wei, F., Choi, Y., Gao, J.: Oscar: Object-semantics aligned pre-training for vision-language tasks. In: Computer Vision – ECCV 2020. p. 121–137. Springer International Publishing, Berlin, Heidelberg (2020). https://doi.org/10.1007/ 978-3-030-58577-8_8 
+
+22. Li, Y., Wang, H., Ding, X., Wang, H., Li, X.: Token activation map to visually ex-plain multimodal llms. In: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV). pp. 48–58 (October 2025) 23. Otsu, N.: A threshold selection method from gray-level histograms. Automatica 
+
+11 , 285–296 (1975) 24. Petsiuk, V., Jain, R., Manjunatha, V., Morariu, V.I., Mehra, A., Ordonez, V., Saenko, K.: Black-box explanation of object detectors via saliency maps. In: Pro-ceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 11443–11452 (2021) 25. Plummer, B.A., Wang, L., Cervantes, C.M., Caicedo, J.C., Hockenmaier, J., Lazeb-nik, S.: Flickr30k entities: Collecting region-to-phrase correspondences for richer image-to-sentence models. In: Proceedings of the IEEE International Conference on Computer Vision (ICCV) (December 2015) 26. Qin, X., Zhang, Z., Huang, C., Dehghan, M., Zaiane, O.R., Jagersand, M.: U 2-net: Going deeper with nested u-structure for salient object detection. Pattern Recognition 106 , 107404 (2020) Listening makes Vision Clear for VLMs 17 27. Rohrbach, A., Hendricks, L.A., Burns, K., Darrell, T., Saenko, K.: Object hallu-cination in image captioning. In: Riloff, E., Chiang, D., Hockenmaier, J., Tsujii, J. (eds.) Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing. pp. 4035–4045. Association for Computational Linguistics, Brussels, Belgium (Oct-Nov 2018). https://doi.org/10.18653/v1/D18-1437 
+
+28. Schmidt, F.: Generalization in generation: A closer look at exposure bias. In: Pro-ceedings of the 3rd Workshop on Neural Generation and Translation. pp. 157–167 (2019) 29. Selvaraju, R.R., Cogswell, M., Das, A., Vedantam, R., Parikh, D., Batra, D.: Grad-cam: Visual explanations from deep networks via gradient-based localization. In: Proceedings of the IEEE international conference on computer vision. pp. 618–626 (2017) 30. Selvaraju, R.R., Lee, S., Shen, Y., Jin, H., Ghosh, S., Heck, L., Batra, D., Parikh, D.: Taking a hint: Leveraging explanations to make vision and language models more grounded. In: Proceedings of the IEEE/CVF international conference on computer vision. pp. 2591–2600 (2019) 31. Serrano, S., Smith, N.A.: Is attention interpretable? In: Proceedings of the 57th annual meeting of the association for computational linguistics. pp. 2931–2951 (2019) 32. Sharma, P., Ding, N., Goodman, S., Soricut, R.: Conceptual captions: A cleaned, hypernymed, image alt-text dataset for automatic image captioning. In: Gurevych, I., Miyao, Y. (eds.) Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers). pp. 2556–2565. Association for Computational Linguistics, Melbourne, Australia (Jul 2018). https://doi. org/10.18653/v1/P18-1238 
+
+33. Smilkov, D., Thorat, N., Kim, B., Vi´ egas, F., Wattenberg, M.: Smoothgrad: re-moving noise by adding noise. arXiv preprint arXiv:1706.03825 (2017) 34. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, L., Polosukhin, I.: Attention is all you need. Advances in neural information pro-cessing systems 30 (2017) 35. Wang, P., Bai, S., Tan, S., Wang, S., Fan, Z., Bai, J., Chen, K., Liu, X., Wang, J., Ge, W., et al.: Qwen2-vl: Enhancing vision-language model’s perception of the world at any resolution. arXiv preprint arXiv:2409.12191 (2024) 36. Wiegreffe, S., Pinter, Y.: Attention is not not explanation. In: Inui, K., Jiang, J., Ng, V., Wan, X. (eds.) Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Con-ference on Natural Language Processing (EMNLP-IJCNLP). pp. 11–20. Asso-ciation for Computational Linguistics, Hong Kong, China (Nov 2019). https: //doi.org/10.18653/v1/D19-1002 
+
+37. Yu, L., Poirson, P., Yang, S., Berg, A.C., Berg, T.L.: Modeling context in referring expressions. In: Leibe, B., Matas, J., Sebe, N., Welling, M. (eds.) Computer Vision – ECCV 2016. pp. 69–85. Springer International Publishing, Cham (2016) 38. Zhang, H., Zhang, P., Hu, X., Chen, Y.C., Li, L., Dai, X., Wang, L., Yuan, L., Hwang, J.N., Gao, J.: Glipv2: Unifying localization and vision-language under-standing. Advances in Neural Information Processing Systems 35 , 36067–36080 (2022) 39. Zhang, J., Liu, F., Du, C., Pang, T.: Adavboost: Mitigating hallucinations in lvlms via token-level adaptive visual attention boosting. arXiv preprint arXiv:2602.13600 (2026) 18 Chen. et al. 40. Zhang, P., Li, X., Hu, X., Yang, J., Zhang, L., Wang, L., Choi, Y., Gao, J.: Vinvl: Revisiting visual representations in vision-language models. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 5579–5588 (June 2021) 41. Zhong, Y., Yang, J., Zhang, P., Li, C., Codella, N., Li, L.H., Zhou, L., Dai, X., Yuan, L., Li, Y., Gao, J.: Regionclip: Region-based language-image pretraining. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 16793–16803 (June 2022) 42. Zhou, B., Khosla, A., Lapedriza, A., Oliva, A., Torralba, A.: Learning deep fea-tures for discriminative localization. In: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR). pp. 2921–2929 (2016) 43. Zhu, J., Wang, W., Chen, Z., Liu, Z., Ye, S., Gu, L., Tian, H., Duan, Y., Su, W., Shao, J., Gao, Z., Cui, E., Wang, X., Cao, Y., Liu, Y., Wei, X., Zhang, H., Wang, H., Xu, W., Li, H., Wang, J., Deng, N., Li, S., He, Y., Jiang, T., Luo, J., Wang, Y., He, C., Shi, B., Zhang, X., Shao, W., He, J., Xiong, Y., Qu, W., Sun, P., Jiao, P., Lv, H., Wu, L., Zhang, K., Deng, H., Ge, J., Chen, K., Wang, L., Dou, M., Lu, L., Zhu, X., Lu, T., Lin, D., Qiao, Y., Dai, J., Wang, W.: Internvl3: Exploring advanced training and test-time recipes for open-source multimodal models (2025), 
+
+https://arxiv.org/abs/2504.10479

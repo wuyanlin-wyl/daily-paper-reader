@@ -1,0 +1,757 @@
+Title: Steering Vision-Language Models with Joint Sparse Autoencoders
+
+URL Source: https://arxiv.org/pdf/2606.25657v1
+
+Published Time: Thu, 25 Jun 2026 00:55:46 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Steering Vision-Language Models with Joint Sparse Autoencoders 
+
+Huizhen Shu 1, Xuying Li 2, Hongxu Lin 3, Wenjie Sun 4, and Hui Li 11yunshanai, {shuhuizhen, lihui}@yunshanai.org.cn 
+
+> 2
+
+HKUST(Guangzhou), xli118@connect.hkust-gz.edu.cn 
+
+> 3
+
+Zidongtaichu, linhongxu@taichu.ai 
+
+> 4
+
+University of British Columbia, wenjie1835@gmail.com 
+
+Abstract 
+
+Sparse Autoencoders (SAEs) have shown promise for analyzing language models, but ap-plying them to vision-language models (VLMs) often yields representations that are difficult to use as controllable cross-modal steering direc-tions. We introduce the Joint Sparse Autoen-coder ( JSAE ), which uses an explicit align-ment constraint to jointly factorize sequence-pooled vision and language activations into shared, interpretable image/caption-level fea-tures. Applied to LLaVA, JSAE recovers cross-modal features for recognizable concepts (e.g., food , animals ). Through bidirectional interventions (additive steering and suppres-sion), we observe a layer-dependent asym-metry under our protocol: additive steering peaks at mid-to-late (pre-output) layers and weakens at both ends, whereas suppression scores remain within a comparable range across all probed layers (within statistical noise). Experiments on three VLMs—LLaVA-v1.6-Mistral-7B, Llama3-LLaVA-8B, and the MoE-based Qwen3-VL-30B—show related layer-localized effects across architectures. Together, these results suggest that explicitly aligned sparse representations support more control-lable intervention-based analysis of multimodal features, within an identifiable layer range, than the unconstrained alternatives tested here. 
+
+1 Introduction 
+
+Vision-Language Models (VLMs) have become an important class of modern multimodal systems, supporting image captioning, visual reasoning, and embodied decision-making by aligning visual in-puts with linguistic concepts (Li et al., 2023; Driess et al., 2023a). A key ingredient behind these ca-pabilities is multimodal alignment : the ability to associate visual patterns with semantic abstractions expressed in language. Despite its importance, the internal mechanisms by which VLMs support this alignment remain incompletely understood. In particular, it is unclear where in the network this alignment emerges, how vision and language rep-resentations are coordinated at the feature level, and whether these learned representations have an intervention-relevant role in text generation rather than merely reflecting statistical correlations. Sparse Autoencoders (SAEs) decompose polyse-mantic hidden states into interpretable latent direc-tions in large language models (Bricken et al.; Cun-ningham et al., 2023; Marks et al., 2025). Extend-ing them to VLMs is non-trivial: recent works such as VL-SAE (Shen et al., 2025) share a single dictio-nary across modalities or align sparse codes via co-activation statistics on the raw stream. Our setting instead requires paired-code directional alignment 
+
+between two modality-specific dictionaries that can serve as cross-modal steering directions—a prop-erty not directly provided by these formulations. In this work, we address these limitations by in-troducing a unified framework for discovering and examining multimodal alignment features. Our key insight is that effective interpretability in VLMs benefits from jointly trained sparse representa-tions with explicit constraints that encourage cross-modal coordination. To this end, we propose a pipeline that combines: (i) layer-wise localization to identify stages where alignment is most separa-ble; (ii) Joint Sparse Autoencoders (JSAE) that simultaneously factorize mean-pooled image- and caption-level activations into a shared latent space via a cosine-similarity penalty applied to paired sparse codes; (iii) directional clustering to group and select the most consistent semantic features; and (iv) bidirectional interventions (additive steer-ing and feature suppression) to probe the functional role of these features. We additionally provide a ge-ometric design rationale for why JSAE’s alignment loss is expected to induce modality-paired decoder columns, and why text-side directions are expected to be useful steering vectors at mid-to-late layers but to weaken near the output boundary; these ex-1
+
+> arXiv:2606.25657v1 [cs.CV] 24 Jun 2026
+
+pectations are then tested empirically (Section 5). Applying this pipeline to LLaVA-v1.6-Mistral-7B (Liu et al., 2024), we identify sparse features associated with semantic concepts such as food 
+
+and animals . Our intervention analyses suggest a layer-dependent asymmetry between the two inter-vention modes under our protocol: additive steer-ing peaks at mid-to-late (pre-output) layers and weakens at both ends of the depth range, whereas feature suppression remains within a comparable score range across all probed layers. We further test whether similar patterns appear in dense and MoE-based VLMs (Qwen3-VL-30B (Bai et al., 2025) and Llama3-LLaVA-8B (Li et al., 2024)). 
+
+2 Related Work 
+
+2.1 Multimodal Alignment 
+
+Multimodal alignment connects visual patterns with linguistic abstractions in a shared represen-tational space. Contrastive pretraining approaches like CLIP/ALIGN (Radford et al., 2021; Jia et al., 2021) learn transferable image-text representa-tions, while generative VLMs (Flamingo (Alayrac et al., 2022), BLIP-2 (Li et al., 2023), Instruct-BLIP (Dai et al., 2023), MiniGPT-4 (Zhu et al., 2024), LLaVA (Liu et al., 2024), Qwen-VL (Wang et al., 2024), PaLM-E (Driess et al., 2023b)) bridge vision encoders and language models via cross-attention, query transformers, or projection mod-ules. Their alignment is typically optimized at the input-output level rather than characterized at the feature level. Venhoff et al. (2025) examine how visual information enters the language fea-ture space and identify a layer-wise progression toward language-aligned features. We follow this mechanistic direction but learn sparse cross-modal features directly from VLM activations and use them for intervention-based control of generation. 
+
+2.2 Sparse Autoencoders for Interpretability 
+
+Sparse Autoencoders (SAEs) have become a promi-nent tool for decomposing dense neural activations into sparse and more interpretable latent features. Motivated by the superposition hypothesis and the problem of polysemanticity (Elhage et al., 2022), SAEs learn overcomplete dictionaries that recon-struct model activations while encouraging sparse feature usage. Prior work has shown that SAEs can recover interpretable and often more monose-mantic features in language models (Bricken et al.; Cunningham et al., 2023), scale to large models and large dictionaries (Templeton et al., 2024; Gao et al., 2025a), and serve as units for causal or circuit-level analysis (Marks et al., 2025). Recent architectural variants such as Gated SAE, TopK SAE, JumpReLU SAE, BatchTopK SAE and LocA-SAE further improve the reconstruction-sparsity trade-off or address limitations such as shrink-age and feature splitting (Gao et al., 2025b; Raja-manoharan et al., 2024b,a; Bussmann et al., 2024; Sun et al.). SAEs have also recently been extended to multi-modal settings. VL-SAE (Shen et al., 2025) uses a shared sparse code dictionary across modalities and aligns vision/text activations via co-activation statistics on the residual stream, while Group-Sparse Autoencoders (Kaushik et al., 2026) ad-dress modality-splitting by imposing structured sparsity across multimodal dictionaries. Our work is closest to these multimodal SAE approaches, but differs in two specific ways: (i) JSAE main-tains modality-specific encoder-decoder pairs with paired-code cosine alignment, so each modality keeps its own dictionary directions while being di-rectionally bound to its cross-modal counterpart; (ii) we evaluate whether the resulting text-side dic-tionary directions can be applied as causal steering vectors on the visual stream , which is a specific intervention regime not directly addressed by prior multimodal SAE formulations. 
+
+2.3 Controllable Generation via Activation Engineering 
+
+Controllable generation is commonly achieved through prompt engineering, fine-tuning, RLHF, or parameter-efficient adaptation (Liu et al., 2023; Gao et al., 2023), which control behavior externally rather than by identifying responsible internal rep-resentations. Activation-level methods instead ma-nipulate hidden states at inference time: Activation Addition builds steering vectors from contrastive activation differences (Turner et al., 2024), Rep-resentation Engineering manipulates population-level representations (Zou et al., 2022), and causal tracing or model editing localizes internal compu-tations (Meng et al., 2022; Geiger et al., 2023). Most prior steering work is unimodal; extending it to VLMs is nontrivial because vision/text acti-vations may occupy partially misaligned geome-tries and direct image-token interventions can drift off-distribution. JSAE addresses this by learning aligned sparse directions across modalities; addi-tive steering tests whether a feature direction can 2Figure 1: Overview of the JSAE Framework. Stage 1 (Training): Vision and text activations are factorized into a shared overcomplete latent space, with a cosine-similarity constraint ( lalign ) aligning their decoder directions. Stage 2 (Intervention): Aligned semantic directions are extracted from the Text Decoder and additively injected onto image-token positions (mask m) during the forward pass, steering visual processing and subsequent generation. 
+
+induce target-concept behavior, while suppression tests whether reducing it weakens the correspond-ing concept. 
+
+3 Method 
+
+3.1 Joint Sparse Autoencoder for Multimodal Alignment 
+
+To decompose multimodal representations into in-terpretable cross-modal features, we train a Joint Sparse Autoencoder (JSAE) that simultaneously factorizes vision and text activations into a shared latent space. Since a VLM processes a mixed se-quence of varying-length image patch tokens ( N
+
+tokens) and text tokens ( M tokens), we first decou-ple them using modality-specific binary masks. To stably capture cross-modal global semantics with-out being biased by sequence lengths, we apply mean-pooling over the sequence dimensions of the target layer’s hidden states to compute macroscopic representations: 
+
+Av = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+hv,i , At = 1
+
+M
+
+> M
+
+X
+
+> j=1
+
+ht,j (1) Given these modality-pooled activations Av, At ∈
+
+Rd, JSAE learns separate encoder-decoder pairs 
+
+(Ev, Dv) and (Et, Dt) that map to an overcom-plete sparse latent space Rk (k ≫ d). 1
+
+Architecture & Objective. Each modality is en-coded independently: zv = ReLU (Ev(Av)) and 
+
+zt = ReLU (Et(At)) , then reconstructed via their respective decoders: ˆAv = Dv(zv) and ˆAt =
+
+Dt(zt). The JSAE is optimized using a composite loss that balances reconstruction fidelity, sparsity, and explicit cross-modal alignment: 
+
+Ltotal = λrLrecon + λsLsparse + λaLalign (2) where: • Reconstruction: Lrecon = 12 (∥ ˆAv − Av∥2 +
+
+∥ ˆAt − At∥2) preserves the original activation information.   
+
+> 1Unlike token-level SAE work that decomposes individ-ual residual-stream states, JSAE here operates on sequence-pooled representations; its features are thus image/caption-level macro-concepts rather than token-level monosemantic units. We discuss this trade-off in “Limitations and Future Work”.
+
+3• Sparsity: Lsparse = 12 (∥zv∥1 + ∥zt∥1) drives activations toward zero (soft L1 sparsity). • Alignment: Lalign = 1
+
+> B
+
+PBb=1 (1 −
+
+cosine_sim (z(b) 
+
+> v
+
+, z(b) 
+
+> t
+
+)) encourages paired macro-level vision-text representations to align directionally. For sparse non-negative codes, this penalty biases the encoders toward selecting the same subset of latent dimensions across modalities. This training regime encourages overlapping active latent subsets for semantically related vision-text pairs, providing a practical basis for the interven-tion analyses below. 
+
+Design Rationale. The cosine-alignment term provides a geometric intuition for why JSAE’s text-decoder columns are expected to serve as cross-modal steering directions; we state it here infor-mally as a design rationale rather than a formal result, and all of its consequences are tested em-pirically in Section 5. Because zv, zt ∈ Rk 
+
+> ≥0
+
+after ReLU, 
+
+cos( zv, zt) = 
+
+P  
+
+> i∈Sv∩St
+
+zv,i zt,i 
+
+∥zv∥2 ∥zt∥2
+
+, (3) with Sm = {i : zm,i > 0} for m ∈ { v, t }. The numerator is positive only on indices active in both 
+
+modalities, so jointly maximizing the cosine and minimizing the L1 sparsity term biases each en-coder to select a small, overlapping active support 
+
+S := Sv ∩ St for paired inputs. Conditioned on this shared support, the reconstructions decompose as 
+
+ˆAv ≈ X
+
+> i∈S
+
+zv,i w(v) 
+
+> i
+
+, ˆAt ≈ X
+
+> i∈S
+
+zt,i w(t) 
+
+> i
+
+, (4) where w(m) 
+
+> i
+
+is the i-th column of Dm. The pair 
+
+(w(v) 
+
+> i
+
+, w(t) 
+
+> i
+
+) is intended to encode the same seman-tic factor i in two modality-specific subspaces, with 
+
+w(t) 
+
+> i
+
+acting as a text-side residual-stream direction associated with concept i.
+
+Expected operating regime. The LM head de-codes the layer-ℓ residual stream via a (nearly) linear unembedding WU , and w(t) 
+
+> i
+
+is learned by reconstruction against text-side hidden states, so it should lie approximately in a subspace the unembedding reads from. We therefore expect that injecting α w(t) 
+
+> i
+
+into image-token states Hvis 
+
+will bias the downstream generation toward con-cept i at depths where Hvis has been routed into the language-aligned subspace by cross-attention— consistent with the layer-wise probing pattern (Fig. 3) and with Venhoff et al. (2025). Conversely, very deep layers are expected to be less amenable to this kind of additive injection, since w(t) 
+
+> i
+
+was not learned against pre-logit states; we revisit this when interpreting the Layer 30 results (Section 5). 
+
+3.2 Direct Semantic Feature Discovery 
+
+Well-trained SAEs exhibit feature split-ting (Bricken et al.), decomposing broad categories (e.g., food ) into fine-grained atomic features (e.g., 
+
+vegetables , plates ). For macro-category steering, we re-aggregate atomic features into overarching concepts (Algorithm 1): we filter inactive neurons by a variance threshold, build an L2-normalized activation profile ai ∈ RN per neuron, and cluster these via K-Means. Clusters are ranked by mean Silhouette score; we then qualitatively inspect top-ranked clusters to discard polysemantic ones and keep the top-K as final alignment features 
+
+Faligned .
+
+3.3 Causal Intervention Analysis 
+
+We probe whether the discovered features influ-ence cross-modal generation via additive activation steering. Because JSAE’s alignment loss encour-ages directional agreement between zv and zt, the text-decoder columns W(t) 
+
+> dec
+
+serve as approximate steering directions for the visual stream. 
+
+Steering Procedure. As in Fig. 1 (Stage 2), to intervene on a category (e.g., food ), we retrieve its atomic features I and aggregate their normal-ized text-decoder directions into a macro-concept vector: 
+
+vsteer = X
+
+> i∈I
+
+w(t)
+
+> i
+
+∥w(t) 
+
+> i
+
+∥2 + ϵ , H′ = H+α·vsteer ⊙m
+
+(5) where m restricts the intervention to image-token positions, and α is calibrated via grid search to balance semantic impact and fluency. 
+
+Semantic Suppression (Inhibition). We apply the steering vector in the negative direction ( H′ =
+
+H − α · vsteer ⊙ m): if subtracting a direction causes a visually present concept to vanish from the caption, we treat it as evidence that the direction contributes to maintaining that grounded concept. 4Algorithm 1 Direct Semantic Feature Discovery via Activation Profiling 
+
+Input: Validation dataset of size N , paired latent activations Zv, Zt ∈ RN ×dlatent .
+
+Output: Sparse alignment features Faligned (Top-
+
+K semantic categories). 1. Active Neuron Filtering: Compute activa-tion variance σ2 
+
+> i
+
+= Var (z∗,i ). Retain candidate indices N = {i : σ2 
+
+> i
+
+> 10 −5}.2. Activation Profiling & Normalization: For each candidate i ∈ N , extract its activation profile ai ∈ RN . Apply L2-normalization: 
+
+˜ai = ai/∥ai∥2.3. Functional Clustering: Perform K-Means on the normalized profile vectors {˜ai}i∈N 
+
+to partition neurons into semantic clusters 
+
+{C1, . . . , C M }.4. Structural Evaluation: Calculate the mean Silhouette score sk for each cluster Ck to evalu-ate geometric compactness. 5. Semantic Validation & Selection: Rank clusters by sk. Inspect the top N -highest acti-vating samples for the top-ranked cluster cen-troids. Retain monosemantic clusters and se-lect the top-K as the final alignment features: 
+
+Faligned = {C(1) , . . . , C (K)}.
+
+4 Experiments 
+
+4.1 Experimental Setup Datasets. From MS-COCO (Chen et al., 2015) we build two non-overlapping splits. COCO-Probe 
+
+(25k image-caption pairs from 10k images, 2:2:1 ratio): 10k positive pairs, 10k hard negatives (most-similar caption from a different image via L2-normalized BERT (Devlin et al., 2019) [CLS] co-sine similarity), and 5k easy random mismatches. 
+
+JSAE Training (50k positive-only image-caption pairs from the COCO training split). Probe uses the COCO validation split to prevent contamination. 
+
+Models and Hardware. We use LLaVA-v1.6-Mistral-7B, Qwen3-VL-30B-Instruct (MoE), and Llama3-LLaVA-Next-8B, on NVIDIA A100 (80GB). 
+
+Layer Selection via Probing. Linear probes are trained per layer (mean-pooled d=4096 hidden states) for 10 epochs with cross-entropy and Adam (lr 10 −3) on an 80/20 split. 
+
+JSAE Training Protocol. JSAEs use d=4096 ,
+
+k=16384 (4× overcomplete), trained for 20 epochs with Adam (lr 10 −5). Loss coeffi-cients: λr=1 .0, λs=0 .03 , λa=1 .0 (validation-tuned). Convergence: MSE < 5×10 −4, L0 sparsity 
+
+≲ 4% (∼100–700 active features out of 16,384), alignment loss < 10 −4. Each SAE takes ∼6 A100-hours; the total budget across all SAE runs and interventions is ∼100 A100-hours. 
+
+Intervention Setup and Model Generalization. 
+
+Our primary layer-wise analysis on LLaVA-v1.6-Mistral-7B spans Layers 7, 13, 25, and 30 (early/mid/late/pre-output); architectural general-ization is tested on Qwen3-VL-30B-Instruct (MoE, Layer 33) and Llama3-LLaVA-Next-8B (Layer 15). Target categories are selected per layer based on observed semantic specialization, with concept-feature pairs and per-setting sample counts (28–40 held-out COCO images) listed in Table 2. 
+
+Baselines and Comparative Analysis. To eval-uate the intervention effects of our discovered fea-tures and the contribution of the joint alignment objective, we compare JSAE against four baselines and one ablation: • Prompt Steering: A behavioral baseline us-ing prepended textual instructions (e.g., “De-scribe the food”) to measure the model’s inher-ent compliance without internal intervention. • Random Noise: Injects Gaussian vectors with norms matched to our steering vectors. This verifies that the observed effects stem from specific semantic directions rather than general perturbation artifacts. • Activation Addition (ActAdd): An optimization-free method (Turner et al., 2024) that computes a steering vector via the algebraic mean difference between positive and negative example activations, serving as a heuristic baseline. • VL-SAE (Standard VLM SAE): A stan-dard SAE trained directly on the VLM’s residual stream (Shen et al., 2025). Unlike JSAE, it treats activations as a single distri-bution and lacks explicit cross-modal align-ment constraints. For a fair comparison, we train VL-SAE on the same Layer 13 activa-tions with matched hyperparameters (dictio-nary size k=16384 , λr=1 .0, λs=0 .03 , Adam, 5identical schedule); it converges to val re-construction MSE = 8 .0 × 10 −4 and L0 ≈
+
+1.56% (∼256/16384 active), comparable to JSAE’s reconstruction-sparsity regime, rul-ing out under-fitting as the cause of its zero-success steering. • JSAE w/o Alignment ( λa = 0 ): An ablation study where the alignment loss is removed. This tests whether the learned sparse features alone, without forced cross-modal binding, are sufficient for effective steering. 
+
+4.2 Evaluation Metrics and Protocol Evaluation Metrics. We use three complemen-tary metrics. Similarity Gain ( ∆sim ) is the cosine-similarity shift toward the target concept in SBERT (all-MiniLM-L6-v2 ) space: 
+
+∆sim = cos( esteer , etarget ) − cos( ebase , etarget ) (6) with etarget encoding a target description (e.g., “ Aphoto of a variety of food ”). Accuracy (target-concept presence) and Coherence (logical consis-tency, freedom from hallucination) are scored on 1–
+
+10 by claude-sonnet-4 (prompts in Appendix A). 
+
+Fluency is the PPL ratio rPPL =PPL steer /PPL base 
+
+(values near 1.0 preserve fluency). These three met-rics are produced by independent scoring functions (SBERT cosine, an LLM judge, and base-model perplexity), so ∆sim and rPPL act as automated, judge-free corroboration for the Claude-scored Ac-curacy/Coherence. 
+
+Success Criteria and Statistical Testing. We define an individual intervention as successful if 
+
+∆sim > 0.2, i.e. the steered caption’s SBERT simi-larity to the target description rises by at least 0.2
+
+over the base caption. The Success Ratio is the percentage of test samples meeting this threshold; it is therefore an automated, judge-free statistic. As an empirical check, it aligns strongly with the Claude-scored Accuracy: on the LLaVA-7B cross-category steering set ( n=420 pooled over Layers 
+
+{7, 13 , 25 , 30 }), Spearman ρ=+0 .68 and Pearson 
+
+r=+0 .63 (both p< 10 −60 ), with 76 .4% per-sample agreement between ∆sim >0.2 and Accuracy >5
+
+(88 .5% at Layer 13, where neither metric saturates; full per-layer statistics in Appendix Table 6). Layer-and method-level significance is further assessed by Welch’s t-tests on the underlying ∆sim distribution (Section 5, Appendix Table 5). 
+
+5 Results 
+
+Before assessing interventions, we verify that JSAE preserves the vision-side captioning signal under a stringent direct-replacement protocol (all vision to-kens overwritten by the broadcast JSAE reconstruc-tion Hvis = Dv(Ev(Hvis )) ). On 1,000 COCO samples (content-word CE), recovery rises mono-tonically from ∼37% at Layer 7 to ∼100% by Layer 30, with JSAE matching or surpassing a raw-mean broadcast control at every layer (Ap-pendix C). Vision-position content thus becomes largely dispensable by Layer 25, consistent with the asymmetric dynamics below. 
+
+5.1 Layer-wise Evolution of Steering Effectiveness 
+
+Table 1 reports layer-wise intervention effects in LLaVA-v1.6-Mistral-7B; per-category breakdowns appear in Table 2 and qualitative examples in Ap-pendix F. Dataset-level generalization is further validated on 1,500 Flickr30k (Young et al., 2014) images spanning three scene categories ( 500 each), where JSAE Layer 13 steering remains effective with category-specific transfer degradation (Ap-pendix Table 3). 
+
+Steering Effectiveness Rises with Depth. Suc-cess Ratio rises from 0.400 at Layer 7 to 0.740 
+
+at Layer 13, peaking at Layer 25 ( 0.798 , Accu-racy 7.22 ± 2.57 ). Welch’s t-tests on ∆sim over the cross-category set confirm this peak: Layer 25 significantly exceeds Layers 7, 13, and 30 with Bonferroni-corrected pbonf ≤ 3.1 × 10 −3 (Cohen’s 
+
+d up to +1 .69 for L25 vs L30; full pairwise statis-tics in Appendix Table 5). Importantly, this peak does not hinge on the LLM-as-judge: Success Ra-tio is computed directly from SBERT-based ∆sim ,and the Claude-scored Accuracy independently in-duces the identical layer ranking (L25 > L13 > L7 
+
+> L30; Spearman ρ=1 .0), confirming agreement between the automated and judge-based signals. This is consistent with high-level semantic direc-tions being more readily steerable in late-but-pre-output layers. 
+
+Diminishing Steerability at the Output Bound-ary. Steerability is not unbounded: at Layer 30 the success ratio drops to 0.152 and similarity gain to 0.08 , though coherence remains high ( 6.81 ). A 
+
+post-hoc reading consistent with the design ra-tionale (Section 3.1) is that near the unembed-ding, hidden states become increasingly tied to 6Layer 7 Layer 13 Layer 25 Layer 30 
+
+> 10
+> 8
+> 6
+> 4
+> 2
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> LLM Evaluation Score (1-10)
+> Generative Steering(Intervention)
+> Concept Suppression(Inhibition)
+
+Figure 2: Asymmetric Intervention Dynamics. Upper (blue): additive steering Accuracy peaks at Layer 25 ( ≈
+
+7.22 ). Lower (red): suppression scores stay in a narrow range ( ≈ 5.5) across depths. Additive controllability is layer-specific, while suppression effects appear across all probed layers. 
+
+the linear LM head; since w(t) 
+
+> i
+
+was learned against intermediate-layer text activations rather than pre-logit states, its component orthogonal to that final subspace is attenuated by the softmax, limiting the effect of additive injection. Manifold-preserving or norm-controlled interventions are left to future work. 
+
+Stability of Suppression Effects. Unlike the peaked trend of additive steering (Fig. 2), suppres-sion scores stay within a narrow range (Layer 7: 
+
+5.78 ± 3.31 to Layer 30: 5.04 ± 2.94 ), and all six pairwise Welch tests on suppression ∆sim remain non-significant after Bonferroni correction (min 
+
+pbonf =0 .30 , max |d|=0 .39 ; Appendix Table 5). This points to an asymmetry under our protocol: additive controllability concentrates in late-but-pre-output layers, while the identified directions appear behaviorally relevant across all probed depths. 
+
+5.2 Baseline Comparisons and Ablation Studies 
+
+We evaluate JSAE against baselines at the probe-optimal Layer 13 (Table 1, Part 4). 
+
+Role of Joint Alignment. Both the unaligned ablation ( λa=0 ) and VL-SAE perform poorly un-der our criterion ( ∆sim > 0.2): 0% success for VL-SAE and 4.1% for unaligned JSAE, with per-category Accuracy ≤ 1.48 (Table 2). This is not a training artefact—VL-SAE matches JSAE on re-construction ( 8.0×10 −4) and sparsity ( L0≈1.56% )under identical hyperparameters—but reflects a missing geometric property: without paired-code constraints, VL-SAE’s shared dictionary columns reconstruct the mixed distribution rather than align-ing directionally across modalities, so no column is bound to a cross-modal concept axis usable as a steering direction. The few hits in the unaligned case cluster in a single Surfing subset (Succ 0.129 ,Acc 1.48 ±0.64 ) whose Coherence ( 4.78 ±3.03 ) is the lowest—degenerate generations rather than con-cept transfer. The gap is direction- rather than scale-driven: rescaling unaligned vsteer to ∥valigned ∥
+
+leaves the statistics essentially unchanged (Acc 
+
+1.15 vs. 1.14 ; Succ 0.064 vs. 0.041 ), consistent with alignment contributing via cross-modal an-choring of dictionary directions rather than norm matching. 
+
+Comparison to Heuristics and Prompting. 
+
+JSAE attains 74 .0% success vs. 39 .4% for Ac-tivation Addition. A breakdown (Appendix Ta-ble 2) shows that ActAdd handles broad scenes well (72 .5% on “Indoor room”) but performs poorly on specific objects/actions ( 12 .5% “Wild animal”; 
+
+25 .0% “Food”), suggesting that algebraic mean-difference vectors shift global context but less so fine-grained semantics. JSAE also substantially outperforms Prompt Steering ( 22 .1% ) and Random Noise ( 2.9% ), indicating the observed effects are not driven by prompt-level instructions or generic perturbations. 
+
+5.3 Generalization Across Architectures 
+
+Given the per-layer training cost ( ∼6 GPU-hours), we restrict each additional architecture to its probe-optimal layer (Table 1); the numbers should thus be read as evidence that at least one steering-effective layer exists per architecture, not as the per-architecture optimum. JSAE transfers to the MoE-based Qwen3-VL-30B (Layer 33: 77 .9% 
+
+Succ, Accuracy 7.02 , indicating steerable features under dynamic routing) and to Llama3-LLaVA-8B 
+
+(Layer 15: 66 .7% Succ, Coherence 6.78 ), suggest-ing that similar sparse alignment features arise in both dense and MoE VLMs tested here—though broader model coverage is needed for generality. 
+
+6 Conclusion 
+
+We investigated vision-language alignment using Joint Sparse Autoencoders (JSAE), a framework that factorizes mean-pooled, image/caption-level cross-modal activations into sparse, intervention-amenable units. On LLaVA-7B, probing accuracy 7Table 1: Cross-architecture intervention results divided into four sections: (1) Layer-wise effects in LLaVA-v1.6-Mistral-7B; (2) Generalization on Qwen3-VL-30B; (3) Generalization on Llama3-LLaVA-8B; (4) Baseline comparisons and ablation studies on LLaVA-7B at Layer 13. The Count column indicates the number of valid test samples for each setting.                                                                                                                                                                                       
+
+> Model Method Layer Count Sim Gain Accuracy Coherence Fluency (PPL) Succ ratio
+> Part 1: LLaVA-7B Layer-wise Evolution
+> LLaVA-7B JSAE (Ours) 7100 0.13 ±0.15 3.82 ±2.70 5.12 ±2.63 0.91 ±0.52 0.400
+> 13 †104 0.34 ±0.22 6.61 ±3.07 6.94 ±1.77 1.06 ±0.36 0.740
+> 25 104 0.35 ±0.17 7.22 ±2.57 6.18 ±2.35 1.10 ±0.35 0.798
+> 30 112 0.08 ±0.13 2.29 ±2.22 6.81 ±2.03 1.09 ±0.29 0.152
+> Part 2: Qwen3-30B Generalization
+> Qwen3-30B JSAE 33 †104 0.24 ±0.14 7.02 ±2.74 6.07 ±2.40 1.00 ±0.30 0.779
+> Part 3: Llama3-8B Generalization
+> Llama3-8B JSAE 15 †96 0.23 ±0.19 6.14 ±3.49 6.78 ±1.81 1.08 ±0.45 0.667
+> Part 4: Baselines & Ablation (on LLaVA-7B at Layer 13)
+> LLaVA-7B Prompt 13 †104 0.04 ±0.08 2.64 ±2.55 7.49 ±1.39 0.92 ±0.28 0.221
+> Random 13 †104 0.01 ±0.05 1.42 ±1.19 7.61 ±1.36 0.98 ±0.25 0.029
+> VL-SAE 13 †112 0.00 ±0.05 1.20 ±0.44 7.42 ±1.25 0.85 ±0.32 0.000
+> ActAdd 13 †104 0.26 ±0.12 4.44 ±2.66 7.55 ±1.40 0.81 ±0.25 0.394
+> JSAE ( λa=0 )13 †98 0.06 ±0.06 1.14 ±0.40 6.17 ±2.66 0.93 ±0.30 0.041
+> †Indicates the probe-optimal layer (highest alignment score) selected for that specific architecture.
+> Sim Gain : Mean cosine similarity gain. Accuracy/Coherence : Claude-4-Sonnet scores (Mean ±Std). Fluency : PPL ratio.
+> Succ ratio : The percentage of successful interventions, where success is defined as ∆sim >0.2.
+
+and steering controllability decouple: Layer 13 is probe-optimal, while Layer 25 yields the high-est steering success ratio ( 79 .8% )—indicating that probe accuracy is not a sufficient predictor of steer-ing effectiveness. The two intervention modes show distinct depth profiles. Additive steering peaks at Layer 25 and drops near the unembedding layer, while suppres-sion scores remain in a narrow range ( 5.04 –5.78 
+
+out of 10) across all probed depths. The abso-lute suppression magnitude should not be over-interpreted in the absence of an unintervened or random-direction reference, but the lack of depth-localized collapse—including where additive steer-ing weakens—is consistent with these directions re-maining behaviorally relevant for concept ground-ing throughout the probed depths. Two practical observations follow. First, the joint alignment objective matters: removing it (λa=0 , 4.1% Succ) or replacing JSAE with a stan-dard VL-SAE ( 0% ) both fail to produce coherent steering. Second, learned sparse features outper-form algebraic heuristics: JSAE substantially ex-ceeds Activation Addition on fine-grained concepts and is more effective than Prompt Steering. Results on one dense and one MoE backbone suggest the pattern may extend beyond LLaVA, though broader model coverage is needed. 
+
+Limitations 
+
+While JSAE provides evidence for informative hi-erarchical dynamics in vision-language alignment, several limitations remain (items marked “future work” are open problems, not claims). 
+
+Granularity and Spatial Control: JSAE relies on global mean-pooling to extract macroscopic rep-resentations, so our steering uniformly broadcasts semantic vectors across all image tokens—acting as a global semantic filter rather than a localized ob-ject editor. Future work will explore token-centric alignment and attention-guided interventions for finer spatial control. 
+
+Feature Aggregation vs. Monosemanticity: 
+
+Since SAEs naturally exhibit feature splitting, we employ functional clustering to aggregate atomic features into macro-concepts for category-level steering. An ideal representation space might in-stead map concepts hierarchically without post-hoc clustering; scaling dictionary sizes or adopting vari-ants such as TopK SAEs may further refine dictio-nary purity. 8Scope and Applications: Our evaluation fo-cuses on single-layer interventions and high-level MS-COCO categories, with generalization further verified on 1,500 Flickr30k (Young et al., 2014) images across three scenes (Appendix Table 3); the observed category-specific degradation (e.g., 
+
+Indoor room : 0.675 → 0.340 ) points to remaining domain sensitivity. Cross-layer dynamics, com-plex geometric reasoning, and cross-domain fea-ture stability are left for future investigation, as is extending JSAE beyond generative steering to detect and inhibit multimodal hallucinations and unsafe concepts. 
+
+Impact Statement 
+
+This paper presents a mechanistic interpretability framework for Vision-Language Models. While our primary goal is to better understand internal alignment, the steering capabilities studied here carry societal implications. On the positive side, the method could in principle support safety re-search by helping detect or inhibit harmful concepts or hallucinations once such concepts are reliably localized. On the negative side, like other steer-ing techniques, it may also be misused to generate biased content. We view the analysis of these in-ternal mechanisms as one component of broader efforts toward safer systems, and we encourage the community to explore safety-oriented circuit interventions. 
+
+Use of Scientific Artifacts 
+
+All datasets and checkpoints are publicly released for research use under their respective licenses: MS-COCO (CC BY 4.0; underlying Flickr im-age terms), Flickr30k (non-commercial research), and the LLaVA / Llama3-LLaVA / Qwen3-VL checkpoints and SBERT/BERT/NLTK tooling un-der their community or Apache-style licenses. Our use—probing, feature analysis, and activa-tion steering—is consistent with their intended re-search use, and our released JSAE code follows the same. No new human data are collected; MS-COCO/Flickr30k images may incidentally depict individuals, but we perform no person identifica-tion or re-identification, and we did not observe offensive content in inspected samples. 
+
+Use of AI Assistants 
+
+General-purpose AI assistants (GPT/Claude) were used for English polishing and minor code/debugging help. Independently, Claude Son-net 4 serves as an automatic judge for Accu-racy/Coherence (Section 4.1, Appendix A)—a methodological component, not a writing aid. All technical claims and experiments were verified by the authors. 
+
+References                     
+
+> Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, Antoine Miech, Iain Barr, Yana Hasson, Karel Lenc, Arthur Mensch, Katherine Millican, Malcolm Reynolds, and 1 others. 2022. Flamingo: a visual language model for few-shot learning. Advances in neural information processing systems , 35:23716– 23736. Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, Wenbin Ge, Zhi-fang Guo, Qidong Huang, Jie Huang, Fei Huang, Binyuan Hui, Shutong Jiang, Zhaohai Li, Mingsheng Li, and 45 others. 2025. Qwen3-vl technical report.
+> Preprint , arXiv:2511.21631. Trenton Bricken, Adly Templeton, Joshua Batson, Brian Chen, Adam Jermyn, Tom Conerly, Nicholas L. Turner, Cem Anil, Carson Denison, Amanda Askell, Robert Lasenby, Yifan Wu, Shauna Kravec, Nicholas Schiefer, Tim Maxwell, Nicholas Joseph, Alex Tamkin, Karina Nguyen, Brayden McLean, and 5 others. Towards monosemanticity: Decomposing language models with dictionary learning. Trans-former Circuits Thread . Published Oct 4, 2023. Bart Bussmann, Patrick Leask, and Neel Nanda. 2024. Batchtopk sparse autoencoders. arXiv preprint arXiv:2412.06410 .Xinlei Chen, Hao Fang, Tsung-Yi Lin, Ramakr-ishna Vedantam, Saurabh Gupta, Piotr Dollar, and C. Lawrence Zitnick. 2015. Microsoft coco cap-tions: Data collection and evaluation server. Preprint ,arXiv:1504.00325. Hoagy Cunningham, Aidan Ewart, Logan Riggs, Robert Huben, and Lee Sharkey. 2023. Sparse autoencoders find highly interpretable features in language models.
+> Preprint , arXiv:2309.08600. Wenliang Dai, Junnan Li, Dongxu Li, Anthony Tiong, Junqi Zhao, Weisheng Wang, Boyang Li, Pascale N Fung, and Steven Hoi. 2023. Instructblip: Towards general-purpose vision-language models with instruc-tion tuning. Advances in neural information process-ing systems , 36:49250–49267. Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. Bert: Pre-training of deep bidirectional transformers for language understand-ing. Preprint , arXiv:1810.04805.
+
+9Danny Driess, Fei Xia, Mehdi S. M. Sajjadi, Corey Lynch, Aakanksha Chowdhery, Brian Ichter, Ayzaan Wahid, Jonathan Tompson, Quan Vuong, Tianhe Yu, Wenlong Huang, Yevgen Chebotar, Pierre Sermanet, Daniel Duckworth, Sergey Levine, Vincent Van-houcke, Karol Hausman, Marc Toussaint, Klaus Gr-eff, and 3 others. 2023a. Palm-e: An embodied multi-modal language model. Preprint , arXiv:2303.03378. Danny Driess, Fei Xia, Mehdi SM Sajjadi, Corey Lynch, Aakanksha Chowdhery, Brian Ichter, Ayzaan Wahid, Jonathan Tompson, Quan Vuong, Tianhe Yu, and 1 others. 2023b. Palm-e: An embodied multimodal language model. arXiv preprint arXiv:2303.03378 .Nelson Elhage, Tristan Hume, Catherine Olsson, Nicholas Schiefer, Tom Henighan, Shauna Kravec, Zac Hatfield-Dodds, Robert Lasenby, Dawn Drain, Carol Chen, Roger Grosse, Sam McCandlish, Jared Kaplan, Dario Amodei, Martin Wattenberg, and Christopher Olah. 2022. Toy models of superpo-sition. Preprint , arXiv:2209.10652. Leo Gao, Tom Dupre la Tour, Henk Tillman, Gabriel Goh, Rajan Troll, Alec Radford, Ilya Sutskever, Jan Leike, and Jeffrey Wu. 2025a. Scaling and evaluating sparse autoencoders. In International Conference on Learning Representations , volume 2025, pages 26721–26754. Leo Gao, Achyuta Rajaram, Jacob Coxon, Soham V. Govande, Bowen Baker, and Dan Mossing. 2025b. Weight-sparse transformers have interpretable cir-cuits. Preprint , arXiv:2511.13653. Peng Gao, Jiaming Han, Renrui Zhang, Ziyi Lin, Shijie Geng, Aojun Zhou, Wei Zhang, Pan Lu, Conghui He, Xiangyu Yue, Hongsheng Li, and Yu Qiao. 2023. Llama-adapter v2: Parameter-efficient visual instruc-tion model. Preprint , arXiv:2304.15010. Atticus Geiger, Chris Potts, and Thomas Icard. 2023. Causal abstraction for faithful model interpretation. 
+
+arXiv preprint arXiv:2301.04709 , page 9. Chao Jia, Yinfei Yang, Ye Xia, Yi-Ting Chen, Zarana Parekh, Hieu Pham, Quoc Le, Yun-Hsuan Sung, Zhen Li, and Tom Duerig. 2021. Scaling up visual and vision-language representation learning with noisy text supervision. In International conference on ma-chine learning , pages 4904–4916. PMLR. Chiraag Kaushik, Davis Barch, and Andrea Fanelli. 2026. Decomposing multimodal embedding spaces with group-sparse autoencoders. Preprint ,arXiv:2601.20028. Bo Li, Kaichen Zhang, Hao Zhang, Dong Guo, Ren-rui Zhang, Feng Li, Yuanhan Zhang, Ziwei Liu, and Chunyuan Li. 2024. Llava-next: Stronger llms super-charge multimodal capabilities in the wild. Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. 2023. Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large lan-guage models. Preprint , arXiv:2301.12597. Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. 2024. Improved baselines with visual instruc-tion tuning. Preprint , arXiv:2310.03744. Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. 2023. Visual instruction tuning. Preprint ,arXiv:2304.08485. Samuel Marks, Can Rager, Eric J. Michaud, Yonatan Belinkov, David Bau, and Aaron Mueller. 2025. Sparse feature circuits: Discovering and editing inter-pretable causal graphs in language models. Preprint ,arXiv:2403.19647. Kevin Meng, David Bau, Alex Andonian, and Yonatan Belinkov. 2022. Locating and editing factual associa-tions in gpt. Advances in neural information process-ing systems , 35:17359–17372. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sas-try, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. 2021. Learn-ing transferable visual models from natural language supervision. Preprint , arXiv:2103.00020. Senthooran Rajamanoharan, Arthur Conmy, Lewis Smith, Tom Lieberum, Vikrant Varma, János Kramár, Rohin Shah, and Neel Nanda. 2024a. Improving dictionary learning with gated sparse autoencoders. 
+
+arXiv preprint arXiv:2404.16014 .Senthooran Rajamanoharan, Tom Lieberum, Nicolas Sonnerat, Arthur Conmy, Vikrant Varma, János Kramár, and Neel Nanda. 2024b. Jumping ahead: Im-proving reconstruction fidelity with jumprelu sparse autoencoders. arXiv preprint arXiv:2407.14435 .Shufan Shen, Junshu Sun, Qingming Huang, and Shuhui Wang. 2025. Vl-sae: Interpreting and enhancing vision-language alignment with a unified concept set. 
+
+Preprint , arXiv:2510.21323. Wenjie Sun, Di Wang, and Lijie Hu. The price of amor-tized inference in sparse autoencoders. In The Four-teenth International Conference on Learning Repre-sentations .Adly Templeton, Tom Conerly, Jonathan Marcus, Jack Lindsey, Trenton Bricken, Brian Chen, Adam Pearce, Craig Citro, Emmanuel Ameisen, Andy Jones, Hoagy Cunningham, Nicholas L. Turner, Cal-lum McDougall, Monte MacDiarmid, Alex Tamkin, Esin Durmus, Tristan Hume, Francesco Mosconi, C. Daniel Freeman, and 7 others. 2024. Scaling monosemanticity: Extracting interpretable features from claude 3 sonnet. Transformer Circuits Thread .Alexander Matt Turner, Lisa Thiergart, Gavin Leech, David Udell, Juan J. Vazquez, Ulisse Mini, and Monte MacDiarmid. 2024. Steering language models with activation engineering. Preprint ,arXiv:2308.10248. 
+
+10 Constantin Venhoff, Ashkan Khakzar, Sonia Joseph, Philip Torr, and Neel Nanda. 2025. How visual rep-resentations map to language feature space in multi-modal llms. Preprint , arXiv:2506.11976. Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhi-hao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, and 1 others. 2024. Qwen2-vl: Enhancing vision-language model’s perception of the world at any resolution. arXiv preprint arXiv:2409.12191 .Peter Young, Alice Lai, Micah Hodosh, and Julia Hock-enmaier. 2014. From image descriptions to visual denotations: New similarity metrics for semantic in-ference over event descriptions. Transactions of the Association for Computational Linguistics , 2:67–78. Deyao Zhu, Xiaoqian Shen, Xiang Li, Mohamed El-hoseiny, and 1 others. 2024. Minigpt-4: Enhanc-ing vision-language understanding with advanced large language models. In International Conference on Learning Representations , volume 2024, pages 18378–18394. Andy Zou, Long Phan, Sarah Chen, James Campbell, Phillip Guo, Richard Ren, Alexander Pan, Xuwang Yin, Mantas Mazeika, Ann-Kathrin Dombrowski, and 1 others. 2022. Representation engineering: A top-down approach to ai transparency, 2023. URL https://arxiv. org/abs/2310.01405 , 97. 
+
+11 A LLM Evaluation Prompts 
+
+To ensure a robust evaluation of semantic alignment beyond surface-level N-gram metrics, we employed 
+
+claude-sonnet-4-20250514 as an impartial judge. Below, we provide the exact system prompts used to assess the Generative Steering (Targeted Intervention) and Concept Suppression (Same-Category Inhibition) tasks. 
+
+A.1 Prompt for Generative Steering Evaluation 
+
+This prompt is utilized to evaluate the success of steering the model to generate a specific target concept (e.g., “food”) on an unrelated image (e.g., a landscape). 
+
+System Instruction: You are an expert evaluator in Multimodal Learning and Computer Vision. Your task is to assess the quality of image captions generated by an AI model after a semantic intervention. 
+
+User Prompt: 
+
+Below are the details of a generative steering experiment: • Target Concept: {target_concept} 
+
+• Original Caption (Base): {original_caption} 
+
+• Intervened Caption (Steered): {intervened_caption} 
+
+Please evaluate the "Intervened Caption" based on the following two criteria using a scale of 1 to 10: 1. Semantic Accuracy: How successfully does the Intervened Caption incorporate the core elements of the Target Concept? (1: No mention; 10: Perfect re-interpretation of the scene). 2. Textual Coherence: Is the Intervened Caption grammatically correct, logically consistent, and free of unnatural hallucinations? (1: Gibberish; 10: Human-level fluency). 
+
+Output Format: 
+
+• Accuracy Score: [Score] • Coherence Score: [Score] • Reasoning: [Provide a concise explanation for your scores, focusing on how the visual features were re-mapped.] 
+
+A.2 Prompt for Concept Suppression Evaluation 
+
+This prompt is utilized to evaluate the efficacy of suppressing a specific concept (e.g., dampening “food” features) when the image contains that concept. 
+
+System Instruction: You are an expert evaluator in Multimodal Learning and Computer Vision. Your task is to assess the quality of image captions generated by an AI model after a semantic suppression intervention. 
+
+User Prompt: 
+
+Below are the details of a generative suppression experiment: • Target Concept to Suppress: {target_concept} 
+
+• Original Caption (Base): {original_caption} 
+
+• Intervened Caption (Suppressed): {intervened_caption} 
+
+Please evaluate the "Intervened Caption" based on the following two criteria using a scale of 1 to 10: 1. Suppression Effectiveness: How successfully does the Intervened Caption reduce or eliminate references to the Target Concept while maintaining scene coherence? (1: Target concept still dominates; 10: Target concept completely removed/minimized without loss of meaning). 2. Textual Coherence: Is the Intervened Caption grammatically correct, logically consistent, and free of unnatural hallucinations? (1: Gibberish; 10: Human-level fluency). 
+
+Output Format: 
+
+• Suppression Score: [Score] • Coherence Score: [Score] • Reasoning: [Provide a concise explanation for your scores, focusing on how the target concept was weakened or replaced while preserving caption quality.] 
+
+12 Figure 3: F1 scores of layer-wise probe classifiers trained to detect text–image matching in LLaVA-v1.6-Mistral-7B using matched, simple mismatched, and hard mismatched samples, showing Layer 13 as the strongest multimodal alignment layer. 
+
+B Detailed Experimental Results and Visualization 
+
+This section provides granular data and visual evidence for our hierarchical analysis. Table 2 presents a full breakdown of intervention metrics across all models, layers, and categories. We first detail the linear probing analysis that guided our layer selection in Figure 3 , followed by the visualization of semantic structure in Figure 4 .
+
+Layer-wise Linear Probing. To empirically locate the layers where cross-modal alignment is most distinct, we trained linear classifiers (probes) on the residual streams of LLaVA-v1.6-7B to predict semantic concepts. As shown in Figure 3 , the probing accuracy rises sharply in the early layers and reaches a high plateau between Layer 13 and Layer 25. This trend implies that visual semantic information is maximally decodable and linearly separable in these middle-to-late layers. These findings justify our selection of Layers 13, 25, and 30 for JSAE training, as they capture the critical stages of the alignment process. 
+
+Hierarchical Trends and Failure Modes. The data shows concept- and layer-dependent variation in intervention success rate. For example, LLaVA-7B’s food category success ratio escalates from 0.300 
+
+(Layer 7) to 0.750 (Layer 13). We also observe concept-specific failure modes , notably for the streets 
+
+category in Llama3-LLaVA-8B (Layer 15), which yielded a comparatively low success ratio of 0.237 and minimal Similarity Gain ( 0.05 ) despite stable fluency. These observations are consistent with intervention success depending on both layer depth and concept type, but do not by themselves identify the underlying mechanism (e.g., dictionary purity vs. category-specific OOD effects). 
+
+Structural Evolution in Representation Space. The t-SNE projections in Figure 4 visualize the semantic organization of neurons from Layer 7 through Layer 30. We observe that semantic clusters become increasingly distinct as depth increases, peaking around Layer 25. This structural pattern is consistent with the stronger additive steering effects reported in our main analysis. We also include Layer 30, showing that while structured clustering persists, the functional manipulability declines as the model approaches the output boundary. 13 (a) Layer 7 (b) Layer 13  
+
+> (c) Layer 25 (d) Layer 30
+
+Figure 4: t-SNE visualization of vision neuron clustering across Layers 7, 13, 25, and 30 in LLaVA-v1.6-7B. Each point represents a vision neuron, colored by its cluster ID. As depth increases from Layer 7 to Layer 25, neurons exhibit clearer semantic grouping, consistent with the increasing steering effectiveness observed in our intervention experiments. Layer 30 illustrates the representation state immediately preceding the output bottleneck. 
+
+C Reconstruction Fidelity Details (CE Loss Recovered) 
+
+We provide the full per-layer breakdown of CE Loss Recovered in Table 4. We adopt a stringent 
+
+direct-replacement variant of the standard protocol (Templeton et al., 2024): Recovered = Lbreak − Lrecon 
+
+Lbreak − Lorig 
+
+× 100% ,
+
+where, at the target layer of an otherwise-clean forward pass, all vision tokens are overwritten by the broadcast JSAE reconstruction Hvis = Dv(Ev(Hvis )) , with Hvis the mean-pooled vision activation. Unlike a residual-injection scheme that leaves per-patch detail intact, this protocol forces the model to caption purely from the SAE-compressed visual summary, providing a worst-case test of whether the autoencoder retains caption-relevant information. To isolate SAE reconstruction error from the inherent broadcast bottleneck, we additionally report a control Lmean that overwrites vision tokens with the raw global mean (no SAE). CE losses are computed on noun/adjective tokens of each caption (parsed via NLTK averaged_perceptron_tagger ) over 1,000 randomly sampled COCO image–caption pairs. 
+
+Reading the table. Sub-table (a) verifies that both corruption constructions are discriminative (∆ ≥ +0 .96 nat). Sub-table (b) shows two findings. First, Lrecon ≤ Lmean at every layer, with JSAE outper-14 forming the raw-mean control by up to 13 pp. at early/mid layers and converging at late layers—indicating that the autoencoder introduces no reconstruction overhead and may even denoise the mean-pooled summary. Second, recovery rises monotonically with depth ( 36 .8% → 100 .2% under global_zero ;
+
+47 .7% → 100 .2% under counterfactual ); by Layer 25, replacing all vision-position content with a single broadcast vector loses only ≤ 5 pp. of caption signal, consistent with cross-modal attention having already aggregated visual information into the textual residual stream. This depth profile is consistent with the asymmetric steering dynamics observed in the main results. 
+
+D Layer-wise Statistical Significance 
+
+Table 5 reports complete pairwise Welch’s t-tests on the SBERT similarity gain ∆sim across all four probed layers of LLaVA-v1.6-Mistral-7B, for both intervention modes. Additive steering is computed on the cross-category subset (one steered run per image with the target concept differing from the image content; n=100 /104 /104 /112 for layers 7/13 /25 /30 , matching the Count column of Table 1). Suppression is computed on the same-category subset (target concept matches the visually grounded one; n=50 /52 /52 /56 ). Bonferroni correction uses m=6 comparisons per mode. The two modes display strongly contrasting patterns: every additive pair involving Layer 25 or Layer 30 survives correction at 
+
+pbonf < 6 × 10 −3 with medium-to-very-large effects ( |d| ∈ [0 .49 , 1.69] ), whereas no suppression pair reaches significance (smallest pbonf =0 .30 ). This is the quantitative basis for the asymmetry summarized in Section 5. 
+
+E Correlation Between Sim Gain and Judge Accuracy 
+
+Table 6 reports per-layer Pearson and Spearman correlations between ∆sim and Claude-scored Accuracy on the LLaVA-v1.6-Mistral-7B cross-category steering set ( n=100 /104 /104 /112 for layers 7/13 /25 /30 ,matching Table 1). The within-layer pattern reflects range compression at the extremes: alignment is strongest at Layer 13, where neither metric saturates, and is mechanically attenuated at Layer 25 (Sim Gain near a ceiling, Succ = 0 .798 ) and Layer 30 (judge Accuracy near a floor, Succ (Acc >5)=0% ). The across-layer ranking is unaffected (Section 5). 
+
+F Qualitative Analysis of Generative Steering 
+
+To further illustrate the steering effects of the identified circuits, we present representative cases of cross-category steering across different models and layers. These examples show how intervening on sparse neuron pairs can shift a model’s generated description toward a target semantic category. 
+
+F.1 Case Study 1: Tennis-to-Baseball (LLaVA-v1.6-7B, Layer 25) 
+
+In this experiment using LLaVA-v1.6-7B at Layer 25, we amplify neurons aligned with the baseball 
+
+category while providing an image of a tennis player. As shown in Figure 5, the generated caption describes the racket as a bat and the court as a field, while preserving some attributes of the original yellow-shirted subject. 
+
+F.2 Case Study 2: Wild Animal to Food (LLaVA-v1.6-7B, Layer 13) 
+
+As shown in Figure 6, this case shows a biological/nature-oriented scene being described in a culinary context after an intermediate-depth intervention. By intervening on the food -aligned sparse circuits, the generated caption maps visual patterns from giraffes and grass onto food-related descriptions such as savory dishes and garnishments. 
+
+F.3 Case Study 3: Indoor Social Scene to Wild Animal (Qwen3-VL-30B, Layer 33) 
+
+As shown in Figure 7, this case illustrates the observed steering effect on the MoE-based Qwen3-VL-30B 
+
+model at Layer 33. By amplifying the wild animal sparse circuits, the generated caption shifts an indoor social scene toward a savanna-like description featuring a herd of elephants. 15 Input Image (Tennis) 
+
+Base Generation (Original): 
+
+"The image shows a tennis player on a blue hard court. The player is wearing a yellow shirt, black shorts, and white shoes. He is holding a tennis racket in his right hand and appears to be taking a break from play, as he..." 
+
+Steered Generation (Target Category: Baseball): 
+
+"The image shows a scene from a baseball game. In the foreground, a baseball player is standing on the field, wearing a yellow jersey with blue sleeves, black pants, and white cleats. He is holding a baseball bat and appears..." 
+
+Figure 5: Example of cross-category steering at Layer 25 of LLaVA-v1.6-7B. The generated caption shifts tennis-specific visual details toward the target baseball category while preserving base subject attributes like color. 
+
+Input Image (Giraffes) 
+
+Base Generation (Original): 
+
+"The image depicts a group of giraffes in a grassy field. There are at least nine giraffes visible, with varying shades of brown and white on their coats. They are standing and walking in different directions, some facing..." 
+
+Steered Generation (Target Category: Food): 
+
+"The image shows a variety of savory dishes, including grilled chicken, vegetables, and a side of rice. The dishes are served on a bed of greens, and the meal is garnished with a sprinkle of herbs. The..." 
+
+Figure 6: Example of cross-category steering at Layer 13 of LLaVA-v1.6-7B. The intervention re-directs the model to map the organic patterns and textures of the giraffes onto culinary concepts such as grilled proteins, while the green field is re-described as a bed of garnished greens. 
+
+Input Image (Social Gathering) 
+
+Base Generation (Original): 
+
+"This is a warm, candid photograph of a group of five friends gathered in a cozy living room for a dinner party. The scene is filled with the relaxed atmosphere of a social gathering. - The People: There are five individuals in the image, three men and two women... On the left, a man in a red and blue plaid shirt is smiling..." 
+
+Steered Generation (Target Category: Wild Animal): 
+
+"The image captures a group of five animals in a natural setting, likely a savanna or grassland. The scene is dominated by a large herd of elephants, their massive bodies and long trunks moving gracefully across the open plain. Their gray, wrinkled skin is a striking contrast to the golden-brown grass that covers the landscape..." 
+
+Figure 7: Cross-category steering in Qwen3-VL-30B at Layer 33. Despite the original image containing five humans in a domestic setting, the intervention on wild-animal-aligned neurons re-directs the model’s description from a domestic gathering to a savanna scene with a herd of elephants. Note that the model fabricates environmental details (e.g., grassland) absent from the input, illustrating that strong steering can co-induce hallucination—a limitation discussed in Section “Limitations and Future Work”. 
+
+16 Table 2: Detailed breakdown of intervention results across architectures and layers. We report the performance for the aggregated test set (Overall) followed by specific semantic categories to highlight concept-specific variations. 
+
+Count denotes the number of test samples. All results correspond to cross-category (targeted) interventions. 
+
+Model Category / Setting Layer Count Sim Gain Accuracy Coherence Fluency (PPL) Succ ratio 
+
+Part 1: LLaVA-7B Layer-wise Evolution 
+
+LLaVA-7B Overall (JSAE) 7 100 0.13 ± 0.15 3.82 ± 2.70 5.12 ± 2.63 0.91 ± 0.52 0.400 
+
+Food 30 0.12 ± 0.16 3.43 ± 2.74 4.73 ± 2.41 0.98 ± 0.51 0.300 
+
+Indoor room 38 0.11 ± 0.13 4.50 ± 2.61 4.13 ± 2.42 0.71 ± 0.43 0.553 
+
+Surfing 32 0.17 ± 0.17 3.38 ± 2.70 6.66 ± 2.42 1.10 ± 0.56 0.313 
+
+Overall (JSAE) 13 104 0.34 ± 0.22 6.61 ± 3.07 6.94 ± 1.77 1.06 ± 0.36 0.740 
+
+Food 32 0.31 ± 0.22 6.74 ± 3.10 6.74 ± 1.98 1.03 ± 0.35 0.750 
+
+Indoor room 40 0.26 ± 0.21 5.95 ± 3.18 6.95 ± 1.56 1.11 ± 0.36 0.675 
+
+Wild animal 32 0.47 ± 0.19 7.32 ± 2.82 7.13 ± 1.84 1.03 ± 0.39 0.813 
+
+Overall (JSAE) 25 104 0.35 ± 0.17 7.22 ± 2.57 6.18 ± 2.35 1.10 ± 0.35 0.798 
+
+Baseball 32 0.26 ± 0.16 7.22 ± 2.96 7.22 ± 1.70 1.13 ± 0.36 0.781 
+
+Skiing 34 0.42 ± 0.17 6.97 ± 2.42 5.00 ± 2.49 1.04 ± 0.37 0.794 
+
+Tennis 38 0.35 ± 0.14 7.45 ± 2.38 6.37 ± 2.28 1.13 ± 0.32 0.816 
+
+Overall (JSAE) 30 112 0.08 ± 0.13 2.29 ± 2.22 6.81 ± 2.03 1.09 ± 0.29 0.152 
+
+Baseball 36 0.24 ± 0.13 4.69 ± 2.54 5.25 ± 2.42 1.16 ± 0.39 0.472 
+
+Skiing 38 0.01 ± 0.04 1.11 ± 0.31 7.78 ± 0.82 1.07 ± 0.23 0.000 
+
+Surfing 38 0.01 ± 0.04 1.16 ± 0.37 7.34 ± 1.58 1.06 ± 0.24 0.000 
+
+Part 2: Baselines on LLaVA-7B 
+
+LLaVA-7B VL-SAE (Overall) 13 112 0.00 ± 0.05 1.20 ± 0.44 7.42 ± 1.25 0.85 ± 0.32 0.000 
+
+Food 36 −0.01 ± 0.04 1.17 ± 0.38 7.56 ± 1.58 0.88 ± 0.41 0.000 
+
+Skiing 38 0.01 ± 0.06 1.13 ± 0.41 7.24 ± 1.00 0.85 ± 0.26 0.000 
+
+Surfing 38 0.01 ± 0.05 1.29 ± 0.52 7.47 ± 1.13 0.81 ± 0.26 0.000 
+
+ActAdd (Overall) 13 104 0.26 ± 0.12 4.44 ± 2.66 7.55 ± 1.40 0.81 ± 0.25 0.394 
+
+Food 32 0.31 ± 0.13 3.81 ± 2.48 7.19 ± 1.57 0.88 ± 0.22 0.250 
+
+Indoor room 40 0.21 ± 0.12 6.23 ± 2.45 7.60 ± 1.55 0.78 ± 0.22 0.725 
+
+Wild animal 32 0.27 ± 0.08 2.84 ± 1.63 7.84 ± 0.88 0.78 ± 0.30 0.125 
+
+JSAE ( λa=0 ) 13 98 0.06 ± 0.06 1.14 ± 0.40 6.17 ± 2.66 0.93 ± 0.30 0.041 
+
+Airplanes 36 0.04 ± 0.04 1.00 ± 0.00 6.19 ± 2.71 1.06 ± 0.30 0.000 
+
+Skiing 31 0.04 ± 0.03 1.00 ± 0.00 7.35 ± 1.50 0.98 ± 0.25 0.000 
+
+Surfing 31 0.09 ± 0.08 1.48 ± 0.64 4.78 ± 3.03 0.74 ± 0.26 0.129 
+
+Part 3: Cross-Architecture Generalization 
+
+Qwen3-30B Overall (JSAE) 33 104 0.24 ± 0.14 7.02 ± 2.74 6.07 ± 2.40 1.00 ± 0.30 0.779 
+
+Food 32 0.33 ± 0.13 7.69 ± 1.79 5.22 ± 2.43 1.14 ± 0.28 0.906 
+
+Indoor room 40 0.18 ± 0.09 8.05 ± 2.06 7.13 ± 2.02 0.90 ± 0.28 0.875 
+
+Wild animal 32 0.20 ± 0.16 5.09 ± 3.28 5.63 ± 2.39 1.00 ± 0.29 0.531 
+
+Llama3-8B Overall (JSAE) 15 96 0.23 ± 0.19 6.14 ± 3.49 6.78 ± 1.81 1.08 ± 0.45 0.667 
+
+Food 28 0.29 ± 0.06 8.82 ± 0.55 6.21 ± 1.64 0.92 ± 0.43 1.000 
+
+Surfing 30 0.39 ± 0.19 7.73 ± 2.24 5.83 ± 2.09 1.35 ± 0.53 0.900 
+
+Streets 38 0.05 ± 0.07 2.89 ± 2.96 7.95 ± 0.80 0.98 ± 0.26 0.237       
+
+> Sim Gain : Mean cosine similarity gain. Accuracy/Coherence : Claude-4-Sonnet scores. Succ ratio :∆sim >0.2rate.
+
+Table 3: Dataset-level generalization: Layer 13 JSAE steering on a Flickr30k (Young et al., 2014) subset of 1,500 
+
+images ( 500 per category), unused for JSAE training or feature selection. 
+
+Category Layer Count Sim Gain Accuracy Coherence Fluency Succ 
+
+Food 13 500 0.29 ± 0.21 4.80 ± 2.94 5.79 ± 2.19 1.29 ± 0.55 0.505 
+
+Wild animal 13 500 0.37 ± 0.23 6.02 ± 3.37 7.11 ± 1.54 1.15 ± 0.45 0.620 
+
+Indoor room 13 500 0.19 ± 0.17 3.69 ± 2.92 6.28 ± 1.83 1.38 ± 0.60 0.340 
+
+17 Table 4: CE Loss Recovered for JSAE reconstruction on LLaVA-v1.6-Mistral-7B ( 1,000 COCO samples, content-word CE). (a) Both corruption baselines increase CE ( ∆ ≥ +0 .96 nat). (b) Under direct replacement, JSAE matches or surpasses a raw-mean broadcast control at every layer; recovery rises monotonically with depth, suggesting that vision-position content becomes less critical for the captioning signal at deeper layers under this protocol. 
+
+(a) Corruption baselines (layer-agnostic, shared across all settings) Setting L (nat) ∆ = L − Lorig 
+
+Lorig (clean inference) 2.3348 —
+
+global_zero 3.2951 +0 .9603 
+
+counterfactual 3.4955 +1 .1607 
+
+(b) Per-layer reconstruction (direct replacement) 
+
+Hidden state (nat) Recov gz Recov cf 
+
+Layer Lrecon Lmean JSAE mean JSAE mean Layer 7 2.9422 3.0639 36 .8% 24 .1% 47 .7% 37 .2% 
+
+Layer 13 2.8009 2.8820 51 .5% 43 .0% 59 .9% 52 .9% 
+
+Layer 25 2.3800 2.3849 95 .3% 94 .8% 96 .1% 95 .7% 
+
+Layer 30 2.3329 2.3326 100 .2% 100 .2% 100 .2% 100 .2% 
+
+Table 5: Pairwise Welch’s t-tests on ∆sim across layers of LLaVA-v1.6-Mistral-7B. Top : additive steering (cross-category interventions). Bottom : same-category suppression. pbonf uses Bonferroni correction with m=6 .
+
+Pair ∆μ t p pbonf Cohen’s d
+
+Additive steering (cross-category, n7/13 /25 /30 =100 /104 /104 /112 )
+
+L7 vs L13 −0.064 −2.32 2.1 × 10 −2 1.3 × 10 −1 −0.32 
+
+L7 vs L25 −0.159 −6.56 4.5 × 10 −10 2.7 × 10 −9 −0.92 
+
+L7 vs L30 +0 .102 +4 .55 9.6 × 10 −6 5.7 × 10 −5 +0 .63 
+
+L13 vs L25 −0.094 −3.53 5.2 × 10 −4 3.1 × 10 −3 −0.49 
+
+L13 vs L30 +0 .166 +6 .62 4.2 × 10 −10 2.5 × 10 −9 +0 .92 
+
+L25 vs L30 +0 .261 +12 .32 2.0 × 10 −26 1.2 × 10 −25 +1 .69 
+
+Suppression (same-category, n7/13 /25 /30 =50 /52 /52 /56 )
+
+L7 vs L13 +0 .007 +0 .21 0.83 1.00 +0 .04 
+
+L7 vs L25 +0 .037 +1 .01 0.31 1.00 +0 .20 
+
+L7 vs L30 −0.017 −0.50 0.62 1.00 −0.10 
+
+L13 vs L25 +0 .030 +1 .06 0.29 1.00 +0 .21 
+
+L13 vs L30 −0.024 −0.99 0.32 1.00 −0.19 
+
+L25 vs L30 −0.054 −1.99 4.96 × 10 −2 0.30 −0.39 
+
+Table 6: Correlation between ∆sim and Claude-scored Accuracy on LLaVA-v1.6-Mistral-7B cross-category steering interventions. Succ (∆ sim >0.2) is taken from Table 1 (Pooled row is the n-weighted average over the four layers). “Agree” is the rate at which the binary success criteria ∆sim >0.2 and Accuracy >5 assign the same label, computed on the same judged outputs. p-values are two-sided. 
+
+Set n Pearson r pPearson Spearman ρ pSpearman Succ (∆ sim >0.2) Agree Layer 7 100 +0 .697 6.8 × 10 −22 +0 .722 5.6 × 10 −25 0.400 0.760 
+
+Layer 13 104 +0.847 4.0 × 10 −58 +0.888 4.3 × 10 −85 0.740 0.885 
+
+Layer 25 104 +0 .180 6.4 × 10 −2 +0 .152 1.2 × 10 −1 0.798 0.644 
+
+Layer 30 112 +0 .251 6.7 × 10 −3 +0 .160 8.9 × 10 −2 0.152 0.768 
+
+Pooled (4 layers) 420 +0 .627 8.7 × 10 −61 +0 .677 6.5 × 10 −79 0.517 0.764 
+
+18

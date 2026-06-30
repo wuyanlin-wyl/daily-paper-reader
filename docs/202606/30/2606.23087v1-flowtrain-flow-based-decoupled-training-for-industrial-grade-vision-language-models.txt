@@ -1,0 +1,481 @@
+Title: FlowTrain: Flow-Based Decoupled Training for Industrial-Grade Vision-Language Models
+
+URL Source: https://arxiv.org/pdf/2606.23087v1
+
+Published Time: Tue, 23 Jun 2026 02:56:04 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# FlowTrain: Flow-Based Decoupled Training for Industrial-Grade Vision-Language Models 
+
+Zhida Jiang 1, Zhaolong Xing 1*, Yang Pei 1, Xiaolong Chen 2, Yuanhang Xiao 2, Chengzhi Huang 1, Xiyu Liu 1, Haopeng Liu 2, Qingyuan Sang 1, Lingfeng Zhou 1, Jiaxing Wang 1,Zicheng Zhang 1, Wenzhe Wang 2, Xinyu Liu 2, Yan Li 1, Zhen Chen 1*, Ke Zhang 11JD.com 2Huawei 
+
+Abstract 
+
+Industrial-grade distributed training of vision-language models (VLMs) remains far less ef-ficient than that of unimodal LLMs. Existing solutions either follow a monolithic design that assigns uniform parallelism to heterogeneous modules or adopt a disaggregated deployment that separates modules while executing them as a batch-synchronized pipeline. In this paper, we highlight that the above solutions are still not sufficient, and VLM training can be further 
+
+decoupled . To this end, we present FlowTrain, a flow-based decoupled training framework that reformulates VLM training as a producer-consumer dataflow coordinated through a uni-fied memory pool . The encoder and backbone can progress independently over a global vir-tual address space. Since this execution decou-pling fundamentally changes the optimization objective of allocation and scheduling, Flow-Train further introduces a heterogeneous paral-lel allocator that assigns module-specific paral-lelism strategies by solving a throughput match-ing problem. The dynamic packing scheduler 
+
+is used to construct balanced microbatches at runtime according to the actual LLM-side com-putation cost. Extensive experiments on real-world workloads show that FlowTrain achieves over 50% MFU and up to 1.7 × throughput improvement, narrowing the efficiency gap to LLM-only training. 
+
+1 Introduction 
+
+Vision-language models (VLMs) extend the reason-ing capabilities of LLMs by connecting visual con-tent with its linguistic context (Wang et al., 2026; Zhu et al., 2025; Laskar et al., 2025). Such multi-modal learning capabilities have achieved remark-able progress in industrial applications, such as autonomous driving (Li et al., 2026), embodied agents (Lu et al., 2026), and visual question an-swering (Wang et al., 2025b). Although model 
+
+> *Corresponding Authors.
+
+capabilities have advanced rapidly, training effi-ciency remains a major bottleneck that limits indus-trial deployment of VLMs. VLM training achieves much lower Model FLOPs Utilization (MFU) than unimodal LLM training, even with massive invest-ments in AI accelerators (Xue et al., 2026a). Distributed training paradigms for multimodal models including VLMs can be broadly classified into two categories. (i) Monolithic frameworks, ex-emplified by Megatron-LM (Shoeybi et al., 2019) and its multimodal extensions, treat a VLM as a sin-gle network with heterogeneous layers and impose a uniform tensor/pipeline parallelism (TP/PP) strat-egy across all modules. They ignore the fact that VLMs are structurally heterogeneous, including modality encoders, projectors, and a large LLM backbone (Feng et al., 2025). These modules exhibit drastically different arithmetic intensities, memory footprints, and preferred parallelism con-figurations (Zhang et al., 2024). The monolithic design inevitably leads to poor resource utilization and prolongs training duration (Zhang et al., 2025). (ii) Recent disaggregated frameworks repre-sented by DistTrain (Zhang et al., 2025) recognize the above architectural asymmetry and separate different modules into independent device groups with customized parallelism strategies. However, we identify that disaggregated training is still re-garded as a rigid pipeline, where all the data paral-lelism (DP) replicas of encoders must materialize the entire global batch before the LLM backbone can start computation. The encoder outputs are synchronized with the LLM backbone via point-to-point transfer. Such batch-level synchronization barriers are exacerbated by dynamic variability of multimodal inputs, ultimately limiting end-to-end training efficiency (Xue et al., 2026b). Our key insight is that disaggregation is neces-sary but insufficient to unlock training efficiency. Instead of a separated-but-synchronized pipeline, an efficient training framework should achieve both 
+
+1
+
+> arXiv:2606.23087v1 [cs.LG] 22 Jun 2026
+
+spatial disaggregated deployment and temporal de-coupled execution , so that the encoders and the backbone progress as independent producers and consumers rather than as upstream and downstream pipeline stages. Motivated by this, we propose FlowTrain, a flow-based decoupled VLM train-ing framework with three core designs. As the foundation of FlowTrain, the unified memory pool 
+
+unifies heterogeneous memory resources (HBM and DRAM) across all nodes through 64-bit global virtual address (GVA). All encoders write the em-beddings into the pool and immediately proceed to the next input. Based on the GVA and page tables, the backbone consumes embeddings from the pool through transparent memory access. VLM train-ing is thus converted from a rigid pipeline into a continuous producer-consumer workflow. Once execution is decoupled through the uni-fied memory pool, resource allocation and batch scheduling of VLM training should be reconsid-ered. On the one hand, the optimization objective for resource allocation is no longer minimizing the worst pipeline stage, but balancing the throughput between different modules. FlowTrain introduces a heterogeneous parallel allocator that determines module-specific parallelism strategies and resource partitions using a flow matching formulation. On the other hand, since the unified memory pool ab-sorbs runtime variance in encoder latency, batch scheduling should be decided by the actual compu-tation cost after encoding, instead of raw sample size. To construct balanced microbatches, Flow-Train designs a dynamic packing scheduler that minimizes padding waste through segment tree-based best-fit packing and jointly balances loads across PP and DP dimensions via zig-zag dispatch. The main contributions of this work are as follows: • We identify disaggregation alone as insufficient due to batch-level synchronization barriers, and propose a decoupled FlowTrain framework that rethinks VLM training from rigid pipeline execu-tion to continuous producer-consumer dataflow. • We design three coordinated components to re-alize decoupled execution, i.e., unified memory pool for asynchronous exchange, heterogeneous parallel allocator for flow matching, dynamic packing scheduler for workload balancing. • We implement FlowTrain on Ray and evaluate it on real-world workloads across three VLM scales. FlowTrain consistently achieves over 50% MFU and up to 1.7 × throughput improvement, Encoder Backbone    
+
+> Batch-level sync barrier
+> time
+> abcd
+> Extra waiting time
+> DP0
+> DP1
+> DP2
+> DP3
+> a
+> b
+> c
+> d
+> DP0
+> DP1
+> a+d
+> b+c
+
+Figure 1: Batch-level synchronization barriers under disaggregated training. 
+
+closing the efficiency gap to LLM-only training. 
+
+2 Background and Motivation 
+
+VLMs align vision and text in a shared representa-tion space, enabling joint processing of multimodal data (Li et al., 2025; Shinde et al., 2025). Their architectural disparity leads to divergent operator arithmetic intensities and thus divergent responses to distributed parallelism strategies. Monolithic training frameworks like Megatron-LM (Shoeybi et al., 2019) apply a uniform parallelism strat-egy across all components, resulting in substantial MFU degradation. This motivates disaggregated training systems, such as DistTrain (Zhang et al., 2025), which deploy heterogeneous modules on separate resource groups, thereby addressing model and data heterogeneity. We highlight that disaggregation is not enough for efficient VLM training. The core issue is not only where heterogeneous modules are placed, but also whether they can progress independently at their native throughputs. In existing frameworks, the encoders and the LLM backbone remain tem-porally bound by the underlying pipeline execution order and suffer from batch-level synchronization barriers. All encoder DP replicas have to fully ma-terialize their output and align at batch boundaries, as illustrated in Figure 1. Only after the slowest encoder replica completes its global batch can the embeddings be synchronously point-to-point trans-ferred to the backbone (Lin et al., 2025). Strict data dependency produces idle periods on both sides whenever their latencies diverge. More importantly, industrial multimodal sam-ples exhibit obvious variability in resolution and sequence length, which induces a severe workload imbalance between distributed accelerators. For example, mixed 480P-1080P images with various lengths could belong to the same training batch. Due to data dependence, such variance propagates across the batch boundary and amplifies pipeline bubbles. Existing sample scheduling only consid-2Figure 2: Overview of FlowTrain. 
+
+ers raw input characteristics (e.g., image resolu-tion) rather than actual computational costs after encoding, which also depend on parallelism config-uration and runtime conditions (Zhang et al., 2025; Xue et al., 2026b). In a nutshell, data dependency creates synchronization barriers, and dynamic in-puts magnify the performance penalty of these bar-riers, thereby limiting the end-to-end throughput of VLM training. The above observations moti-vate us to rethink a different training paradigm that decouples encoder and backbone execution. 
+
+3 Methodology 
+
+3.1 Overview of FlowTrain 
+
+To overcome the limitations of monolithic and dis-aggregated frameworks, we propose a flow-based VLM training framework, called FlowTrain. The design principle is disaggregated in deployment and decoupled in execution. Instead of treating heterogeneous modules as pipeline stages synchro-nized at batch boundaries, FlowTrain reformu-lates training as a continuous producer-consumer dataflow, enabling each component to progress in-dependently at its native throughput. As illustrated in Figure 2, FlowTrain contains three coordinated components. The end-to-end workflow is as follows. Before training starts, the 
+
+heterogeneous parallel allocator (§3.3) partitions the cluster into separate actor pools (encoder/LLM) that execute with independent parallelism configu-rations. During training, the frozen encoders pro-cess multimodal input asynchronously and place embeddings into the unified memory pool (§3.2), while text tokens are inserted directly into the same pool. The lightweight metadata is also stored to track cross-modal pairing information. After suf-ficient paired embeddings accumulate in the pool, get id2           
+
+> DP0
+> DP1
+> get id1
+> Unified Memory Pool
+> id1:a+d id2:b+c ...
+> a+d
+> b+c
+> Encoder Producers
+> Backbone Consumers
+> DP0 a
+> DP1 b
+> DP2 c
+> DP3 d
+> f
+> g
+> h
+> iDP4 e...
+> abcde
+> put i...
+
+Figure 3: Decoupled producer-consumer dataflow in FlowTrain. 
+
+the dynamic packing scheduler (§3.4) leverages the metadata to construct computationally balanced microbatches. The LLM backbone continuously consumes microbatches based on the GVA without being aware of their actual storage location, improv-ing resource utilization and training throughput. 
+
+3.2 Unified Memory Pool 
+
+As shown in Figure 3, the unified memory pool serves as the asynchronous coordination layer between encoder producers and backbone con-sumers. As the foundation of FlowTrain, it breaks strict data dependency by converting point-to-point batch transfer into globally addressable buffered exchange, which logically unifies heterogeneous memory resources (HBM and DRAM) across all nodes. Each memory location, regardless of its physical location or type, is assigned a unique 64-bit GVA. As illustrated in Figure 4, the GVA space reserves two disjoint contiguous regions corre-sponding to HBM and DRAM, respectively. Each region provides a GVA interval [start, start +
+
+world _size ∗max _size ], where start is a globally agreed address base, world _size is the number of total processes, and max _size is the contributed maximum memory capacity. The address space is linearly divided among all processes and visible to all processes. The GVA segment owned by i-th process is [start + i ∗ max _size, start + ( i +1) ∗ max _size ). This abstraction provides a single, consistent memory view to all training processes, allowing transparent access to remote memory as if it were local. A logical GVA is insufficient for direct data movement because training processes ultimately access memory through a physical address. Similar to virtual memory management in modern operat-ing systems, our pool maintains the page tables that map GVA used by processes to physical addresses in HBM and DRAM. The key difference is that the virtual address exposed to each process is no longer a small local VA region, but a globally consis-3Figure 4: GVA region in the unified memory pool. 
+
+tent GVA region spanning pooled memory across nodes and memory tiers. During initialization of the memory pool before training, each process re-serves a contiguous GVA region from the segment 
+
+[start +i∗max _size, start +( i+1) ∗max _size ),allocates physical memory from the local operat-ing system, and binds it to the reserved GVA re-gion, which may be less than max _size . Each process exports its memory mapping information to all other processes, which update their page table accordingly. Then, each process has local access to the GVA and the page tables used for virtual address translation, eliminating distributed address resolution protocols on the hot path. During training, the vision embeddings and text tokens are written into the GVA segment belonging to their own training process. LLM consumes the constructed microbatches directly from GVAs with-out being aware of their actual storage location. In the implementation layer, FlowTrain resolves the GVA to the corresponding physical address through the collected page tables. The available transport engine is selected based on the source and desti-nation location and memory types. If the request crosses memory tiers within a node, FlowTrain in-vokes intra-node transfer engine like NVLink and HCCS. For cross-node destination, FlowTrain es-tablishes (or reuses) transport endpoints and dis-patches the transfer through an RDMA-class or other high-speed interconnect backend. The upper layers that operate on the GVA region are decou-pled from hardware-specific addressing and trans-port details, enabling transparent memory access. 
+
+3.3 Heterogeneous Parallel Allocator 
+
+Existing resource allocation schemes (Zhang et al., 2025) aim to optimize the worst pipeline stages, which cannot directly apply to decoupled dataflow. After integrating the unified memory pool, the op-timization objective for resource partition and par-allelism strategy is essentially changed. The allo-cator aims to optimize the achievable throughput while avoiding producer-consumer imbalance un-der a fixed resource budget R. Let E denote the set of encoder modules and b denote the backbone. For each module i ∈ E ∪ { b}, Ci defines its set of feasi-ble parallelism configurations. Each configuration 
+
+c ∈ C i has a throughput τi(c) and resource cost 
+
+ri(c). We use the binary variable xi,c ∈ { 0, 1} to indicate whether c is selected. The aggregated en-coder production rate and backbone consumption rate can be defined as:         
+
+> Tenc =X
+> e∈E
+> X
+> c∈C e
+> xe,c τe(c),Tbb =X
+> c∈C b
+> xb,c τb(c)(1)
+
+Then, flow matching problem is formalized as:                 
+
+> lexmax (G, −F)
+> s.t. G= min( Tenc , T bb ),F=|Tenc −Tbb |,
+> X
+> c∈C i
+> xi,c = 1 ,∀i∈ E ∪ { b},
+> X
+> i∈E∪{ b}
+> X
+> c∈C i
+> xi,c ri(c)≤R.
+> (2)
+
+The objectives are optimized in lexicographic or-der. We first maximize the global throughput G,and then minimize flow imbalance F between pro-ducers and consumers. Over-allocating resources to the encoder incurs redundant buffering in the pool, while under-allocating starves the backbone. However, it is intractable to directly solve the optimization problem in Eq. (2) for two reasons. On the one hand, the search space grows signif-icantly with the cluster scale. For a cluster with 256 devices, the number of possible strategy com-binations may exceed 10 4. On the other hand, the steady-state throughput τi(c) depends on the com-bined effect of operator efficiency and communi-cation overhead, neither of which can be explic-itly formulated as a closed-form function. To this end, the allocator exploits a three-step solution that prunes the search space, builds a throughput surro-gate model, and solves the Mixed-Integer Linear Programming (MILP) problem. 
+
+Firstly , we reduce the candidate space Ci, ∀i ∈E ∪ { b} while retaining practically deployable con-figurations. As the encoder is relatively small, we only consider DP and TP for the encoder side. Therefore, each candidate configuration occupies 
+
+DP × TP devices. For the substantially larger backbone side, we additionally include PP, requir-ing DP × TP × PP devices per configuration. We prune invalid and low-efficiency configurations where the global batch size cannot be divisible by the resulting DP degree, and TP/PP degrees can-not factorize the per-module resource budget and cause cross-node tensor parallelism. Secondly , we 40 500 1000 1500 2000         
+
+> ℓmax
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> Execution Time (ms)
+> Samples Quadratic Fit
+> 01234
+> (ℓmax )2×10 6
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> Execution Time (ms)
+> Samples Linear Fit
+> (a) Maximum Length (b) Squared Maximum Length
+
+Figure 5: Execution cost modeling with maximum sub-sequence length ℓmax .
+
+perform throughput profiling by executing a small number of warm-up iterations under a fixed packed sequence length, which is the established methodol-ogy in parallelism planning (Um et al., 2024; Miao et al., 2022). This lightweight profiling estimates a surrogate of τi(c) and is only performed once be-fore VLM training begins, resulting in acceptable overhead compared to end-to-end training. Thirdly ,substituting the surrogates into Eq. (2) yields the MILP problem, which can be efficiently solved by off-the-shelf solvers (e.g., Gurobi) in milliseconds. Then, the obtained resource partition and module-specific parallelism strategies are materialized by Ray (Moritz et al., 2018) as a set of actors. 
+
+3.4 Dynamic Packing Scheduler 
+
+Similar to the allocator, the decoupled execu-tion paradigm also reshapes the design space and scheduling objective. Regardless of monolithic or disaggregated design, microbatch composition is usually performed before multimodal encoding and only relies on raw sample size. In comparison, our unified memory pool absorbs runtime variance, pre-venting it from propagating into the backbone. The dynamic packing scheduler can flexibly assemble balanced microbatches from available embeddings in the pool based on the actual computational cost, rather than committing to fixed microbatch com-positions before training begins. As summarized in Algorithm 1, the scheduler minimizes padding waste through best-fit packing, and then relieves PP and DP imbalance via zig-zag dispatch. We utilize the segment tree-based algorithm to pack variable-length sequences in fixed-capacity microbatches, thereby reducing memory fragmen-tation (Ding et al., 2024). A segment tree covers the integer interval [0 , L ], where L is the maximum microbatch sequence length (e.g., 8192). Each leaf corresponds to the residual capacity of the candi-date microbatches, and each internal node stores the maximum residual capacity in its subtree (Line 
+
+Algorithm 1: Dynamic Packing Algorithm 
+
+/* Best-fit Packing */  
+
+> 1
+
+Initialize segment tree T over [0 , L ]; 
+
+> 2
+
+for Each sequence s with length ℓ(s) do  
+
+> 3
+
+j ← BEST FIT QUERY (T , ℓ (s)) ; 
+
+> 4
+
+if j̸ = null then  
+
+> 5
+
+Append s to microbatch Bj ; 
+
+> 6
+
+Pj ← Pj − ℓ(s) and update T ; 
+
+> 7
+
+else  
+
+> 8
+
+Create Bj with Pj ← L − ℓ(s); 
+
+> 9
+
+Insert into T ; 
+
+> 10
+
+if Pj < ℓ min then  
+
+> 11
+
+Remove Bj from T ;
+
+/* Two-dimension Load Balancing */  
+
+> 12
+
+for Each packed microbatch Bj do  
+
+> 13
+
+Compute Cost( Bj ); 
+
+> 14
+
+Assign Bj to bucket k by clustering 
+
+Cost( Bj ); 
+
+> 15
+
+for Each bucket k do  
+
+> 16
+
+Obtain list by sorting microbatches in descending order of Cost( Bj ); 
+
+> 17
+
+Initialize a ← 0, Forward ← True;  
+
+> 18
+
+while a < len (list ) do  
+
+> 19
+
+if Forward then  
+
+> 20
+
+for n = 0 to N − 1 do  
+
+> 21
+
+Assign list [a] to Rank n; 
+
+> 22
+
+a ← a + 1 ; 
+
+> 23
+
+else  
+
+> 24
+
+for n = N − 1 to 0 do  
+
+> 25
+
+Assign list [a] to Rank n; 
+
+> 26
+
+a ← a + 1 ; 
+
+> 27
+
+Forward ← not Forward ;1). For each incoming sequence s with length ℓ(s),the scheduler first examines the left subtree, which represents smaller residual capacities. If its resid-ual capacity is ≥ ℓ(s), the search recursively de-scends into the left subtree. Otherwise, it proceeds to the right subtree. This process locates the open microbatch whose residual capacity is ≥ ℓ(s) and minimal among all candidates by O(log L) best-fit queries (Lines 2-3). If a suitable microbatch Bj
+
+is found, append incoming sequence s to Bj and update its residual capacity to Pj ← Pj − ℓ(s)
+
+(Lines 4-6). Otherwise, create a new microbatch with residual capacity L − ℓ(s) and insert it into the tree (Lines 7-9). When a microbatch’s residual 5capacity falls below the minimum sequence length in the current distribution, it is removed from the segment tree (Lines 10-11). Then, packed microbatches are assigned to PP stages and DP ranks to relieve imbalance across both dimensions. To characterize execution costs, we profile packed microbatches with different se-quence compositions. We observe from Figure 5 that the execution time is approximately linear in 
+
+(ℓmax )2, where ℓmax = max s∈Bj ℓ(s) is the max-imum sub-sequence length within a packed mi-crobatch Bj . This observation is consistent with the quadratic scaling of the attention kernel (Dao, 2024). Meanwhile, the execution time of MLP layers scales approximately linearly with the total number of valid tokens. Based on these observa-tions, we estimate the execution cost of Bj after maximum microbatch length ( L) normalization:     
+
+> Cost( Bj) = 1
+> L
+> X
+> s∈Bj
+> ℓ(s) + 1
+> L2(ℓmax )2(3)
+
+Based on Cost( Bj ) capturing both linear and quadratic computations, we cluster packed micro-batches with similar computational intensities into a discrete bucket, ensuring consistent execution la-tencies across PP stages (Lines 12-14). Within each bucket, the microbatches are sorted in descending order of Cost( Bj ) (Lines 15-16). The sorted micro-batches are dispatched in order Rank 0 → Rank N −1
+
+(Lines 17-22), and then the direction of the traversal is reversed to Rank N −1 → Rank 0 (Lines 23-27). This zig-zag dispatch ensures that high and low-cost microbatches are paired on DP ranks, forcing the total cost to converge across the cluster (Abdel-hamid et al., 2020). 
+
+4 Experiments 
+
+4.1 Experimental Setup Models and Datasets. We adopt a representative VLM architecture, where the vision encoder adopts the ViT architecture (Dosovitskiy et al., 2020), and the LLM backbone is based on Qwen3 (Yang et al., 2025). We train three model scales spanning small, medium, and large configurations, i.e., VLM-6B, VLM-32B, and VLM-72B. We evaluate FlowTrain on InfoVQA (Mathew et al., 2022), an open-source visual question answering dataset, and Industrial 
+
+dataset collected from an e-commerce platform. 
+
+Training Configurations. All experiments are conducted on a production cluster with 256 NPUs (64GB) (Zhou et al., 2025). FlowTrain uses Ray 6B 32B 72B      
+
+> Model Scale
+> 200
+> 400
+> 600
+> 800
+> 1000
+> 3000
+> 5000
+> Throughput (tokens/s/device)
+> 6B 32B 72B
+> Model Scale
+> 200
+> 400
+> 600
+> 800
+> 1000
+> 3000
+> 5000
+> Throughput (tokens/s/device)
+> (a) InfoVQA (b) Industrial
+> Megatron-LM DistTrain FlowTrain
+
+Figure 6: Training throughput across different methods on varying model sizes. 
+
+to orchestrate heterogeneous actors and enable in-dependent execution between the encoder and the LLM backbone. The image and text subsequences are interleaved to form sequences of up to 8192, and the global batch size is set to 256. 
+
+Baselines. We compare FlowTrain with two rep-resentative baselines. (1) Megatron-LM (Shoeybi et al., 2019) provides mature optimizations for LLM training and treats the multimodal model as a monolithic network. (2) DistTrain (Zhang et al., 2025) adopts disaggregated model orchestration and data preprocessing, which deploy heteroge-neous modules with independent resources and par-allelism configurations. We also report the LLM-only performance as a reference upper bound for unimodal training efficiency. For fair comparison, all methods are evaluated under the same software environment, optimizer configuration, and data pre-processing pipeline. 
+
+Metrics. (1) MFU measures the fraction of hard-ware FLOPs converted into effective model compu-tation, which directly quantifies resource efficiency independent of hardware count. (2) Throughput is reported as the number of tokens processed per sec-ond per device (tokens/s/device), reflecting training speed. (3) Training loss tracks the model’s conver-gence trajectory throughout the training process, which is used to evaluate consistency. (4) Algo-rithm overhead quantifies the average additional latency introduced by dynamic packing scheduling. 
+
+4.2 End-to-end Effectiveness 
+
+We evaluate the end-to-end training performance of FlowTrain with three model scales. The results in Figure 6 show that FlowTrain consistently achieves the highest throughput among all training systems. FlowTrain achieves up to 1.7 × and 1.4 × through-put improvements on the InfoVQA dataset and the Industrial dataset, respectively. Notably, the per-formance gap between FlowTrain and baselines 66B 32B 72B      
+
+> Model Scale
+> 20
+> 30
+> 40
+> 50
+> 60
+> MFU (%)
+> 6B 32B 72B
+> Model Scale
+> 20
+> 30
+> 40
+> 50
+> 60
+> MFU (%)
+> (a) InfoVQA (b) Industrial
+> Megatron-LM DistTrain FlowTrain
+
+Figure 7: MFU across different methods on varying model sizes. 
+
+increases as the models grow larger. FlowTrain outperforms Megatron-LM by 30.4% for VLM-6B, 33.7% for VLM-32B, and 69.1% for VLM-72B on the InfoVQA dataset. This is because the baselines suffer from batch-level synchronization barriers, leading to poor hardware utilization. In compari-son, FlowTrain allows execution decoupling and co-ordinates heterogeneous modules through a shared memory abstraction, which substantially improves the training efficiency of large-scale VLMs. 
+
+4.3 Resource Efficiency 
+
+We compare the MFU of different methods with three model scales. As plotted in Figure 7, Flow-Train outperforms Megatron-LM by a large margin across all configurations. Thanks to flow matching optimization between producers and consumers, FlowTrain achieves the MFU of 52.9% and 50.0% when training VLM-72B on the InfoVQA dataset and the Industrial dataset, while Megatron-LM only reaches 31.2% and 36.9% due to the monolithic de-sign. Besides, DistTrain partially alleviates the parallelism mismatch through disaggregated or-chestration, but its MFU is still lower than that of FlowTrain. This gap is rooted in the rigid pipeline execution of DistTrain. FlowTrain allows the LLM backbone to proceed without waiting for the entire batch of encoder output and to consume balanced microbatches, thus improving resource utilization. 
+
+4.4 Scaling Performance 
+
+We further evaluate scalability by varying the clus-ter scales. Figure 8 reports the results of training VLM-32B on the InfoVQA dataset, together with LLM-only training as a reference upper bound. FlowTrain achieves above 53% MFU and 1.1-1.4 × throughput improvement across all evaluation scales and exhibits the most robust scaling behavior, while the training efficiency of other methods is far lower than ours. Another noteworthy observation 64 128 256       
+
+> Cluster Scale
+> 35
+> 45
+> 55
+> 65
+> MFU (%)
+> 64 128 256
+> Cluster Scale
+> 600
+> 700
+> 800
+> 900
+> 1000
+> Throughput (tokens/s/device)
+> (a) MFU (b) Throughput
+> LLM Megatron-LM DistTrain FlowTrain
+
+Figure 8: The efficiency gap compared to LLM-only training at different cluster scales.                                 
+
+> Component VLM-6B VLM-32B VLM-72B MFU Throughput MFU Throughput MFU Throughput w/o Pool 21.6 2118 44.4 717 47.0 399
+> w/o Allocator 39.5 3879 50.1 809 48.9 415
+> w/o Scheduler 46.1 4531 49.1 793 47.2 400
+> FlowTrain 52.1 5125 54.8 884 52.9 448
+
+Table 1: Ablation study of three core components on MFU (%) and throughput (tokens/s/device). 
+
+is that FlowTrain is closer to LLM-only training performance than baselines. The average MFU gaps are 18.7, 12.1, and 5.0 percentage points for Megatron-LM, DistTrain, and FlowTrain, respec-tively. These results confirm that our design can sig-nificantly narrow the gap to the efficiency regime associated with unimodal training workloads. 
+
+4.5 Ablation Study 
+
+We conduct ablation experiments to quantify the in-dividual contribution of three components in Flow-Train. As summarized in Table 1, removing the uni-fied memory pool causes the largest degradation, reducing MFU and throughput by 15.6 percentage points and 29.5% on average, respectively. The system falls back to point-to-point batch synchro-nization, which reintroduces idle time and weakens the main benefit of decoupled execution. With-out the heterogeneous parallel allocator, the train-ing throughput decreases by up to 24.3%. Due to throughput mismatch between producers and consumers, the backbone is either starved of em-beddings or overwhelmed by excessive production in the pool. Disabling the scheduler produces con-sistent performance loss. The MFU drops to 46.1%, 49.1%, and 47.2%, while the throughput decreases by 10.3-11.6%. The microbatches are no longer packed and dispatched according to actual com-putation cost, leading to padding waste and load imbalance. The ablation results demonstrate that three core components are essential and their com-bination delivers the maximum efficiency gain. 70 200 400 600 800 1000 1200 1400    
+
+> Iteration
+> 0
+> 2
+> 4
+> 6
+> 8
+> Training Loss
+> 1300 1350 1400
+> 0.00
+> 0.06
+> 0.12
+> 0.18
+> Synchronous Baseline FlowTrain
+
+Figure 9: Training loss curves of FlowTrain and syn-chronous baseline. 
+
+4.6 Training Consistency 
+
+We evaluate whether FlowTrain preserves the op-timization behavior of synchronous training. Fig-ure 9 shows that FlowTrain closely follows syn-chronous training throughout the entire training process on the InfoVQA dataset. Over the final 100 iterations, FlowTrain and baseline achieve average training losses of 0.0615 and 0.0553, respectively, corresponding to an absolute difference of only 0.0062. The reason is that FlowTrain only changes the embedding execution and scheduling of frozen encoders but does not introduce stale activations or cross-version gradients. These results indicate that FlowTrain preserves synchronous updates and does not materially alter the observed optimization trajectory. 
+
+4.7 Algorithm Overhead 
+
+The additional overhead introduced by dynamic packing algorithm is a major concern in practi-cal industrial deployments. Figure 10 records that the average packing overhead for InfoVQA and Industrial datasets increases from 0.7-1.0ms to 8.6-13.8ms with sequence length varying from 2K to 32K. This upward trend is expected because longer sequences enlarge the candidate packing space and increase the cost of residual-capacity queries and load balancing. In particular, the Industrial dataset incurs larger algorithm overhead than the InfoVQA dataset due to its more severe data imbalance. Nev-ertheless, the overhead remains small compared with the forward and backward computation time. Even at 32K length, the packing overhead accounts for less than 0.1% of one training iteration. 
+
+5 Related Work 
+
+Compared with unimodal LLM training, optimiz-ing VLM training is more difficult due to its inher-ent heterogeneity and dynamics. Driven by con-tinuous scaling of industrial VLMs combined with trillion-level datasets, distributed training on large-2K 4K 8K 16K 32K      
+
+> Sequence Length
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> Packing Overhead (ms)
+> 2K 4K 8K 16K 32K
+> Sequence Length
+> 0
+> 4
+> 8
+> 12
+> 16
+> Packing Overhead (ms)
+> (a) InfoVQA (b) Industrial
+
+Figure 10: The average overhead of dynamic packing algorithm under different sequence lengths. 
+
+scale clusters has become imperative (Dong et al., 2025). Early systems such as DistMM (Huang et al., 2024) can handle traditional multimodal train-ing efficiently, but do not support LLM training naively. Although frameworks like Megatron-LM (Shoeybi et al., 2019; Rasley et al., 2020; Zhao et al., 2023) excel at LLM workloads, they treat VLMs as monolithic models with heterogeneous layers, resulting in suboptimal resource allocation. Other studies (Feng et al., 2025; Wang et al., 2025a; Xue et al., 2025) adopt fine-grained bub-ble exploitation or pipeline scheduling algorithms to improve resource utilization. Following this idea, LongCat-Flash-Omni (Team et al., 2025) and MegaScale-Omni (Xue et al., 2026a) further reduce engineering complexity. However, colo-cated schemes may suffer from the long-tail ef-fect, resulting in resource conflicts and additional onload/offload overhead. Disaggregated systems represented by DistTrain (Zhang et al., 2025) de-ploy heterogeneous modules on separate resource groups, addressing model and data heterogeneity. However, these methods retain batch-level synchro-nization between heterogeneous modules, hinder-ing efficient VLM training. To fill this gap, Flow-Train enables disaggregated deployment and decou-pled execution to improve resource utilization and training throughput. 
+
+6 Conclusion 
+
+In this paper, we propose FlowTrain, a disaggre-gated and decoupled VLM training framework that breaks batch-level synchronization barriers through three core designs: a unified memory pool that enables flexible producer-consumer collaboration, a heterogeneous parallel allocator for throughput matching, and a dynamic packing scheduler con-structing balanced microbatches. Empirical evalu-ations on different models and scales demonstrate the efficiency of FlowTrain. 8References 
+
+Ahmed S Abdelhamid, Ahmed R Mahmood, Anas Daghistani, and Walid G Aref. 2020. Prompt: Dy-namic data-partitioning for distributed micro-batch stream processing systems. In Proceedings of the 2020 ACM SIGMOD international conference on management of data , pages 2455–2469. Tri Dao. 2024. Flashattention-2: Faster attention with better parallelism and work partitioning. In Inter-national Conference on Learning Representations ,volume 2024, pages 35549–35562. Hantian Ding, Zijian Wang, Giovanni Paolini, Varun Kumar, Anoop Deoras, Dan Roth, and Stefano Soatto. 2024. Fewer truncations improve language modeling. 
+
+arXiv preprint arXiv:2404.10830 .Hongyuan Dong, Zijian Kang, Weijie Yin, Xiao Liang, Chao Feng, and Jiao Ran. 2025. Scalable vision lan-guage model training via high quality data curation. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 33272–33293, Vienna, Austria. Association for Computational Linguistics. Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, and 1 others. 2020. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929 .Weiqi Feng, Yangrui Chen, Shaoyu Wang, Yanghua Peng, Haibin Lin, and Minlan Yu. 2025. Optimus: Accelerating {Large-Scale }{ Multi-Modal }{ LLM }
+
+training by bubble exploitation. In 2025 USENIX An-nual Technical Conference (USENIX ATC 25) , pages 161–177. Jun Huang, Zhen Zhang, Shuai Zheng, Feng Qin, and Yida Wang. 2024. {DISTMM }: Accelerating dis-tributed multimodal model training. In 21st USENIX Symposium on Networked Systems Design and Imple-mentation (NSDI 24) , pages 1157–1171. Md Tahmid Rahman Laskar, Mohammed Saidul Islam, Ridwan Mahbub, Mizanur Rahman, Amran Bhuiyan, Israt Jahan, Mir Tafseer Nayeem, Shafiq Joty, Enamul Hoque, and Jimmy Huang. 2025. Deploying tiny lvlm judges for real-world evaluation of chart models: Lessons learned and best practices. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing: Industry Track , pages 1906–1918. Peizheng Li, Zhenghao Zhang, David Holtz, Hang Yu, Yutong Yang, Yuzhi Lai, Rui Song, Andreas Geiger, and Andreas Zell. 2026. Spacedrive: Infusing spatial awareness into vlm-based autonomous driving. In 
+
+Proceedings of the IEEE/CVF Conference on Com-puter Vision and Pattern Recognition , pages 40096– 40107. Zongxia Li, Xiyang Wu, Hongyang Du, Fuxiao Liu, Huy Nghiem, and Guangyao Shi. 2025. A survey of state of the art large vision language models: Bench-mark evaluations and challenges. In Proceedings of the Computer Vision and Pattern Recognition Con-ference , pages 1587–1606. Jinkun Lin, Ziheng Jiang, Zuquan Song, Sida Zhao, Menghan Yu, Zhanghan Wang, Chenyuan Wang, Zuocheng Shi, Xiang Shi, Wei Jia, and 1 others. 2025. Understanding stragglers in large model training us-ing what-if analysis. In 19th USENIX Symposium on Operating Systems Design and Implementation (OSDI 25) , pages 483–498. Xiaoya Lu, Zeren Chen, Xuhao Hu, Yijin Zhou, We-ichen Zhang, Dongrui Liu, Lu Sheng, and Jing Shao. 2026. Is-bench: Evaluating interactive safety of vlm-driven embodied agents in daily household tasks. In 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 35680–35688. Minesh Mathew, Viraj Bagal, Rubèn Tito, Dimosthe-nis Karatzas, Ernest Valveny, and CV Jawahar. 2022. Infographicvqa. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vi-sion , pages 1697–1706. Xupeng Miao, Yujie Wang, Youhe Jiang, Chunan Shi, Xiaonan Nie, Hailin Zhang, and Bin Cui. 2022. Gal-vatron: Efficient transformer training over multiple gpus using automatic parallelism. arXiv preprint arXiv:2211.13878 .Philipp Moritz, Robert Nishihara, Stephanie Wang, Alexey Tumanov, Richard Liaw, Eric Liang, Melih Elibol, Zongheng Yang, William Paul, Michael I Jordan, and 1 others. 2018. Ray: A distributed framework for emerging {AI } applications. In 13th USENIX symposium on operating systems design and implementation (OSDI 18) , pages 561–577. Jeff Rasley, Samyam Rajbhandari, Olatunji Ruwase, and Yuxiong He. 2020. Deepspeed: System optimiza-tions enable training deep learning models with over 100 billion parameters. In Proceedings of the 26th ACM SIGKDD international conference on knowl-edge discovery & data mining , pages 3505–3506. Gaurav Shinde, Anuradha Ravi, Emon Dey, Shadman Sakib, Milind Rampure, and Nirmalya Roy. 2025. A survey on efficient vision-language models. Wiley Interdisciplinary Reviews: Data Mining and Knowl-edge Discovery , 15(3):e70036. Mohammad Shoeybi, Mostofa Patwary, Raul Puri, Patrick LeGresley, Jared Casper, and Bryan Catan-zaro. 2019. Megatron-lm: Training multi-billion parameter language models using model parallelism. 
+
+arXiv preprint arXiv:1909.08053 .Meituan LongCat Team, Bairui Wang, Bin Xiao, Bo Zhang, Bolin Rong, Borun Chen, Chang Wan, Chao Zhang, Chen Huang, Chen Chen, and 1 others. 2025. Longcat-flash-omni technical report. arXiv preprint arXiv:2511.00279 .
+
+9Taegeon Um, Byungsoo Oh, Minyoung Kang, Woo-Yeon Lee, Goeun Kim, Dongseob Kim, Youngtaek Kim, Mohd Muzzammil, and Myeongjae Jeon. 2024. Metis: Fast automatic distributed training on hetero-geneous {GPUs }. In 2024 USENIX Annual Techni-cal Conference (USENIX ATC 24) , pages 563–578. Xiao Wang, Ibrahim Alabdulmohsin, Daniel Salz, Zhe Li, Keran Rong, and Xiaohua Zhai. 2026. Scaling pre-training to one hundred billion data for vision language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recog-nition , pages 6185–6196. Yujie Wang, Shenhan Zhu, Fangcheng Fu, Xupeng Miao, Jie Zhang, Juan Zhu, Fan Hong, Yong Li, and Bin Cui. 2025a. Spindle: Efficient distributed train-ing of multi-task large models via wavefront schedul-ing. In Proceedings of the 30th ACM International Conference on Architectural Support for Program-ming Languages and Operating Systems, Volume 2 ,pages 1139–1155. Zining Wang, Tongkun Guan, Pei Fu, Chen Duan, Qianyi Jiang, Zhentao Guo, Shan Guo, Junfeng Luo, Wei Shen, and Xiaokang Yang. 2025b. Marten: Vi-sual question answering with mask generation for multi-modal document understanding. In Proceed-ings of the Computer Vision and Pattern Recognition Conference , pages 14460–14471. Chunyu Xue, Yangrui Chen, Jianyu Jiang, Ningxin Zheng, Junda Feng, Jingji Chen, Shixiong Zhao, Shen Yan, Yi Lin, Lei Shi, and 1 others. 2026a. Megascale-omni: A hyper-scale, workload-resilient system for multimodal llm training in production. In Proceedings of the 21st European Conference on Computer Systems , pages 675–692. Zhenliang Xue, Hanpeng Hu, Xing Chen, Yimin Jiang, Yixin Song, Zeyu Mi, Yibo Zhu, Daxin Jiang, Yubin Xia, and Haibo Chen. 2025. Pipeweaver: Addressing data dynamicity in large multimodal model training with dynamic interleaved pipeline. arXiv preprint arXiv:2504.14145 .Zhenliang Xue, Hanpeng Hu, Xing Chen, Yimin Jiang, Yixin Song, Zeyu Mi, Yibo Zhu, Daxin Jiang, Yu-bin Xia, and Haibo Chen. 2026b. Dip: Efficient large multimodal model training with dynamic in-terleaved pipeline. In Proceedings of the 31st ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 2 , pages 618–632. An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, and 1 others. 2025. Qwen3 technical report. arXiv preprint arXiv:2505.09388 .Duzhen Zhang, Yahan Yu, Jiahua Dong, Chenxing Li, Dan Su, Chenhui Chu, and Dong Yu. 2024. Mm-llms: Recent advances in multimodal large language mod-els. Findings of the Association for Computational Linguistics: ACL 2024 , pages 12401–12430. Zili Zhang, Yinmin Zhong, Yimin Jiang, Hanpeng Hu, Jianjian Sun, Zheng Ge, Yibo Zhu, Daxin Jiang, and Xin Jin. 2025. Disttrain: Addressing model and data heterogeneity with disaggregated training for multi-modal large language models. In Proceedings of the ACM SIGCOMM 2025 Conference , pages 24–38. Yanli Zhao, Andrew Gu, Rohan Varma, Liang Luo, Chien-Chin Huang, Min Xu, Less Wright, Hamid Shojanazeri, Myle Ott, Sam Shleifer, and 1 oth-ers. 2023. Pytorch fsdp: experiences on scal-ing fully sharded data parallel. arXiv preprint arXiv:2304.11277 .Yuhang Zhou, Zibo Wang, Zhibin Wang, Ruyi Zhang, Chen Tian, Xiaoliang Wang, Wanchun Dou, Guihai Chen, Bingqiang Wang, Yonghong Tian, and 1 oth-ers. 2025. Accelerating model training on ascend chips: An industrial system for profiling, analysis and optimization. In 2025 USENIX Annual Techni-cal Conference (USENIX ATC 25) , pages 1387–1408. He Zhu, Junyou Su, Minxin Chen, Wen Wang, Yi-jie Deng, Guanhua Chen, and Wenjia Zhang. 2025. Plangpt-vl: Enhancing urban planning with domain-specific vision-language models. In Proceedings of the 2025 Conference on Empirical Methods in Nat-ural Language Processing: Industry Track , pages 2461–2483. 
+
+10
