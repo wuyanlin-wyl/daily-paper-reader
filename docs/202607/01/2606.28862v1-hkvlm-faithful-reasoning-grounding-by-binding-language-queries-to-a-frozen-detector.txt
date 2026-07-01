@@ -1,0 +1,354 @@
+Title: HKVLM: Faithful Reasoning Grounding by Binding Language Queries to a Frozen Detector
+
+URL Source: https://arxiv.org/pdf/2606.28862v1
+
+Published Time: Tue, 30 Jun 2026 00:35:15 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# HKVLM: Faithful Reasoning Grounding by Binding Language Queries to a Frozen Detector 
+
+# Bo Ma 
+
+Auckland University of Technology 
+
+rcn4743@aut.ac.nz 
+
+Abstract 
+
+Many visual requests—“the object to open this bottle”, “the person not wearing a helmet”—require reasoning, not just cat-egory matching. Pure open-vocabulary detectors need an ex-plicit phrase; vision-language models (VLMs) can reason yet “see but mis-speak”, attending to the right region but returning the wrong box or label. We argue this is a binding failure: in coordinate-as-text VLMs localization passes through the au-toregressive head, coupling it to language generation; in two-stage pipelines the model’s intent is squeezed through a single class string. We present HKVLM, which removes localization from the language path. A frozen, language-aligned detec-tor emits class-agnostic region proposals; a frozen language model encodes reasoning instructions as referential query embeddings; a lightweight alignment hook binds queries to regions by contrastive retrieval and bipartite assignment in a shared embedding space. A perception-grounded faithful-ness veto forbids naming an object that no region supports. Only the hook is trained, targeting small-data cold-start set-tings where monolithic VLM tuning struggles. We formal-ize a say-vs-see decomposition separating localization er-ror (SeeErr) from binding error (SayErr), and evaluate on RefCOCO/RefCOCO+/RefCOCOg and POPE. With frozen Grounding DINO and Qwen2.5-VL, training only the hook lifts grounding accuracy by 50 –90 × over untrained cross-space matching; the faithfulness veto raises POPE accuracy from near-chance ( 0.50 ) to 0.66 –0.76 and reduces halluci-nation from ∼0.99 to 0.23 –0.43 , with gains from 200 ex-pressions. Increasing proposals from M =50 to M =300 im-proves grounding by 19 –24% without retraining, confirming that residual error is perceptual (SeeErr) rather than binding (SayErr). 
+
+# 1 Introduction 
+
+Practitioners who adapt small open-source VLMs for object detection report a stubborn pattern: out of the box the models localize poorly, and modest fine-tuning—for example low-rank adaptation on a thousand images—barely moves the needle. The models clearly attend to the right pixels yet still return wrong labels or imprecise boxes. We call this the see-but-mis-speak gap. The gap matters most for reasoning grounding : requests phrased as intent or world knowledge rather than a cate-gory name—“something to cut paper with”, “the unoccupied 
+
+Copyright © 2027, Association for the Advancement of Artificial Intelligence (www.aaai.org). All rights reserved. 
+
+chair”, “the person not wearing a helmet”—where a pure de-tector has no phrase to match and the system must both reason and localize. This is the regime we target. Closed-set detec-tion, where specialized detectors already excel and language reasoning adds little, is not our battleground. A common explanation blames the visual encoder and pro-poses a stronger one. Encoder upgrades help only marginally in practice, which points elsewhere. In a VLM the encoder output is consumed by the language model exactly as text is: keys and values are read according to a query, and the quality of that query is not guaranteed. When the box itself is produced by the autoregressive decoder—as a sequence of coordinate tokens (Peng et al. 2024; Chen et al. 2023; Zhan et al. 2024a) or quantized coordinate symbols (Bai et al. 2025; Jiang et al. 2026)—the geometry of the object is forced through the same brittle channel that produces words. A single bad query token can override a correct percept. The localization signal and the language signal are entangled. We take the position that faithful grounding requires three 
+
+separable competencies: localization competence (place a tight box on an object), referential faithfulness (name only what is actually there), and binding (connect the user’s intent to the correct region). Coordinate-as-text designs entangle all three inside one autoregressive head. Two-stage reasoning pipelines (Pi et al. 2023; Lai et al. 2024) separate localiza-tion but re-couple through a lossy text interface: the model’s intent is compressed into a class string handed to an exter-nal detector, discarding instance-specific and relational cues. Recent decoupled designs recast box regression as retrieval over proposals (Jiang et al. 2024; Ma et al. 2024), a real step forward, but selection still happens inside the autoregressive language model via index tokens and there is no explicit ob-jective that ties language semantics to region geometry or that penalizes ungrounded assertions. We propose HKVLM, which keeps localization entirely outside the language path. A frozen, language-aligned open-vocabulary detector (Liu et al. 2024; Li et al. 2022) pro-duces class-agnostic, high-recall region proposals together with vision-language-fused region embeddings. The lan-guage model reads the image and the reasoning instruc-tion and emits one or more referential query embeddings 
+
+that carry its world knowledge. A small trained module—the 
+
+alignment hook —projects queries and regions into a shared space and binds them by contrastive retrieval and bipartite 
+
+> arXiv:2606.28862v1 [cs.CV] 27 Jun 2026
+
+assignment, reusing the set-prediction machinery of DETR (Carion et al. 2020). Categories and answers are produced in language, but every box comes from the detector and every emitted category must be justified by an aligned region whose embedding agrees. This last requirement is a perception-grounded faithfulness constraint, and it is motivated by ev-idence that grounding alone does not automatically reduce hallucination (Geigle, Timofte, and Glavaš 2024). Freezing the heavy components has a practical payoff. Only the hook and a thin projection are trained, so the cold-start regime that defeats parameter-efficient tuning of a monolithic VLM becomes tractable: the localization stack already works, and learning is confined to the binding. Our contributions are: 1. A diagnostic framing that separates localization compe-tence, referential faithfulness, and binding, and a say-vs-see decomposition that measures localization error and naming-given-region error independently (Section 3). 2. HKVLM, a grounding framework in which a frozen de-tector owns localization and an LLM’s referential queries are bound to region embeddings by shared-space align-ment instead of autoregressive coordinate or index tokens (Section 4). 3. A perception-grounded faithfulness objective that sup-presses categories no region supports, and a frozen-stack training recipe targeted at small-data, cold-start adapta-tion (Sections 4). 4. An evaluation protocol—datasets, baselines, metrics, ab-lations, and hypotheses—centered on reasoning and refer-ring grounding (RefCOCO/RefCOCO+/RefCOCOg) and object hallucination (Section 5), together with real image-level results (Section 6) that validate the binding and faithfulness claims at matched perception with a frozen Grounding DINO and a frozen Qwen2.5-VL. We are explicit about scope. Section 6 reports real re-sults on RefCOCO/RefCOCO+/RefCOCOg and POPE that confirm the three hypotheses at matched perception: the trained hook binds 50 –90 × better than untrained cross-space matching, the faithfulness veto converts grounding into hal-lucination resistance, and the hook learns from a few hun-dred expressions. These are mechanism and ablation claims at a fixed, frozen detector, not a state-of-the-art absolute-localization claim: absolute [email protected] is capped by proposal recall under a generic detection prompt. Section 7 adds a controlled embedding-space study that isolates the binding step further (perception assumed perfect). 
+
+# 2 Related Work 
+
+Coordinate-as-text grounding VLMs. Kosmos-2 (Peng et al. 2024) encodes boxes as location tokens and links text spans to regions; Shikra (Chen et al. 2023) renders coordi-nates as natural-language numbers; Ferret (You et al. 2024) mixes discrete points with continuous region features; Grif-fon (Zhan et al. 2024a,b) spells out dense locations as text; and the Qwen-VL family (Bai et al. 2023; Wang et al. 2024; Bai et al. 2025; Qwen Team 2025) decodes absolute coor-dinates. Rex-Omni (Jiang et al. 2026) pushes this paradigm furthest, casting detection as next-token prediction over quan-tized coordinate symbols and reaching detector-level zero-shot accuracy. All of these route geometry through the au-toregressive head. We differ by removing localization from that head entirely; the language model never emits a coordi-nate. 
+
+Reasoning pipelines with a class-string interface. Det-GPT (Pi et al. 2023) has an MLLM name target objects that an open-vocabulary detector then localizes; LISA (Lai et al. 2024) decodes a <SEG> embedding into a mask through SAM (Kirillov et al. 2023). These separate localization but communicate intent through a single string or token, which is lossy for instance-specific and relational queries. We dif-fer by binding a continuous referential query embedding to region embeddings, preserving more of the intent. 
+
+Decoupled retrieval and localized tokenization. Cha-tRex (Jiang et al. 2024) turns box regression into retrieval with a Universal Proposal Network and has the LLM select proposals by index; Groma (Ma et al. 2024) localizes through a region tokenizer referenced by index. Both validate the regression-to-retrieval move that we build on. Referring vari-ants extend this line (IDEA Research 2025), and grounded conversational models attach grounding to chat (Zhang et al. 2024; Rasheed et al. 2024). We differ in where and how selection happens: our binding is an explicit shared-space alignment trained with a matching and faithfulness objec-tive, not an index token emitted by the autoregressive model, and our recipe targets cold-start adaptation rather than large-scale co-training. 
+
+Grounding frozen multimodal models. F-LMM (Wu et al. 2025) keeps the LMM frozen and turns its word–image attention maps into masks with a few trainable layers and a SAM refiner, preserving conversational ability. We share the frozen-stack, light-adapter philosophy. We differ by sourc-ing localization from an external detector bound by explicit alignment, and by adding a faithfulness constraint; F-LMM derives localization from internal attention and targets seg-mentation. A broader trend injects MLLM hidden states as priors to condition detector queries (Sapkota and Karkee 2025); our binding is an explicit retrieval-plus-assignment objective with a perceptual veto rather than a soft prior. 
+
+Open-vocabulary detectors and dense backbones. GLIP (Li et al. 2022), Grounding DINO (Liu et al. 2024), YOLO-World (Cheng et al. 2024), and OWL-ViT (Minderer et al. 2022) detect arbitrary categories from text, and DETR (Car-ion et al. 2020) provides set prediction with bipartite match-ing. Self-supervised backbones (Oquab et al. 2024; Siméoni et al. 2025) and contrastive vision-language pre-training (Radford et al. 2021) yield region features with strong local-ization structure. HKVLM uses these as frozen perception and reuses the matching machinery for binding. 
+
+Hallucination evaluation. POPE (Li et al. 2023) probes object existence with stable yes/no polling, and CHAIR (Rohrbach et al. 2018) measures hallucinated objects in gen-erated text. A cautionary study finds that grounding does not automatically reduce hallucination (Geigle, Timofte, and Glavaš 2024), which motivates our explicit faithfulness ob-jective and the say-vs-see metric rather than an assumption that grounding suffices. 
+
+# 3 Problem Formulation 
+
+Given an image I and a free-form request q (a category name, a referring expression, or an instruction), the system must return a set of category–box pairs {(ci, b i)} that are both accurate (tight, correctly labeled) and faithful (no ci
+
+without supporting evidence in I). We separate three competencies. Localization compe-tence is the ability of a perception module to produce a region set R = {r1, . . . , r M }, with boxes {bj } and embed-dings {ej }, that covers the true objects; we measure it by proposal recall (the fraction of true objects covered by the top M proposals). Binding is the map from the request q
+
+to the correct subset of R. Referential faithfulness is the property that every emitted category is supported by a bound region. 
+
+Say-vs-see decomposition. A grounding error can arise because the right region was never proposed ( see error) or because the right region was available but mis-bound or mis-named ( say error). Let R⋆ ⊆ R be the proposals that overlap a ground-truth object above an IoU threshold. We define 
+
+SeeErr = 1 − |{ g : ∃ r ∈ R , IoU( r, g ) ≥ τ }| |G| , (1) 
+
+SayErr = Pr ˆc̸ = c⋆ correct region ∈ R ⋆, (2) where G is the set of ground-truth objects, τ an IoU threshold, 
+
+c⋆ the true label and ˆc the predicted one. SeeErr isolates per-ception; SayErr isolates language-binding given that percep-tion succeeded. Coordinate-as-text VLMs conflate the two; HKVLM is designed to drive SayErr down without inflating 
+
+SeeErr , because perception is frozen and strong. 
+
+# 4 Method: HKVLM 
+
+HKVLM has four parts: a frozen perception module, a lan-guage module that emits referential queries, the trained align-ment hook, and a faithfulness objective. Figure 1 shows the flow, and Table 1 contrasts HKVLM with prior paradigms. 
+
+4.1 Frozen perception module 
+
+The perception module is a frozen, pre-trained language-aligned open-vocabulary detector. We use Grounding DINO (Liu et al. 2024) (GLIP (Li et al. 2022) is an alternative) and take its class-agnostic, high-recall set of M proposals 
+
+R = {(bj , e j )}Mj=1 , where bj is a box and ej ∈ Rd is the detector’s vision-language-fused region feature for that pro-posal. The choice is deliberate: because these region features already live in a space that has been aligned to text during grounded pre-training, binding them to the language model’s query embeddings is a short bridge rather than a cross-modal leap. A purely self-supervised backbone (DINOv2/DINOv3 (Oquab et al. 2024; Siméoni et al. 2025)), whose features carry no language semantics, is evaluated only as an abla-tion and is expected to make binding harder. The module is frozen, so it carries all localization competence and box quality never depends on language decoding; operating class-agnostically maximizes recall and decouples “what is here” from “which one is meant.” 
+
+4.2 Referential query embeddings 
+
+The language model receives I and q and produces K refer-ential query embeddings {uk}Kk=1 , one per entity the request implies. We read these from dedicated query slots appended to the prompt, so the model’s reasoning and world knowl-edge shape uk while the language model itself can remain frozen or be adapted with low-rank updates. Crucially uk is a continuous vector, not a coordinate or an index token; it preserves more of the intent than a class string. 
+
+4.3 Alignment hook: binding by retrieval and assignment 
+
+Two light projections map regions and queries into a shared space, ˜ej = fθ (ej ) and ˜uk = gϕ(uk). The affinity between query k and region j is skj = ⟨˜uk, ˜ej ⟩/κ with temperature 
+
+κ. Binding combines two objectives. 
+
+Contrastive retrieval pulls each query toward its matched region(s) and pushes it from the rest: 
+
+Lret = − X
+
+> k
+
+log 
+
+P  
+
+> j∈P(k)
+
+exp( skj )
+
+PMj=1 exp( skj ) , (3) where P (k) is the set of positive regions for query k.
+
+Bipartite assignment resolves which proposal each query claims, reusing the Hungarian matching of set prediction (Carion et al. 2020). We find the assignment σ minimiz-ing P 
+
+> k
+
+C(uk, r σ(k)) with a cost that combines the negative affinity −skσ (k) and a box term against the ground-truth box; the matched pairs supervise Lret and a light box-refinement residual on bσ(k). Only θ, ϕ (and optionally LoRA in the language model) are learned. 
+
+4.4 Perception-grounded faithfulness 
+
+A query may correspond to no object. We attach a verifica-tion head v(·) that, for the best-matched region of each query, predicts whether the bound pair is genuinely supported, su-pervised by whether a true object exists: 
+
+Lfaith = X
+
+> k
+
+BCE  v(˜ uk, ˜eσ(k)), y k
+
+, (4) with yk = 1 when query k has a real referent. At inference, a category is emitted only when its bound region passes the verifier and the affinity exceeds a threshold; otherwise the model abstains. This is the perceptual veto: the language model cannot assert an object that perception does not sup-port, directly targeting object hallucination. The full objec-tive is L = Lret + λbLbox + λf Lfaith .
+
+4.5 Cold-start training 
+
+Because perception and (optionally) the language model are frozen, the trainable footprint is the two projections, the box residual, and the verifier—a small fraction of a monolithic VLM. The localization stack already works, so learning only needs to wire queries to regions and to calibrate the veto. Figure 1: HKVLM. Localization is owned by a frozen, language-aligned open-vocabulary detector and never passes through the language model. The language model turns the request into referential query embeddings; the trained alignment hook binds queries to region embeddings in a shared space and applies a perception-grounded faithfulness veto. Only the orange modules are trained. This is the regime in which adapting a monolithic VLM by low-rank tuning on a thousand images tends to fail, and it is where we expect the frozen-stack design to pay off; the data-fraction study in Section 5 is built to test this. 
+
+# 5 Experimental Design and Evaluation Protocol 
+
+We specify the study that tests HKVLM’s claims. The pro-tocol below defines tasks, baselines, metrics, ablations, and hypotheses; Section 6 reports the subset we have run on real images at matched perception. 
+
+Tasks and datasets. The primary task is reasoning and referring grounding: return the box for a free-form, often knowledge-dependent request. We use Ref-COCO/RefCOCO+/RefCOCOg (Yu et al. 2016) over COCO images (Lin et al. 2014), with RefCOCOg emphasized for its longer, more compositional expressions, and a reasoning-grounding setting with implicit queries (paraphrased into intent/world-knowledge form). Faithfulness is measured on POPE (Li et al. 2023) (and CHAIR (Rohrbach et al. 2018) for generated descriptions). Open-vocabulary generalization to unseen categories (e.g., long-tail classes (Gupta, Dollár, and Girshick 2019)) is a secondary, zero-shot check rather than the main result. 
+
+Baselines. The closest competitor is the class-string rea-soning pipeline DetGPT (Pi et al. 2023) (LLM names a phrase, an open-vocabulary detector localizes); coordinate-as-text VLMs on referring (Chen et al. 2023; Bai et al. 2025; Zhan et al. 2024a); the decoupled-retrieval model ChatRex (Jiang et al. 2024); and frozen-LMM grounding (Wu et al. 2025). For fairness, HKVLM, DetGPT, and ChatRex are paired with the same frozen Grounding DINO so differences reflect the binding interface, not the detector. 
+
+Metrics. Grounding accuracy (the top-ranked region is counted correct when its overlap with the true referent reaches IoU 0.5) on RefCOCO/+/g and the reasoning split; POPE accuracy/F1 under random, popular, and adversarial sampling; CHAIR s/CHAIR i; our SeeErr and SayErr ; pro-posal recall; and efficiency (trainable parameters, latency). 
+
+Ablations. (i) Replace the alignment hook with an AR-index variant (to isolate shared-space alignment vs. index retrieval) and with a class-string variant (to isolate the con-tinuous query, i.e., a DetGPT-style interface). (ii) Remove 
+
+Lfaith and the veto (to measure faithfulness on POPE-adversarial and SayErr). (iii) Swap the frozen perception from the language-aligned detector (Liu et al. 2024) to a self-supervised backbone (Siméoni et al. 2025) (to confirm the language-alignment design choice). (iv) Freeze the lan-guage model vs. LoRA. (v) Vary M (recall vs. precision). 
+
+Hypotheses. H1: on reasoning/referring grounding, HKVLM attains higher grounding accuracy and lower 
+
+SayErr than the class-string pipeline and coordinate-as-text VLMs at matched perception. H2: the faithfulness veto im-proves POPE (especially adversarial) with negligible recall loss. H3: training only the hook reaches strong grounding from a few hundred to a few thousand expressions, beating low-rank tuning of a monolithic VLM at equal data. 
+
+Data-efficiency study. Train at increasing numbers of re-ferring expressions (e.g., 0.5k, 1k, 5k, full) and compare HKVLM (hook only) against low-rank tuning of a mono-lithic VLM at equal budget, reporting grounding accuracy versus data size. Table 1: Where grounding paradigms place each competency. “AR” denotes the autoregressive language head. HKVLM is the only design that removes localization from the AR path and binds with an explicit alignment plus a faithfulness veto. Method citations appear in the Related Work section.                               
+
+> Paradigm Examples Localization owner Binding mechanism Cold-start Faithfulness obj. Coordinate-as-text Kosmos-2, Shikra, Rex-Omni AR language head AR coordinate tokens no no Class-string handoff DetGPT, LISA external detector text string partial no Decoupled retrieval ChatRex, Groma in-house proposer AR index tokens no no Frozen-attention grounding F-LMM LMM attention attention prior yes no
+> HKVLM (ours) —frozen detector alignment hook yes yes
+
+Reproducibility. All perception and language components are public; the trainable hook is small and fully specified. We will release training and evaluation code and configs, and complete the AAAI Reproducibility Checklist; seeds and component versions will be fixed and reported. 
+
+# 6 Results 
+
+We instantiate HKVLM end-to-end on real images. Percep-tion is a frozen Grounding DINO (Liu et al. 2024) that emits class-agnostic top-M proposals with 256 -dimensional vision-language-fused region features; queries come from a 
+
+frozen Qwen2.5-VL-7B (Bai et al. 2025) that reads each image and referring expression and returns one 3584 -dimensional referential query embedding. Only the align-ment hook (two projections, the box residual, and the veri-fier) is trained, on 24 k RefCOCOg (Yu et al. 2016) training expressions; the veto thresholds (γv , γ s) are fixed on held-out data. We evaluate on RefCOCO, RefCOCO+, and Ref-COCOg (Yu et al. 2016) (referring grounding) and on POPE (Li et al. 2023) random/popular/adversarial (object halluci-nation). Two references share the identical frozen perception, isolating the binding interface: naive cosine , which matches queries to regions through untrained projections, and no-veto , the full hook with the faithfulness objective and veto removed. 
+
+H1: binding by alignment beats untrained matching. 
+
+Table 2 reports grounding accuracy (top-ranked region at IoU 0.5) and binding accuracy with M =300 proposals. The trained hook reaches 0.254 –0.270 across the four splits, versus 0.003 –0.005 for naive cosine at the same frozen perception—a 50 –90 × gain—and binding accuracy rises from ≤ 0.005 to 0.123 –0.148 . The modality gap between detector region features and LLM query embeddings defeats untrained cross-space matching; the learned shared-space alignment is what recovers instance-level bindings. The ab-solute grounding accuracy of ∼0.26 is bounded by the frozen proposals: with a generic detection prompt, SeeErr is high by construction. Increasing M from 50 to 300 improves accuracy by 19 –24% without retraining the hook, directly confirming that the binding mechanism has already reduced 
+
+SayErr to a small fraction of the total error. 
+
+H2: the faithfulness veto suppresses hallucination. Ta-ble 3 reports POPE. Without the veto the system asserts presence nearly indiscriminately—hallucination rate 0.98 –
+
+0.99 —so POPE accuracy sits at near-chance ( 0.50 ), no Table 2: Real referring grounding ( M =300 proposals, frozen perception): grounding accuracy (top-ranked region at IoU 
+
+0.5) and HKVLM binding accuracy. The trained hook is 
+
+50 –90 × above naive cosine; removing the faithfulness veto (no-veto) changes grounding accuracy by ≤ 0.01 , confirm-ing the veto adds faithfulness without substantially altering localization.                      
+
+> Grounding acc. HKVLM Split Naive No-veto HKVLM Bind. acc. RefCOCO val 0.003 0.277 0.270 0.148 RefCOCO+ val 0.003 0.257 0.254 0.142 RefCOCOg val 0.003 0.263 0.266 0.130 RefCOCOg test 0.005 0.264 0.254 0.123
+
+Table 3: Real POPE object-existence accuracy ( M =300 pro-posals). Without the veto, accuracy is near chance because the model rarely abstains (hallucination ∼0.98 –0.99 ); the perception-grounded veto adds +16 –26 accuracy points, in-cluding on the adversarial split. Naive cosine never fires the veto.                      
+
+> Accuracy Halluc. rate Split Naive No-veto HKVLM No-veto HKVLM random 0.500 0.498 0.762 0.990 0.229 popular 0.500 0.500 0.718 0.985 0.319 adversarial 0.500 0.503 0.661 0.981 0.431
+
+better than naive cosine ( 0.50 ). Adding the perception-grounded veto reduces hallucination to 0.23 /0.32 /0.43 on random/popular/adversarial and lifts POPE accuracy to 
+
+0.762 /0.718 /0.661 , a +16 –26 point improvement that sur-vives the adversarial split. On the referring splits the veto raises existence accuracy from 0.70 –0.71 (no-veto) to 0.91 –
+
+0.97 . Crucially, this faithfulness is bought with negligible grounding loss: in Table 2 the no-veto and full-veto ground-ing accuracy are within 0.01 of each other. Grounding alone does not make a model faithful; the explicit perception-grounded veto does. 
+
+H3: the hook is data-efficient. Figure 2 traces RefCOCOg-val grounding as the number of training expres-sions grows. Training only the hook, grounding accuracy rises from 0.139 at 200 expressions to 0.266 at 24 k, already Figure 2: Data efficiency on RefCOCOg val (real). Training only the hook, grounding accuracy and binding accuracy rise monotonically from a few hundred to 24 k referring expres-sions, with perception and the language model frozen. reaching 0.173 by 1k; 200 expressions already outperform naive cosine ( 0.003 ) by 46 ×. Because perception and the language model stay frozen, the small hook learns the bind-ing from a few hundred examples—the cold-start regime in which low-rank tuning of a monolithic VLM tends to stall. 
+
+Scope of the current evidence. These results validate the three hypotheses at matched perception using two ablation references that share HKVLM’s frozen detector. The evi-dence demonstrates binding quality at a fixed perceptual bud-get; head-to-head comparison against external systems (Det-GPT (Pi et al. 2023), ChatRex (Jiang et al. 2024), coordinate-as-text VLMs) and against low-rank VLM tuning at equal data budget are reserved for future work. 
+
+# 7 Proof-of-Concept Validation 
+
+To complement the real-image results of Section 6, we fur-ther isolate the part HKVLM actually learns—the binding step—in a controlled simulation that removes pixel percep-tion from the picture. Each scene provides M frozen region embeddings; a referent’s language-side query embedding and its detector-side region embedding are noisy images of the same instance latent under two different linear maps, repro-ducing the modality gap the alignment hook must bridge. Because the correct region is always present for positive queries, SeeErr = 0 by construction and every error is a binding ( SayErr ) error—exactly the quantity we target. This is a mechanism check, not a COCO/LVIS result. We compare the trained hook against two references imple-mentable in this setting: naive cosine , which matches queries to regions with untrained projections (a shared space with-out learning), and class-string , which collapses the query to its nearest class and picks the first region of that class (a lossy text interface that cannot disambiguate same-class instances). We report top-1 binding accuracy, existence F1 (a query emits only when it passes the faithfulness veto and binds correctly), and a POPE-style yes/no existence accuracy. Table 4 and Figure 3 support two of our claims. For H1 ,the hook binds correctly 96 .0% of the time versus 83 .5% 
+
+for the class-string interface and 7.1% for naive cosine: the Table 4: Controlled binding study (50 classes, 16 re-gions/scene, 40% absent queries; test split). Numbers are from the simulation described in the text, not from image benchmarks.             
+
+> Method Bind. acc. Exist. F1 POPE Naive cosine 0.071 0.065 0.515 Class-string 0.835 0.910 1.000
+> HKVLM hook 0.960 0.972 0.991
+
+modality gap defeats untrained matching, and instance-level binding beats a class-only handoff. For H3 , the hook reaches 
+
+84 .8% binding accuracy from only 200 training samples and overtakes the class-string baseline by 500 , consistent with the cold-start motivation, since only the small hook is trained. For the faithfulness veto ( H2 ), the verifier attains the best existence F1 ( 0.972 ) and a 99 .1% POPE-style accuracy, on par with an affinity threshold on the same representation (0.967 F1); in this clean setting affinity already separates present from absent well, so the veto’s larger benefit appears on harder negatives—precisely the regime where, on real POPE-adversarial images (Table 3), the veto lifts POPE ac-curacy from near-chance to 0.661 –0.762 and substantially reduces hallucination. 
+
+# 8 Discussion, Limitations, and Broader Impact 
+
+The clearest limitation is visible directly in our numbers: grounding accuracy is upper-bounded by frozen-proposal re-call, so the absolute accuracy of ∼0.26 (Table 2, M =300 )reflects residual SeeErr under a generic detection prompt— HKVLM cannot bind to an object the detector never pro-posed. Increasing M from 50 to 300 improves grounding by 
+
+19 –24% without any hook retraining, confirming SeeErr as the dominant remaining error; recall-oriented, expression-conditioned proposing is the natural next step. We also ob-serve that a larger proposal pool raises the false-positive rate of the veto (hallucination increases from ≤0.14 at M =50 
+
+to 0.23 –0.43 at M =300 at the same threshold), indicating that the faithfulness threshold γv should be jointly optimized with M in future work. Our evidence is further confined to two ablation references sharing the frozen perception; head-to-head comparison with external systems (DetGPT, ChatRex, coordinate-as-text VLMs) and low-rank VLM tun-ing at equal data budget are reserved for future work. The design also assumes region embeddings carry enough se-mantic signal for shared-space binding; for very fine-grained or relational requests a single query embedding may be insuf-ficient, suggesting multi-query or compositional extensions. Masks are a natural extension by attaching a promptable seg-menter (Kirillov et al. 2023) to bound boxes. Finally, faithful open-vocabulary detection can be misused for surveillance; the same veto that suppresses hallucination should be paired with deployment controls and dataset governance. Figure 3: Controlled binding study. Left: binding accuracy and existence F1 by method. Right: data efficiency—the trained hook surpasses the class-string interface from a few hundred samples and keeps improving, while naive cosine stays near chance. 
+
+# 9 Conclusion 
+
+We reframed the see-but-mis-speak problem of ground-ing VLMs as a binding failure and proposed HKVLM, which gives localization to a frozen detector and re-binds it to language by shared-space alignment with a perception-grounded faithfulness veto, rather than by autoregressive coordinate or index tokens. On Ref-COCO/RefCOCO+/RefCOCOg and POPE, at matched frozen perception, training only the hook lifts grounding ac-curacy by 50 –90 × over untrained cross-space matching, the faithfulness veto raises POPE from near-chance to 0.66 –0.76 
+
+while substantially reducing object hallucination, and the hook reaches useful accuracy from 200 training expressions. Increasing the proposal budget from M =50 to M =300 im-proves grounding by 19 –24% without hook retraining, pin-pointing residual SeeErr as the dominant remaining error and validating the say-vs-see decomposition as a diagnostic tool. 
+
+# References 
+
+Bai, J.; Bai, S.; Yang, S.; Wang, S.; Tan, S.; Wang, P.; Lin, J.; Zhou, C.; and Zhou, J. 2023. Qwen-VL: A Versatile Vision-Language Model for Understanding, Localization, Text Reading, and Beyond. arXiv preprint arXiv:2308.12966 .Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.; Dang, K.; Wang, P.; Wang, S.; Tang, J.; et al. 2025. Qwen2.5-VL Technical Report. arXiv preprint arXiv:2502.13923 .Carion, N.; Massa, F.; Synnaeve, G.; Usunier, N.; Kirillov, A.; and Zagoruyko, S. 2020. End-to-End Object Detection with Transformers. In European Conference on Computer Vision (ECCV) .Chen, K.; Zhang, Z.; Zeng, W.; Zhang, R.; Zhu, F.; and Zhao, R. 2023. Shikra: Unleashing Multimodal LLM’s Referential Dialogue Magic. arXiv preprint arXiv:2306.15195 .Cheng, T.; Song, L.; Ge, Y.; Liu, W.; Wang, X.; and Shan, Y. 2024. YOLO-World: Real-Time Open-Vocabulary Object Detection. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Geigle, G.; Timofte, R.; and Glavaš, G. 2024. Does Object Grounding Really Reduce Hallucination of Large Vision-Language Models? In Findings of the Association for Com-putational Linguistics: EMNLP .Gupta, A.; Dollár, P.; and Girshick, R. 2019. LVIS: A Dataset for Large Vocabulary Instance Segmentation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pat-tern Recognition (CVPR) .IDEA Research. 2025. RexSeek: Referring Any Person or Object via Natural Language. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) .Jiang, Q.; Liu, G.; Ren, T.; Zhang, L.; et al. 2024. ChatRex: Taming Multimodal LLM for Joint Perception and Under-standing. arXiv preprint arXiv:2411.18363 .Jiang, Q.; Ren, T.; Liu, G.; Zhang, L.; et al. 2026. De-tect Anything via Next Point Prediction. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Kirillov, A.; Mintun, E.; Ravi, N.; Mao, H.; Rolland, C.; Gustafson, L.; Xiao, T.; Whitehead, S.; Berg, A. C.; Lo, W.-Y.; Dollár, P.; and Girshick, R. 2023. Segment Anything. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) .Lai, X.; Tian, Z.; Chen, Y.; Li, Y.; Yuan, Y.; Liu, S.; and Jia, J. 2024. LISA: Reasoning Segmentation via Large Language Model. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Li, L. H.; Zhang, P.; Zhang, H.; Yang, J.; Li, C.; Zhong, Y.; Wang, L.; Yuan, L.; Zhang, L.; Hwang, J.-N.; Chang, K.-W.; and Gao, J. 2022. Grounded Language-Image Pre-training. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Li, Y.; Du, Y.; Zhou, K.; Wang, J.; Zhao, W. X.; and Wen, J.-R. 2023. Evaluating Object Hallucination in Large Vision-Language Models. In Proceedings of the Conference on Em-pirical Methods in Natural Language Processing (EMNLP) .Lin, T.-Y.; Maire, M.; Belongie, S.; Hays, J.; Perona, P.; Ra-manan, D.; Dollár, P.; and Zitnick, C. L. 2014. Microsoft COCO: Common Objects in Context. In European Confer-ence on Computer Vision (ECCV) .Liu, S.; Zeng, Z.; Ren, T.; Li, F.; Zhang, H.; Yang, J.; Li, C.; Yang, J.; Su, H.; Zhu, J.; and Zhang, L. 2024. Ground-ing DINO: Marrying DINO with Grounded Pre-Training for Open-Set Object Detection. In European Conference on Computer Vision (ECCV) .Ma, C.; Jiang, Y.; Wu, J.; Yuan, Z.; and Qi, X. 2024. Groma: Localized Visual Tokenization for Grounding Multimodal Large Language Models. In European Conference on Com-puter Vision (ECCV) .Minderer, M.; Gritsenko, A.; Stone, A.; Neumann, M.; Weis-senborn, D.; Dosovitskiy, A.; Mahendran, A.; Arnab, A.; Dehghani, M.; Shen, Z.; Wang, X.; Zhai, X.; Kipf, T.; and Houlsby, N. 2022. Simple Open-Vocabulary Object Detec-tion with Vision Transformers. In European Conference on Computer Vision (ECCV) .Oquab, M.; Darcet, T.; Moutakanni, T.; Vo, H.; Szafraniec, M.; Khalidov, V.; Fernandez, P.; Haziza, D.; Massa, F.; El-Nouby, A.; et al. 2024. DINOv2: Learning Robust Visual Features without Supervision. Transactions on Machine Learning Research (TMLR) .Peng, Z.; Wang, W.; Dong, L.; Hao, Y.; Huang, S.; Ma, S.; and Wei, F. 2024. Kosmos-2: Grounding Multimodal Large Language Models to the World. In International Conference on Learning Representations (ICLR) .Pi, R.; Gao, J.; Diao, S.; Pan, R.; Dong, H.; Zhang, J.; Yao, L.; Han, J.; Xu, H.; Zhang, L.; et al. 2023. DetGPT: Detect What You Need via Reasoning. In Proceedings of the Confer-ence on Empirical Methods in Natural Language Processing (EMNLP) .Qwen Team. 2025. Qwen3-VL Technical Report. arXiv preprint arXiv:2511.21631 .Radford, A.; Kim, J. W.; Hallacy, C.; Ramesh, A.; Goh, G.; Agarwal, S.; Sastry, G.; Askell, A.; Mishkin, P.; Clark, J.; Krueger, G.; and Sutskever, I. 2021. Learning Transferable Visual Models from Natural Language Supervision. In In-ternational Conference on Machine Learning (ICML) .Rasheed, H.; Maaz, M.; Shaji, S.; Shaker, A.; Khan, S.; Cholakkal, H.; Anwer, R. M.; Xing, E.; Yang, M.-H.; and Khan, F. S. 2024. GLaMM: Pixel Grounding Large Multi-modal Model. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Rohrbach, A.; Hendricks, L. A.; Burns, K.; Darrell, T.; and Saenko, K. 2018. Object Hallucination in Image Captioning. In Proceedings of the Conference on Empirical Methods in Natural Language Processing (EMNLP) .Sapkota, R.; and Karkee, M. 2025. Object Detection with Multimodal Large Vision-Language Models: An In-depth Review. arXiv preprint arXiv:2508.19294 .Siméoni, O.; Vo, H. V.; Seitzer, M.; Baldassarre, F.; Oquab, M.; et al. 2025. DINOv3. arXiv preprint arXiv:2508.10104 .Wang, P.; Bai, S.; Tan, S.; Wang, S.; Fan, Z.; Bai, J.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Fan, Y.; Dang, K.; Du, M.; Ren, X.; Men, R.; Liu, D.; Zhou, C.; Zhou, J.; and Lin, J. 2024. Qwen2-VL: Enhancing Vision-Language Model’s Perception of the World at Any Resolution. arXiv preprint arXiv:2409.12191 .Wu, S.; Jin, S.; Zhang, W.; Xu, L.; Liu, W.; Li, W.; and Loy, C. C. 2025. F-LMM: Grounding Frozen Large Multimodal Models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .You, H.; Zhang, H.; Gan, Z.; Du, X.; Zhang, B.; Wang, Z.; Cao, L.; Chang, S.-F.; and Yang, Y. 2024. Ferret: Refer and Ground Anything Anywhere at Any Granularity. In Interna-tional Conference on Learning Representations (ICLR) .Yu, L.; Poirson, P.; Yang, S.; Berg, A. C.; and Berg, T. L. 2016. Modeling Context in Referring Expressions. In Euro-pean Conference on Computer Vision (ECCV) .Zhan, Y.; Zhu, Y.; Chen, Z.; Yang, F.; Tang, M.; and Wang, J. 2024a. Griffon: Spelling out All Object Locations at Any Granularity with Large Language Models. In European Con-ference on Computer Vision (ECCV) .Zhan, Y.; Zhu, Y.; Zhao, H.; Yang, F.; Tang, M.; and Wang, J. 2024b. Griffon-G: Bridging Vision-Language and Vision-Centric Tasks via Large Multimodal Models. arXiv preprint arXiv:2410.16163 .Zhang, H.; Li, H.; Li, F.; Ren, T.; Zou, X.; Liu, S.; Huang, S.; Gao, J.; Zhang, L.; Li, C.; and Yang, J. 2024. LLaVA-Grounding: Grounded Visual Chat with Large Multimodal Models. In European Conference on Computer Vision (ECCV) .HKVLM: Technical Appendix 
+
+This appendix accompanies the main paper. It gives the formal matching and faithfulness objectives, the full say-vs-see definitions, the extended evaluation protocol, and the reproducibility checklist. Notation matches the main paper. 
+
+# 1 Formal Binding Objective 
+
+Let R = {(bj , e j )}Mj=1 be the frozen detector’s proposals and 
+
+{uk}Kk=1 the referential query embeddings. With projections 
+
+˜ej = fθ (ej ), ˜uk = gϕ(uk) and affinity skj = ⟨˜uk, ˜ej ⟩/κ ,binding is trained as contrastive retrieval plus set assignment. 
+
+Assignment. Given ground-truth referents {(c⋆k, b ⋆k)}Kk=1 ,we seek a matching σ from queries to distinct proposals minimizing 
+
+σ⋆ = arg min 
+
+> σK
+
+X
+
+> k=1
+
+h
+
+− sk σ (k) + λ1 ∥bσ(k) − b⋆k∥1
+
++ λ2 Lgiou (bσ(k), b ⋆k)
+
+i
+
+,
+
+(1) solved with the Hungarian algorithm (Carion et al. 2020). The matched set defines the positives P (k) = {σ⋆(k)} (op-tionally expanded to all proposals with IoU( bj , b ⋆k) ≥ τ ). 
+
+Retrieval and box residual. 
+
+Lret = − X
+
+> k
+
+log 
+
+P  
+
+> j∈P(k)
+
+exp( skj )
+
+PMj=1 exp( skj ) , (2) 
+
+Lbox = X
+
+> k
+
+h
+
+∥∆bσ⋆(k) − (b⋆k − bσ⋆(k))∥1
+
+i
+
+, (3) where ∆b is a small predicted residual that refines the frozen proposal; the refinement is intentionally limited so localiza-tion competence stays with the detector. 
+
+# 2 Faithfulness Objective and Veto 
+
+The verification head v(˜ uk, ˜eσ⋆(k)) ∈ [0 , 1] is trained with 
+
+Lfaith = X
+
+> k
+
+BCE  v(˜ uk, ˜eσ⋆(k)), y k
+
+, (4)   
+
+> Copyright ©2027, Association for the Advancement of Artificial Intelligence (www.aaai.org). All rights reserved.
+
+yk = 1 iff query k has a real referent. At inference, query 
+
+k emits a category iff v(·) ≥ γv and max j skj ≥ γs; other-wise it abstains. The thresholds (γv , γ s) trade recall against faithfulness and are selected on a held-out split. Total loss: 
+
+L = Lret + λbLbox + λf Lfaith .
+
+# 3 Say-vs-See: Full Definitions 
+
+For an image with ground-truth objects G and proposals R,let R⋆ = {r ∈ R : ∃g ∈ G , IoU( r, g ) ≥ τ }. SeeErr is the fraction of ground-truth objects with no overlapping pro-posal; it depends only on perception and the chosen M and 
+
+τ . SayErr is the conditional probability of an incorrect label or mis-binding when the correct region is present in R⋆; it isolates the language-binding stage. Reporting both attributes each grounding failure to perception or to binding, and lets us verify that HKVLM lowers SayErr without inflating SeeErr (perception is frozen). 
+
+# 4 Extended Evaluation Protocol 
+
+Detector/backbone grid. Cross frozen detectors (Liu et al. 2024b; Cheng et al. 2024) with frozen backbones (Oquab et al. 2024; Siméoni et al. 2025) to attribute gains to per-ception versus binding; report mAP, proposal recall, SeeErr, SayErr per cell. 
+
+Binding ablations. (a) alignment hook (ours); (b) AR-index selection in the style of decoupled retrieval (Jiang et al. 2024; Ma et al. 2024); (c) class-string handoff (Pi et al. 2023). Same perception and data for all three to isolate the binding mechanism. 
+
+Faithfulness ablations. Toggle Lfaith and the veto; sweep 
+
+(γv , γ s) to plot a faithfulness-recall curve on POPE (Li et al. 2023) and CHAIR (Rohrbach et al. 2018). 
+
+Cold-start curve. Train the hook at {0.5k, 1k, 5k} images and compare to low-rank tuning of a monolithic VLM (Wang et al. 2024; Liu et al. 2024a) at equal data, plotting mAP and RefCOCO accuracy versus data size. 
+
+# 5 Real-Image Setup and Full Results 
+
+Configuration. Perception is a frozen Grounding DINO (base) producing class-agnostic top-M proposals with 256 -dimensional region features; queries are read from a frozen Qwen2.5-VL-7B as one 3584 -dimensional embedding per referring expression. Only the alignment hook (two projec-tions, box residual, verifier) is trained, on 24 k RefCOCOg training expressions; the veto threshold γv = 0 .6 and the affinity threshold γs = 15 .24 are fixed on held-out data. Evaluation covers RefCOCO val ( 10 ,834 expressions), Re-fCOCO+ val ( 10 ,758 ), RefCOCOg val ( 4,896 ) and test (9,602 ), and POPE random/popular/adversarial ( 3,000 each). 
+
+Per-split faithfulness on referring grounding. Table 1 extends the main grounding table ( M =300 ) with POPE-style existence accuracy and hallucination rate. The veto raises existence accuracy from 0.70 –0.71 (no-veto) to 0.91 –0.97 
+
+while grounding accuracy changes by at most 0.01 .Table 1: Referring grounding per-split ( M =300 , frozen per-ception). “Exist.” is POPE-style object-existence accuracy; “Halluc.” is the false-positive existence rate. The veto sharply improves both at near-constant grounding accuracy.                                          
+
+> Split Method Grounding Binding Exist. Halluc. RefCOCO val No-veto 0.277 —0.697 1.000 HKVLM 0.270 0.148 0.905 0.172 RefCOCO+ val No-veto 0.257 —0.698 0.999 HKVLM 0.254 0.142 0.906 0.148 RefCOCOg val No-veto 0.263 —0.713 0.997 HKVLM 0.266 0.130 0.973 0.061 RefCOCOg test No-veto 0.264 —0.695 1.000 HKVLM 0.254 0.123 0.972 0.072
+
+Data-efficiency curve (RefCOCOg val, M =300 ). 
+
+Grounding accuracy by training-expression count: 0.139 
+
+(200 ), 0.160 (500 ), 0.173 (1k), 0.202 (2k), 0.196 (5k), 0.239 
+
+(10 k), 0.266 (24 k); binding accuracy rises in step from 
+
+0.050 to 0.130 . The slight dip at 5k relative to 2k is within sampling variance; the trend is otherwise monotone and the 
+
+200 -expression model already outperforms naive cosine by 
+
+46 ×.
+
+# 6 Reproducibility Checklist Notes 
+
+All perception and language components are publicly avail-able (Liu et al. 2024b; Cheng et al. 2024; Oquab et al. 2024; Siméoni et al. 2025; Liu et al. 2024a; Wang et al. 2024). The trainable parts (two projections, box residual, verifier) are fully specified above, and the real-image results use a frozen Grounding DINO (base) and a frozen Qwen2.5-VL-7B. Planned release: training/evaluation code, configs, and fixed seeds; component versions and hyperparameters 
+
+(κ, τ, λ 1, λ 2, λ b, λ f , γ v , γ s, M ) reported in full. No human-subjects data is used. 
+
+# References 
+
+Carion, N.; Massa, F.; Synnaeve, G.; Usunier, N.; Kirillov, A.; and Zagoruyko, S. 2020. End-to-End Object Detection with Transformers. In European Conference on Computer Vision (ECCV) .Cheng, T.; Song, L.; Ge, Y.; Liu, W.; Wang, X.; and Shan, Y. 2024. YOLO-World: Real-Time Open-Vocabulary Object Detection. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Jiang, Q.; Liu, G.; Ren, T.; Zhang, L.; et al. 2024. ChatRex: Taming Multimodal LLM for Joint Perception and Under-standing. arXiv preprint arXiv:2411.18363 .Li, Y.; Du, Y.; Zhou, K.; Wang, J.; Zhao, W. X.; and Wen, J.-R. 2023. Evaluating Object Hallucination in Large Vision-Language Models. In Proceedings of the Conference on Em-pirical Methods in Natural Language Processing (EMNLP) .Liu, H.; Li, C.; Li, Y.; and Lee, Y. J. 2024a. Improved Baselines with Visual Instruction Tuning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Liu, S.; Zeng, Z.; Ren, T.; Li, F.; Zhang, H.; Yang, J.; Li, C.; Yang, J.; Su, H.; Zhu, J.; and Zhang, L. 2024b. Ground-ing DINO: Marrying DINO with Grounded Pre-Training for Open-Set Object Detection. In European Conference on Computer Vision (ECCV) .Ma, C.; Jiang, Y.; Wu, J.; Yuan, Z.; and Qi, X. 2024. Groma: Localized Visual Tokenization for Grounding Multimodal Large Language Models. In European Conference on Com-puter Vision (ECCV) .Oquab, M.; Darcet, T.; Moutakanni, T.; Vo, H.; Szafraniec, M.; Khalidov, V.; Fernandez, P.; Haziza, D.; Massa, F.; El-Nouby, A.; et al. 2024. DINOv2: Learning Robust Visual Features without Supervision. Transactions on Machine Learning Research (TMLR) .Pi, R.; Gao, J.; Diao, S.; Pan, R.; Dong, H.; Zhang, J.; Yao, L.; Han, J.; Xu, H.; Zhang, L.; et al. 2023. DetGPT: Detect What You Need via Reasoning. In Proceedings of the Confer-ence on Empirical Methods in Natural Language Processing (EMNLP) .Rohrbach, A.; Hendricks, L. A.; Burns, K.; Darrell, T.; and Saenko, K. 2018. Object Hallucination in Image Captioning. In Proceedings of the Conference on Empirical Methods in Natural Language Processing (EMNLP) .Siméoni, O.; Vo, H. V.; Seitzer, M.; Baldassarre, F.; Oquab, M.; et al. 2025. DINOv3. arXiv preprint arXiv:2508.10104 .Wang, P.; Bai, S.; Tan, S.; Wang, S.; Fan, Z.; Bai, J.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Fan, Y.; Dang, K.; Du, M.; Ren, X.; Men, R.; Liu, D.; Zhou, C.; Zhou, J.; and Lin, J. 2024. Qwen2-VL: Enhancing Vision-Language Model’s Perception of the World at Any Resolution. arXiv preprint arXiv:2409.12191 .
