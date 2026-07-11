@@ -1,0 +1,2379 @@
+Title: Text as Partial Constraint: Core-Residual Alignment for Robust Vision-Language Learning
+
+URL Source: https://arxiv.org/pdf/2607.03143v1
+
+Published Time: Tue, 07 Jul 2026 00:45:18 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+2026-07-07 
+
+# Text as Partial Constraint: Core–Residual Alignment for Robust Vision–Language Learning 
+
+Chengzhen Yu 1 Canran Xiao 2, ∗ Siyuan Ma 1 Yang Liu 11Nanyang Technological University (NTU) 
+
+> 2
+
+Shenzhen Campus of Sun Yat-sen University 
+
+> ∗
+
+Corresponding author: xiaocr3@mail.sysu.edu.cn 
+
+Abstract 
+
+Vision–language alignment powers open-vocabulary recognition, retrieval, and LVLM grounding, yet natural captions are often underspecified, making similarity brittle and overly confident under paraphrase and omitted details. We aim to learn representations whose matching is stable across caption views and whose confi-dence reflects how strongly text constrains an image. We propose T EXT AS PARTIAL 
+
+CONSTRAINT (TPC), a core–residual alignment framework that treats multi-view captions as incomplete supervision: it distills a consensus semantic core as the alignment target, learns a single-view core predictor for standard inference with one query, and explicitly discourages vision–language similarity from depending on the orthogonal “unsaid” residual. An uncertainty-aware contrastive objective further softens alignment when caption views disagree, reducing overconfident updates under weak language constraints. Across zero-shot recognition and ad-versarial robustness, TPC achieves 81.42/64.05 Top-1 clean/robust accuracy on ImageNet and 76.19/52.03 on an Avg-14 transfer suite, while improving LVLM transfer with 85.16 POPE F1 and 59.57 OKVQA accuracy under an LLaVA-1.5-7B stack. These results suggest that modeling text as a partial constraint is a practi-cal and principled route to more reliable vision–language representations under underspecified language supervision. 
+
+# 1 Introduction 
+
+Vision–language alignment underpins open-vocabulary recognition, cross-modal retrieval, and increas-ingly serves as the perceptual backbone of large vision–language models (LVLMs) used for interactive reasoning and decision support (Radford et al., 2021; Jia et al., 2021; Liu et al., 2023; Awadalla et al., 2023). Its practical appeal comes from learning with abundant natural captions, yet the same supervision is inherently incomplete: users and annotators routinely omit details, rely on shared context, and phrase descriptions in diverse ways. As these models move from curated benchmarks to real queries and safety-critical settings, failures driven by underspecified language become costly—mis-ranked retrieval, unstable predictions under paraphrase, and overconfident downstream generations. Prior work has advanced vision–language pretraining by scaling contrastive dual encoders and improving training objectives (Radford et al., 2021; Jia et al., 2021; Zhai et al., 2023; Cherti et al., 2023; Sun et al., 2023). Yet most methods still treat each caption/prompt as a complete target, despite natural supervision being partial : different textual views share a stable core but diverge in omitted or ambiguous details. This mismatch surfaces in compositional and negation stress tests, where strong VLMs remain sensitive to small but meaning-relevant textual changes (Parcalabescu et al., 2022; Thrush et al., 2022; Hsieh et al., 2023; Alhamoud et al., 2025), and in real under-specified user queries where adding missing constraints yields large gains (Choi et al., 2026). In parallel, robustness training mainly targets visual shift (Mao et al., 2024; Wang et al., 2024a; Schlarmann et al., 2024b;a), while LVLM mitigation is often post hoc and does not curb representation-level over-commitment under weak text constraints (Li et al., 2023; Leng et al., 2024a). Thus, a key gap is the lack of a principled treatment of language supervision as incomplete that prevents overconfident alignment to weakly supported, view-specific details. This paper asks: Can we learn vision–language representations that align to what captions consistently specify, while avoiding over-confident commitment to what they leave underspecified? As illustrated in Fig. 1, we answer this question by reframing natural captions as partial constraints: multiple caption views reveal a shared consensus core, while their view-specific deviations expose an “unsaid” residual space. Building on this observation, TPC aligns images to the consensus core, learns a single-caption core filter for standard inference, suppresses residual over-commitment, and calibrates confidence according to caption-view disagreement. 1     
+
+> arXiv:2607.03143v1 [cs.CV] 3 Jul 2026 view yi, 1view yi, 2view yi, 3
+
+Motivation           
+
+> A golden retriever
+> running in the park
+> on a sunny day
+> with a ball.
+> A dog
+> running in
+> the park .
+> People in the
+> background.
+> A retriever
+> running in
+> the park.
+> tieoon near
+> a lake.
+
+ti, 1 ti, 2
+
+ri, 1 ri, 2
+
+vi
+
+ti, 3
+
+ri, 3   
+
+> (view-specific
+> details )
+> treat each caption as a complete target
+> (view-specific
+> details )
+> (view-specific
+> details )
+> Match
+> score
+> brittle under
+> paraphrase
+> overconfident
+> on weak text
+> Multiple
+> captions
+> describe the same
+> image , but each is
+> incomplete
+> consensus
+> core
+> ci
+
+ti, 1
+
+ti, 2
+
+ti, 3   
+
+> consensus
+> core ci
+> single caption
+> (view k)
+
+ti,k 
+
+ri,k 
+
+vi   
+
+> ,
+> ˆi k c
+> single-view
+> core
+> (unsaid residual)
+> disagreement
+> ui
+> →softer
+> confidence
+> core filter
+> ψθ
+> robust to paraphrase
+> reliable, calibrated
+> matching
+> image xi
+
+Prior Limitation 3Ours: TPC Figure 1: Unlike prior methods that over-align to each caption as a complete target, TPC extracts the core, suppresses residual commitment, and produces calibrated, robust vision–language alignment. Our contributions are as follows: (i) We formalize caption-view variation as a form of language un-derspecification and identify over-commitment to what is “unsaid” as a central mechanism behind brittleness and downstream hallucination. (ii) We introduce a training principle that uses multi-view language to learn alignment that prioritizes view-invariant semantics and produces confidence that tracks how strongly text constrains the instance, while remaining deployable with a single query text. (iii) 
+
+Across zero-shot recognition, adversarial robustness, and LVLM transfer, the resulting representations improve both accuracy and reliability, yielding stronger robustness and reduced hallucination under underspecified language supervision. 
+
+# 2 Related Work 
+
+Contrastive VLP under noisy and underspecified text. CLIP and ALIGN showed that contrastive dual encoders trained on large-scale image–text pairs enable strong zero-shot transfer (Radford et al., 2021; Jia et al., 2021), and later work mostly improved results through scaling and refined objectives/recipes (Cherti et al., 2023; Zhai et al., 2023; Sun et al., 2023). Yet natural captions are partial: annotators and paraphrases share core semantics but differ in omitted details, making similarity brittle under lexical/semantic edits and negation (Hsieh et al., 2023; Dumpala et al., 2024; Alhamoud et al., 2025) and under-specified real queries (Choi et al., 2026). Because training often treats each caption as complete (or merely adds positives), models can over-align to view-specific residuals. TPC instead treats multi-caption supervision as a partial constraint, aligning to a consensus core while suppressing the “unsaid” residual so similarity reflects what is consistently supported. 
+
+Robust alignment under distribution shift and attacks. Robust VLM training has focused on adversarial and distributional visual shift. Related methods include TeCoA (Mao et al., 2024), PMG-AFT (Wang et al., 2024a), and TGA-ZSR (Yu et al., 2024), as well as plug-in robustness via unsupervised adversarial fine-tuning (RobustCLIP/FARE) (Schlarmann et al., 2024b) and weak-to-strong robustness transfer (Adv-W2S) (Schlarmann et al., 2024a). While effective, they typically assume the text fully specifies the semantics and thus do not address caption-view ambiguity. We instead treat caption variation as the shift source, model views via an instance-wise ambiguity set, and improve worst-case similarity by strengthening core alignment while reducing sensitivity to unsaid residuals, with disagreement-aware temperature scaling to curb overconfident updates. Adjacent continual vision–language and multimodal adaptation work studies how to preserve compositional structure, prompt-invariant certificates, or concept-graph memory across task streams (Xiao et al., 2026; Zhang et al., 2026; Zhou et al., 2026). These methods address temporal adaptation, while our focus is alignment under underspecified language supervision; the two directions are complementary. 
+
+Grounding and hallucination in LVLMs. LVLMs such as LLaVA and OpenFlamingo largely inherit a frozen CLIP-like vision encoder with a lightweight connector (Liu et al., 2023; Awadalla et al., 2023), and benchmarks like POPE highlight persistent object hallucination (Li et al., 2023). Mitigations span decoding-time calibration (VCD) (Leng et al., 2024a), connector-side fine-grained alignment (Jiang et al., 2025), and post-hoc concept shaping (VL-SAE) (Shen et al., 2025), among other LVLM alignment objectives 20.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8               
+
+> caption-view dispersion dview
+> i
+> 0
+> 1
+> 2
+> 3
+> 4
+> rank volatility Std k(log(1 +  Ri, k))
+> top vs. bottom disagreement
+> σrank : 1.79 vs. 0.27
+> phard : 0.58 vs. 0.09
+> (a) Caption disagreement amplifies rank volatility
+> binned mean
+> 90th pct.
+> 0.00 0.05 0.10 0.15 0.20 0.25
+> residual leakage ℓres
+> i,k= ( v⊤
+> iqi,k)2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> high-confidence error  oi, k
+> top vs. bottom leakage
+> wrong rate: 24.5\% vs. 2.9\%
+> [o]: 0.20 vs. 0.02
+> (b) Residual leakage concentrates confident errors
+> binned mean
+> 90th pct.
+> 0.2
+> 0.4
+> 0.6
+> 0.8 hard-negative mass
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8 parent caption dispersion  dview
+> i
+
+Figure 2: Frozen VLM failure under partial captions. Left: larger caption-view dispersion leads to higher rank volatility and stronger hard-negative confusion. Right: residual leakage concentrates confident retrieval errors. All statistics are computed with frozen embeddings; no proposed module or training loss is used. (Truong et al., 2025). Yet these fixes are constrained by the shared embedding space they build upon. TPC improves this foundation by strengthening the alignment core and reducing residual over-commitment, serving as a drop-in vision encoder that complements decoding- and connector-level approaches. 
+
+# 3 Preliminary Study 
+
+Before introducing our method, we first diagnose a failure mode of frozen vision–language encoders under partial captions. Using a frozen CLIP/OpenCLIP-style dual encoder, we evaluate images with multiple captions and ask: when different captions describe the same image, does caption disagreement expose unstable and overconfident matching? No model is trained or modified in this study. We compute four diagnostic quantities: caption-view dispersion, rank volatility across captions, residual leakage into view-specific textual components, and high-confidence retrieval error. Full definitions and the evaluation protocol are provided in Appendix B.1. 
+
+Finding 1: caption disagreement predicts unstable matching. Fig. 2(a) shows that images with larger caption-view dispersion exhibit substantially higher rank volatility across captions. The same image can be retrieved reliably with one valid caption but poorly with another, even though both captions refer to the same visual instance. The hard-negative posterior mass also increases with disagreement, suggesting that underspecified captions make semantically nearby negatives increasingly competitive. 
+
+Finding 2: view-specific residuals drive confident errors. Fig. 2(b) shows that high-confidence retrieval errors concentrate in examples with large residual leakage. This indicates that frozen VLM embeddings can over-commit to caption-specific components that are not consistently supported across views. Such over-commitment is harmful not only because it changes the ranking, but also because the model often remains highly confident when it is wrong. 
+
+Implication. These observations suggest that robust alignment under natural captions requires three ingredients: (i) a stable semantic target shared across caption views, (ii) a deployable mechanism that can recover this target from a single caption at inference time, and (iii) an explicit way to prevent view-specific residuals from dominating similarity and confidence. We now instantiate these requirements in a core–residual alignment framework. 
+
+# 4 Method 
+
+Motivated by the observation that multi-view captions share a stable core but differ in “unsaid” details that induce brittleness, we formulate T EXT AS PARTIAL CONSTRAINT as a minimal core–residual align-ment framework, as shown in Fig.3. Given K views, we align to a consensus core, learn a single-view core filter for one-text inference, and treat the orthogonal component as an unsaid residual that is discouraged from affecting similarity. An uncertainty-aware contrastive objective with a non-commitment regularizer jointly optimizes these parts to improve robustness under underspecified language supervision. 
+
+Setup. Different textual views of the same image agree on the main semantics but diverge on omitted or 3…
+
+> …
+> …
+> …
+> …
+
+ti,5 
+
+ti,4 
+
+ti,3 
+
+ti,2 
+
+ti,1 
+
+K = 5 xi
+
+> share (core)
+> view-specific (unsaid)
+> omitted /other
+> same image, incomplete
+> text views
+
+Multi-view Partial 
+
+Captions 
+
+Dual Encoders 
+
+> image patches
+
+vi  1iv  
+
+> …
+> Vision Encoder
+
+ϕv
+
+> text tokens (per view)
+
+ti,2 
+
+ti,1 
+
+ti,K
+
+> …
+> …
+> …
+> …
+> …
+> …
+> Text Encoder
+
+ϕt
+
+ti,Kti,2 ti,1 
+
+{ti,k}
+
+Consensus Core & Disagreement 
+
+ti,2 
+
+ti,3 
+
+ti,4 
+
+ti,5 
+
+ti,1 
+
+ci 
+
+> uncertainty ui
+
+low ui
+
+> ci
+
+high ui
+
+> ci
+
+Single-view Core Filter 
+
++ Unsaid Residual 
+
+ti,k  
+
+> ( )
+> ccW t b
+> t
+> 
+
+
+
+> 
+> ,
+
+ˆi k c
+
+> core agreement
+
+ci
+
+  , ,norm ˆi k i k c t
+
+> 
+
+
+
+> Orthogonal decomposition
+
+ti,k
+
+ri,k
+
+> ,
+
+ˆi k c
+
+> unsaid
+> residual
+
+Uncertainty-aware Core 
+
+Alignment        
+
+> images { vi}
+> cores { ci}
+> c1c2
+> v2v1vN
+> cN
+> positive ( i=j)
+> negative ( i≠j)
+> …
+> …
+> low ui
+> (sharp/strong)
+> high ui
+> (soft/cautious)
+> core-aware aligned embeddings
+> +calibrated confidence
+> Orthogonal decomposition
+> core
+
+:L :agree L nc :L
+
+τi = τ0 (1 + γui)       
+
+> align vi
+> with ci
+> ,
+> ˆm tch cai k
+> to ci
+> suppress vi
+> with ri,k
+> ,
+> ˆmatch c i k
+
+ 2 
+
+> ,k
+> T
+> ii
+
+v r  T               
+
+> ,,,,,ˆˆiikiikki k kttccr
+
+ , ,norm ( )ˆi k i k c t
+
+> 
+
+ 2T
+
+> ,
+
+avg 1k i k ii tu c  
+
+  ,norm i k  
+
+> k
+> i
+
+tc  
+
+  
+
+ 
+
+Key equations        
+
+> dog on grass
+> brown dog
+> with dog ball
+> animal in park
+> running pet
+
+ri,k
+
+3
+
+> low
+> (clustered)
+> high
+> (scattered)
+> …
+
+1 2 3 4 5
+
+> vi
+
+2
+
+3
+
+1
+
+4
+
+5Figure 3: Overview of TPC. TPC treats captions as partial constraints: it distills a multi-view consensus core, learns a single-view core predictor, decomposes each caption into core and unsaid residual compo-nents, and performs uncertainty-aware alignment that suppresses residual over-commitment. ambiguous details. A robust aligner should match vision to the shared semantics and avoid committing to view-specific details that are not consistently supported. In each minibatch, we sample B instances {(xi, {yi,k}Kk=1)}Bi=1. Let ϕv and ϕt be a vision encoder and a text encoder that map inputs to Rd. We use norm (z) ≜ z/(∥z∥2 + ε) with ε > 0. 
+
+vi ≜ norm (ϕv(xi)) ∈ Rd, ti,k ≜ norm (ϕt(yi,k)) ∈ Rd. (1) Here vi is the normalized image embedding, ti,k is the normalized embedding of the k-th text view for image i, and d is the embedding dimension. 
+
+4.1 Multi-View Consensus Core and Disagreement 
+
+The intersection of semantics across views provides the most reliable supervision. Disagreement across views signals underspecification and omissions, which should reduce confidence rather than sharpen alignment. We define the consensus core as the normalized mean direction of multi-view text embeddings: 
+
+ci ≜ norm 
+
+ K
+
+# ∑
+
+k=1
+
+ti,k
+
+
+
+∈ Rd. (2) The vector ci summarizes the shared semantics among {ti,k} and serves as the text-side target for alignment. We quantify disagreement-based uncertainty by measuring the average squared cosine deviation from the consensus: 
+
+ui ≜ 1
+
+K
+
+K
+
+# ∑
+
+k=1
+
+
+
+1 − (t⊤
+
+i,kci)2
+
+∈ [0, 1 ]. (3) Since ∥ti,k∥2 = ∥ci∥2 = 1, each (t⊤
+
+i,kci)2 ∈ [0, 1 ] and thus ui is nonnegative and bounded. Large ui indicates that views scatter around ci and the language constraint is weak. 
+
+4.2 Learning a Single-View Core Filter 
+
+Benchmarks and applications provide a single query text at inference time. We therefore learn a deter-ministic map that extracts the core from a single text embedding, using the multi-view consensus ci as supervision. 4We introduce a lightweight core filter ψθ : Rd → Rd implemented as a linear layer. For each view embedding ti,k, we predict a single-view core direction ˆci,k ≜ norm  ψθ (ti,k) = norm  Wcti,k + bc
+
+ ∈ Rd, (4) where Wc ∈ Rd×d and bc ∈ Rd are trainable parameters. The agreement objective (defined below) enforces ˆ ci,k to match the consensus ci, making the mapping usable with a single text at test time. 
+
+4.3 Unsaid Residual and Non-Commitment 
+
+Even when the core is correct, the remaining components of language contain view-specific details and ambiguity. To prevent over-alignment, we explicitly discourage the image embedding from aligning with these unsaid components. Given the predicted core direction ˆci,k, we define the unsaid residual as the component of ti,k orthogonal to ˆci,k:
+
+ri,k ≜ ti,k − (t⊤ 
+
+> i,k
+
+ˆci,k) ˆci,k ∈ Rd. (5) Because ∥ ˆci,k∥2 = 1, Eq. (5) removes the projection of ti,k onto ˆ ci,k, yielding ˆ c⊤
+
+> i,k
+
+ri,k = 0. We enforce non-commitment by penalizing correlation between image embeddings and residuals: 
+
+Lnc ≜ 1
+
+BK 
+
+> B
+
+# ∑
+
+> i=1
+> K
+
+# ∑
+
+> k=1
+
+ v⊤ 
+
+> i
+
+ri,k
+
+2. (6) Here v⊤ 
+
+> i
+
+ri,k is a scalar measuring image–residual alignment; squaring yields a smooth penalty that drives 
+
+vi away from unsaid directions. 
+
+4.4 Uncertainty-Aware Core Alignment 
+
+When language is underspecified (large ui), alignment should be less brittle and similarity should be less overconfident. We implement this by scaling the contrastive sharpness using the disagreement-based uncertainty. We set an instance-dependent temperature τi ≜ τ0(1 + γui) with τ0 > 0 and γ ≥ 0. We then align images to consensus cores using a symmetric InfoNCE loss: 
+
+Lcore ≜ − 1
+
+B
+
+> B
+
+# ∑
+
+> i=1
+
+log exp  v⊤ 
+
+> i
+
+ci/τi
+
+
+
+∑Bj=1 exp  v⊤ 
+
+> i
+
+cj/τi
+
+
+
+− 1
+
+B
+
+> B
+
+# ∑
+
+> i=1
+
+log exp  c⊤ 
+
+> i
+
+vi/τi
+
+
+
+∑Bj=1 exp  c⊤ 
+
+> i
+
+vj/τi
+
+ .(7) In Eq. (7) , negatives are other batch elements. A larger ui increases τi and smooths the softmax distribution, reducing overconfident gradients when text constraints are weak. 
+
+4.5 Training Objective 
+
+We require the single-view core filter to reproduce the multi-view consensus and require vision to align to the consensus while ignoring residuals. We train the core filter with a squared agreement loss 
+
+Lagree ≜ 1
+
+BK 
+
+> B
+
+# ∑
+
+> i=1
+> K
+
+# ∑
+
+> k=1
+
+∥ ˆci,k − ci∥22. (8) Eq. (8) uses the consensus ci from Eq. (2) as a target, making ˆci,k a single-view estimator of the shared semantics. The full objective is 
+
+L ≜ Lcore + λagree Lagree + λnc Lnc , (9) with fixed weights λagree ≥ 0 and λnc ≥ 0. We optimize parameters of ϕv, ϕt, and ψθ by minimizing Eq. (9). 54.6 Inference and Calibrated Confidence 
+
+Standard retrieval uses a single text query and requires a single embedding. We output a core embedding for ranking and a calibrated confidence for downstream decision-making. Given a query text y, we compute t = norm (ϕt(y)) and ˆc = norm (ψθ (t)) . We rank candidates with the core similarity s(x, y) = v⊤ ˆc. We compute a scalar confidence temperature using the residual energy ˆu(y) = 1 − (t⊤ ˆc)2 and τ(y) = τ0(1 + γ ˆu(y)) , then convert similarities into calibrated probabilities for downstream selection via p(j | y) = softmax  s(xj, y)/τ(y). This calibration changes the sharpness of the retrieval distribution while preserving the ranking induced by s(x, y).
+
+# 5 Theory 
+
+We provide two theoretical justifications for TPC: caption-view variation induces a worst-case residual penalty, and multi-view consensus denoises incomplete textual supervision. 
+
+5.1 Robustness to Caption-View Shift as Distributional Robust Optimization 
+
+Let ci be the consensus core of instance i and let Ui = span {ti,k − (t⊤
+
+> i,k
+
+ci)ci : k ∈ [K]} ⊆ c⊥ 
+
+> i
+
+denote the subspace of caption-specific deviations. With residual radius ρi = max k ∥ti,k − (t⊤
+
+> i,k
+
+ci)ci∥2, we model admissible caption views by the spherical-cap ambiguity set 
+
+Ai(ρi) ≜
+
+n
+
+t ∈ Rd : ∥t∥2 = 1, t =
+
+q
+
+1 − ∥ r∥22 ci + r,
+
+r ∈ U i, ∥r∥2 ≤ ρi
+
+o
+
+.(10) This set contains all observed caption views under the mild hemisphere condition and its radius is controlled by the disagreement statistic ui; see Lemma A.1. 
+
+Theorem 5.1 (Tight invariance bound under caption-view shift) . Fix c ∈ Rd with ∥c∥2 = 1, a subspace 
+
+U ⊆ c⊥, and ρ ∈ [0, 1 ). Let A(c, U , ρ) be defined as in Eq. (10) by replacing (ci, Ui, ρi) with (c, U , ρ). For any unit vector v, define a ≜ v⊤c, b ≜ ∥PU v∥2. (11) 
+
+Then 
+
+inf   
+
+> t∈A (c,U,ρ)
+
+v⊤t = a
+
+q
+
+1 − ρ2 − ρb. (12) 
+
+Consequently, for any monotone non-increasing loss ℓ,
+
+sup  
+
+> t∈A (c,U,ρ)
+
+ℓ(v⊤t) = ℓ
+
+
+
+a
+
+q
+
+1 − ρ2 − ρb
+
+
+
+. (13) Theorem 5.1 shows that robustness improves by increasing core alignment a = v⊤c and decreasing residual sensitivity b = ∥PU v∥2. This directly motivates aligning image embeddings to consensus cores while suppressing their correlation with unsaid residual directions. Since Lemma A.1 gives ρ2 
+
+> i
+
+≤ Ku i, the same analysis also motivates using caption-view disagreement to modulate confidence. The full proof is in Appendix A.1. 
+
+5.2 Generalization via Multi-View Denoising 
+
+We further view multiple captions as noisy observations of a latent semantic core. For each instance i,assume 
+
+ti,k = μi + εi,k, E[εi,k | μi] = 0, ∥εi,k∥2 ≤ σ < 1, (14) where μi ∈ Sd−1 is the latent core. Let ci = norm ( 1 
+
+> K
+
+∑k ti,k) be the normalized consensus. For a predictor class F and an L-Lipschitz loss, define 
+
+Rμ( f ) = Eℓ( f (x)⊤μ), Rc( f ) = Eℓ( f (x)⊤c).6Theorem 5.2 (PAC bound with K-view denoising) . Let bf ∈ arg min f ∈F bRc( f ), where bRc( f ) = 
+
+> 1
+> n
+
+∑ni=1 ℓ( f (xi)⊤ci). Then, with probability at least 1 − δ,Rμ( bf ) ≤ inf   
+
+> f∈F
+
+Rμ( f ) + 4L Rn(F )+ 2
+
+r log (4/ δ)
+
+2n + 2L εK,n(δ),(15) 
+
+where 
+
+εK,n(δ) ≜ 2ηK,n(δ)
+
+1 − ηK,n(δ) , ηK,n(δ) ≜ σ
+
+√K + σ
+
+r 2 log (2n/δ)
+
+K . (16) 
+
+In particular, when ηK,n(δ) ≤ 12 , εK,n(δ) = O(σplog (n/δ)/K).
+
+Corollary 5.3 (Sample complexity in K). Under the conditions of Theorem 5.2, to make the denoising contribution at most ϵ, it suffices that K = Ω
+
+ σ2 log (n/δ)
+
+ϵ2
+
+
+
+. (17) Theorem 5.2 and Corollary 5.3 show that the consensus target becomes statistically cleaner as the number of views increases. This supports using multi-view consensus for training while learning a single-view core estimator for deployment. The full proof is in Appendix A.2. 
+
+# 6 Experiments 
+
+6.1 Experimental Setup 
+
+Datasets. We evaluate T EXT AS PARTIAL CONSTRAINT on three complementary suites. (i) Image–text retrieval : MS-COCO and Flickr30K, which provide multiple captions per image and are standard for alignment evaluation. (ii) Zero-shot recognition : ImageNet-1K and a broad transfer suite covering natural, fine-grained, texture, remote sensing, medical, and sketch/rendition shifts. (iii) Robustness to underspecified language : datasets with multi-caption annotations (COCO/Flickr30K) where we can evaluate sensitivity to caption choice. We additionally report LVLM-side results by swapping in our vision encoder for fixed LVLM frameworks. 
+
+Evaluation metrics. For retrieval, we report Recall@{1,5,10} for both image-to-text and text-to-image. For zero-shot recognition, we report Top-1 accuracy and, when applicable, robust accuracy under standardized adversarial evaluation. To assess overconfidence under weak language constraints, we report calibration metrics (ECE and NLL) on both classification probabilities and retrieval softmax scores (Appendix §B.3). 
+
+Compared methods. We compare T EXT AS PARTIAL CONSTRAINT to: (i) contrastive dual-encoder baselines 
+
+and strong recent training recipes (CLIP (Radford et al., 2021), OpenCLIP (Cherti et al., 2023), SigLIP (Zhai et al., 2023), EVA-CLIP (Sun et al., 2023)); (ii) robust/anti-misalignment alignment methods targeting zero-shot robustness or robustness transfer (TeCoA (Mao et al., 2024), RobustCLIP/FARE (Schlarmann et al., 2024b), Robust SuperAlignment (Adv-W2S) (Schlarmann et al., 2024a)); (iii) post-hoc representation enhancement at the concept level (VL-SAE (Shen et al., 2025)); and (iv) LVLM-side alignment under a fixed LVLM stack (LLaVA (Liu et al., 2023), OpenFlamingo (Awadalla et al., 2023)), including patch-aligned training (Jiang et al., 2025) and Directed-Tokens (Truong et al., 2025). We match backbone/data/steps when feasible; methods requiring adversarial generation or extra supervision are additionally reported in a separate, compute-matched block. Refer to §B.4 for Implementation details. 
+
+6.2 Main Results 
+
+Zero-shot generalization & robustness. In Table 1, TPC is best on both clean and robust accuracy, reaching 81.42/64.05 on ImageNet and 76.19/52.03 on Avg-14 (clean/robust), outperforming the strongest robust baseline Adv-W2S by +5.58/+5.75 on ImageNet and +7.44/+3.65 on Avg-14. This supports that isolating a shared core and suppressing residual alignment reduces brittle over-commitment. 
+
+LVLM transfer. In Table 2, using TPC as a drop-in vision encoder achieves the best POPE F1 across all settings (Avg 85.16), exceeding Adv-W2S by +1.36. It also improves VQA accuracy on all benchmarks (e.g., OKVQA 59.57), surpassing Patch-Aligned Training, indicating that core–residual alignment complements projector- or decoding-level fixes. 7Method ImageNet (Clean ↑) ImageNet (Robust ↑) Avg-14 (Clean ↑) Avg-14 (Robust ↑)Standard CLIP (Radford et al., 2021) 74.90 0.00 73.08 0.01 TeCoA (Mao et al., 2024) 80.00 61.74 61.56 43.26 PMG-AFT (Wang et al., 2024b) 77.84 60.02 64.46 45.74                 
+
+> FARE (Schlarmann et al., 2024b) 72.96 43.56 65.50 42.97 TGA-ZSR (Yu et al., 2024) 80.26 61.46 62.11 45.19 Adv-W2S (Schlarmann et al., 2024a) 75.84 58.30 68.75 48.38
+> TPC (Ours) 81.42 64.05 76.19 52.03
+
+Table 1: Zero-shot recognition and adversarial robustness. Top-1 clean / robust accuracy (%) on ImageNet and the average over 14 datasets under AutoAttack ( ϵ=2/255). Table 2: Transfer to LVLMs: hallucination and VQA. Left: POPE hallucination F1 (%) under three sampling schemes and their average (higher is better). Right: VQA accuracy (%) under an LLaVA-1.5-7B stack. 
+
+> POPE Hallucination (F1
+
+↑) VQA Accuracy ↑                                                                                        
+
+> Method Random Popular Adversarial Avg GQA SciQA VizWiz OKVQA
+> Decoding / concept-level enhancement (frozen LVLM)
+> LLaVA1.5 (Regular) (Liu et al., 2023) 80.87 79.27 77.16 79.10 62.0 66.8 50.0 53.4
+> VCD (Leng et al., 2024b) 84.04 82.31 80.13 82.16 60.8 65.2 48.7 51.9 VL-SAE (Shen et al., 2025) 85.50 84.37 82.29 84.05 61.5 66.1 49.8 53.0
+> Projector / fine-grained alignment (LVLM-side training)
+> Patch-Aligned Training (Jiang et al., 2025) 81.2 80.5 78.1 79.93 63.0 68.7 52.3 58.3
+> Robust vision encoder replacement
+> TeCoA (Mao et al., 2024) 79.80 79.10 75.20 78.00 60.2 64.5 47.3 51.8 PMG-AFT (Wang et al., 2024b) 81.70 80.90 76.30 79.60 61.0 65.8 48.2 52.6 FARE (Schlarmann et al., 2024b) 82.20 81.50 78.60 80.80 61.8 66.5 49.5 54.1 TGA-ZSR (Yu et al., 2024) 80.40 79.80 76.00 78.70 60.5 64.9 47.8 52.0 Adv-W2S (Schlarmann et al., 2024a) 85.60 84.90 81.00 83.80 62.5 67.9 51.4 56.8
+> Ours (core–residual alignment)
+> TPC (Ours) 86.93 85.81 82.74 85.16 63.38 69.12 52.94 59.57
+
+6.3 Ablation and Analysis 
+
+Single-factor ablations. Table 3 shows that each component matters. Removing the multi-view consen-sus core most harms robustness and LVLM transfer (Avg-14 robust (↓2.30) , POPE (↓1.74) ), indicating the shared intersection is a better target than any single caption. Uncertainty scaling mainly affects robust accuracy (ImageNet robust (↓1.17) ), while dropping core agreement yields the largest overall regression (ImageNet robust (↓3.13) ), underscoring the need for a reliable single-view core at test time. Removing non-commitment also consistently degrades robustness and hallucination metrics (Avg-14 robust (↓2.37) ,POPE (↓2.13) ), supporting residual suppression. 
+
+Hyperparameter sensitivity. Fig. 4 shows TPC is stable across a wide range of settings. Robustness increases with the number of views and saturates around K≈4–5; γ exhibits a mild sweet spot (too small under-calibrates, too large over-smooths). λnc primarily controls robustness/hallucination and remains stable for λnc ∈ [0.05, 0.2 ], while λagree is flat around 1–2. Varying τ0 within the standard CLIP range changes little, suggesting calibration is dominated by the relative modulation from u.
+
+Core–Residual Mechanistic Evidence. We test whether the non-commitment regularizer reduces alignment to view-specific residual directions. On multi-caption data, we measure residual leakage 
+
+ℓ = ( v⊤r)2 before and after fine-tuning for standard CLIP and TPC, using the caption consensus to define the residual space. Fig. 5 shows that standard CLIP fine-tuning increases leakage from ≈ 0.049 to ≈ 0.071, whereas TPC reduces it to ≈ 0.040 and tightens the tail. This supports that λnc suppresses over-commitment to unsaid, view-specific components rather than merely improving aggregate accuracy. 8Table 3: Single-factor ablations of TPC. We report zero-shot clean/robust accuracy (%) and LVLM transfer (POPE Avg F1, VQA Avg). 
+
+Method ImageNet (Clean ↑) ImageNet (Robust ↑) Avg-14 (Clean ↑) Avg-14 (Robust ↑) POPE (Avg F1 ↑) VQA (Avg ↑)TPC (Full) 81.42 64.05 76.19 52.03 85.16 61.25 
+
+w/o multi-view consensus core ( ci ←ti,k) 80.61 (↓0.81) 62.47 (↓1.58) 75.18 (↓1.01) 49.73 (↓2.30) 83.42 (↓1.74) 60.21 (↓1.04) 
+
+w/o uncertainty scaling ( γ=0) 81.07 (↓0.35) 62.88 (↓1.17) 75.73 (↓0.46) 50.21 (↓1.82) 84.11 (↓1.05) 60.82 (↓0.43) 
+
+w/o core agreement ( λagree =0) 80.03 (↓1.39) 60.92 (↓3.13) 74.62 (↓1.57) 48.31 (↓3.72) 82.96 (↓2.20) 59.74 (↓1.51) 
+
+w/o non-commitment ( λnc =0) 81.16 (↓0.26) 62.34 (↓1.71) 75.50 (↓0.69) 49.66 (↓2.37) 83.03 (↓2.13) 60.05 (↓1.20) 2 3 4 5 6                       
+
+> K value
+> 76
+> 78
+> 80
+> 82
+> 84
+> Score (Clean metrics)
+> (a) Number of views (K)
+> 0.0 0.5 1.0 1.5 2.0
+> value
+> 76
+> 78
+> 80
+> 82
+> 84
+> (b) Uncertainty scale ( )
+> 0.05 0.10 0.20 0.50 0.80
+> _nc value
+> 76
+> 78
+> 80
+> 82
+> 84
+> (c) Non-commitment weight ( nc )
+> 0.25 0.50 1.00 2.00 3.00
+> _agree value
+> 76
+> 78
+> 80
+> 82
+> 84
+> (d) Core agreement weight ( agree )
+> 0.05 0.06 0.07 0.09 0.12
+> _0 value
+> 76
+> 78
+> 80
+> 82
+> 84
+> (e) Base temperature ( 0)
+> 50
+> 52
+> 54
+> 56
+> 58
+> 60
+> 62
+> 64
+> Score (Robust/VQA metrics)
+> 50
+> 52
+> 54
+> 56
+> 58
+> 60
+> 62
+> 64
+> 52
+> 54
+> 56
+> 58
+> 60
+> 62
+> 64
+> 50
+> 52
+> 54
+> 56
+> 58
+> 60
+> 62
+> 64
+> 52
+> 54
+> 56
+> 58
+> 60
+> 62
+> 64
+> IN Clean Avg-14 Clean POPE Avg F1 _child6 IN Robust Avg-14 Robust VQA Avg
+
+Figure 4: Hyperparameter sensitivity of TPC. Mean ±std over 3 seeds. CLIP (Pretrain) CLIP (Finetune) TPC (Pretrain) TPC (Finetune)  
+
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Residual leakage  = ( v r)2
+> 0.049
+> 0.071
+> 0.049 0.040
+> COCO
+> Flickr30K
+> Web-SingleCap
+
+Figure 5: Residual leakage. Distribution of ℓ = ( v⊤r)2 before/after fine-tuning; lower indicates less residual commitment. Protocol in App. B.6. 
+
+Uncertainty Calibration. We evaluate whether the inferred uncertainty ˆu ranks queries by reliability under weak text constraints. We sort queries from low to high ˆu and compute risk–coverage curves by retaining increasingly uncertain queries. Fig. 6 shows that TPC achieves lower risk than CLIP at the same coverage, with the largest gains in the selective low-coverage regime. This indicates that ˆu is a meaningful abstention signal for underspecified text. 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 
+
+Coverage (retain lowest-u queries first)      
+
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> Risk (error rate among retained)  Low u(well-specified) High u(underspecified) CLIP (AURC = 0.177 ± 0.002)
+> TPC (AURC = 0.154 ± 0.001)
+
+Figure 6: Risk–coverage from ˆu. Protocol in App. B.6. 
+
+# 7 Conclusion 
+
+We address brittleness and overconfidence in vision–language alignment under underspecified captions, and propose T EXT AS PARTIAL CONSTRAINT (TPC) to align images to view-invariant semantics while suppressing view-specific residuals with single-text deployability. Our results show that modeling language as an incomplete constraint and calibrating by view disagreement yields more reliable robust-ness and LVLM transfer. Future work will scale view acquisition (generation/retrieval) and extend 9partial-constraint alignment to multimodal prompting and selective, safety-aware deployment. 
+
+# References 
+
+Kumail Alhamoud, Shaden Alshammari, Yonglong Tian, Guohao Li, Philip HS Torr, Yoon Kim, and Marzyeh Ghassemi. Vision-language models do not understand negation. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 29612–29622, 2025. Anas Awadalla, Irena Gao, Josh Gardner, Jack Hessel, Yusuf Hanafy, Wanrong Zhu, Kalyani Marathe, Yonatan Bitton, Samir Gadre, Shiori Sagawa, et al. Openflamingo: An open-source framework for training large autoregressive vision-language models. arXiv preprint arXiv:2308.01390 , 2023. Mehdi Cherti, Romain Beaumont, Ross Wightman, Mitchell Wortsman, Gabriel Ilharco, Cade Gordon, Christoph Schuhmann, Ludwig Schmidt, and Jenia Jitsev. Reproducible scaling laws for contrastive language-image learning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 2818–2829, 2023. Dasol Choi, Guijin Son, Hanwool Lee, Minhyuk Kim, Hyunwoo Ko, Teabin Lim, Ahn Eungyeol, Jung-whan Kim, Seunghyeok Hong, and Youngsook Song. What users leave unsaid: Under-specified queries limit vision-language models. arXiv preprint arXiv:2601.06165 , 2026. Sri Harsha Dumpala, Aman Jaiswal, Chandramouli Shama Sastry, Evangelos Milios, Sageev Oore, and Hassan Sajjad. Sugarcrepe++ dataset: Vision-language model sensitivity to semantic and lexical alterations. Advances in Neural Information Processing Systems , 37:17972–18018, 2024. Cheng-Yu Hsieh, Jieyu Zhang, Zixian Ma, Aniruddha Kembhavi, and Ranjay Krishna. Sugarcrepe: Fixing hackable benchmarks for vision-language compositionality. Advances in neural information processing systems , 36:31096–31116, 2023. Chao Jia, Yinfei Yang, Ye Xia, Yi-Ting Chen, Zarana Parekh, Hieu Pham, Quoc Le, Yun-Hsuan Sung, Zhen Li, and Tom Duerig. Scaling up visual and vision-language representation learning with noisy text supervision. In International conference on machine learning , pages 4904–4916. PMLR, 2021. Jiachen Jiang, Jinxin Zhou, Bo Peng, Xia Ning, and Zhihui Zhu. Analyzing fine-grained alignment and enhancing vision understanding in multimodal language models. arXiv preprint arXiv:2505.17316 , 2025. Sicong Leng, Hang Zhang, Guanzheng Chen, Xin Li, Shijian Lu, Chunyan Miao, and Lidong Bing. Mitigating object hallucinations in large vision-language models through visual contrastive decoding. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13872–13882, 2024a. Sicong Leng, Hang Zhang, Guanzheng Chen, Xin Li, Shijian Lu, Chunyan Miao, and Lidong Bing. Mitigating object hallucinations in large vision-language models through visual contrastive decoding. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13872–13882, 2024b. Yifan Li, Yifan Du, Kun Zhou, Jinpeng Wang, Wayne Xin Zhao, and Ji-Rong Wen. Evaluating object hallucination in large vision-language models. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pages 292–305, 2023. Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. Advances in neural information processing systems , 36:34892–34916, 2023. Chengzhi Mao, Scott Geng, Junfeng Yang, Xin Wang, and Carl Vondrick. Understanding zero-shot adversarial robustness for large-scale models. In The Eleventh International Conference on Learning Representations , 2024. Letitia Parcalabescu, Michele Cafagna, Lilitta Muradjan, Anette Frank, Iacer Calixto, and Albert Gatt. Valse: A task-independent benchmark for vision and language models centered on linguistic phenom-ena. In Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 8253–8280, 2022. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International conference on machine learning , pages 8748–8763. PmLR, 2021. 10 Christian Schlarmann, Naman Deep Singh, Francesco Croce, and Matthias Hein. Robust clip: unsu-pervised adversarial fine-tuning of vision embeddings for robust large vision-language models. In 
+
+Proceedings of the 41st International Conference on Machine Learning , pages 43685–43704, 2024a. Christian Schlarmann, Naman Deep Singh, Francesco Croce, and Matthias Hein. Robust clip: unsu-pervised adversarial fine-tuning of vision embeddings for robust large vision-language models. In 
+
+Proceedings of the 41st International Conference on Machine Learning , pages 43685–43704, 2024b. Shufan Shen, Junshu Sun, Qingming Huang, and Shuhui Wang. Vl-sae: Interpreting and enhancing vision-language alignment with a unified concept set. arXiv preprint arXiv:2510.21323 , 2025. Quan Sun, Yuxin Fang, Ledell Wu, Xinlong Wang, and Yue Cao. Eva-clip: Improved training techniques for clip at scale. arXiv preprint arXiv:2303.15389 , 2023. Tristan Thrush, Ryan Jiang, Max Bartolo, Amanpreet Singh, Adina Williams, Douwe Kiela, and Candace Ross. Winoground: Probing vision and language models for visio-linguistic compositionality. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 5238–5248, 2022. Thanh-Dat Truong, Huu-Thien Tran, Tran Thai Son, Bhiksha Raj, and Khoa Luu. Directed-tokens: A robust multi-modality alignment approach to large language-vision models. arXiv preprint arXiv:2508.14264 ,2025. Sibo Wang, Jie Zhang, Zheng Yuan, and Shiguang Shan. Pre-trained model guided fine-tuning for zero-shot adversarial robustness. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 24502–24511, 2024a. Sibo Wang, Jie Zhang, Zheng Yuan, and Shiguang Shan. Pre-trained model guided fine-tuning for zero-shot adversarial robustness. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 24502–24511, 2024b. Canran Xiao, Tianxiang Xu, Siyuan Ma, Yiyang Jiang, Haoyu Gao, and Yuhan Wu. Reversible primitive– composition alignment for continual vision–language learning. In The Fourteenth International Conference on Learning Representations , 2026. Lu Yu, Haiyang Zhang, and Changsheng Xu. Text-guided attention is all you need for zero-shot robustness in vision-language models. Advances in Neural Information Processing Systems , 37:96424–96448, 2024. Xiaohua Zhai, Basil Mustafa, Alexander Kolesnikov, and Lucas Beyer. Sigmoid loss for language image pre-training. In Proceedings of the IEEE/CVF international conference on computer vision , pages 11975–11986, 2023. Jiayu Zhang, Chuangxin Zhao, Canran Xiao, Ruibo Duan, Wenyi Mo, Haoyu Gao, and Wenshuo Wang. Pi-cca: Prompt-invariant cca certificates for replay-free continual multimodal learning. In The Fourteenth International Conference on Learning Representations , 2026. Heng Zhou, Jing Tang, Jusheng Zhang, Yanshu Li, Canran Xiao, Liwei Hou, Zong Ke, and Jiawei Yao. Comem: Compositional concept-graph memory for vision–language adaptation. In The Fourteenth International Conference on Learning Representations , 2026. 11 A Proofs 
+
+A.1 Full Proofs for §5.1 
+
+Lemma A.1 (Containment of observed views and radius bounds) . Fix an instance i with normalized text views {ti,k}Kk=1 ⊂ Rd and consensus core ci = norm (∑Kk=1 ti,k). Define residuals ri,k ≜ ti,k − (t⊤
+
+> i,k
+
+ci)ci and radii 
+
+δi,k ≜ ∥ri,k∥2. Let Ui ≜ span {ri,k : k ∈ [K]} ⊆ c⊥ 
+
+> i
+
+and ρi ≜ max k∈[K] δi,k. Assume t⊤
+
+> i,k
+
+ci ≥ 0 for all k ∈ [K].Then: 1. (Containment) For every k ∈ [K], t i,k ∈ A i(ρi) where Ai(ρi) is defined in Eq. (10) .2. (Disagreement controls radius) With u i = 1 
+
+> K
+
+∑Kk=1
+
+ 1 − (t⊤
+
+> i,k
+
+ci)2, the maximal radius satisfies ui ≤ ρ2 
+
+> i
+
+≤ Ku i. (18) 
+
+Proof. Step 1: orthogonal decomposition. Since ∥ti,k∥2 = ∥ci∥2 = 1, define ri,k ≜ ti,k − (t⊤
+
+> i,k
+
+ci)ci. Then 
+
+c⊤ 
+
+> i
+
+ri,k = c⊤ 
+
+> i
+
+ti,k − (t⊤
+
+> i,k
+
+ci)∥ci∥22 = 0, hence ri,k ∈ c⊥ 
+
+> i
+
+and in particular ri,k ∈ U i.
+
+Step 2: identify the coefficient on ci. Using Pythagoras on the orthogonal decomposition, 
+
+∥ti,k∥22 = ∥(t⊤
+
+> i,k
+
+ci)ci∥22 + ∥ri,k∥22 = ( t⊤
+
+> i,k
+
+ci)2 + δ2
+
+> i,k
+
+.Since ∥ti,k∥2 = 1, we obtain 
+
+δ2 
+
+> i,k
+
+= 1 − (t⊤
+
+> i,k
+
+ci)2. (19) Under the assumption t⊤
+
+> i,k
+
+ci ≥ 0, we have t⊤
+
+> i,k
+
+ci =
+
+q
+
+1 − δ2
+
+> i,k
+
+.
+
+Step 3: prove containment. Rewrite each view as 
+
+ti,k = ( t⊤
+
+> i,k
+
+ci)ci + ri,k =
+
+q
+
+1 − δ2 
+
+> i,k
+
+ci + ri,k.Since ri,k ∈ U i and ∥ri,k∥2 = δi,k ≤ ρi, this matches Eq. (10), hence ti,k ∈ A i(ρi).
+
+Step 4: relate ρi and ui. By Eq. (19), 
+
+ui = 1
+
+K
+
+> K
+
+# ∑
+
+> k=1
+
+ 1 − (t⊤
+
+> i,k
+
+ci)2 = 1
+
+K
+
+> K
+
+# ∑
+
+> k=1
+
+δ2
+
+> i,k
+
+.The left inequality in Eq. (18) follows since max k δ2 
+
+> i,k
+
+≥ 1 
+
+> K
+
+∑k δ2
+
+> i,k
+
+:
+
+ρ2 
+
+> i
+
+= max  
+
+> k
+
+δ2 
+
+> i,k
+
+≥ 1
+
+K
+
+> K
+
+# ∑
+
+> k=1
+
+δ2 
+
+> i,k
+
+= ui.For the right inequality, use max k δ2 
+
+> i,k
+
+≤ ∑Kk=1 δ2
+
+> i,k
+
+:
+
+ρ2 
+
+> i
+
+= max  
+
+> k
+
+δ2 
+
+> i,k
+
+≤
+
+> K
+
+# ∑
+
+> k=1
+
+δ2 
+
+> i,k
+
+= Ku i.This proves Eq. (18). 
+
+Theorem A.2 (Tight invariance bound under caption-view shift) . Fix c ∈ Rd with ∥c∥2 = 1, a subspace 
+
+U ⊆ c⊥, and ρ ∈ [0, 1 ). Let 
+
+A(c, U , ρ) = 
+
+n
+
+t ∈ Rd : ∥t∥2 = 1, t =
+
+q
+
+1 − ∥ r∥22 c + r, r ∈ U , ∥r∥2 ≤ ρ
+
+o
+
+.
+
+For any v ∈ Rd with ∥v∥2 = 1 and a = v⊤c ≥ 0, define b = ∥PU v∥2. Then 
+
+inf   
+
+> t∈A (c,U,ρ)
+
+v⊤t = a
+
+q
+
+1 − ρ2 − ρb.
+
+Moreover, for any monotone non-increasing ℓ : R → R,
+
+sup  
+
+> t∈A (c,U,ρ)
+
+ℓ(v⊤t) = ℓ
+
+
+
+a
+
+q
+
+1 − ρ2 − ρb
+
+
+
+.12 Proof. Step 1: reduce to the residual variable. Take any t ∈ A (c, U , ρ). By definition, there exists r ∈ U 
+
+with ∥r∥2 ≤ ρ such that t =
+
+q
+
+1 − ∥ r∥22 c + r. Then 
+
+v⊤t = v⊤ q
+
+1 − ∥ r∥22 c + r = ( v⊤c)
+
+q
+
+1 − ∥ r∥22 + v⊤r. (20) Since r ∈ U and PU is the orthogonal projector, v⊤r = ( PU v)⊤r. Denote u ≜ PU v so that ∥u∥2 = b.Eq. (20) becomes 
+
+v⊤t = a
+
+q
+
+1 − ∥ r∥22 + u⊤r, with r ∈ U , ∥r∥2 ≤ ρ. (21) 
+
+Step 2: minimize over the direction of r for fixed radius. Fix any radius s ∈ [0, ρ] and consider all r ∈ U 
+
+with ∥r∥2 = s. By Cauchy–Schwarz, 
+
+u⊤r ≥ −∥ u∥2∥r∥2 = −bs , (22) with equality achieved by choosing r = −s u /∥u∥2 when b > 0 (and any r when b = 0). Plugging Eq. (22) into Eq. (21) yields, for fixed s,inf 
+
+> r∈U ∥r∥2=s
+
+v⊤t = a
+
+p
+
+1 − s2 − bs . (23) 
+
+Step 3: minimize over the radius s ∈ [0, ρ]. Define the scalar function f (s) ≜ a√1 − s2 − bs on [0, ρ].Because a ≥ 0 and b ≥ 0, its derivative satisfies, for all s ∈ (0, ρ),
+
+f ′(s) = − as 
+
+√1 − s2 − b < 0. (24) Thus f is strictly decreasing on [0, ρ], and the minimum is attained at s = ρ:min  
+
+> s∈[0, ρ]
+
+f (s) = f (ρ) = a
+
+q
+
+1 − ρ2 − bρ. (25) Combining Eq. (23) and Eq. (25) proves inf   
+
+> t∈A (c,U,ρ)
+
+v⊤t = a
+
+q
+
+1 − ρ2 − ρb.Tightness follows by selecting r⋆ = −ρ u/∥u∥2 when b > 0 (and r⋆ = 0 when b = 0), which satisfies 
+
+∥r⋆∥2 = ρ and attains equality in Eq. (22). 
+
+Step 4: convert worst-case similarity to worst-case loss. Since ℓ is monotone non-increasing, the maximizer of ℓ(v⊤t) over t ∈ A (c, U , ρ) is achieved at the minimizer of v⊤t:sup  
+
+> t∈A (c,U,ρ)
+
+ℓ(v⊤t) = ℓ
+
+
+
+inf   
+
+> t∈A (c,U,ρ)
+
+v⊤t
+
+
+
+= ℓ
+
+
+
+a
+
+q
+
+1 − ρ2 − ρb
+
+
+
+.
+
+A.2 Full Proofs for §5.2 
+
+A.2.1 Auxiliary Lemmas Lemma A.3 (Second-moment bound for the averaged view noise) . Let {εk}Kk=1 be independent random vectors in Rd such that E[εk] = 0 and ∥εk∥2 ≤ σ almost surely. Then 
+
+E 1
+
+K
+
+> K
+
+# ∑
+
+> k=1
+
+εk 
+
+> 22
+
+≤ σ2
+
+K , E 1
+
+K
+
+> K
+
+# ∑
+
+> k=1
+
+εk 2 ≤ σ
+
+√K . (26) 
+
+Proof. Let ¯ ε = 1 
+
+> K
+
+∑Kk=1 εk. By expanding the squared norm and using independence and zero mean, 
+
+E∥¯ε∥22 = E
+
+D 1
+
+K
+
+> K
+
+# ∑
+
+> k=1
+
+εk, 1
+
+K
+
+> K
+
+# ∑
+
+> ℓ=1
+
+εℓ
+
+E
+
+= 1
+
+K2
+
+> K
+
+# ∑
+
+> k=1
+
+E∥εk∥22 + 1
+
+K2 ∑ 
+
+> k̸=ℓ
+
+E⟨εk, εℓ⟩
+
+= 1
+
+K2
+
+> K
+
+# ∑
+
+> k=1
+
+E∥εk∥22 + 1
+
+K2 ∑ 
+
+> k̸=ℓ
+
+D
+
+E[εk], E[εℓ]
+
+E
+
+≤ 1
+
+K2
+
+> K
+
+# ∑
+
+> k=1
+
+σ2 = σ2
+
+K .The second inequality follows from Jensen: E∥¯ε∥2 ≤
+
+q
+
+E∥¯ε∥22 ≤ σ/√K.13 Lemma A.4 (McDiarmid concentration for the averaged noise norm) . Let {εk}Kk=1 be independent random vectors with ∥εk∥2 ≤ σ almost surely. Define g (ε1, . . . , εK ) ≜ 1 
+
+> K
+
+∑Kk=1 εk 2. Then for any δ ∈ (0, 1 ),
+
+P g − E[g] ≥ σ
+
+r 2 log (1/ δ)
+
+K
+
+!
+
+≤ δ. (27) 
+
+Proof. We verify bounded differences. Let (ε1, . . . , εK ) and (ε1, . . . , ε′
+
+> k
+
+, . . . , εK ) differ only at coordinate k.Then by the reverse triangle inequality, 
+
+g(ε1, . . . , εK ) − g(ε1, . . . , ε′
+
+> k
+
+, . . . , εK ) ≤ 1
+
+K
+
+> K
+
+# ∑
+
+> j=1
+
+εj − 1
+
+K
+
+
+
+ε′ 
+
+> k
+
++ ∑ 
+
+> j̸=k
+
+εj
+
+
+
+> 2
+
+= 1
+
+K ∥εk − ε′
+
+> k
+
+∥2 ≤ 1
+
+K
+
+ ∥εk∥2 + ∥ε′
+
+> k
+
+∥2
+
+ ≤ 2σ
+
+K .Thus the bounded difference constants are ck = 2σ/K for all k. McDiarmid’s inequality yields, for any 
+
+t > 0, 
+
+P(g − Eg ≥ t) ≤ exp − 2t2
+
+∑Kk=1 c2
+
+> k
+
+!
+
+= exp 
+
+
+
+− 2t2
+
+K · (4σ2/K2)
+
+
+
+= exp 
+
+
+
+− Kt 2
+
+2σ2
+
+
+
+.Setting t = σp2 log (1/ δ)/K gives Eq. (27). 
+
+Lemma A.5 (Normalization perturbation inequality) . Let μ ∈ Rd satisfy ∥μ∥2 = 1 and let e ∈ Rd satisfy 
+
+∥e∥2 < 1. Define c = norm (μ + e) = ( μ + e)/∥μ + e∥2. Then 
+
+∥c − μ∥2 ≤ 2∥e∥2
+
+1 − ∥ e∥2
+
+. (28) 
+
+Proof. Let u = μ + e and note that ∥u∥2 ≥ ∥ μ∥2 − ∥ e∥2 = 1 − ∥ e∥2 by the triangle inequality. Then 
+
+∥c − μ∥2 = u
+
+∥u∥2
+
+− μ 2 = 1
+
+∥u∥2
+
+∥u − ∥ u∥2μ∥2
+
+= 1
+
+∥u∥2
+
+∥μ + e − ∥ u∥2μ∥2 = 1
+
+∥u∥2
+
+∥e + ( 1 − ∥ u∥2)μ∥2
+
+≤ 1
+
+∥u∥2
+
+
+
+∥e∥2 + |1 − ∥ u∥2| · ∥ μ∥2
+
+
+
+= 1
+
+∥u∥2
+
+ ∥e∥2 + |1 − ∥ u∥2|.Using the reverse triangle inequality, |1 − ∥ u∥2| = |∥ μ∥2 − ∥ u∥2| ≤ ∥ μ − u∥2 = ∥e∥2. Therefore, 
+
+∥c − μ∥2 ≤ 1
+
+∥u∥2
+
+(2∥e∥2) ≤ 2∥e∥2
+
+1 − ∥ e∥2
+
+,which proves Eq. (28). 
+
+Lemma A.6 (Lipschitz transfer from core error to loss error) . Let ℓ : [−1, 1 ] → R be L -Lipschitz. For any v ∈ Sd−1 and any a , b ∈ Sd−1,
+
+ℓ(v⊤ a) − ℓ(v⊤b) ≤ L ∥a − b∥2. (29) 
+
+Proof. Since ∥v∥2 = 1, Cauchy–Schwarz gives |v⊤ a − v⊤b| = |v⊤(a − b)| ≤ ∥ a − b∥2. By Lipschitzness of ℓ, |ℓ(v⊤ a) − ℓ(v⊤b)| ≤ L|v⊤ a − v⊤b| ≤ L∥a − b∥2.
+
+Lemma A.7 (Rademacher contraction for inner-product losses) . Let ℓ : [−1, 1 ] → R be L -Lipschitz and let 
+
+F ⊆ { f : X → Sd−1}. For any fixed sample {(xi, ci)}ni=1 with ∥ci∥2 = 1,
+
+Rn(ℓ ◦ F ) ≜ Eϵ
+
+h
+
+sup  
+
+> f∈F
+
+1
+
+n
+
+> n
+
+# ∑
+
+> i=1
+
+ϵi ℓ  f (xi)⊤ci
+
+i
+
+≤ L Rn(F ), (30) 
+
+where Rn(F ) = Eϵ
+
+ sup f ∈F 1 
+
+> n
+
+∑ni=1 ϵi f (xi)⊤ci
+
+.Proof. This is a direct application of the Ledoux–Talagrand contraction principle. For completeness, let 
+
+ϕi(s) = ℓ(s). Each ϕi is L-Lipschitz on [−1, 1 ] and ϕi(0) is constant, hence 
+
+Eϵ
+
+h
+
+sup  
+
+> f∈F
+
+1
+
+n
+
+> n
+
+# ∑
+
+> i=1
+
+ϵi ϕi( f (xi)⊤ci)
+
+i
+
+≤ L Eϵ
+
+h
+
+sup  
+
+> f∈F
+
+1
+
+n
+
+> n
+
+# ∑
+
+> i=1
+
+ϵi f (xi)⊤ci
+
+i
+
+,which is Eq. (30). 14 A.2.2 Proof of Theorem 5.2 
+
+Proof. We split the proof into four steps corresponding to the proof sketch. 
+
+Step 1: uniform bound on the averaged noise. Fix i ∈ [n] and write ¯εi = 1 
+
+> K
+
+∑Kk=1 εi,k. By Lemma A.4, for any δi ∈ (0, 1 ),
+
+P ∥¯εi∥2 ≥ E∥¯εi∥2 + σ
+
+r 2 log (1/ δi)
+
+K
+
+!
+
+≤ δi. (31) By Lemma A.3, E∥¯εi∥2 ≤ σ/√K. Substituting into Eq. (31) gives 
+
+P ∥¯εi∥2 ≥ σ
+
+√K + σ
+
+r 2 log (1/ δi)
+
+K
+
+!
+
+≤ δi. (32) Set δi = δ/(2n) and apply a union bound over i ∈ [n]:
+
+P max  
+
+> i∈[n]
+
+∥¯εi∥2 ≥ σ
+
+√K + σ
+
+r 2 log (2n/δ)
+
+K
+
+!
+
+≤
+
+> n
+
+# ∑
+
+> i=1
+
+P ∥¯εi∥2 ≥ σ
+
+√K + σ
+
+r 2 log (2n/δ)
+
+K
+
+!
+
+≤
+
+> n
+
+# ∑
+
+> i=1
+
+δ
+
+2n = δ
+
+2 . (33) Define 
+
+ηK,n(δ) ≜ σ
+
+√K + σ
+
+r 2 log (2n/δ)
+
+K . (34) Then Eq. (33) states that, with probability at least 1 − δ/2, max  
+
+> i∈[n]
+
+∥¯εi∥2 ≤ ηK,n(δ). (35) 
+
+Step 2: uniform denoising bound on consensus cores. Recall ¯ti = μi + ¯εi and ci = norm (¯ti). On the event in Eq. (35), Lemma A.5 with e = ¯εi implies, for every i ∈ [n],
+
+∥ci − μi∥2 ≤ 2∥¯εi∥2
+
+1 − ∥ ¯εi∥2
+
+≤ 2ηK,n(δ)
+
+1 − ηK,n(δ) ≜ εK,n(δ). (36) Thus, with probability at least 1 − δ/2, max  
+
+> i∈[n]
+
+∥ci − μi∥2 ≤ εK,n(δ). (37) 
+
+Step 3: transfer from observed risk to true risk. Fix any f ∈ F . For each i ∈ [n], Lemma A.6 with 
+
+v = f (xi), a = ci, and b = μi yields 
+
+ℓ( f (xi)⊤ci) − ℓ( f (xi)⊤μi) ≤ L ∥ci − μi∥2. (38) On the event in Eq. (37), Eq. (38) implies 
+
+ℓ( f (xi)⊤μi) ≤ ℓ( f (xi)⊤ci) + L εK,n(δ), ∀i ∈ [n]. (39) Averaging over i gives the empirical relation 
+
+bRμ( f ) ≜ 1
+
+n
+
+> n
+
+# ∑
+
+> i=1
+
+ℓ( f (xi)⊤μi) ≤ bRc( f ) + L εK,n(δ). (40) Taking expectation over fresh draws (and using the same Lipschitz argument pointwise) yields the population relation 
+
+Rμ( f ) ≤ Rc( f ) + L εK,n(δ). (41) 
+
+Step 4: PAC generalization on the observed risk and ERM decomposition. Apply a standard Rademacher generalization bound to the class ℓ ◦ F on the sample {(xi, ci)}ni=1: with probability at least 1 − δ/2, sup  
+
+> f∈F
+
+ Rc( f ) − bRc( f ) ≤ 2 Rn(ℓ ◦ F ) + 
+
+r log (4/ δ)
+
+2n . (42) 15 By Lemma A.7, Rn(ℓ ◦ F ) ≤ L Rn(F ), hence sup  
+
+> f∈F
+
+ Rc( f ) − bRc( f ) ≤ 2L Rn(F ) + 
+
+r log (4/ δ)
+
+2n . (43) On the intersection of events (37) and (43) (which holds with probability at least 1 − δ by a union bound), we bound the excess true risk of bf .Let f ⋆ ∈ arg min f ∈F Rμ( f ). Starting from Eq. (41) and using Eq. (43) twice: 
+
+Rμ( bf ) ≤ Rc( bf ) + L εK,n(δ) (44) 
+
+≤ bRc( bf ) + 
+
+
+
+2L Rn(F ) + 
+
+q log (4/ δ)
+
+> 2n
+
+
+
++ L εK,n(δ) (45) 
+
+≤ bRc( f ⋆) + 
+
+
+
+2L Rn(F ) + 
+
+q log (4/ δ)
+
+> 2n
+
+
+
++ L εK,n(δ) (46) 
+
+≤ Rc( f ⋆) + 2
+
+
+
+2L Rn(F ) + 
+
+q log (4/ δ)
+
+> 2n
+
+
+
++ L εK,n(δ) (47) 
+
+≤ Rμ( f ⋆) + 2
+
+
+
+2L Rn(F ) + 
+
+q log (4/ δ)
+
+> 2n
+
+
+
++ 2L εK,n(δ), (48) where (46) uses ERM optimality of bf on bRc, and (48) uses Eq. (41) for f ⋆. Rearranging yields Eq. (15). Finally, if ηK,n(δ) ≤ 12 , then εK,n(δ) = 2η 
+
+> 1−η
+
+≤ 4η, giving the stated O(σplog (n/δ)/K) rate. 
+
+A.2.3 Proof of Corollary 5.3 
+
+Proof. From Theorem 5.2, it suffices to enforce 2 L εK,n(δ) ≤ ϵ. When ηK,n(δ) ≤ 12 , εK,n(δ) ≤ 4ηK,n(δ), so it suffices that 8 L ηK,n(δ) ≤ ϵ. By the definition of ηK,n(δ) in Eq. (34), this holds when 
+
+σ
+
+√K + σ
+
+r 2 log (2n/δ)
+
+K ≤ ϵ
+
+8L ,which is implied by K = Ω(σ2 log (n/δ)/ϵ2) (absorbing constants and L into Ω(·)). 
+
+# B Additional Experimental Details 
+
+B.1 Preliminary Study Protocol 
+
+This subsection provides the full protocol for the preliminary study in Sec. 3. The study is purely diagnostic. 
+
+Data and encoder. We use multi-caption image–text datasets such as MS-COCO and Flickr30K, where each image xi is paired with K captions {yi,k}Kk=1. Unless stated otherwise, we use all available human captions and set K = 5. A frozen dual encoder maps images and captions to normalized embeddings: 
+
+vi = norm (ϕv(xi)) ∈ Rd, ti,k = norm (ϕt(yi,k)) ∈ Rd. (49) All image–text similarities are cosine similarities v⊤t.
+
+Caption-view dispersion. We quantify how much the captions of the same image disagree in the frozen text embedding space: 
+
+dview  
+
+> i
+
+= 2
+
+K(K − 1) ∑
+
+> 1≤k<ℓ ≤K
+
+ 1 − t⊤
+
+> i,k
+
+ti,ℓ
+
+. (50) A larger dview  
+
+> i
+
+means that different valid captions share less overlap and leave more details unspecified. 
+
+Caption-induced rank volatility. For each caption yi,k, we retrieve images from a fixed gallery G and record the rank of the ground-truth image: 
+
+Ri,k = 1 + ∑   
+
+> xj∈G ,j̸=i
+
+1
+
+h
+
+v⊤ 
+
+> j
+
+ti,k > v⊤ 
+
+> i
+
+ti,k
+
+i
+
+. (51) We then define the rank volatility across captions as 
+
+σrank  
+
+> i
+
+= Std k∈[K]
+
+ log (1 + Ri,k). (52) 16 The logarithm reduces the domination of extreme ranks while preserving caption-induced instability. 
+
+Hard-negative posterior mass. To measure whether caption disagreement makes negatives more com-petitive, we compute a retrieval posterior over the same gallery: 
+
+p(j | yi,k) = exp (v⊤ 
+
+> j
+
+ti,k/τ0)
+
+∑m:xm ∈G exp (v⊤ 
+
+> m
+
+ti,k/τ0) , (53) where τ0 is the frozen encoder’s evaluation temperature. The hard-negative mass for image i is 
+
+phard  
+
+> i
+
+= 1
+
+K
+
+> K
+
+# ∑
+
+> k=1
+
+max   
+
+> j̸=i
+
+p(j | yi,k). (54) A larger value indicates that at least one incorrect image receives high posterior probability under the caption query. 
+
+Diagnostic residual leakage. We next examine whether the image embedding aligns with view-specific textual components. We first define a diagnostic multi-caption centroid ˜ti = norm 
+
+> K
+
+# ∑
+
+> k=1
+
+ti,k
+
+!
+
+, (55) which is used only for analysis. For each caption, we remove the component parallel to this centroid: 
+
+qi,k = ti,k − (t⊤ 
+
+> i,k
+
+˜ti)˜ti. (56) The residual leakage score is 
+
+ℓres  
+
+> i,k
+
+=  v⊤ 
+
+> i
+
+qi,k
+
+2. (57) Large ℓres  
+
+> i,k
+
+means that the image embedding is correlated with the caption component that is not shared by the multi-caption centroid. 
+
+High-confidence retrieval error. For each caption query, we define the top prediction and its confidence as ˆji,k = arg max   
+
+> j:xj∈G
+
+p(j | yi,k), πi,k = max   
+
+> j:xj∈G
+
+p(j | yi,k). (58) The high-confidence error score is 
+
+oi,k = πi,k · 1 ˆji,k̸ = i . (59) This score is large only when the frozen model retrieves a wrong image with high confidence. 
+
+Visualization. Fig. 2(a) plots each image as one point, with x-axis dview  
+
+> i
+
+and y-axis σrank  
+
+> i
+
+. Point color encodes phard  
+
+> i
+
+, so the plot jointly shows caption disagreement, rank instability, and hard-negative confu-sion. Fig. 2(b) plots each caption view as one point, with x-axis ℓres  
+
+> i,k
+
+and y-axis oi,k. Point color encodes the parent image’s caption-view dispersion dview  
+
+> i
+
+. For both panels, we overlay binned means and upper quantiles to show the global trend without hiding the dense point distribution. 
+
+Interpretation. The preliminary study is designed to reveal a failure mechanism rather than to evaluate TPC. It supports the following empirical pattern: caption disagreement is associated with unstable retrieval ranks, and residual leakage is associated with confident errors. These two observations motivate the method design in Sec. 4: align to a view-shared semantic component, learn a single-caption estimator for deployment, suppress view-specific residual alignment, and calibrate confidence when captions provide weak constraints. 
+
+B.2 Datasets and Protocols 
+
+Training data and multi-view construction. TEXT AS PARTIAL CONSTRAINT requires K textual views per image to instantiate a partial language constraint and expose an “unsaid” subspace. We therefore use a two-tier view construction strategy: 
+
+(A) Human multi-caption datasets. For datasets that naturally provide multiple captions, we use all available human captions and set K=5 (MS-COCO, Flickr30K). During training, we encode each image 
+
+once and encode its K captions independently, so multi-view supervision increases text-side compute but does not multiply vision-side cost. To match the step budget of single-caption baselines, we subsample 
+
+K′ ∈ { 3, 4, 5 } captions per step (uniformly without replacement) and cycle through captions across epochs; the consensus ci and uncertainty ui are always computed on the sampled set. 17 (B) Single-caption web-style corpora. When only one caption is available, we synthesize view diversity that is faithful but intentionally underspecified. Given the original caption y, we generate K−1 additional views consisting of: (i) a core-only view that retains only the main entities/actions (drops attributes such as colors, counts, and fine descriptors), (ii) a paraphrase view with similar semantics but different surface form, and (iii) a back-translation view (EN →DE →EN) to inject lexical variation. Unless stated otherwise, we set K=4 for this regime (original + three synthesized views). We filter synthesized views to avoid semantic drift by enforcing: (1) length in [5, 30 ] tokens, (2) no new named entities compared to y, and (3) cosine similarity to the original caption above a threshold under a frozen text encoder (we use ≥ 0.25 as default). If a view fails, we resample it; if repeated failures occur, we fall back to another core-only deletion sample to preserve correctness. This construction produces controlled omissions, which is precisely the regime where our residual suppression and uncertainty-aware sharpness are expected to help. 
+
+Image–text retrieval benchmarks. We evaluate retrieval on MS-COCO and Flickr30K using standard splits. At test time, each query caption y is mapped to the single-view core ˆc = norm (ψθ (norm (ϕt(y)))) 
+
+and each candidate image is mapped to v = norm (ϕv(x)) ; ranking is performed by the core similarity 
+
+s(x, y) = v⊤ ˆc. We report image-to-text and text-to-image Recall@{1,5,10}. To stress robustness to underspecification, we additionally report: (i) Mean-over-captions performance (average Recall@K over all captions of an image), (ii) Worst-caption performance (minimum over captions), and (iii) Caption sensitivity (rank standard deviation across captions), see Appendix §B.3. These explicitly measure whether the model “over-commits” to view-specific details. 
+
+Zero-shot classification and distribution shift. We follow a CLIP-style zero-shot protocol with prompt ensembling. For ImageNet-1K (val), we use a fixed set of templates (e.g., the standard CLIP template set) and average the normalized text embeddings across templates per class. For transfer, we use dataset-specific template sets when available and otherwise use a small shared template pool (e.g., 8 generic templates). Crucially, our method uses the core text embedding for classification, i.e., class scores are v⊤ ˆcclass . We report Top-1 accuracy on clean images and, when enabled, robust accuracy under AutoAttack (§B.3). We also include fine-grained alignment diagnostics that probe attribute/relation sensitivity, which closely matches our “unsaid” motivation: Winoground (compositional correctness), ARO-style attribute/object/relation tests, and caption-contrast sets (e.g., hard negatives formed by swapping attributes/relations). These are reported as accuracy (higher is better). 
+
+LVLM downstream and hallucination benchmarks. To test whether improved alignment transfers to generation settings, we plug our vision encoder into a fixed LVLM stack. Concretely, we keep the LLM weights, tokenizer, and instruction-tuning data fixed, and only change the vision encoder. Because changing the vision encoder can alter feature statistics/dimensions, we retrain (or re-fit) only the vision– language projector for a small number of steps while freezing the LLM (and optionally freezing the vision encoder after a short alignment warmup). We evaluate: (i) VQAv2 and TextVQA (accuracy) and (ii) POPE (accuracy/precision/recall/F1) for object hallucination. For open-ended caption hallucination, we report CHAIR. We present LVLM results separately from dual-encoder retrieval/classification to avoid conflating architectural and training differences. 
+
+B.3 Evaluation Metrics 
+
+Retrieval and caption robustness. We report Recall@{1,5,10} for both directions. For caption robustness, given an image with captions {yk}Kk=1 we compute: (i) mean Recall@K over captions, (ii) worst-caption Recall@K, and (iii) caption-sensitivity as the standard deviation of the (1-indexed) rank of the ground-truth match across captions. We additionally report a disagreement-to-error analysis: we bucket queries by predicted residual energy ˆu(y) = 1 − (t⊤ ˆc)2 and report Recall@K and calibration within each bucket, which directly tests whether our uncertainty signal is meaningful. 
+
+Calibration for retrieval and classification. For classification, we compute ECE with M=15 equal-width bins over top-1 confidence and report NLL. For retrieval, we convert similarities into a calibrated distribution using our per-query temperature τ(y). Because a full softmax over the entire gallery can be expensive, we compute calibration on a standardized candidate set : for each query we include the ground-truth match, the top-N retrieved candidates (default N=100), and a fixed number of uniformly sampled negatives (default 300), then apply softmax on this set. We report ECE/NLL on top-1 correctness, Brier score, and risk–coverage curves (selective retrieval) obtained by abstaining when max softmax probability is below a threshold. 
+
+Adversarial robustness . When comparing to adversarially trained or adversarially fine-tuned baselines, we evaluate robust Top-1 accuracy on ImageNet-1K under AutoAttack with an ℓ∞ threat model and a fixed perturbation radius. We use a single, fixed radius across all methods (default ϵ=4 / 255) and the same attack settings (steps, restarts) without per-method tuning. 18 B.4 Implementation Details 
+
+Backbone, resolution, and tokenization. We use an OpenCLIP-style dual encoder with a ViT vision backbone and a Transformer text encoder. Unless stated otherwise, images are processed at 224 ×224 with standard CLIP augmentations (random resized crop and horizontal flip for training; center crop for evaluation). Texts are truncated/padded to a fixed maximum length (77 tokens in the CLIP tokenizer) and encoded with the backbone tokenizer. We report results for two model scales: ViT-B/16 for fast ablations and ViT-L/14 for main results. 
+
+Core filter initialization and stability. The single-view core filter ψθ (t) = Wct + bc is initialized to be near-identity ( Wc ← I and bc ← 0), so ˆc starts close to the original text direction and training focuses on removing inconsistent components rather than rotating the space arbitrarily. We clamp the instance temperature to avoid extremes, i.e., τi = τ0(1 + γui) is clipped to [τ0, 3 τ0] by default, which stabilizes early training when disagreement estimates are noisy. 
+
+Optimization and schedule. We use AdamW with cosine learning-rate decay and linear warmup. A typical configuration is: global batch size 4096 (via gradient accumulation if needed), warmup 5% of total steps, and total 100k–200k steps depending on data scale. We use mixed precision (bf16) and gradient clipping (max norm 1.0). We set separate learning rates for (i) encoders and (ii) the core filter: LR enc = 5 × 10 −5 and LR ψ = 5 × 10 −4 by default, with weight decay 0.1. Unless otherwise stated, we tune only LR enc and keep LR ψ fixed. 
+
+Method hyperparameters. We use K=5 on COCO/Flickr30K and K=4 on synthesized-view corpora. Unless otherwise stated, we set τ0=0.07, γ=1.0, λagree =1.0, and λnc =0.1. We tune γ ∈ { 0, 0.5, 1, 2 },
+
+λagree ∈ { 0.5, 1, 2 }, and λnc ∈ { 0.05, 0.1, 0.2, 0.5 } on a held-out validation split. For ablations, we also report: (i) removing uncertainty scaling ( γ=0), (ii) removing residual suppression ( λnc =0), and (iii) using consensus-only training without the single-view filter. 
+
+Compute and reproducibility. Training is run with distributed data parallel on A100-class GPUs. We match global batch size and total optimization steps across methods whenever feasible. For multi-view training, the image forward pass is shared across views to keep compute comparable. We run each main setting with three random seeds and report mean ±std. 
+
+B.5 Compared Methods 
+
+CLIP-style contrastive alignment. We use the standard CLIP objective as the primary baseline (Radford et al., 2021), i.e., symmetric InfoNCE over image–text pairs with cosine similarity. We also include OpenCLIP (Cherti et al., 2023) as an open, large-scale reproduction with widely used checkpoints and evaluation protocols. 
+
+Stronger contemporary training recipes. We compare to SigLIP (Zhai et al., 2023), which replaces softmax-normalized contrastive loss with a pairwise sigmoid objective, and EVA-CLIP (Sun et al., 2023), which introduces improved scaling/training techniques for CLIP at scale. When these baselines are used as off-the-shelf checkpoints trained on different corpora, we report them as “external checkpoints” under the same evaluation suite; when data access permits, we additionally retrain with our data/budget and report the matched-data results. 
+
+Robust/anti-misalignment training and adaptation. We include TeCoA (Mao et al., 2024), which adversarially fine-tunes CLIP-style models (min–max optimization) to improve zero-shot adversarial robustness under distribution shifts. We include RobustCLIP/FARE (Schlarmann et al., 2024b), which performs unsupervised adversarial fine-tuning of the vision embedding while explicitly preserving the origi-nal CLIP features, enabling plug-and-play robustness gains in downstream LVLMs. We include Robust SuperAlignment (Adv-W2S) (Schlarmann et al., 2024a), which extends weak-to-strong generalization to 
+
+robustness transfer by incorporating adversarial examples into the alignment objective. These methods incur additional adversarial-example generation and/or teacher guidance; we therefore (i) report them in a separate robustness block, (ii) keep the backbone and evaluation protocol identical, and (iii) match training steps/compute as closely as possible. 
+
+Post-hoc concept-level enhancement. We compare against VL-SAE (Shen et al., 2025), which learns a unified concept set via sparse autoencoding of vision–language representations and can be used to strengthen alignment at the concept level. We apply VL-SAE as a post-hoc module on top of the same frozen encoders (no encoder retraining), isolating the effect of the enhancement mechanism. 
+
+LVLM-side alignment baselines. To test transfer to generative multimodal models, we follow the plug-and-play LVLM protocol: we fix the LVLM framework (e.g., LLaVA (Liu et al., 2023) or Open-Flamingo (Awadalla et al., 2023)) and only swap the vision encoder (ours vs. baseline encoders). We further compare against LVLM alignment improvements that modify the connector/training, including 19 patch-aligned training (Jiang et al., 2025) and Directed-Tokens (Truong et al., 2025). LVLM-side methods are not directly comparable to dual-encoder retrieval training; we therefore report LVLM results sepa-rately and keep the LLM, connector architecture, and SFT data identical unless the baseline explicitly changes them. 
+
+B.6 Main Experiment Details 
+
+Residual Leakage Diagnostic. This diagnostic evaluates whether training changes the degree to which image embeddings align with caption-specific components that are not shared across views. For each image xi with K captions {yi,k}Kk=1, we compute normalized embeddings 
+
+vi = norm (ϕv(xi)) , ti,k = norm (ϕt(yi,k)) . (60) We define a caption-consensus core using all available caption views: 
+
+ci = norm 
+
+> K
+
+# ∑
+
+> k=1
+
+ti,k
+
+!
+
+. (61) For each caption view, we remove the component parallel to the consensus core and obtain the diagnostic residual 
+
+ri,k = ti,k − (t⊤
+
+> i,k
+
+ci)ci. (62) The residual leakage score is then 
+
+ℓi,k = ( v⊤ 
+
+> i
+
+ri,k)2. (63) A larger ℓi,k means that the image representation is more strongly correlated with a view-specific textual component rather than the shared semantic core. We compute ℓi,k before and after fine-tuning for standard CLIP and TPC. For a fair comparison, the residual space is always defined by the multi-caption consensus 
+
+ci rather than by the learned single-view core predictor ψθ . Fig. 5 visualizes the distribution over all image–caption pairs, with mean and 95% confidence intervals estimated across seeds and dataset-wise means shown as small markers. 
+
+Selective Risk–Coverage from ˆu. This diagnostic evaluates whether the uncertainty proxy ˆu identifies queries whose text constraints are weak. Given a query caption y, we compute 
+
+t = norm (ϕt(y)) , ˆc = norm (ψθ (t)) , ˆu(y) = 1 − (t⊤ ˆc)2. (64) Intuitively, ˆu(y) is large when the original text embedding contains substantial energy outside the pre-dicted core direction, indicating that the query may contain view-specific or underspecified information. Let Q denote the evaluation query set and let em(q) ∈ { 0, 1 } be the top-1 error of method m on query q.For threshold θ, we retain the low-uncertainty subset 
+
+Qθ = {q ∈ Q | ˆu(q) ≤ θ}. (65) We then compute coverage and method-specific risk as coverage (θ) = |Q θ ||Q| , risk m(θ) = 1
+
+|Q θ | ∑
+
+> q∈Q θ
+
+em(q). (66) Sweeping θ from small to large yields a risk–coverage curve. Lower risk at the same coverage indicates that the retained low- ˆu queries are indeed more reliable. In Fig. 6, all methods are evaluated on the same retained query subsets induced by TPC ’s ˆu, so differences reflect prediction reliability under the same abstention policy. Solid curves report the overall average, faint curves report per-dataset trends, and shaded bands indicate ±1 standard deviation over three seeds. 
+
+B.7 Compute Resources 
+
+All experiments are run with distributed data parallel training on NVIDIA A100-class GPUs. Unless otherwise stated, training uses bf16 mixed precision, gradient accumulation to maintain the stated global batch size, and shared image forward passes across caption views. Each worker has 80GB GPU memory, 64 CPU cores, approximately 512GB host memory, and local NVMe storage for dataset caching. The main software stack uses PyTorch, CUDA, NCCL, OpenCLIP-style data loading, and deterministic evaluation scripts. Table 4 reports the approximate compute required to reproduce the reported experiments. GPU-hours are computed as GPU-hours = #GPUs × wall-clock hours. 20 Table 4: Approximate compute resources. Runtime is measured per run unless otherwise stated.                                                                               
+
+> Experiment Backbone / Model GPUs Peak Mem. / GPU Steps / Eval Size Wall Time GPU-hours Main TPC training ViT-L/14 dual encoder 8×A100-80GB 67GB 160K steps 31h 248 Fast ablations ViT-B/16 dual encoder 4×A100-80GB 43GB 100K steps 11h 44 Hyperparameter sensitivity ViT-B/16 dual encoder 4×A100-80GB 44GB 80K–100K steps 9–12h 36–48 Backbone generalization ViT / ConvNeXt / RN variants 4–8 ×A100-80GB 38–72GB 80K–160K steps 10–39h 40–312 Retrained CLIP-style baselines matched backbone 4–8 ×A100-80GB 40–66GB 100K–160K steps 12–30h 48–240 AutoAttack robustness evaluation ViT-L/14 4×A100-80GB 36GB ImageNet val 8.5h/model 34/model COCO/Flickr retrieval evaluation ViT-L/14 1×A100-80GB 24GB full test split 1.2h/model 1.2/model LVLM projector fitting LLaVA-1.5-7B stack 8×A100-80GB 58GB 12K steps 5.5h 44 POPE/VQA evaluation LLaVA-1.5-7B stack 4×A100-80GB 48GB benchmark eval 3–6h/model 12–24/model Controlled-deletion span extraction Llama-3.1-8B-Instruct 1×A100-80GB 31GB cached captions 4.5h 4.5 Controlled-deletion retrieval eval ViT-L/14 1×A100-80GB 24GB deletion grid 2.8h/model 2.8/model CLIP OpenCLIP SigLIP Adv-W2S TPC
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> RankStd  (std of GT rank across captions)
+> COCO
+> Flickr30K 21.52
+> 19.56 18.81
+> 17.41
+> 13.23
+> CLIP
+> OpenCLIP
+> SigLIP
+> Adv-W2S
+> TPC
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> WorstGap  (max  min GT rank)  56.32
+> 51.05 48.99
+> 45.27
+> 34.04
+
+Figure 7: Caption-choice sensitivity. Violin plots show per-image distributions of RankStd and WorstGap on COCO and Flickr30K. Dots and error bars indicate mean and 95% CI; faint points show dataset-wise means. Lower is better: less variation in retrieval rank across captions of the same image. The total compute for experiments reported in the paper is approximately 2.8K–3.2K A100 GPU-hours, including main training, ablations, sensitivity runs, robustness evaluation, LVLM projector fitting, and controlled-deletion evaluation. Including preliminary pilot runs and unsuccessful early variants, the full research process used approximately 3.6K A100 GPU-hours. The most expensive components are main ViT-L/14 training, backbone generalization, and robustness evaluation. In contrast, the proposed core filter itself adds only O(d2) parameters and negligible inference overhead relative to the dual encoder. Multi-view training increases text-side computation, but the image encoder is evaluated once per image, so the dominant vision-side cost remains comparable to CLIP-style training under the same batch size and optimization steps. 
+
+# C Additional Experimental Results 
+
+C.1 Consensus Core Stability: Does Caption-Choice Sensitivity Decrease? 
+
+We test the central “text as partial constraint” hypothesis: if the model aligns vision to a shared consensus core, retrieval should be less sensitive to which caption view is used as the query. For each image xi with captions {yi,k}Kk=1, we run text-to-image retrieval using each caption as the query and record the rank of the ground-truth image in the gallery, denoted ri,k (1 is best). We then compute two caption-sensitivity metrics: RankStd (i) = Std  {ri,k}Kk=1
+
+, WorstGap (i) = max 
+
+k ri,k − min 
+
+k ri,k. (67) Lower values indicate that the model is more stable to caption choice. We report distributions over images and compare CLIP-style training vs. TPC. Fig. 7 shows that TPC substantially reduces caption-choice sensitivity: both RankStd and WorstGap distributions shift downward and exhibit shorter tails than CLIP, indicating fewer brittle failures driven by view-specific details. This supports our design choice of aligning to a consensus core while suppressing residual commitment. 21 0.60 0.65 0.70 0.75 0.80 0.85 0.90 0.95 1.00   
+
+> = cos( c,c)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> CDF  F( ) =  P(cos( c, c) )
+> 0.90 0.95
+> Identity (hatc=t)
+> TPC w/o agree
+> TPC (Full)
+> COCO
+> Flickr30K
+> Web-SingleCap
+
+Figure 8: Does ψθ predict the consensus core? Empirical CDFs of ρ = cos ( ˆc, c) on COCO, Flickr30K, and a single-caption web-style set. Colors denote methods; line styles denote datasets. A right-shifted curve indicates that single-caption cores ˆ c better match the multi-view consensus c.
+
+C.2 Single-Caption Core Filter: Does ψθ Recover the Multi-View Consensus? 
+
+We verify that the single-view core filter ψθ is not a shortcut, but actually learns to approximate the multi-view intersection semantics captured by the consensus core c.For each image xi with captions {yi,k}Kk=1, we compute the consensus core ci = norm (∑k ti,k) with 
+
+ti,k = norm (ϕt(yi,k)) . For each caption view, we predict a single-caption core ˆci,k = norm (ψθ (ti,k)) and measure 
+
+ρi,k = cos ( ˆci,k, ci) = ˆc⊤
+
+> i,k
+
+ci ∈ [−1, 1 ]. (68) We plot the empirical CDF F(α) = P(ρ ≤ α) across caption views. As baselines, we include an Identity 
+
+“filter” ( ˆc = t) and an w/o-agree variant that removes the agreement loss ( λagree =0). A better core filter yields a CDF that is shifted right (more mass at high ρ), consistently across datasets. Fig. 8 shows that TPC yields a clear right-shift in the cos ( ˆc, c) distribution across datasets, while the Identity baseline exhibits a heavier low-similarity tail. Removing agreement supervision collapses much of the gain, indicating that ψθ learns a deployable single-caption estimator of shared semantics rather than exploiting dataset artifacts. 
+
+C.3 When Helpful: Gain vs. Text-Only Solvability 
+
+when is TPC most useful? If text is underspecified (weak constraint), a robust aligner should benefit more from suppressing residual commitment; if text is already sufficient (strong bias), gains should diminish. For each VQA query q = ( x, y), we compute a text-only solvability score by running the same LVLM with the image masked (or replaced by a null image) and taking the maximum answer confidence: 
+
+stext (q) = max a p(a | y, ∅) ∈ [0, 1 ]. We then evaluate the full LVLM with (i) a baseline vision encoder and (ii) the TPC vision encoder, and compute the accuracy gain within bins of similar stext . Concretely, we sort examples by stext and form equal-count bins; each plotted point is a bin with x = E[stext ] and 
+
+y = ∆Acc = Acc TPC − Acc Base (in percentage points). Fig. 9 shows a clear pattern: gains are largest when stext is low (image-dependent queries), and shrink toward zero as stext increases (text already sufficient or strongly biased). This supports our hypothesis that TPC is particularly helpful under underspecified language supervision, where suppressing residual alignment prevents brittle over-commitment. 
+
+C.4 Backbone/Scale Generalization 
+
+We test whether TPC is robust to architectural choices by swapping the vision backbone while keeping the training recipe as consistent as possible. We train TPC with identical objectives and a matched schedule across ViT-S/16, ViT-B/16, ViT-L/14, ViT-H/14, ConvNeXt-B, ConvNeXt-L, and RN50. We evaluate (i) ImageNet Top-1 clean and AutoAttack robust accuracy ( ϵ=2 / 255), and (ii) MS-COCO text →image Recall@{1,5,10}. We visualize results with a parallel-coordinates plot where each polyline corresponds to one backbone (faint lines: individual seeds; bold line: mean over 3 seeds). 22 0.0 0.2 0.4 0.6 0.8 1.0     
+
+> Text-only solvability / bias strength stext (higher = more solvable from text)
+> 1
+> 1
+> 3
+> 5
+> 7
+> Gain of TPC over baseline  Acc (percentage points)
+> GQA
+> SciQA
+> VizWiz
+> OKVQA
+> Overall trend
+> Image-dependent
+> (low stext )
+> Text-sufficient
+> (high stext )
+
+Figure 9: Gain vs. text-only solvability. Each point is an equal-count bin (hundreds of bins per dataset); colors indicate datasets. The trend line is a smoothed running mean over bins (same color per dataset) and an overall trend (black). Higher gain at lower solvability indicates TPC is most beneficial when text is a weak/underspecified constraint. min 
+
+> mid
+> max
+> IN Clean
+> 78.1
+> 80.2
+> 82.3
+> IN Robust
+> 61.0
+> 63.1
+> 65.2
+> Avg-14 Robust
+> 48.9
+> 50.8
+> 52.8
+> COCO R@1
+> 45.8
+> 48.1
+> 50.3
+> COCO R@5
+> 75.3
+> 77.4
+> 79.5
+> COCO R@10
+> 84.7
+> 85.9
+> 87.1
+> ConvNeXt-B
+> ConvNeXt-L
+> RN50
+> ViT-B/16
+> ViT-H/14
+> ViT-L/14
+> ViT-S/16
+
+Figure 10: Cross-backbone robustness and retrieval. Parallel coordinates over multiple metrics (each axis is min–max normalized for readability). Each backbone is shown with three seed runs (faint) and the mean (bold). Consistent trends across architectures indicate TPC does not rely on a particular backbone family. Fig. 10 shows that TPC yields stable performance across both ViT and ConvNeXt families: larger back-bones improve clean accuracy and COCO recall as expected, while robust accuracy remains consistently high without collapse. This suggests the core–residual decomposition and uncertainty modulation transfer across architectural inductive biases. 
+
+C.5 Systematic Missing-Detail Stress Test via Controlled Caption Deletion 
+
+We perform a direct text-as-partial-constraint stress test by systematically removing critical details from captions. If a method over-commits to view-specific textual fragments, its performance and calibration should degrade sharply as deletions increase. In contrast, TPC should degrade more gracefully due to residual suppression and uncertainty-aware smoothing. Given a caption y, we apply a controlled deletion operator that removes a fixed fraction of tokens belong-ing to one of three semantic categories: Attributes (color/size/material/adjectives), Relations (spatial/in-teraction predicates), and Counts (numerals/quantifiers). We test deletion ratios in {10%, 30%, 50%, 70% }
+
+and evaluate text →image retrieval on COCO/Flickr30K. For each condition, we report Recall@1 (perfor-mance; higher is better) and ECE (calibration; lower is better) computed from retrieval confidence (top-1 softmax probability over a standardized candidate set). 
+
+Data construction: LLM-assisted controlled deletion. The controlled deletion operator is built with a 23 10% 30% 50% 70%    
+
+> Deletion ratio
+> Attributes
+> Relations
+> Counts
+> Deletion type
+> 77.8
+> ECE 5.1
+> 71.7
+> ECE 5.1
+> 64.2
+> ECE 6.4
+> 55.3
+> ECE 11.2
+> 76.8
+> ECE 5.3
+> 68.0
+> ECE 6.5
+> 57.2
+> ECE 12.5
+> 44.0
+> ECE 21.1
+> 76.2
+> ECE 5.2
+> 66.4
+> ECE 7.6
+> 53.9
+> ECE 15.4
+> 39.3
+> ECE 25.2
+> CLIP
+> 10% 30% 50% 70%
+> Deletion ratio
+> 78.4
+> ECE 16.0
+> 74.6
+> ECE 17.5
+> 71.4
+> ECE 18.8
+> 67.9
+> ECE 19.7
+> 77.4
+> ECE 15.8
+> 72.4
+> ECE 16.8
+> 67.7
+> ECE 17.1
+> 62.4
+> ECE 16.7
+> 76.9
+> ECE 15.8
+> 71.2
+> ECE 16.4
+> 65.9
+> ECE 16.5
+> 60.1
+> ECE 15.5
+> TPC
+> 40
+> 45
+> 50
+> 55
+> 60
+> 65
+> 70
+> 75
+> Recall@1 (%)
+
+Figure 11: Controlled caption deletion stress test. Heatmaps show Recall@1 (%) under increasing deletion ratios (x-axis) and deletion types (y-axis). Each cell is annotated with Recall@1 / ECE (ECE shown as a small number). TPC maintains higher accuracy and lower ECE as deletions grow, indicating robustness to systematically weakened language constraints. text-only span extractor driven by an off-the-shelf instruction-tuned LLM. Concretely, we use Llama-3.1-8B-Instruct to tag verbatim spans in the caption that correspond to Attributes , Relations , and Counts , and we then perform programmatic deletions to meet the target ratio. We run the extractor with deterministic decoding (temperature 0, top-p=1) and cache all extracted spans for reproducibility. To enforce strict controllability , the LLM is not allowed to paraphrase or introduce new content: it only returns spans that appear exactly in the original caption. Given the returned spans for a target type, we uniformly sample spans (with a fixed random seed) until the removed token count reaches the specified deletion ratio (10/30/50/70%) of all tokens covered by that type; if the caption contains too few tokens of a type, we delete all available ones. Finally, we apply a minimal deterministic cleanup (collapse whitespace, remove dangling commas/prepositions) without any rewriting. 
+
+Prompt template for LLM span extraction (used to build deletion sets) 
+
+System: You are a precise annotation tool. You must not rewrite text. You only copy exact substrings that already appear in the caption. User: Given the following image caption, extract verbatim spans that belong to three semantic categories: (1) ATTRIBUTES: colors, sizes, materials, adjectival modifiers, descriptive properties (e.g., "red", "wooden", "small", "striped"). (2) RELATIONS: spatial or interaction relations/predicates connecting entities (e.g., "next to", "on top of", "holding", "behind"). (3) COUNTS: numerals and quantifiers (e.g., "two", "3", "several", "a pair of"). Rules: - Output MUST be a single valid JSON object with keys: "attributes", "relations", "counts". -Each value is a list of strings, and each string MUST be an exact substring copied from the caption (verbatim, case-preserving). - Spans should be minimal and non-overlapping. Do NOT invent spans that are not present. - If a category has no span, output an empty list for that key. - Do NOT output anything other than the JSON. Caption: <<<CAPTION_TEXT>>> 
+
+Fig. 11 shows that TPC is consistently more resilient to missing details: (1) performance drops are milder under severe deletions, especially for relations and counts where underspecification is most damaging; (2) calibration degrades more slowly, suggesting ˆu-modulated sharpness prevents overconfident retrieval when the text constraint is weakened. Overall, the stress test supports our thesis that language supervision is partial and that explicitly suppressing residual commitment improves robustness. 
+
+# D Responsible Research and Reproducibility 
+
+D.1 Scope and Limitations 
+
+TPC is designed as a representation-level alignment method for settings where language supervision is naturally partial or can be instantiated through multiple faithful caption views. Its main scope is therefore robust image–text matching, calibrated retrieval, zero-shot transfer, and plug-in transfer to LVLMs through a stronger vision encoder. The method is not intended to replace task-specific safety 24 Table 5: Seed variability for main TPC results. Mean ±standard deviation over three random seeds.             
+
+> Setting ImageNet Clean ImageNet Robust Avg-14 Clean Avg-14 Robust POPE Avg F1 VQA Avg TPC (ViT-L/14) 81.42 ±0.12 64.05 ±0.27 76.19 ±0.18 52.03 ±0.31 85.16 ±0.22 61.25 ±0.19
+
+filters, factuality checkers, or policy-level controls in deployed LVLM systems; rather, it provides a more reliable alignment backbone that can complement these downstream safeguards. The method uses multi-view captions during training to estimate a consensus semantic core. When human multi-caption annotations are available, we use the provided views directly; when only one caption is available, we construct faithful auxiliary views through controlled deletion, paraphrasing, and back-translation, followed by deterministic filtering. This setting matches many existing vision–language resources and can be extended with retrieval- or generation-based view construction. In our experiments, performance is stable across K ∈ { 3, 4, 5 } and saturates around four to five views, suggesting that TPC does not require a large number of captions per image. Computationally, TPC adds text-side view encoding and a lightweight linear core filter, while sharing the image forward pass across views. As a result, the additional overhead is moderate compared with full adversarial training or LVLM instruction tuning. In downstream use, inference remains single-text and uses only the predicted core embedding, so the deployment cost is essentially the same order as a standard CLIP-style dual encoder. 
+
+D.2 Statistical Reporting Across Seeds 
+
+Unless otherwise stated, trainable TPC variants are run with three random seeds. The seeds affect model initialization of the core filter, data shuffling, caption-view subsampling, and minibatch ordering. We report mean values in the main result tables for readability and use mean ±standard deviation in sensitivity and diagnostic figures. For metrics whose distributions are asymmetric, such as residual leakage and rank-based quantities, we additionally use bootstrap confidence intervals over examples or caption views. Table 5 reports seed-level variability for the principal TPC metrics. The standard deviations are small relative to the margins over the strongest baselines, indicating that the main conclusions are not driven by a single favorable run. For external checkpoints that are evaluated without retraining, we report deterministic evaluation numbers under the same preprocessing and evaluation scripts. For retrained baselines and ablations, we use the same three-seed protocol whenever the corresponding method is computationally comparable. 
+
+D.3 Broader Impact and Responsible Use 
+
+TPC aims to improve the reliability of vision–language representations under underspecified language su-pervision. Potential positive impacts include more stable image–text retrieval, better calibrated confidence under ambiguous captions, and reduced object hallucination when the resulting vision encoder is used inside LVLM systems. These properties are useful for applications where users provide incomplete or paraphrased descriptions and where overconfident visual grounding can lead to unreliable downstream responses. The same improvements may also increase the capability of downstream multimodal systems. If such systems are deployed without proper safeguards, stronger visual grounding could still be misused in settings such as surveillance, automated profiling, or misleading content generation. Moreover, calibrated confidence should not be interpreted as a guarantee of factual correctness or safety. We therefore view TPC as a representation-level reliability component rather than a complete deployment solution. Responsible use should combine TPC with application-level safety filters, dataset and demographic audits, human oversight in high-stakes settings, and clear communication of model uncertainty. We do not release a new user-facing model or scraped dataset at submission time. 
+
+D.4 LLM Usage Disclosure 
+
+The core TPC method does not use an LLM to generate training labels, optimize model parameters, or produce predictions. The only methodological use of an LLM is in the controlled caption-deletion stress test in Appendix C.5. Specifically, we use Llama-3.1-8B-Instruct as a deterministic span extractor to identify verbatim caption spans corresponding to attributes, relations, and counts. The LLM is constrained 25 to return exact substrings from the original caption and is not allowed to paraphrase, introduce new content, or modify the image–text label. 26
