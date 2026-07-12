@@ -6,89 +6,85 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-11
-- 运行时间：2026-07-11 21:08:33 UTC
+- 最新运行日期：2026-07-12
+- 运行时间：2026-07-12 20:39:51 UTC
 - 运行状态：成功
-- 本次总论文数：23
-- 精读区：11
+- 本次总论文数：21
+- 精读区：9
 - 速读区：12
 
 ### 今日简报（AI）
-今日共处理23篇论文，精读11篇，速读12篇，其中《MORE: A Multilingual Document Parsing Benchmark and Evaluation》和《Text as Partial Constraint: Core-Residual Alignment for Robust Vision-Language Learning》均获9.0高分，值得重点关注。建议优先精读这两篇，并速读《ProLaViT: Learning Progressive Latent Visual Thoughts in Structured Latent Space》以拓展结构化潜在空间中的视觉思维学习。
-- 详情：[/202607/11/README](/202607/11/README)
+今日处理21篇论文，精读9篇，聚焦医学图像分割与历史书法风格理解。
+最值得关注：边缘感知SAM在超声图像分割中取得满分，以及首个细粒度历史书法风格数据集HCSU。
+建议深入SAM在医学影像的适配，或探索书法风格的小样本迁移应用。
+- 详情：[/202607/12/README](/202607/12/README)
 
 ### 精读区论文标签
-1. [MORE: A Multilingual Document Parsing Benchmark and Evaluation](/202607/11/2607.02956v1-more-a-multilingual-document-parsing-benchmark-and-evaluation)  
+1. [An Edge-aware Prompt-enhanced SAM for Ultrasound Image Segmentation](/202607/12/2607.07240v1-an-edge-aware-prompt-enhanced-sam-for-ultrasound-image-segmentation)  
+   标签：评分：10.0/10、query:vlmmed
+   evidence：边缘感知的SAM适应超声分割
+2. [HCSU: A Dataset and Benchmark for Fine-Grained Historical Calligraphy Style Understanding](/202607/12/2607.04147v1-hcsu-a-dataset-and-benchmark-for-fine-grained-historical-calligraphy-style-understanding)  
    标签：评分：9.0/10、query:vl
-   evidence：面向VLM的多语言文档解析基准
-2. [Text as Partial Constraint: Core-Residual Alignment for Robust Vision-Language Learning](/202607/11/2607.03143v1-text-as-partial-constraint-core-residual-alignment-for-robust-vision-language-learning)  
+   evidence：书法风格理解的LVLM基准
+3. [SeeMe: Mitigating Hallucinations in Large Vision-Language Models through Effective Visual Token Engineering](/202607/12/2607.04163v1-seeme-mitigating-hallucinations-in-large-vision-language-models-through-effective-visual-token-engineering)  
    标签：评分：9.0/10、query:vl
-   evidence：用于鲁棒视觉语言学习的核心残差对齐框架
-3. [Pathways of Visual Information Flow in Vision-Language Models](/202607/11/2607.03358v1-pathways-of-visual-information-flow-in-vision-language-models)  
+   evidence：通过令牌工程缓解大视觉语言模型幻觉
+4. [TORINO: Token Reduction via Interpretable Concept Overlap in Vision-Language Models](/202607/12/2607.04593v1-torino-token-reduction-via-interpretable-concept-overlap-in-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：视觉语言模型信息流路径
-4. [ViPo-MLLM: Visual-Pose Multimodal LLM for Gloss-Free Sign Language Translation](/202607/11/2607.03657v1-vipo-mllm-visual-pose-multimodal-llm-for-gloss-free-sign-language-translation)  
+   evidence：通过可解释概念重叠的视觉语言模型令牌缩减
+5. [Does It Fail to See or Fail to Know? Attributing Errors in Vision-Language Models](/202607/12/2607.04683v1-does-it-fail-to-see-or-fail-to-know-attributing-errors-in-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：手语翻译的视觉语言大模型
-5. [Displacement Preserving Relational Distillation for Robust Medical Segmentation](/202607/11/2607.04599v1-displacement-preserving-relational-distillation-for-robust-medical-segmentation)  
+   evidence：归因视觉语言模型在感知和知识方面的错误
+6. [Repurposing CLIP to Localize at Pixel Level](/202607/12/2607.05253v2-repurposing-clip-to-localize-at-pixel-level)  
+   标签：评分：9.0/10、query:vl
+   evidence：将CLIP重新用于像素级定位和分割
+7. [Analysis-by-Proxy: Localization Signals in VLMs Operating as Condition Encoders](/202607/12/2607.06445v1-analysis-by-proxy-localization-signals-in-vlms-operating-as-condition-encoders)  
+   标签：评分：9.0/10、query:vl
+   evidence：研究VLM作为条件编码器时的空间理解能力
+8. [Infinity-Parser2 Technical Report](/202607/12/2607.07836v1-infinity-parser2-technical-report)  
+   标签：评分：9.0/10、query:vl
+   evidence：用于端到端文档解析的大型多模态模型
+9. [Multi-Resolution Feature Stem for Diabetic Retinopathy lesion segmentation](/202607/12/2607.08679v1-multi-resolution-feature-stem-for-diabetic-retinopathy-lesion-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：通过关系蒸馏实现鲁棒的医学分割
-6. [DeGenseGS: Geometrically and Semantically Decoupled Surgical Scene Understanding in 4D Gaussian Splatting](/202607/11/2607.04761v1-degensegs-geometrically-and-semantically-decoupled-surgical-scene-understanding-in-4d-gaussian-splatting)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：视觉语言模型用于手术场景理解
-7. [Repurposing CLIP to Localize at Pixel Level](/202607/11/2607.05253v2-repurposing-clip-to-localize-at-pixel-level)  
-   标签：评分：9.0/10、query:vl
-   evidence：利用CLIP进行像素级分割
-8. [Structured-Condensed Prompt Tuning in Vision-Language Models for Fine-grained Image Recognition](/202607/11/2607.06185v1-structured-condensed-prompt-tuning-in-vision-language-models-for-fine-grained-image-recognition)  
-   标签：评分：9.0/10、query:vl
-   evidence：VLM提示调优用于细粒度识别
-9. [Analysis-by-Proxy: Localization Signals in VLMs Operating as Condition Encoders](/202607/11/2607.06445v1-analysis-by-proxy-localization-signals-in-vlms-operating-as-condition-encoders)  
-   标签：评分：9.0/10、query:vl
-   evidence：VLM作为条件编码器的定位信号分析
-10. [Widest-Path Reachability Fields for Connectivity-Preserving Slender Structure Segmentation](/202607/11/2607.07123v1-widest-path-reachability-fields-for-connectivity-preserving-slender-structure-segmentation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：用于细长结构的连通性保持分割方法
-11. [Attribute Retrieving for Open-Vocabulary Endoscopic Compositional Referring Segmentation](/202607/11/2607.08397v1-attribute-retrieving-for-open-vocabulary-endoscopic-compositional-referring-segmentation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：内窥镜指代分割结合视觉语言模型
+   evidence：使用Vision Transformers进行糖尿病视网膜病变分割
 
 ### 速读区论文标签
-1. [ProLaViT: Learning Progressive Latent Visual Thoughts in Structured Latent Space](/202607/11/2607.02907v1-prolavit-learning-progressive-latent-visual-thoughts-in-structured-latent-space)  
+1. [RADIO1D: Elastic Representations for Condensed Vision Modeling](/202607/12/2607.03624v1-radio1d-elastic-representations-for-condensed-vision-modeling)  
    标签：评分：8.0/10、query:vl
-   evidence：MLLMs的渐进式潜在视觉思维
-2. [VISTA: Auditing Semantic Divergence in Vision-Language Models](/202607/11/2607.02995v1-vista-auditing-semantic-divergence-in-vision-language-models)  
+   evidence：将VLM压缩为1D token序列
+2. [Attending to Multimodal Generation One Token at a Time](/202607/12/2607.03738v1-attending-to-multimodal-generation-one-token-at-a-time)  
    标签：评分：8.0/10、query:vl
-   evidence：VLM语义分歧的跨模型审计
-3. [SNR-Adaptive Unified Diffusion for Multi-Task Medical Image Segmentation](/202607/11/2607.03103v1-snr-adaptive-unified-diffusion-for-multi-task-medical-image-segmentation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：多任务医学图像分割的统一扩散模型
-4. [Mutually Exclusive Multiclass Lesion Segmentation in Neuroimaging: Binary-Guided Weak Supervision with Inter-Class Orthogonality](/202607/11/2607.03203v1-mutually-exclusive-multiclass-lesion-segmentation-in-neuroimaging-binary-guided-weak-supervision-with-inter-class-orthogonality)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：使用弱监督机制的多类病变分割
-5. [Learning Taxonomic Trees with Hierarchical Representation Regularization for Large Multimodal Models](/202607/11/2607.02909v1-learning-taxonomic-trees-with-hierarchical-representation-regularization-for-large-multimodal-models)  
+   evidence：多模态大语言模型注意力动态
+3. [Aura: Consistent Multi-Subject Video Generation via VLM-Grounded Semantic Alignment](/202607/12/2607.04311v1-aura-consistent-multi-subject-video-generation-via-vlm-grounded-semantic-alignment)  
+   标签：评分：8.0/10、query:vl
+   evidence：基于VLM的视频生成与语义对齐
+4. [Aura: Consistent Multi-Subject Video Generation via VLM-Grounded Semantic Alignment](/202607/12/2607.04311v2-aura-consistent-multi-subject-video-generation-via-vlm-grounded-semantic-alignment)  
+   标签：评分：8.0/10、query:vl
+   evidence：使用VLM进行一致视频生成
+5. [Token-Based Affordance Grounding with Large Vision-Language Models](/202607/12/2607.03595v1-token-based-affordance-grounding-with-large-vision-language-models)  
    标签：评分：7.0/10、query:vl
-   evidence：通过正则化提升大语言多模态模型的层级视觉识别一致性
-6. [Overloading Large Vision-Language Models for Jailbreaking](/202607/11/2607.02961v1-overloading-large-vision-language-models-for-jailbreaking)  
+   evidence：使用大型视觉语言模型进行可供性接地
+6. [Bridging Interleaved Multi-Modal Reasoning as a Unified Decision Process](/202607/12/2607.03748v1-bridging-interleaved-multi-modal-reasoning-as-a-unified-decision-process)  
    标签：评分：7.0/10、query:vl
-   evidence：通过信息过载攻破大型视觉语言模型
-7. [BVS: Bayesian Visual Search with Multimodal Large Language Model for Fine-grained Perception](/202607/11/2607.03184v1-bvs-bayesian-visual-search-with-multimodal-large-language-model-for-fine-grained-perception)  
+   evidence：面向VLM的交错图文推理框架
+7. [TestMate: Test-Time Domain Adaptation Aided by Lightweight Vision Foundation Model](/202607/12/2607.03810v1-testmate-test-time-domain-adaptation-aided-by-lightweight-vision-foundation-model)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：基于多模态大模型的细粒度视觉搜索方法可用于医学图像
-8. [Present but Not Remembered: Auditing How Frozen VLAs Encode, Deploy, and Steer Visual History](/202607/11/2607.03372v1-present-but-not-remembered-auditing-how-frozen-vlas-encode-deploy-and-steer-visual-history)  
-   标签：评分：7.0/10、query:vl
-   evidence：审计冻结视觉语言动作模型如何编码时间历史
-9. [Vision Token Manipulation Attacks on Cloud-Edge Inference of Large Vision-Language Models](/202607/11/2607.02819v1-vision-token-manipulation-attacks-on-cloud-edge-inference-of-large-vision-language-models)  
+   evidence：使用视觉基础模型对语义分割进行测试时自适应
+8. [Probe, Don't Prompt: A Hidden-State Probe for Metadata Filtering in Multi-Meta-RAG](/202607/12/2607.03929v1-probe-dont-prompt-a-hidden-state-probe-for-metadata-filtering-in-multi-meta-rag)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：基于探针的元数据过滤提高了RAG检索准确性
+9. [ViPo-MLLM: Visual-Pose Multimodal LLM for Gloss-Free Sign Language Translation](/202607/12/2607.03657v1-vipo-mllm-visual-pose-multimodal-llm-for-gloss-free-sign-language-translation)  
    标签：评分：6.0/10、query:vl
-   evidence：视觉语言模型安全攻击
-10. [Harmonic-Aware Transformer for Real-Time Catheter Localization in Interventional Procedures of Magnetic Particle Imaging](/202607/11/2607.02919v1-harmonic-aware-transformer-for-real-time-catheter-localization-in-interventional-procedures-of-magnetic-particle-imaging)  
-   标签：评分：6.0/10、query:vlmmed
-   evidence：医学成像中用于导管定位的Transformer
-11. [Feeling the Unexpected: ResTacVLA for Contact-Rich Manipulation via Residual Tactile Representation](/202607/11/2607.03387v2-feeling-the-unexpected-restacvla-for-contact-rich-manipulation-via-residual-tactile-representation)  
+   evidence：多模态大语言模型融合视觉和姿态特征
+10. [CoRE-VLA: Towards Scalable and Robust Vision-Language-Action Modeling via Conditional Routing of Experts](/202607/12/2607.03693v1-core-vla-towards-scalable-and-robust-vision-language-action-modeling-via-conditional-routing-of-experts)  
    标签：评分：6.0/10、query:vl
-   evidence：触觉残差表示用于视觉-语言-动作模型
-12. [PreSIST: Vision-Language-Informed Object Persistence Prediction in Open-World Scenes](/202607/11/2607.04057v1-presist-vision-language-informed-object-persistence-prediction-in-open-world-scenes)  
+   evidence：带条件路由的视觉-语言-动作模型
+11. [Beyond Scene Priors: Fine-Grained Traffic Scene Reasoning with Benchmarking and Query-Guided Small-Object Focus](/202607/12/2607.04149v1-beyond-scene-priors-fine-grained-traffic-scene-reasoning-with-benchmarking-and-query-guided-small-object-focus)  
    标签：评分：6.0/10、query:vl
-   evidence：视觉语言模型驱动的物体持久性预测
+   evidence：多模态大模型基准和细粒度交通场景小目标推理，与视觉语言大模型相关
+12. [Enhancing Large Multimodal Models in Key Information Extraction via Scene-Aware Document Synthesis](/202607/12/2607.04636v1-enhancing-large-multimodal-models-in-key-information-extraction-via-scene-aware-document-synthesis)  
+   标签：评分：6.0/10、query:vl
+   evidence：增强大多模态模型用于关键信息抽取
 
 
 <div class="dpr-home-promo-card">

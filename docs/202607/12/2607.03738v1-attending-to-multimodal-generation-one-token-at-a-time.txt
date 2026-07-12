@@ -1,0 +1,1861 @@
+Title: Attending to Multimodal Generation One Token at a Time
+
+URL Source: https://arxiv.org/pdf/2607.03738v1
+
+Published Time: Tue, 07 Jul 2026 01:58:28 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Attending to Multimodal Generation One Token at a Time 
+
+Varun Gupta Vineet Gandhi Makarand Tapaswi 
+
+CVIT, IIIT Hyderabad 
+
+® https://katha-ai.github.io/projects/otat 
+
+Abstract 
+
+Multimodal large language models (MLLMs) generate responses autoregressively, integrating visual and linguistic information in an evolving context. Prior work on interpretability has focused on individual layers and circuits ( where ), leaving the token-level dynamics of multimodal computation during generation ( when )underexplored. We address this gap and study attention shifts as per semantic role; tracking model attention to image, text, instruction, and previously generated tokens, One Token at a Time (OTaT). We introduce multimodal tasks that require explicit switching between visual and textual context within a single response. Across two mainstream model families and four open-weight MLLMs of varying sizes, we establish consistent patterns: attention to image peaks at tokens requiring image-derived information, instruction tokens are revisited during task transitions, and attention to previously generated tokens increases as the generation progresses. Causal attention blocking interventions validate the functional role of these trends. We profile model behavior under disrupted attention and observe responses falling back to language priors , or exhibiting cross-modal leakage , denial , or recovery .Finally, informed of the attention dynamics through our novel analysis, we propose a simple test-time intervention to boost attention to the relevant modality at the right time , significantly improving multimodal task performance. 
+
+1 Introduction 
+
+“A wing would be a most mystifying structure if one did not know that birds flew ” — H. B. Barlow Barlow [1] noted that certain patterns become visible only when we consider how a system operates as a whole. This principle drives our work towards understanding Multimodal LLMs (MLLMs) [ 19 , 35 ], an essential undertaking given our increasing dependence on such systems. The mechanistic interpretability community has made remarkable progress in examining individual attention heads, layers, and isolated circuits, revealing where particular behaviors are implemented [ 8,9, 11 , 26 , 40 ]. However, MLLMs are dynamic generative systems. They do not process inputs once; but iteratively construct outputs one token at a time . Each step of the forward pass uses an evolving context that includes the past outputs. While recent efforts have begun exploring the temporal dynamics of autoregressive generation, primarily for inference efficiency [ 20 , 39 ] or spatial localization [ 2 ], comprehensive interpretability across the temporal dimension at a token-level remains underexplored. Current works dive deep into the role of different components; e.g . lower layers process general visual features while higher layers move towards predictions [ 25 , 31 , 40 ]. But some questions remain unanswered: How does generation 
+
+unfold over time? As the model produces its response, is the information routed in different ways? Or, when the visual and linguistic information needs to be used, what is the role of attention in 
+
+orchestrating the response? 
+
+> Preprint.
+> arXiv:2607.03738v1 [cs.CV] 4 Jul 2026
+
+We address these questions by studying how MLLMs generate responses. Beyond where models attend, we study how attention patterns evolve as decoding progresses. Our approach complements finer component-level ( e.g . layer) analysis. Just as understanding flying requires both, the knowledge of the wing structure , and the principles of flight , we posit that understanding MLLMs requires mechanistic interpretation, and also how computation unfolds during autoregressive generation .
+
+Summary of findings. We study attention patterns using a base task with minimal modality con-founds, and extend our analysis to existing benchmarks, while combining visual and text processing within a single response. We find: (i) Attention to image tokens peaks when generating image-relevant concepts. Blocking attention specifically at these peaks cripples generation. (ii) Upon completing one task and switching to another, models revisit the instruction tokens. Disrupting this prevents handoff (transition to the other task), resulting in partial responses. (iii) Attention to previously generated tokens increases progressively, demonstrating that models actively leverage their own outputs to maintain fluency. These patterns are consistent across diverse model families and generalize beyond the proposed diagnostic task to existing challenging multimodal benchmarks. (iv) When the task order is reversed, attention follows accordingly, hinting towards instruction-based routing. Further, intervening on these attention patterns has interesting consequences. Blocking information flow from the image results in systematic patterns: reliance on language priors, cross-modal infor-mation leakage in smaller models, denial of visual content, and an interesting behavior that enables stronger models to eventually recover from disruptions. Conversely, boosting attention to the right modality at the right time results in significant performance improvements on multimodal tasks. 
+
+Contributions. (i) We analyze token-by-token attention dynamics during autoregressive decoding. While recent works have begun to explore this [ 2, 20 , 39 ], we provide the first systematic, functionally validated characterization of token semantics-aware attention orchestration during token generation in MLLMs. (ii) We propose a novel approach and empirical framework to compile and analyze attention dynamics for either one sample or across a dataset of multimodal tasks. (iii) We find that attention patterns peak at visual/linguistic context when generating image/text-relevant answers. We study how models transition across tasks and the importance of previously generated tokens. All findings are validated with causal blocking interventions. (iv) When subjected to attention blocking, we profile how models fall back to the language prior, or exhibit cross-modal leakage or denial, or recover. (v) We propose a simple test-time attention boosting strategy that selectively amplifies modality-specific attention at critical decoding steps, significantly improving multimodal performance. In summary, our work is a complementary perspective on interpreting MLLMs, which informs both theoretical understanding and practical use to improve their reliability and performance. 
+
+2 Method 
+
+Starting with some background on autoregressive decoding, we propose our approach to obtain dataset-level attention patterns across multi-token responses. We then discuss attention interventions; blocking 
+
+to establish cause-and-effect of attention trends, and boosting to improve MLLM performance. 
+
+Background. At a high level, a vision MLLM ( e.g . Qwen2.5-VL [ 35 ]) has 3 modules. (i) Visual encoder converts the image into a latent representation. (ii) Modality projector aligns the visual embeddings into the LLM token embedding space. (iii) Autoregressive decoder (LLM) performs sequence modeling in a unified multimodal space . Specifically, the input context to the MLLM, consists of image embeddings for visual patches concatenated with text token embeddings. Given input X, the decoder generates tokens in an autoregressive manner. Let y<t = ( y1, . . . , y t−1)
+
+denote previously generated tokens. At step t, the decoder processes the input sequence, calculates a distribution over the vocabulary p(yt|X, y <t ), and samples yt.Let At[i, j ] refer to the attention score from the token at index i to the token at index j. MLLMs employ masked attention, i.e . At[i, j ] = 0 for j > i . This applies to all layers and attention heads of the decoder and ensures that each token only attends to past context. 
+
+2.1 Extracting Attention Patterns - One Token at a Time (OTaT) 
+
+Context in MLLMs. It is ubiquitous in the current interpretability efforts to present a simplified view of the input context as a sequence of image and text tokens ( e.g . user prompt). However, MLLMs 2A. An example from the Fruit-Math dataset. ‘Text’ : Heather splits 27 cups of raisins 
+
+equally into 3 parts . Each cookie batch uses 
+
+3/4 cup . How many batches can she make 
+
+from one part? 
+
+First, identify the fruit in the image provided and then answer 
+
+the math puzzle in ‘Text’ . Generate response in the format : The 
+
+fruit in the image is [fruit_name ]. The answer to the math 
+
+puzzle is [numeric_answer ]. 
+
+> Instruction
+> Text Image
+
+B. Information flow from input context X to CGT. im_ start_0  user  image  text  instruction  im_end  im_start  assistant  \n previous  CGT 
+
+> Masked Attention
+
+Static Context  Dynamic Context 
+
+C. Tagging and grouping of output tokens. The  fruit in the image is  strawberry  . The answer to the math puzzle is  12  .
+
+SOG 
+
+Fruit Intro 
+
+Fruit Concept 
+
+Handoff 
+
+Math Intro 
+
+Math Answer 
+
+EOG 
+
+D. Raw attention scores αt(ck ) from CGT to chunks. 0      
+
+> \n  1
+> The  2
+> fruit  3
+> in  4
+> the  5
+> image  6
+> is  7
+> strawberry  8
+> . 9
+> The  10
+> answer  11
+> to  12
+> the  13
+> math  14
+> puzzle  15
+> is  16
+> 17
+> 1 18
+> 2
+> Input Token
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> Raw Attention Scores
+> CGT Image
+> CGT Text
+> CGT Previous
+> CGT Instruction
+> CGT im_start_0
+> The
+> fruit
+> in
+> the
+> image
+> is
+> strawberry
+> .
+> The
+> answer
+> to
+> the
+> math
+> puzzle
+> is
+> 1
+> 2
+> <EOS>
+
+E. Normalized attention scores from CGT to chunks. 0     
+
+> \n  1
+> The  2
+> fruit  3
+> in  4
+> the  5
+> image  6
+> is  7
+> strawberry  8
+> . 9
+> The  10
+> answer  11
+> to  12
+> the  13
+> math  14
+> puzzle  15
+> is  16
+> 17
+> 1 18
+> 2
+> Input Token
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> Normalized Attention Scores
+> CGT Image
+> CGT Text
+> CGT Previous
+> CGT Instruction
+> CGT im_start_0
+> The
+> fruit
+> in
+> the
+> image
+> is
+> strawberry
+> .
+> The
+> answer
+> to
+> the
+> math
+> puzzle
+> is
+> 1
+> 2
+> <EOS>
+
+Figure 1: We illustrate our approach to analyze attention patterns in autoregressive MLLMs. A. An example 
+
+image and text task from the Fruit-Math dataset with the response format in the instruction. B. Information flow 
+
+from context to the currently generating token (CGT). Semantic chunks for LLaVA-OneVision-7B are grouped into static and dynamic context. C. Tagging output tokens and averaging attention scores within the same tag enables dataset-wide analysis and stronger conclusions. D. Raw attention scores to chunks at each token/step. Outputs are for LLaVA-OneVision-7B. Attention spikes for image tokens when answering “strawberry” and for text tokens when producing “12”. Other findings are discussed in Sec. 4.1. E. Attention scores normalized by mean subtraction make it easier to interpret trends. Best seen on screen by zooming and in color. 
+
+operate over an intricate input set, including system instructions, user /assistant turn indicators, control tokens (new line \n ), etc . For a holistic understanding, it is important to study how models attend to all tokens and not just the modality specific inputs. Thus, we denote the full input context 
+
+as a sequence of semantically grouped chunks : X = [ c1, . . . , c k, . . . , c K ]. Note, each chunk ck may be a single token ( e.g . \n ), tens of tokens ( e.g . user instruction), or even several thousand tokens (e.g . image). Sec. B.1 presents the list of chunks for model families studied in this work. At decoding step t, the input context consists of: (i) Static tokens that remain fixed through all steps (e.g . Image, Text, Instruction); and (ii) Dynamic tokens that evolve during autoregressive decoding: (a) previously generated tokens y<t (Previous ), and (b) the currently generating token (CGT) that will produce yt and is responsible for the attention query vector in standard QKV attention [30]. Note, during decoding, the input at CGT is yt−1, and the model produces yt. Our goal is to quantify CGT’s attention to various chunks. Interchangeably, this also quantifies how much information flows from past tokens to CGT. For convenience, and without loss of generality, we extend the semantic input chunks to include the previous tokens (Previous) and CGT. Fig. 1B illustrates this information flow through masked attention for LLaVA-OneVision. 
+
+Attention to a chunk. Let At ∈ RL×H×N ×N denote the post-softmax attention tensor across L
+
+layers, H heads, and between N tokens at step t. N accounts for all tokens of the static context, 
+
+y1: t−1, and CGT or yt. We denote the contiguous span of tokens for chunk ck with start-end indices as [sck , e ck ). CGT’s attention to ck is: 
+
+αt(ck) = 1
+
+L
+
+LX
+
+l=1 
+
+1
+
+H
+
+HX
+
+h=1 
+
+eck −1
+
+X
+
+j=sck
+
+At[l, h, t, j ] , (1) 
+
+i.e . we average over layers and attention heads, and sum over all tokens in the semantic chunk. Although this aggregation abstracts layer and head-specific structure, the resulting signals remain informative and consistent, enabling us to study the per-token, modality-level dynamics. These 
+
+raw attention scores for each step of the decoding process are presented in Fig. 1D. Note, as P
+
+k αt(ck) = 1 , it provides a complete picture of how CGT attends to all previous context. 3Normalizing attention scores. The raw values of attention can be misleading [ 14 , 16 ]. For e.g ., Fig. 1D shows that the im_start_0 token has high attention ( ∼0.3). However, as the first placeholder token in the sequence, semantically, it is unlikely to provide useful information for generation (see blocking experiment in Tab. 2). We normalize raw attention scores by subtracting the mean attention for a chunk across all decoding steps and all samples of the dataset, removing baseline effects and enhancing their interpretability (Fig. 1E). Corresponding interpretations and results are in Sec. 4.1. 
+
+Grouping output responses. Our goal is to study how attention evolves across multi-token responses. As seen in Fig. 1E, attention scores at each step t are rich and quite insightful. While per-sample analysis is useful, dataset-level trends enhance the robustness of findings. This introduces a key challenge: responses vary in length and exact wording, making token-level aggregation across samples ill-posed. We address this by mapping generated tokens (y1, . . . , y T ) to a set of functional roles ( e.g . setup, concept, handoff, etc .) defined by the task response format, illustrated in Fig. 1C. This aligns outputs to a shared semantic structure, enabling consistent aggregation across samples. We then average normalized attention scores over tokens assigned the same role , and visualize these as bar plots to study dataset-level trends. This preserves the semantic progression while enabling comparisons across variable-length outputs. 
+
+2.2 Attention Interventions Query       
+
+> Key
+> 1
+> t
+> s!!
+> e!!
+> 1ts!!e!!
+> Key
+> 1
+> t
+> s!!
+> e!!
+> 1ts!!e!!
+> Figure 2: Blocking strategies in QK attention (gray is the causal mask, red is blocked). Left : Lazy blocking only affects CGT. Right :Total blocking prevents informa-tion flow to any future token.
+
+Attention patterns tell us the relative importance of context chunks. However, to probe whether a chunk is functionally important, we intervene by blocking attention to that chunk and measuring the resulting change in the model’s response. Boosting attention is the counter procedure, where we intervene to enhance the model’s attention to a certain chunk or modality at a given generation step. 
+
+2.2.1 Attention Blocking 
+
+Blocking is straightforward when generating a single output token. However, a few questions emerge for our multi-token output setup: 
+
+How to block? Prior works [ 25 , 40 ] block attention between the current token ( yt) to a specific chunk ( e.g . image ck) at all layers and heads: At[: , :, t, s ck :eck ] = 0 . However, information may still leak from the image to CGT. For example, intermediate tokens may collect image information in early layers and propagate it further to CGT in later layers. Thus, we refer to this as lazy blocking .Instead, we propose total blocking . This strategy prevents information flow from the chunk ck to any future token in its sequence and corresponds to setting At[: , :, e ck :t, s ck :eck ] = 0 (see Fig. 2). 
+
+When to block? In a multi-token response, decoded tokens either primarily follow the instruction, ensure grammatical correctness, or actually solve the task. We block information flow at different steps (output tags) and analyze how models react to these interventions (see details in Sec. B.4). 
+
+What to block? We show the impact of blocking different semantic chunks. While previous works only study effects of blocking visual inputs [40], we analyze the importance of other chunks. 
+
+2.2.2 Attention Boosting 
+
+If blocking attention harms generation, could amplifying it, improve outputs? Given the post-softmax attention tensor At, we apply a multiplicative reweighting of attention assigned to a chunk ck at the current step t. Concretely, for a boost factor β, we multiply and sum normalize attention scores: 
+
+˜At[: , :, t, j ] = 
+
+β · At[: , :, t, j ], j ∈ [sck , e ck )
+
+At[: , :, t, j ], otherwise , and Aβt [: , :, t, j ] = ˜At[: , :, t, j ]
+
+P 
+
+> j′
+
+˜At[: , :, t, j ′] . (2) Without loss of generality, let us consider ck as the chunk that is selected for boosting. Each token in the chunk is boosted by the same factor. αt(ck) is the aggregated attention to that chunk (Eq. (1) ). As overall attention sums to 1, the denominator in Eq. (2) is: Zk = (1 − αt(ck)) + β · αt(ck). Effectively, the attention to ck is scaled by γk = β/Z k, and γk depends on the original attention mass αt(ck).We refer to γk as the effective boost factor that is experienced by each token of the selected chunk during generation of the next token. 4An electronics seller bought 5 phones for                                                                                                                                      
+
+> $700 each and gives the seller $4000 in
+> dollar bills .How much will the seller give
+> back in change?
+> First, identify the fruit in the image and then
+> answer the math puzzle in 'Text' .Generate
+> response in the format :The fruit in the
+> image is [fruit name] .The answer to the
+> math puzzle is [numeric answer] .
+> Instruction
+> In atranquil landscape aunique encounter
+> unfolds .The zebra is facing away from the
+> person ,as the photographer prepares to
+> captures capture the moment .
+> Identify the spatial discrepancy in ‘Text’
+> compared to the image provided and answer
+> in format :the image has [object 1][spatial
+> relation] [object 2]while the text mentions
+> [object 1][spatial relation] [object 2].
+> Text  Image
+> Fruit -Math (Fr -Ma) Visual Spatial Reasoning (VSR)
+> Q1:What’s the percentage of U.S.adults
+> who refused?, Q2:Two segments have the
+> same percentage value, what’s that value?
+> First solve Q1and then solve Q2.Generate
+> response in the format :The answer to Q1is
+> [answer] .The answer to Q2is [answer] .
+> ChartQA
+
+Figure 3: Samples from multimodal tasks. Fruit-Math (left) shows an image of a fruit along with an unrelated math puzzle. Visual Spatial Reasoning (VSR) [ 28 ] (middle) features an image with a paired caption that describes the scene, but with a conflicting spatial relationship. ChartQA [ 24 ] (right) shows a diagram followed by two questions related to it. The model is instructed to (respectively): identify the fruit in the image and solve the math puzzle, identify the spatial discrepancy between image and text, and answer both questions. 
+
+3 Experimental Setup 
+
+We discuss the multimodal tasks, models, and response evaluation strategy before results and findings. 
+
+Multimodal tasks. To rigorously assess the dynamics of generation, we analyze models on a suite of multimodal tasks. Fig. 3 shows one sample for each task and Sec. B.2 presents more examples. 1. Fruit-Math (Fr-Ma) is used as a diagnostic task and has samples across 11 fruit categories from the OpenImages dataset [ 18 ], paired (randomly) with math puzzles from GSM-8K [ 5 ]. The model is tasked to identify the fruit in the image and solve the math puzzle. By enforcing non-overlapping information in modalities, we eliminate redundancy as a confounder to trace the contribution of each input chunk independently. 2. Visual Spatial Reasoning (VSR) is adapted directly from the Mixed Signals benchmark [ 28 ]. Here, the image and paired text caption convey diverging spatial relations between key objects in the image ( e.g . zebra facing towards vs . away from the photographer). Given the conflicting sample, the model is instructed to identify the spatial relation in the image and in the text. 3. ChartQA [ 24 ] is a traditional VQA benchmark that requires reasoning about data visualizations. The benchmark contains two questions for each chart. We provide the model with the chart image and corresponding questions, and prompt it to solve both questions as a single response. For all tasks, we adopt a response format to perform dataset-level aggregation and analysis. Please note, this is not required to analyze per-sample attention patterns, which are independently insightful. 
+
+Models. We analyze outputs from two families of state-of-the-art MLLMs: LLaVA-OneVision (LOV) [ 19 ] and Qwen2.5-VL (QVL) [ 35 ]. Specifically, 0.5B and 7B for LOV, and 3B and 7B for QVL. Thus, our experiments feature models with differing base LLMs, #parameters, order of input chunks, training strategies, data, and methods, and we successfully identify common attention trends across them. We limit generation to 25 tokens for Fr-Ma, 128 for VSR and ChartQA, or until ⟨EOS ⟩.
+
+Compiling attention scores across responses. We tag and group output tokens for dataset-level aggregation and reporting. An example grouping for Fr-Ma is illustrated in Fig. 1C. We average attention scores of tokens belonging to the same tag to report robust observations across the entire dataset. The Gemini prompts used to tag outputs are in Sec. D.3. To prevent clutter here, the specific output token groups for Fr-Ma, VSR, and ChartQA are presented in Sec. B.3. To perform quantitative evaluation of model responses, we evaluate answers using Gemini 2.5 Pro (prompts in Sec. D.4). We perform spot-checks to ensure high reliability of this automatic approach. 
+
+4 Results and Findings 
+
+We present common trends observed across models and tasks, followed by causal effects of total attention blocking. Finally, we demonstrate how attention boosting improves model performance. 5SOG Fruit          
+
+> Intro
+> Fruit
+> Concept
+> Handoff Math
+> Intro
+> Math
+> Answer
+> EOG
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> Normalized Attention
+> Image Text Instruction Previous SOG Fruit
+> Intro
+> Fruit
+> Concept
+> Handoff Math
+> Intro
+> Math
+> Answer
+> EOG
+> 0.1
+> 0.0
+> 0.1
+> Normalized Attention
+> Image Text Instruction Previous
+
+Figure 4: Evolution of attention patterns in Fr-Ma for QVL-3B (left) and LOV-7B (right). 
+
+4.1 Attention Orchestrates Autoregression 
+
+We visualize per-token attention scores for a given data sample in Fig. 1D, and the normalized scores in Fig. 1E. Additional examples are in Sec. A.1, along with a grouped layer-level analysis that validates our global averaging approach in Sec. A.2. While sample-level analysis (line plots) provides similar insights, we extend observations to the entire dataset (bar plots) by tagging output tokens and averaging attention scores within tags. We discuss attention trends across image, text, instruction, and previous chunks, and identify common patterns that hold across models/tasks. 
+
+Models attend to modality-relevant context when required. Fig. 4 presents attention patterns for QVL-3B and LOV-7B on Fr-Ma. Attention peaks to the image chunk when producing the fruit name, 
+
+i.e . Fruit Concept , is low-to-moderate when generating Fruit Intro : (“the fruit in the image is”), and falls off when producing Math Answer . A similar trend is observed in text. Attention to the text chunk (math puzzle) peaks when producing Math Answer and is low elsewhere. 
+
+➀ MLLMs dynamically reallocate attention to the relevant modality during generation. 
+
+Reversing task order flips attention trends. To confirm that the above patterns are not a spurious artifact, for the same input context, we instruct the model to first solve the math puzzle and then identify the fruit. Comparing Fig. 4(bottom) vs . Fig. 6, we see that attention patterns mirror this reversal. Models attend to text for Math Answer and then to image for Fruit Concept .
+
+Task switching revisits instruction. There are two spikes to the instruction chunk: once at the start (SOG ) and later during the change in tasks from identifying the fruit in the image to solving the math puzzle, i.e . at or right after the Handoff . This explains how models generate multi-answer responses. 
+
+➁ MLLMs revisit instruction tokens when switching tasks ( e.g . visual perception to arithmetic). 
+
+Attention to previously generated tokens increases consistently as decoding progresses, hinting that previous tokens assist in maintaining grammatical structure and adherence to format. All above trends are also observed for other models (Sec. A.3). In fact, base LLMs exhibit such attention patterns too, given two language contexts and tasks (details in Sec. A.4). 
+
+When does attention peak? In addition to attention peaking at the right moments, we see attention for text spike at EOG in Fig. 4. A similar spike is seen for the image chunk at EOG in Fig. 6. As explained earlier, the CGT produces yt with input yt−1. Feeding back the correctly decoded fruit SOG Q1     
+
+> Intro
+> Q1
+> Answer
+> Handoff Q2
+> Intro
+> Q2
+> Answer
+> EOG
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> Normalized Attention
+> Image Text Instruction Previous
+
+Figure 5: Attention trends for ChartQA, LOV-7B. Im-age is attended when generating Q1 and Q2 answer. SOG Math     
+
+> Intro
+> Math
+> Answer
+> Handoff Fruit
+> Intro
+> Fruit
+> Concept
+> EOG
+> 0.1
+> 0.0
+> 0.1
+> Normalized Attention
+> Image Text Instruction Previous
+
+Figure 6: Attention trends flip when the response for-mat is reversed (“Math-Fruit” task for LOV-7B). 
+
+6(yt−1) triggers the attention scoring mechanism, as the concept is related to the image. Thus, it increases the attention score for CGT even while producing yt = ⟨EOS ⟩. This phenomenon is more clearly observed in the per-token plots (Fig. 1D). Attention to the image chunk is high while decoding “strawberry”, but also when “strawberry” is fed back as input for the next step. 
+
+➂ Attention scores are influenced by what the model is decoding ( yt) and the input ( yt−1). 
+
+ChartQA. We present results on a traditional VQA task, ChartQA, modified to answer both questions. Unlike Fr-Ma, ChartQA is entangled , with the text chunk asking questions relevant to the image. Fig. 5 confirms the above findings: The model attends to the image twice, reflecting chart glimpses when answering the two questions. Attention to previous tokens consistently increase, and around the 
+
+Handoff token, attention to instruction tokens also spike. This suggests that the previous findings are not specific to disentangled modality tasks (Fr-Ma), and also persist for ChartQA. 
+
+Consistent and high attention scores. Certain model variants (LOV-7B, QVL-3B) show high attention scores for the first token in the input context, im_start_0 (blue line in Fig. 1D). As the first context token does not contain meaningful information, the high score is unexplained. However, post normalization (Fig. 1E), the score is close to 0, indicating that this has little impact on generation. 
+
+➃ Raw attention scores may be high for possibly unimportant tokens. However, via normalization, studying whether attention scores change across timesteps is helpful to gain insights. 
+
+4.2 Effects of Blocking Information Flow 
+
+We analyze causal relationships of attention trends observed in Fr-Ma by blocking.                                                         
+
+> Table 1: Fruit accuracy across all models is impacted by attention blocking when decoding Fruit Concept (FC), but unaffected by blocking during Fruit Intro (FI). Reporting mean ±stddev and change from no blocking. Blocking LOV QVL How? When? 0.5B 7B 3B 7B No Blocking 65.1 ±1.4 64.9 ±1.5 64.8 ±1.5 65.3 ±1.3
+> Lazy FC 6.4 ↓58.7 ±0.7 33.4 ↓31.5 ±1.4 36.1 ↓28.7 ±1.3 46.7 ↓18.6 ±1.5
+> Total FC 31.1 ↓34.0 ±1.5 15.0 ↓49.9 ±1.1 37.3 ↓27.4 ±1.3 28.5 ↓36.8 ±1.3
+> Total FI 69.1 ↑+3.9 ±1.1 70.9 ↑+6.1 ±1.1 65.5 ∼+0.7 ±1.2 69.5 ↑+4.2 ±1.1
+
+On fruit identification. Tab. 1 (row 1) presents fruit accuracy of all 4 models without block-ing. Next, we block the infor-mation flow when CGT is de-coding the Fruit Concept via lazy or total blocking from the image chunk to CGT. All mod-els see a large drop in accuracy (rows 2, 3), while larger mod-els (7B) are affected more by total blocking than lazy blocking. In row 4, we observe that blocking attention to the image when generating tokens of Fruit Intro leaves the fruit accuracy mostly unaf-fected (small improvements). The blocking experiment confirms Finding ➀, that attention towards the image chunk is necessary, but primarily when decoding the fruit name. 
+
+Profiling outputs of blocking at Fruit Concept . With total blocking, the model is completely unaware of image information at that timestep. So why is fruit accuracy not 0? Additionally, in Tab. 1, why does LOV-0.5B show higher accuracy for total vs . lazy blocking? We analyze model outputs through confusion matrices (see Fig. 7), and identify 4 typical response categories: 1. Small models leak nouns present in the math puzzle ( e.g . money) and generate bizarre responses such as “fruit in the image is money ”. For LOV-0.5B, 50-60% of responses contain leaked terms. 2. Using language priors results in some correct answers. LOV-7B shows a particularly high affinity for popular fruit apple , and banana .3. Models deny existence of a fruit with responses such as “fruit in the image is not applicable [...]”. Compared to LOV, QVL-7B, exhibits a high denial rate and may have been trained for this. 4. QVL models are able to recover after blocking at a specific timestep with responses such as “fruit in the image is not oranges , its a close-up of oranges”, which is considered correct by the scorer. This explains the non-zero performance of most models. Specific to LOV-0.5B, lazy blocking results in higher denial and leakage as compared to total blocking, reducing accuracy, as such outputs are always marked incorrect. Qualitative examples across categories are presented in Sec. A.5. 
+
+➄ MLLMs fall back to language priors , leak cross-modal information, deny visual content, or sometimes, exhibit recovery behaviors when attention to the image is blocked at the critical stage. 7Table 2: Effect of total blocking of semantic chunks ( what ) at different decoding steps ( when ) on the Fruit-Math task. “F/M-Acc” is fruit/math accuracy; and “F/M-Ans?” is the answer rate of the fruit/math question. We report results for two models: M 1 is LOV-7B and M 2 is QVL-3B. Blocking F-Ans? F-Acc M-Ans? M-Acc What When M1 M2 M1 M2 M1 M2 M1 M2 No Blocking 93.8 94.0 64.9 64.8 83.9 84.2 3.8 3.7 
+
+im_start_0 All 100 ↑6.2 99.9 ↑5.9 71.1 ↑6.2 67.0 ↑2.2 100 ↑16.1 91.3 ↑7.1 13.6 ↑9.8 12.2 ↑8.5 
+
+Instruction Handoff 100 ↑6.2 99.8 ↑5.8 70.7 ↑5.8 66.3 ↑1.5 0.2 ↓83.7 1.2 ↓83.0 0.0 ↓3.8 0.1 ↓3.6 
+
+Previous All 25.9 ↓67.9 67.5 ↓26.5 16.3 ↓48.6 47.4 ↓17.4 2.7 ↓81.2 0.7 ↓83.5 0.0 ↓3.8 0.0 ↓3.7 Apple                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
+
+> Banana
+> Coconut
+> Grape
+> Grapefruit
+> Mango
+> Peach
+> Pear
+> Pineapple
+> Strawberry
+> Watermelon
+> deny
+> leak
+> other
+> Predicted Label
+> Apple
+> Banana
+> Coconut
+> Grape
+> Grapefruit
+> Mango
+> Peach
+> Pear
+> Pineapple
+> Strawberry
+> Watermelon
+> True Label
+> 54 2001011100286 6
+> 832 000100200025 4
+> 2011 00000000084
+> 16 1042 0000002143 5
+> 19 2004001000173 47
+> 00000200000044
+> 13 1000050001035 7
+> 010001018 001021 2
+> 7100000023 00123 3
+> 16 0010000069 0079 14
+> 200000001025 034 4
+> LOV-0.5B Apple
+> Banana
+> Coconut
+> Grape
+> Grapefruit
+> Mango
+> Peach
+> Pear
+> Pineapple
+> Strawberry
+> Watermelon
+> deny
+> leak
+> other
+> Predicted Label
+> Apple
+> Banana
+> Coconut
+> Grape
+> Grapefruit
+> Mango
+> Peach
+> Pear
+> Pineapple
+> Strawberry
+> Watermelon
+> True Label
+> 43 99 000030002070
+> 950 030000000064
+> 310 220000000044
+> 10 69 012 0000011011 6
+> 18 103 003000001011 11
+> 09000000000010
+> 10 39 000030000082
+> 727 000003000061
+> 14 33 020000201150
+> 22 104 010000018 2226 4
+> 12 36 000000103293
+> LOV-7B Apple
+> Banana
+> Coconut
+> Grape
+> Grapefruit
+> Mango
+> Peach
+> Pear
+> Pineapple
+> Strawberry
+> Watermelon
+> deny
+> leak
+> other
+> Predicted Label
+> Apple
+> Banana
+> Coconut
+> Grape
+> Grapefruit
+> Mango
+> Peach
+> Pear
+> Pineapple
+> Strawberry
+> Watermelon
+> True Label
+> 127 700003000010 25
+> 350 00000000017 11
+> 0313 00000000711
+> 41070 000000023 111
+> 42 18 0058 0000007517
+> 12000200100202
+> 77000035 0000328
+> 619 0000012 000520
+> 026 00000016 0111 22
+> 10 21 0000001100 132 86
+> 117 0000000030 13 14
+> QVL-3B Apple
+> Banana
+> Coconut
+> Grape
+> Grapefruit
+> Mango
+> Peach
+> Pear
+> Pineapple
+> Strawberry
+> Watermelon
+> deny
+> leak
+> other
+> Predicted Label
+> Apple
+> Banana
+> Coconut
+> Grape
+> Grapefruit
+> Mango
+> Peach
+> Pear
+> Pineapple
+> Strawberry
+> Watermelon
+> True Label
+> 86 400002000059 12
+> 026 00000000043 30
+> 0011 0000000012 20
+> 51056 000000043 50
+> 20 15 0132 00000051 721
+> 10000300000510
+> 32000018 000034 32
+> 113 0000013 00014 30
+> 213 00000022 0019 20
+> 01000000050 0109 17 2
+> 010000000039 21 50
+> QVL-7B
+
+Figure 7: Confusion matrices showing models’ outputs after blocking at Fruit Concept . LOV-0.5B shows leakage of cross-modal information (top-left). LOV-7B falls back to the language prior (top-right). QVL-3B exhibits mixed signs of language prior, denial, and recovery (bottom-left). QVL-7B exhibits strong denial and recovery (bottom-right). Best on screen. 
+
+Blocking beyond images. 
+
+Tab. 2 presents results for blocking different context chunks ( what ) at different decoding steps ( when ). Be-yond accuracy, we also quantify whether the model generates a valid answer. (i) Comparing rows 1 and 2, we see that block-ing information flow from 
+
+im_start_0 does not de-crease performance, con-firming Finding ➃. In fact, the model’s performance 
+
+improves slightly on elimi-nating attention to passive 
+
+chunks. (ii) Next, row 3 shows the effect of block-ing attention to the instruc-tion chunk when CGT is at the Handoff . While fruit performance is unaffected, models stop answering the math question (0.2% and 1.2%). This confirms Find-ing ➁ that models revisit the instruction chunk for task switching. (iii) Finally, row 4 shows that blocking attention to previous breaks responses. Models get stuck ( e.g . “ the fruit the fruit ... ”), and the fruit answering rate plummets. While LOV-7B is more sensitive (25.9% rate, 67.5% accuracy), QVL-3B is more robust to blocking and performs reasonably (67.5% rate, 47.4% accuracy). However, both models fail to produce the math answer. Qualitative examples are in Sec. A.6. 
+
+4.3 Application: Token-Level Attention Guidance Improves Performance 
+
+VSR is harder than Fr-Ma due to the entangled nature of the image and text modalities and fine differences. We observe that LOV-7B performs worse than QVL-7B (Tab. 3 21.3% vs . 50.7%). Notably, our attention trends analysis explains this disparity. In Fig. 8, we see that LOV attends predominantly to text rather than image when generating both, image and text spatial relationship (ISR, TSR). In contrast, QVL exhibits the expected pattern with attention to image peaking at ISR and text at TSR. Motivated by this, we ask: Would performance improve if we amplified attention to the correct modality at the right time? 
+
+When to boost? Our attention analysis framework provides clear guidance on when models should attend to a specific modality. As an intervention, we propose to boost attention to the image or text at the first ISR or TSR token, respectively. We also consider a baseline that boosts attention to the image chunk (neglected modality) throughout generation. We apply boosting naively across all layers and heads for all interventions. Tab. 3 shows that always boosting attention to the image chunk (Img) largely degrades performance across all models, especially resulting in large drops in 8SOG IObj1 ISR IObj2 HO TObj1 TSR TObj2 EOG               
+
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> Normalized Attention
+> Image Text Instruction Previous SOG IObj1 ISR IObj2 HO TObj1 TSR TObj2 EOG
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> Normalized Attention
+> Image Text Instruction Previous
+
+Figure 8: Attention trends for the VSR task explain why QVL-7B (right) outperforms LOV-7B (left), with peaks to image and text modalities at the appropriate image/text spatial relation (ISR, TSR) tags. 
+
+text accuracy (LOV-7B -41.2%, QVL-3B -33.9%, QVL-7B -50.7%). Even image accuracies witness significant drops (LOV-7B -9.2%, QVL-7B -26.7%). Surprisingly, the accuracy increases by 0.5% for the QVL-3B model, possibly indicating a larger attention deficit on the image modality, which increases when globally boosted. Thus, role-agnostic intervention disrupts task performance. 
+
+Table 3: VSR results of attention boosting. V-/T-/VT-Acc are vision, text, both accuracy. M Boost γ V-Acc T-Acc VT-Acc 
+
+> LOV-7B
+
+- 24.3 54.1 21.3 Img 11 15.1 ↓9.2 12.9 ↓41.2 8.6 ↓12.7 
+
+Ours 11 52.9 ↑28.6 84.5 ↑30.4 49.8 ↑28.5 
+
+> QVL-3B
+
+- 31.3 63.9 28.5 Img 13 31.8 ↑0.5 30.0 ↓33.9 16.5 ↓12 
+
+Ours 13 39.6 ↑8.3 84.5 ↑20.6 37.1 ↑8.6 
+
+> QVL-7B
+
+- 55.7 81.4 50.7 Img 13 29.0 ↓26.7 30.7 ↓50.7 16.1 ↓34.6 
+
+Ours 13 59.3 ↑3.6 87.6 ↑6.2 53.4 ↑2.7 
+
+In contrast, boosting the right modality at the right time (Ours) results in the best improvements for vision, text, and both (LOV-7B +28.5%, QVL-3B +8.6%, QVL-7B +2.7%) accuracy. Overall, this result shows that attention should be modulated in a timestep aware manner; indiscriminate boosting is harmful, and targeted interventions are effective even without factoring in architecture specifics (such as layers and heads), which are beyond the scope of this work. 
+
+How much to boost? We sweep over the effec-tive boost factors and empirically observe optimal 
+
+γ∼=11 for LOV and γ∼=13 for QVL (Tab. 3). We observed that QVL-7B has lower attention to the image chunk as compared to LOV-7B; possibly explaining the need for a higher γ. Detailed sensitivity analysis of β and an explanation of how γ is computed are in Sec. A.7. Across a range of values, VT-Acc varies by less than 1.1% on both models, indicating that the method is not sensitive to the boost factor. However, performance starts to gradually degrade at very high values for β.
+
+5 Related Work 
+
+We present an overview of existing efforts on multimodal interpretability, attention-based analysis, autoregressive dynamics, and attention interventions to enhance performance. 
+
+Multimodal interpretability. Recent works probe the internal mechanisms of MLLMs. Existing literature suggests that visual signals undergo a redistribution across layers, though there is limited consensus about the localization of visual information, its alignment with language, and its utilization. Neo et al. [25] imply progressive alignment of vision with language, while [ 26 , 31 , 36 ] indicate visual grounding occurs early and is transformed, or even attenuated, in the later layers. Some works identify intermediate layers to be central for cross-modal interaction, where task-relevant information is consolidated before being propagated [16, 40]. While these studies provide valuable insights into 
+
+where and how modalities interact within the model, they focus on component-specific, layer or head-wise, static analyses. In contrast, we do not isolate individual layers or heads, and adopt a global perspective to study how multimodal context is dynamically leveraged during autoregressive generation, which remains underexplored. Interpreting multimodal models remains challenging due to representation entanglement across modalities [ 13 , 15 , 22 ]. To mitigate such confounds, prior work has introduced controlled benchmarks [ 26 , 33 ]. In the same spirit, we design Fr-Ma such that modalities contribute independently. Note that our findings also extend to real-world multimodal tasks: ChartQA [24] and VSR [28]. Prior works show that attention [ 7, 30 ] supports meaningful explanations when paired with appropriate experimental controls and causal interventions [ 4, 11 , 16 , 25 , 36 , 40 ]. We adopt this causal perspective; 9we not only observe interpretable attention patterns, but validate their functional role by studying how blocking them disrupts the behaviors they support. 
+
+Autoregressive dynamics. Limited work examines autoregressive behavior in language and mul-timodal models. Oh and Schuler [27] analyze autoregression in LLMs via linear decompositions and changes in token probabilities, and characterize models as largely correlational, lookup-driven predictors. In the multimodal setting, EAGLE [ 3 ] attributes outputs to visual or textual evidence using a black-box, post-hoc framework. Recent works explore the internal attention dynamics of MLLMs for autoregression. For inter-pretability, Dex-AR [ 2] computes layer-wise gradients of attention maps to trace token-level spatial explainability, distinguishing visually grounded tokens from purely linguistic priors. AdaptInfer [ 39 ]tracks evolving textual importance across layers to guide aggressive cross-modal pruning during the prefill stage. DyRate [ 20 ] categorizes inputs into semantic chunks and notes that attention to visual tokens decreases as generation advances, and utilises this macroscopic analysis to prune redundant tokens. While these works successfully monitor temporal attention shifts for spatial localization or token compression, the correspondence between attention routing and the semantic role of the token being generated remains underexplored. Our work addresses this gap by relating attention dynamics to the output token semantics, causally isolating these temporal shifts to understand how models maintain fluency, ground themselves to the relevant modality, and execute task handoffs - without needing to isolate architectural sub-components. Further, parallel to the monotonic decay of visual attention observed by [ 20 ], we show that image relevancy is task-dependent and models attend to the visual context multiple times for multi-part tasks ( e.g . ChartQA). Building on this, our test-time attention boosting strategy demonstrates that selectively amplifying modality-specific attention at critical decoding steps significantly improves overall multimodal performance. 
+
+Test-time attention intervention. A large body of research actively explores test-time attention inter-ventions to improve LLMs and MLLMs. Wang et al. [32] show that contrastive decoding works by implicitly modulating internal attention, motivating explicit interventions. While different approaches intervene at different computation steps, either on the logit [ 10 , 23 , 37 ], or post-softmax [ 12 , 17 , 38 ], the non-trivial decision is where in the architecture to intervene [ 10 , 17 , 32 , 37 , 38 ]. [21 , 37 ]suppresses text while boosting the image. A complementary axis targets individual tokens, either by selectively intervening on specific tokens [ 41 ] or by manipulating causal masks to mitigate out-liers [ 29 ]. In contrast, we globally amplify the modality contextually relevant to the token at the right timestep. The implicit reweighting follows from the attention renormalization. While [ 17 , 38 ] report that global interventions degrade performance, they lack role-aware selectivity based on the tokens. We address this gap by unifying global interventions with modality-aware per-token amplification, and demonstrate the efficacy of this strategy. 
+
+6 Conclusion 
+
+Our work offered a novel temporal perspective on attention dynamics in multimodal LLMs. We presented an approach to analyze attention patterns for an individual sample to the entire dataset. Across multiple tasks and open-weight MLLMs, we observed consistent findings: (i) Models attended to relevant context, and disrupting attention at critical steps significantly degraded outputs, manifesting as language priors, cross-modal leakage, or denial. (ii) For multi-part responses, the instruction was revisited, and blocking attention at task handoff led to incomplete outputs. (iii) Previously generated tokens showed progressively increasing attention. Upon disruption, this resulted in incomplete and repetitive outputs. Finally, as an application, we leveraged the attention patterns to explain differences in model performance, and then improved performance through a simple attention boosting intervention. 
+
+Acknowledgements. MT and VG thank Adobe Research for supporting this project. MT also thanks Google for Gemini credits and SERB SRG/2023/002544 for compute. 10 References 
+
+[1] Horace B Barlow. Possible Principles Underlying the Transformation of Sensory Messages. 
+
+Sensory communication , 1(01), 1961. 1 [2] Walid Bousselham, Angie Boggust, Hendrik Strobelt, and Hilde Kuehne. DEX-AR: A Dy-namic Explainability Method for Autoregressive Vision-Language Models. arXiv preprint arXiv:2603.06302 , 2026. 1, 2, 10 [3] Ruoyu Chen, Xiaoqing Guo, Kangwei Liu, Si Yuan Liang, Shiming Liu, et al. Where MLLMs Attend and What They Rely On: Explaining Autoregressive Token Generation. arXiv preprint arXiv:2509.22496 , 2025. 10 [4] Kevin Clark, Urvashi Khandelwal, Omer Levy, and Christopher D Manning. What Does BERT Look At? An Analysis of BERT’s Attention. In ACL Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLP , 2019. 9 [5] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. Training Verifiers to Solve Math Word Problems. arXiv preprint arXiv:2110.14168 ,2021. 5 [6] Tri Dao, Dan Fu, Stefano Ermon, Atri Rudra, and Christopher Ré. Flashattention: Fast and Memory-efficient Exact Attention with IO-Awareness. In Advances in Neural Information Processing Systems (NeurIPS) , 2022. 24 [7] Alexey Dosovitskiy. An Image is Worth 16x16 Words: Transformers for Image Recognition At Scale. In International Conference on Learning Representations (ICLR) , 2021. 9 [8] Nelson Elhage, Neel Nanda, Catherine Olsson, Tom Henighan, Nicholas Joseph, Ben Mann, Amanda Askell, Yuntao Bai, Anna Chen, Tom Conerly, et al. A Mathematical Framework for Transformer Circuits. Transformer Circuits Thread , 2021. 1 [9] Nelson Elhage, Tristan Hume, Catherine Olsson, Nicholas Schiefer, Tom Henighan, Shauna Kravec, Zac Hatfield-Dodds, Robert Lasenby, Dawn Drain, Carol Chen, et al. Toy Models of Superposition. arXiv preprint arXiv:2209.10652 , 2022. 1 [10] Mehrdad Fazli, Bowen Wei, Ahmet Sari, and Ziwei Zhu. Mitigating Hallucination in Large Vision-Language Models via Adaptive Attention Calibration. In Findings of North American Chapter of Association of Computational Linguistics (NAACL-F) , 2025. 10 [11] Mor Geva, Jasmijn Bastings, Katja Filippova, and Amir Globerson. Dissecting Recall of Factual Associations in Auto-regressive Language Models. In Association of Computational Linguistics (ACL) , 2023. 1, 9 [12] Zhuohan Gu, Jiayi Yao, Kuntai Du, and Junchen Jiang. LLMSteer: Improving Long-Context LLM Inference by Steering Attention on Reused Contexts. In Machine Learning for Systems Workshop (NeurIPS) , 2024. 10 [13] Tianze Hua, Tian Yun, and Ellie Pavlick. How Do Vision-Language Models Process Conflicting Information Across Modalities? arXiv preprint arXiv:2507.01790 , 2025. 9 [14] Qidong Huang, Xiaoyi Dong, Pan Zhang, Bin Wang, Conghui He, Jiaqi Wang, Dahua Lin, Weiming Zhang, and Nenghai Yu. Opera: Alleviating Hallucination in Multi-modal Large Language Models via Over-Trust Penalty and Retrospection-allocation. In Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. 4 [15] Minyoung Huh, Brian Cheung, Tongzhou Wang, and Phillip Isola. The Platonic Representation Hypothesis. In International Conference on Machine Learning (ICML) , 2024. 9 [16] Omri Kaduri, Shai Bagon, and Tali Dekel. What’s in The Image? A Deep-Dive Into the Vision of Vision Language Models. In Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. 4, 9 11 [17] Seil Kang, Jinyeong Kim, Junhyeok Kim, and Seong Jae Hwang. See What You Are Told: Visual Attention Sink in Large Multimodal Models. In International Conference on Learning Representations (ICLR) , 2025. 10 [18] Alina Kuznetsova, Hassan Rom, Neil Alldrin, Jasper Uijlings, Ivan Krasin, Jordi Pont-Tuset, Shahab Kamali, Stefan Popov, Matteo Malloci, Alexander Kolesnikov, Tom Duerig, and Vittorio Ferrari. The Open Images Dataset V4: Unified Image Classification, Object detection, and Visual relationship detection at Scale. In International Journal of Computer Vision (IJCV) ,2020. 5 [19] Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Peiyuan Zhang, Yanwei Li, Ziwei Liu, and Chunyuan Li. LLaVA-OneVision: Easy Visual Task Transfer. In Transactions on Machine Learning (TMLR) , 2025. 1, 5, 16 [20] Xiaoyu Liang, Chaofeng Guan, Jiaying Lu, Huiyao Chen, Huan Wang, and Haoji Hu. Dy-namic Token Reduction During Generation for Vision Language Models. arXiv preprint arXiv:2501.14204 , 2025. 1, 2, 10 [21] Shi Liu, Kecheng Zheng, and Wei Chen. Paying More Attention to Image: A Training-free Method for Alleviating Hallucination in LVLMs. In European Conference on Computer Vision (ECCV) , 2024. 10 [22] Grace Luo, Trevor Darrell, and Amir Bar. Vision-language Models Create Cross-modal Task Representations. In International Conference on Machine Learning (ICML) , 2024. 9 [23] Guangtao Lyu, Qi Liu, Chenghao Xu, Jiexi Yan, Muli Yang, Xueting Li, Fen Fang, and Cheng Deng. Revealing and Enhancing Core Visual Regions: Harnessing Internal Attention Dynamics for Hallucination Mitigation in LVLMs. arXiv preprint arXiv:2602.15556 , 2026. 10 [24] Ahmed Masry, Xuan Long Do, Jia Qing Tan, Shafiq Joty, and Enamul Hoque. Chartqa: A Benchmark for Question Answering About Charts with Visual and Logical Reasoning. In 
+
+Findings of the Association for Computational Linguistics (ACL-F) , pages 2263–2279, 2022. 5, 9[25] Clement Neo, Luke Ong, Philip Torr, Mor Geva, David Krueger, and Fazl Barez. Towards Interpreting Visual Information Processing in Vision-Language Models. In International Conference on Learning Representations (ICLR) , 2024. 1, 4, 9 [26] Yaniv Nikankin, Dana Arad, Yossi Gandelsman, and Yonatan Belinkov. Same Task, Different Circuits: Disentangling Modality-Specific Mechanisms in VLMs. In Advances in Neural Information Processing Systems (NeurIPS) , 2025. 1, 9 [27] Byung-Doh Oh and William Schuler. Token-wise Decomposition of Autoregressive Language Model Hidden States for Analyzing Model Predictions. In Association of Computational Linguistics (ACL) , 2023. 10 [28] Pouya Pezeshkpour, Moin Aminnaseri, and Estevam Hruschka. Mixed Signals: Decoding VLMs’ Reasoning and Underlying Bias in Vision-language Conflict. In Findings of the Associ-ation for Computational Linguistics (ACL-F) , 2025. 5, 9 [29] Feilong Tang, Chengzhi Liu, Zhongxing Xu, Ming Hu, Zile Huang, Haochen Xue, Ziyang Chen, Zelin Peng, Zhiwei Yang, Sijin Zhou, et al. Seeing Far and Clearly: Mitigating Hallucinations in MLLMs with Attention Causal Decoding. In Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. 10 [30] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention Is All You Need. In Advances in Neural Information Processing Systems (NeurIPS) , 2017. 3, 9 [31] Chenxi Wang, Xiang Chen, Ningyu Zhang, Bozhong Tian, Haoming Xu, et al. MLLM Can See? Dynamic Correction Decoding for Hallucination Mitigation. In International Conference on Learning Representations (ICLR) , 2025. 1, 9 12 [32] Yujun Wang, Jinhe Bi, Soren Pirk, Yunpu Ma, et al. ASCD: Attention-Steerable Contrastive Decoding for Reducing Hallucination in MLLM. In Association for the Advancement of Artificial Intelligence (AAAI) , 2026. 10 [33] Laura Wenderoth, Konstantin Hemker, Nikola Simidjievski, and Mateja Jamnik. Measuring Cross-modal Interactions in Multimodal Models. In Association for the Advancement of Artificial Intelligence (AAAI) , 2025. 9 [34] An Yang, Baosong Yang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Zhou, et al. Qwen2 Technical Report. arXiv preprint arXiv:2407.10671 , 2024. 16 [35] An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, et al. Qwen2.5 Technical Report. arXiv preprint arXiv:2502.13923 , 2025. 1, 2, 5 [36] Hao Yin, Guangzong Si, and Zilei Wang. Lifting the Veil on Visual Information Flow in MLLMs: Unlocking Pathways to Faster Inference. In Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. 9 [37] Jiacheng Zhang, Feng Liu, Chao Du, and Tianyu Pang. AdaVBoost: Mitigating Hallucinations in LVLMs via Token-Level Adaptive Visual Attention Boosting. arXiv preprint arXiv:2602.13600 ,2026. 10 [38] Qingru Zhang, Chandan Singh, Liyuan Liu, Xiaodong Liu, Bin Yu, Jianfeng Gao, and Tuo Zhao. Tell Your Model Where to Attend: Post-hoc Attention Steering for LLMs. In International Conference on Learning Representations (ICLR) , 2024. 10 [39] Weichen Zhang, Zhui Zhu, Ningbo Li, Shilong Tao, Kebin Liu, and Yunhao Liu. Adaptinfer: Adaptive Token Pruning for Vision-language Model Inference with Dynamical Text Guidance. 
+
+arXiv preprint arXiv:2508.06084 , 2025. 1, 2, 10 [40] Zhi Zhang, Srishti Yadav, Fengze Han, and Ekaterina Shutova. Cross-modal Information Flow in Multimodal Large Language Models. In Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. 1, 4, 9 [41] Lanyun Zhu, Deyi Ji, Tianrun Chen, Peng Xu, Jieping Ye, and Jun Liu. Ibd: Alleviating Hallucinations in Large Vision-language Models via Image-biased Decoding. In Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. 10 13 Appendix 
+
+A Additional Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14                      
+
+> A.1 Qualitative Results: Per-token Normalized Attention Plots. . . . . . . . . . . . . . . . . . . . . . . . . . . 14 A.2 Analyzing Attention Scores across Layer Groups . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 A.3 Attention Trends on Fr-Ma for Additional Models . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 A.4 Attention Patterns in Text-only LLMs. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 A.5 Qualitative Results on Fruit Prediction: Blocking Information Flow from Image . . . . . . . . . . . . . . . 16 A.6 Qualitative Results: Other Types of Blocking. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 A.7 Boost Factor Analysis and γComputation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 19 A.8 Qualitative Results: Attention Boosting Intervention . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 A.9 Significance Testing of Attention Trends . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20
+
+B Experiment Setup Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22          
+
+> B.1 Sequence of Input Context Chunks . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 B.2 Dataset Details. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 22 B.3 POS Tags . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23 B.4 Details about When to Block . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 23
+
+C Limitations and Future Work. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 D Prompts . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25          
+
+> D.1 Sport Text Creation Prompt . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 D.2 MLLM Task Prompts . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 D.3 Gemini POS Tagging Prompts . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26 D.4 Gemini Evaluation Prompts . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26
+
+E Impact Statement . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 26 F Compute Resources . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27 
+
+In this appendix, we present additional results in Sec. A, additional experimental setup and dataset/task details in Sec. B, some limitations, future work in Sec. C, and all prompts used in this work in Sec. D. Brief notes about the impact statement (Sec. E) and compute resources (Sec. F) is also included. 
+
+A Additional Results 
+
+A.1 Qualitative Results: Per-token Normalized Attention Plots 
+
+Similar to LLaVA-OneVision-7B’s per-token attention plot in Fig. 1E, we present additional plots for all other models (LLaVA-OneVision-0.5B, Qwen2.5-VL-3B and Qwen2.5-VL-7B) in Fig. 9. We pick different samples from the Fruit-Math task. While local variances may exist within different models, global attention trends: image peaking to generate the fruit concept (image task), text peaking to solve math (text task), progressively increasing attention to previous tokens, and a flip-like increment on instruction during task-switch, continues to hold across all models. Interestingly, results on individual samples also show that models frequently deviate from the prescribed output format. We see LOV-0.5B go off script and say “The fruit is” instead of “The fruit in the image is”, etc . This motivates the need and use of POS tagging to parse outputs that allow us to compile results across such generations (detailed in Sec. B.3). 
+
+A.2 Analyzing Attention Scores across Layer Groups 
+
+We conducted a stratified analysis of the Fr-Ma task, grouping attention into early , middle , and late 
+
+layers for both LOV-7B and QVL-7B in Fig. 10. This reveals a division of labor among the layers; the magnitude of attention varies significantly by depth, with late (and occasionally middle) layers driving the sharpest task-specific spikes ( e.g . the high attention to the Image at FRUIT_CONCEPT, and to the Text at MATH_ANSWER). Early layers exhibit a much flatter attention profile. However, crucially, the directional trends remain consistent across depth. During the FRUIT_CONCEPT stage, early, mid, and late layers all exhibit positive relative attention to the Image chunk. Because the layers operate in consensus on when to route specific modalities, differing primarily in the intensity of that routing, we find that global averaging does not obscure conflicting layer-wise mechanisms. Instead, it serves as a robust, macroscopic 14 summary of the model’s overall generative orchestration - without introducing model-specific nuances, and predominantly reflecting the strong routing signals of the later, predictive layers. 
+
+A.3 Attention Trends on Fr-Ma for Additional Models 
+
+Similar to the results in the main paper Fig. 6, we present attention trends for the remaining two models, LLaVA-OneVision-0.5B and Qwen2.5-VL-7B in Fig. 11. Qwen2.5-VL-7B shows the same trends as models reported in the paper. Being a small model, LLaVA-OneVision-0.5B tends to show higher variance. However, average attention still peaks at the image when decoding Fruit Concept , at the instruction during Handoff ,and at the math puzzle when solving it ( Math Answer ). Interestingly, the text peak is low, perhaps indicative of the model’s struggles in solving basic math questions with ∼4% accuracy. 
+
+A. Per-token attention to semantic chunks on a sample from the Fruit-Math task for LOV-0.5B. Violetta wants to buy new crayons . She needs 
+
+them in 5 different colors and prepared $20 for 
+
+this purchase . One crayon costs $2. How much 
+
+change will she get? 
+
+Text Image 0     
+
+> \n
+> 1
+> The
+> 2
+> fruit
+> 3
+> is
+> 4
+> pineapple
+> 5
+> .
+> 6
+> The
+> 7
+> answer
+> 8
+> is
+> 9
+> 10
+> 1
+> 11
+> 0
+> 12
+> .
+> 13
+> 0
+> 14
+> 0
+> Input Token
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> Normalized Attention Scores
+> CGT Image
+> CGT Text
+> CGT Previous
+> CGT Instruction
+> CGT im_start_0
+> The
+> fruit
+> is
+> pineapple
+> .
+> The
+> answer
+> is
+> 1
+> 0
+> .
+> 0
+> 0
+> <EOS>
+
+B. Per-token attention to semantic chunks on a sample from the Fruit-Math task for QVL-3B. There are 36 penguins sunbathing in the snow. 
+
+One -third of them jump in and swim in the ocean. 
+
+Another one -third go inside the cave to eat their 
+
+dinner. How many penguins are still left 
+
+sunbathing? 
+
+Text Image 0     
+
+> \n  1
+> The  2
+> fruit  3
+> in  4
+> the  5
+> image  6
+> is  7
+> pe  8
+> aches  9
+> . 10
+> The  11
+> answer  12
+> to  13
+> the  14
+> math  15
+> puzzle  16
+> is  17
+> 18
+> 1 19
+> 2
+> Input Token
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> Normalized Attention Scores
+> CGT Image
+> CGT Text
+> CGT Previous
+> CGT Instruction
+> CGT im_start_0
+> The
+> fruit
+> in
+> the
+> image
+> is
+> pe
+> aches
+> .
+> The
+> answer
+> to
+> the
+> math
+> puzzle
+> is
+> 1
+> 2
+> <EOS>
+
+C. Per-token attention to semantic chunks on a sample from the Fruit-Math task for QVL-7B. A juggler can juggle 16 balls. Half of the balls are 
+
+golf balls, and half of the golf balls are blue. How 
+
+many blue golf balls are there? 
+
+Text Image 0     
+
+> \n  1
+> The  2
+> fruit  3
+> in  4
+> the  5
+> image  6
+> is  7
+> an  8
+> apple  9
+> . 10
+> The  11
+> answer  12
+> to  13
+> the  14
+> math  15
+> puzzle  16
+> is  17
+> 18
+> 4
+> Input Token
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> Normalized Attention Scores
+> CGT Image
+> CGT Text
+> CGT Previous
+> CGT Instruction
+> CGT im_start_0
+> The
+> fruit
+> in
+> the
+> image
+> is
+> an
+> apple
+> .
+> The
+> answer
+> to
+> the
+> math
+> puzzle
+> is
+> 4
+> <EOS>
+
+Figure 9: Per-token normalized attention plots for all other models on the Fruit-Math task. We observe similar attention patterns to the results presented in the main paper. 
+
+15 SOG FRUIT_INTRO FRUIT_CONCEPT HANDOFF MATH_INTRO MATH_ANSWER POSTAMBLE       
+
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> Normalized Attention
+> Image
+> Text
+> Instruction
+> Previous
+> Early
+> Mid
+> Late SOG FRUIT_INTRO FRUIT_CONCEPT HANDOFF MATH_INTRO MATH_ANSWER POSTAMBLE
+> 0.25
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> Normalized Attention
+> Image
+> Text
+> Instruction
+> Previous
+> Early
+> Mid
+> Late
+
+Figure 10: Normalized attention analysis on the Fruit-Math task for LOV-7B (top) and QVL-7B (bottom) models, grouped into early, middle, and late layers. SOG Fruit          
+
+> Intro
+> Fruit
+> Concept
+> Handoff Math
+> Intro
+> Math
+> Answer
+> EOG
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> Normalized Attention
+> Image Text Instruction Previous SOG Fruit
+> Intro
+> Fruit
+> Concept
+> Handoff Math
+> Intro
+> Math
+> Answer
+> EOG
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 0.05
+> 0.10
+> Normalized Attention
+> Image Text Instruction Previous
+
+Figure 11: Attention trends for LLaVA-OneVision-0.5B (left) and Qwen2.5-VL-7B (right) across output tags on the Fruit-Math task. 
+
+A.4 Attention Patterns in Text-only LLMs 
+
+LLMs are adapted for visual inputs by incorporating visual embeddings and fine-tuning them. A natural question is: Do LLMs show similar attention patterns when performing two text tasks? We present our approach of evaluating LLMs in this section. 
+
+Math-Sport task setup. To conduct similar multi-task analysis on LLM-only models, we formulate the Math-Sport task. This is a text-only diagnostic dataset. Here, we pair math puzzles with sport excerpts (Fig. 23) that require identifying the sport given a paragraph related to it. This enables us to draw parallels between text-only LLMs and vision MLLMs as in the main paper. We prompt LLMs to solve the math puzzle and identify the sport. The data samples with categories are shown in Fig. 23, the sport-text excerpt creation prompt is present in Fig. 25, and the task prompt is specified in Fig. 29. 
+
+Experiment and observations. We evaluate Qwen2-7B [ 34 ], the base LLM used by LOV-7B [ 19 ], on the Math-Sport task, and find that attention patterns in LLMs mimic those of MLLMs when solving two disjoint text tasks. Fig. 12 shows similar tendencies: attention spikes to sport text when predicting the Sport Concept 
+
+and math puzzle text when generating Math Answer . Other attributes, such as increasing attention to previously generated tokens and higher attention to the instruction during Handoff are also observed. This hints that our findings could generalize to base LLMs, and it is likely that MLLMs derive these features from the base LLM during multimodal training. 
+
+A.5 Qualitative Results on Fruit Prediction: Blocking Information Flow from Image 
+
+We present some qualitative results for the impact of blocking attention to image chunks when generating the Fruit Concept . As presented in Sec. 4.2, while accuracy drops for all models, the reasons for this drop are interesting. 16 SOG Math 
+
+Intro 
+
+Math 
+
+Concept 
+
+Handoff Sport 
+
+Intro 
+
+Sport 
+
+Concept 
+
+EOG 
+
+0.10 
+
+0.05 
+
+0.00 
+
+0.05 
+
+0.10 
+
+> Normalized Attention
+
+Sport-Text Math-Text Instruction Previous Figure 12: Attention trends for Qwen2-7B LLM (the base LLM of LOV-7B) on the Math-Sport task. 
+
+Examples of cross-modal information leakage in LOV-0.5B. Fig. 13 shows multiple examples of how nouns mentioned in the math puzzle leak to the name of the identified fruit. This results in weird generations such as the fruit in the image is “cats” / “cookies” / “math”, and even very specific noun-phrases such as “exit C”! Image Math Question Fruit Concept Blocked Response 
+
+Larry loves taking care of animals. He has 3 cats . He has 3 
+
+times as many dogs as cats . He has 2 fewer rabbits than dogs. 
+
+He has a fish tank with three times the number of fish as 
+
+rabbits. He also has a collection of gerbils that's 1/3 the number 
+
+of fish he has. How many pets does Larry have? 
+
+The fruit in the image is cats . The answer 
+
+to the math puzzle is 3. Larry has 3 cats .
+
+The restaurant has 170 normal chairs and 23 chairs for 
+
+babies. If 20 of the normal chairs and 13 of the baby chairs 
+
+were sent to the carpenter for repair, how many chairs does the 
+
+restaurant have left? 
+
+The fruit in the image is chairs . The 
+
+answer to the math puzzle is 10 .
+
+Rachel bought 23 cookies and Janet gave her 42 cookies .
+
+The other day her brother ate 44 of those cookies . How many 
+
+cookies are left for Rachel? 
+
+The fruit in the image is cookies . The 
+
+answer to the math puzzle is 11 .
+
+Chris is way behind on his math homework. He has 100 math 
+
+problems to complete in total. He completes 12 problems on 
+
+Monday night. On Tuesday, he completes 3 times as many 
+
+problems as he did on Monday. On Wednesday, he completes 
+
+one -quarter of the remaining math problems. How many math 
+
+problems does he have left to complete on Thursday? 
+
+The fruit in the image is math . The answer 
+
+to the math puzzle is 100 .
+
+The number of students in a school hall was 1000. The hall had 
+
+3 entrances A, B, and C which also served as the exits. If after 
+
+a meeting 30% of the students went out of the building through 
+
+exit A, 3/5 of the remaining went out through exit B, and the rest 
+
+went out through exit C , calculate the number of students who 
+
+went out through exit C .
+
+The fruit in the image is exit C. The answer 
+
+to the math puzzle is 200 .
+
+Bob wants to dig a hole 6 feet long by 4 feet wide by 3 feet 
+
+deep. If it takes him 3 seconds to shovel a cubic foot of earth, 
+
+how long will it take him to dig the hole? 
+
+The fruit in the image is shovel . It will take 
+
+Bob 12 seconds to dig the hole .
+
+Figure 13: LLaVA-OneVision-0.5B exhibits strong cross-modal information leakage where the fruit predictions are simply nouns borrowed from the math question. We visualize some examples. 
+
+Examples of recovery in QVL-3B. Fig. 14 presents some examples of recovery. We observe grammatically confusing patterns such as repetition of the same fruit “not apples; it is a crate of apples”, use of additional placeholder words to produce the correct answer “not specified, but appears to be plums”, or an unnecessary attribute/detail that the model identifies “not oranges, it is a close-up of orranges”. 
+
+Examples of denial exhibited by QVL-7B. Fig. 15 presents cases where the model claims that the fruit in the image is “not applicable” or “not relevant”. Note, even though blocking is applied only at one step, the model continues to believe that the image does not exist and we see this in the 3rd example: “The fruit in the image is not applicable as there is no image provided.”. Interestingly, here, the model also fails to switch tasks and answer the math puzzle. 
+
+A.6 Qualitative Results: Other Types of Blocking 
+
+Similar to results of blocking image information, we show qualitative results for blocking other semantic chunks. While all models show similar behavior, we present examples across models. 17 Image No Blocking Response Fruit Concept Blocked Response 
+
+The fruit in the image is blueberries . The answer to the 
+
+math puzzle is 1600 calories .
+
+The fruit in the image is not specified, but it 
+
+appears to be blueberries . To solve the math 
+
+puzzle : 1
+
+The fruit in the image is oranges . The answer to the 
+
+math puzzle is 25 minutes .
+
+The fruit in the image is not oranges ; it is a close -
+
+up of oranges . The answer to the math puzzle is 
+
+The fruit in the image is grapes . To solve the math 
+
+puzzle : 1. Calculate the amount of water Wanda 
+
+pumped on 
+
+The fruit in the image is not grapes, but rather it 
+
+appears to be a cluster of blueberries . However, 
+
+since the 
+
+The fruit in the image is watermelon . The answer to 
+
+the math puzzle is 105 cents .
+
+The fruit in the image is not a watermelon, but 
+
+rather a variety of melons that could be 
+
+watermelons or 
+
+The fruit in the image is plums . The answer to the 
+
+math puzzle is 42 kg .
+
+The fruit in the image is not specified, but it 
+
+appears to be plums . The answer to the math 
+
+puzzle is 
+
+The fruit in the image is apples . The answer to the 
+
+math puzzle is $26 .25 .
+
+The fruit in the image is not apples ; it is a crate of 
+
+apples . The answer to the math puzzle is $2Figure 14: Qwen2.5-VL-3B shows mixed results with examples of denial, reliance on language prior, and some examples of recovery where the model ends up predicting the fruit correctly. We visualize several recovery examples. Image Math Question Fruit Concept Blocked Response 
+
+Benny saw a 10 -foot shark with 2 6 -inch remoras attached to it. 
+
+What percentage of the shark's body length is the combined 
+
+length of the remoras? 
+
+The fruit in the image is not applicable as 
+
+there there is no image provided . The 
+
+answer to the math puzzle is 1
+
+When Sophie watches her nephew, she gets out a variety of 
+
+toys for him. The bag of building blocks has 31 blocks in it. The 
+
+bin of stuffed animals has 8 stuffed animals inside. The tower of 
+
+stacking rings has 9 multicolored rings on it. Sophie recently 
+
+bought a tube of bouncy balls, bringing her total number of toys 
+
+for her nephew up to 62. How many bouncy balls came in the 
+
+tube? 
+
+The fruit in the image is not relevant to the 
+
+math puzzle . The answer to the math 
+
+puzzle is 24 .
+
+Elaina is holding the final concert in her tour. To celebrate her 
+
+final concert, she makes the concert twice as long as her usual 
+
+concerts. At the end of the concert, she also performs a 15 -
+
+minute encore. If the runtime of this final concert is 65 minutes 
+
+then how long, in minutes, do her usual concerts run for? 
+
+The fruit in the image is not applicable as 
+
+there there is no image provided . However, 
+
+based on the text, the answer 
+
+Kenny is selling his Pokemon cards to buy a ticket to an 
+
+amusement park, which costs 100. He has a collection of cards 
+
+and plans to sell them for 1.5 each. He keeps 1/3 of them and 
+
+gets to go to the amusement park with $50 in spending cash. 
+
+How many cards did he start with? 
+
+The fruit in the image is not applicable as 
+
+there there is no image provided . The 
+
+answer to the math puzzle is 2
+
+Jeff owns a catering company. During a recent event, he sent 8 
+
+dozen glasses and 4 dozen plates for the party. When they 
+
+were returned, 10 glasses were broken as well as 6 plates. How 
+
+many glasses and plates does Jeff have now? 
+
+The fruit in the image is not relevant to the 
+
+math puzzle . "text' . The answer to the math 
+
+puzzle is 9
+
+My mom went to a gardening shop. She bought a set of pots 
+
+for 19 and a sack of garden soil for 26. At checkout, she used a 
+
+coupon for $7 off. How much money did my mom spend at the 
+
+gardening shop? 
+
+The fruit in the image is not applicable as 
+
+there there is no image provided with this 
+
+instruction . The answer to the math puzzle 
+
+Figure 15: Qwen2.5-VL-7B is able to understand that the image does not exist (in this case, due to blocking), and produces outputs to this effect. We show some examples from the roughly 44% of samples that show such behavior. 
+
+Blocking previously generated tokens. Fig. 16 shows that attention to previously generated tokens is crucial for the model to generate appropriate responses. Among the examples, we see that most outputs stutter and break after generating a few words such as “The fruit in the ...” and generate repetitive outputs. In the third example, we see LOV-7B generate the correct answer (grapes). However, it is unable to stop repeating “the fruit is grapes the fruit is grapes [...]” and switch to the next task. Nevertheless, as quantified in Tab. 2, Qwen2.5-VL shows higher resilience towards blocking information flow from previously generated tokens. 18 Image No Blocking Response Previous Blocking Response 
+
+The fruit in the image is apple . The answer to the math 
+
+puzzle is 49 .
+
+The fruit in the fruit in the fruit in the fruit in the fruit 
+
+in the fruit in the average is apple 1.
+
+The fruit in the image is banana . The answer to the 
+
+math puzzle is 47 .
+
+The fruit_name ] The fruit_name ] The fruit is 
+
+banana . The fruit in the fruit is banana . The fruit in 
+
+the 
+
+The fruit in the image is grapes . The answer to the 
+
+math puzzle is $110 ,000 .
+
+The fruit is grapes The fruit is grapes The fruit is 
+
+grapes The fruit is grapes The fruit is grapes The 
+
+fruit is grapes The 
+
+The fruit in the image is grapefruit . The answer to the 
+
+math puzzle is 1000 .
+
+The fruit in the fruit in the fruit in the fruit in the fruit 
+
+in the fruit in the number of the number of the 
+
+The fruit in the image is mango . The answer to the 
+
+math puzzle is 18 .
+
+The fruit in the fruit in the fruit in the fruit in the fruit 
+
+in the fruit in the fruit in the fruit in the 
+
+The fruit in the image is strawberry . The answer to the 
+
+math puzzle is 12 .
+
+The fruit in the fruit in the fruit in the fruit in the fruit 
+
+in the fruit in the fruit in the fruit in the Figure 16: Outputs produced by LLaVA-OneVision-7B when attention to previously generated tokens is blocked. We see that the output sentence collapses and there is repetition or premature end of generation. 
+
+Blocking instruction when generating the handoff token. Attention to the instruction chunk peaks when switching between tasks. Fig. 17 shows some qualitative outputs of blocking attention to the instruction chunk at the Handoff token. We see that the models fail to generate any outputs for the Math task (or even acknowledge that it exists). Image No Blocking Response Handoff Blocking Response 
+
+The fruit in the image is grapes . The answer to the 
+
+math puzzle is $118 . The fruit in the image is grapes .
+
+The fruit in the image is oranges . The answer to the 
+
+math puzzle is 5. The fruit in the image is oranges .
+
+The fruit in the image is strawberries . The answer to 
+
+the math puzzle is $4800 . The fruit in the image is strawberries .
+
+The fruit in the image is banana . The answer to the 
+
+math puzzle is 3. The fruit in the image is banana .
+
+The fruit in the image is oranges . The answer to the 
+
+math puzzle is 3 oranges . The fruit in the image is oranges .
+
+The fruit in the image is pineapple . The answer to the 
+
+math puzzle is 5 hours . The fruit in the image is pineapple .
+
+Figure 17: Outputs produced by Qwen2.5-VL-3B when attention to the instruction token is blocked during 
+
+Handoff , or switching from the Fruit to the Math task. Compared to the case without blocking, models generate responses for the fruit identification task, but are unable to generate the math answer and end outputs prematurely. 
+
+A.7 Boost Factor Analysis and γ Computation 
+
+We present an analysis on the attention boost factor discussed in Sec. 4.3. As can be seen in Fig. 18, VT-Acc remains largely stable across a broad range of boost factors. For LOV, performance peaks 19 20 30 50 100 150 200                 
+
+> Boost Factor ( )
+> 20
+> 30
+> 40
+> 50
+> VT-Accuracy
+> = 8.2 = 9.4 = 10.6 = 11.8
+> = 12.5
+> LOV
+> no boosting ( = 1)
+> boosting 30 50 100 150 200 250 300 350 400
+> Boost Factor ( )
+> 51
+> 52
+> 53
+> VT-Accuracy
+> = 9.7
+> = 11.1
+> = 12.3
+> = 12.8
+> = 13.1
+> = 13.2 = 13.4
+> = 13.4
+> = 13.5
+> QVL
+> no boosting ( = 1)
+> boosting
+
+Figure 18: Boosting analysis across wide range of β tested for LOV-7B and QVL-7B. 
+
+at 49.8 with β = 50 and stays within 1.1 points of this maximum for β ∈ [20 , 100] . Similarly, QVL varies by less than 1 point between β = 30 and β = 400 , with a shallow optimum around 150-300. These results indicate that the benefits of attention boosting are not tied to a narrowly tuned hyperparameter choice; rather, the method exhibits a wide plateau of strong performance, suggesting low sensitivity to the exact value of β within a broad operating region. The γ values in Tab. 3 for the VSR task are computed as follows, For LOV-7B, the pi calculated from the recorded attention values on the VSR task is 0.0756 . With β = 50 , this results in Zi =(1 − 0.0756) + 50 × (0 .0756) = 4 .7044 , and a γi = 50 /4.7044 = 10 .62 . Similarly, for QVL-7B, with pi = 0 .0718 and β = 200 , results in γi = 13 .08 .
+
+A.8 Qualitative Results: Attention Boosting Intervention 
+
+We present qualitative results of boosting intervention on Qwen2.5-VL-7B and LLaVA-OneVision-7B models. The intervention improves both image-based and text-based spatial reasoning accuracy in LLaVA-OneVision, consistent with Tab. 3. Qwen2.5-VLhas mixed gains, with certain answers now correctly answering the text spatial answer, and sometimes both, image and text, improve. Samples reported in Fig. 19 and Fig. 20. 
+
+A.9 Significance Testing of Attention Trends 
+
+We quantify modality-specific attention specialization using two-sided Welch’s t-tests between semantically contrasted groups. For Fr-Ma, we compare Fruit Concept (FC) against Fruit Intro (FI) for image attention, Math Answer (MA) against Math Intro (MI) for text attention, and Handoff (HO) against FC for instruction attention in Tab. 4. 
+
+Table 4: Attention specialization across modalities. Positive ∆ indicates stronger attention for the first group in each comparison. All reported differences are statistically significant under Welch’s t-test ( p < 0.05 ). Task Comparison Modality LOV-0.5B LOV-7B QVL-3B QVL-7B Fr-Ma FC > FI Image +0.063 +0.061 +0.048 +0.030 MA > MI Text +0.009 +0.130 +0.095 +0.075 HO > FC Instruction – +0.044 – +0.012 ChartQA Q1_A > Q1_I Image – +0.106 – +0.085 Q1_A > Q1_I Text – +0.019 – +0.003 
+
+20 The bed is above the 
+
+bicycle. 
+
+The image has the bed above the bicycle , while the text mentions the 
+
+bed next to the bicycle .
+
+The image has the bicycle on the bed , while the text mentions the bed 
+
+above the bicycle . 
+
+> Adverse Caption Post Boost
+> Default Response
+
+The cake is above the 
+
+banana. 
+
+The image has the cake above the banana , while the text mentions the 
+
+cake below the banana .
+
+The image has the cake below the banana , while the text mentions the 
+
+cake above the banana . 
+
+> Adverse Caption Post Boost
+> Default Response
+
+The pizza is left of the 
+
+bottle. 
+
+The image has the pizza left of the bottle , while the text mentions the 
+
+pizza left of the bottle. 
+
+The image has the pizza to the right of the bottle , while the text mentions 
+
+the pizza to the left of the bottle . 
+
+> Adverse Caption Post Boost
+> Default Response
+
+The horse is in front of 
+
+the truck. 
+
+The image has the horse in front of the truck , while the text mentions the 
+
+horse in front of the truck. 
+
+The image has the horse behind the truck , while the text mentions the 
+
+horse in front of the truck . 
+
+> Adverse Caption Post Boost
+> Default Response
+
+Figure 19: Attention intervention qualitative samples on LOV-7B on the VSR task. The microwave is 
+
+across the cat. 
+
+The image has the microwave [to the left of] the cat, while the text 
+
+mentions the microwave [in front of] the cat .
+
+The image has the microwave [left] of the cat, while the text mentions 
+
+the microwave is [across] the cat . 
+
+> Adverse Caption Post Boost
+> Default Response
+
+The cake is behind the 
+
+apple. 
+
+The image has the cake [behind] the apple , while the text mentions the 
+
+cake [behind] the apple. 
+
+The image has the cake (object 1) in front of the apple (object 2), while 
+
+the text mentions the cake (object 1) behind the apple (object 2).  
+
+> Adverse Caption Post Boost
+> Default Response
+
+The person is outside 
+
+the boat. 
+
+The image has the person sitting inside the boat, while the text mentions 
+
+the person being the boat .
+
+The image has the person sitting inside the boat, while the text mentions 
+
+the person being outside the boat . 
+
+> Adverse Caption Post Boost
+> Default Response
+
+The banana is at the 
+
+right side of the 
+
+orange. 
+
+The image has the orange ( spatial_relation ) on top of the bananas , while 
+
+the text mentions the banana ( spatial_relation ) on the right side of the 
+
+orange. 
+
+The image has the banana on the left left of the orange , while the text 
+
+mentions the banana is on the right side of the orange.  
+
+> Adverse Caption Post Boost
+> Default Response
+
+Figure 20: Attention intervention qualitative samples on QVL-7B on the VSR task. 
+
+21 Across models, FC consistently allocates higher image attention than FI, while MA allocates higher text attention than MI. For ChartQA, answer-bearing tokens (Q1_A) exhibit substantially stronger image attention than introductory tokens (Q1_I), with comparatively weak separation in text attention. Reported values indicate mean attention differences ( ∆ mean), where positive values denote stronger attention for the first group in each comparison. All reported differences are highly statistically significant ( p < 0.05 ). 
+
+B Experiment Setup Details 
+
+B.1 Sequence of Input Context Chunks <| im_start |> user ‘ ’ Image \n Text Instruction <| im_end |> <| im_start |> assistant \n Previous CGT 
+
+LLaVA OneVision (LOV)                    
+
+> <| im_start |> system \nSystem Instruction <| im_end |> \n<| im_start |> user \nText Instruction
+> <| vision_start |> Image <| vision_end |> <| im_end |> \n<| im_start |> assistant \nPrevious CGT
+
+Qwen2.5 -VL (QVL) 
+
+Figure 21: Sequence of input context chunks for LLaVA-OneVision (top) and Qwen2.5-VL (bottom). Note their key differences in how image tokens may appear before/after the text and instruction tokens. 
+
+Our work focuses on studying attention patterns from the currently generating token (CGT) to various context chunks. To do so, it is important to know the exact sequence of tokens. Fig. 21 shows the order of tokens for two popular MLLM families that we evaluate in our work: LLaVA-OneVision and Qwen2.5-VL. Some differences are apparent. First, we see that token order is not simply image, concatenated with text and/or instruction, followed by the model’s generation. Even LLaVA-OneVision uses tags and indicators such as im_start or im_end to mark conversational boundaries between the user and the 
+
+assistant (model). We also observe that LLaVA-OneVision adopts an image before text and instruction sequence order, while Qwen2.5-VL prefers to send in text and instruction tokens before the image. Due to the use of causal or masked attention in the decoder, the order of the tokens determine how information flows in an MLLM and can possibly change how the models are interpreted. 
+
+B.2 Dataset Details Apple 155 Banana 73 Coconut 26          
+
+> Grape 11 1
+> Pear 45
+> Grapefruit 148 Mango 11
+> Peach 63 Strawberry 180 Watermelo n67
+> Pineapple 59
+
+Figure 22: Fruit categories in our fruit dataset. 
+
+Our dataset consists of 11 fruit categories, which are shown in Fig. 22, along with their respective counts. 
+
+Sport categories. Fig. 23 presents some example text excerpts used in our sport identification task for LLM text-only results in Sec. A.4. These are generated by Gemini 2.5 Pro (see prompt in Fig. 25). 22 Sport Text  Sport                             
+
+> Unnati Hooda has secured her spot in the main draw of the Singapore Open after ahard -fought victory .
+> The young shuttler showed im mense composure, winning the final game 21 -19 .
+
+Badminton                               
+
+> The Atlanta Braves have clinched the National League East title for the sixth consecutive year .They now
+> await their opponent in the divisional series as they chase another World Series ring .
+
+Baseball                                 
+
+> The roar of the crowd was deafening as LeBron James drove to the hoop ,sinking alast -second layup to
+> give the Lakers astunning victory over the Celtics .The final score was 101 -100 .
+
+Basketball                                        
+
+> With his very first ball in an Ashes series in 1993 ,Shane Warne delivered the "Ball of the Century" to
+> England's Mike Gatting .Pitched outside leg stump before spinning viciously to hit the top of the off -stump, a
+> delivery that defied physics .
+
+Cricket                                      
+
+> Lionel Messi masterfully dribbled past three defenders before slotting the ball into the bottom corner,
+> securing adramatic late victory for his club .The Argentinian's sublim e solo goal is already being hailed as
+> one of the best of the season .
+
+Football                           
+
+> Nelly Korda drained aspectacular 30 -foot eagle putt on the final hole to win the championship .The
+> incredible finish marks her third victory of the LPGA season .
+
+Golf                                
+
+> Ma Long ,the two -time Olympic singles gold medalist, has announced he will compete in one more season .
+> Fans are eager to see the "Dragon" execute his signature spinny serves and third -ball attacks .
+
+Table Tennis                                
+
+> With 23 major singles titles to her name, Serena Williams revolutionized the women's game with her
+> unparalleled power and fierce competitive spirit .Her aggressive style and formidable serve intimidated
+> opponents for over two decades .
+
+Tennis                               
+
+> After ahigh pass, the setter executed aperfect backset to the right -side hitter for the kill .That play
+> completely fooled the opponent's middle blockers ,who were expecting aquick attack .
+
+Volleyball Figure 23: Examples of sport themed excerpts generated by Gemini for each of the 9 sport classes used in our experiments for Math-Sport (LLM text-only results in Sec. A.4). While the name of the sport is not mentioned in the excerpt, they are fairly easy to guess based on the descriptions. 
+
+B.3 POS Tags 
+
+To compile dataset-level trends (reported as bar plots in the paper), we rely on automated POS tagging to group token roles and aggregate across these roles. Different tasks follow slight tagging variations, and we present them in Fig. 24. 
+
+B.4 Details about When to Block 
+
+We present details on the aspect of when information flow is blocked from various semantic chunks to CGT. First, let us consider the specified response format: “The fruit in the image is [fruit_name]. The answer to the math puzzle is [numeric_answer].” If the fruit name is apple and the math answer is 7, we can write the expected sequence of output tokens as: 
+
+(y1 = “The” , y2 = “fruit” , y3 = “in” , y4 = “the” , y5 = “image” , y6 = “is” ,y7 = “apple” , y8 = “.” , y9 = “The” , y10 = “answer” , y11 = “to” , y12 = “the” ,y13 = “math” , y14 = “puzzle” , y15 = “is” , y16 = “7” , y17 = {EOS }) .
+
+While we could assume deterministic outputs and block at specific indices ( e.g . y7 for fruit name), as shown earlier, models deviate from the prescribed format. Note, these challenges are not applicable to previous works that study attention blocking only for the first token y1.Now, at step t, we know that autoregressive generation takes yt−1 as input to produce yt. Thus, we can consider the input that is fed to the model to calculate attention and generate yt to determine whether information should be blocked. For example, for the Fruit Concept blocking experiments, we wait until the previously generated token yt−1 = “is” as we know that the model is instructed to generate the fruit name next at yt. Thus, we block information flow here. Similarly, for Handoff 
+
+and instruction chunk blocking experiments, we identify the moment when yt−1 = “.” (period) as it indicates that the next word will start the next sentence corresponding to the other task (math task in Fruit-Math). Both are examples of blocking at a single step. When we perform experiments for blocking at Fruit Intro , this consists of multiple steps. As the model may not adhere to the instruction we block attention to CGT until the input token is yt−1 = “is” as the next token ( yt) is now likely to be the Fruit Concept . Note, we can also pose step index constraints to this process such as t ∈ [4 , 8] to ensure that the specific chosen word, “is” in this case, corresponds to the first appearance in our instruction. 23 The fruit in the image is an orange . The answer to the math puzzle is $14.00 .   
+
+> SOG Fruit Intro
+> Fruit Concept
+> Handoff Math Intro Math Answer
+> EOG
+
+Fruit -Math POS Tag Role                   
+
+> SOG (Start of Generation) Initial structure tokens
+> Fruit Intro Tokens before the fruit name
+> Fruit Concept Predicted fruit tokens
+> Handoff Tokens between task switching
+> Math Intro Tokens before math answer
+> Math Answer Math answer tokens
+> EOG (End of Generation) Concluding tokens The answer to Q1 is $32 ;As per the chart, answer to Q2 is America .
+> SOG Q1 Intro
+> Q1 Answer
+> Handoff Q2 Intro Q2 Answer
+> EOG
+
+ChartQA POS Tag Role                 
+
+> SOG (Start of Generation) Initial structure tokens
+> Q1 Intro Tokens before the Q1 answer
+> Q1 Answer Q1 answer tokens
+> Handoff Tokens between task switching
+> Q2 Intro Tokens before the Q2 answer
+> Q2 Answer Q2 answer tokens
+> EOG (End of Generation) Concluding tokens The image
+> has horse direct
+> facing
+> the
+> cameraman
+> ,while the text
+> mentions horse is facing away
+> from
+> the
+> cameraman .
+> SOG Handoff EOG
+
+VSR POS Tag Role               
+
+> SOG (Start of Generation) Initial structure tokens
+> Image Object 1 (IObj1) Image object 1 tokens
+> Image Spatial Relation (ISR) Image spatiality concept tokens
+> Image Object 2 (IObj2) Image object 2 tokens
+> Handoff (HO) Tokens between task switching
+> Text Object 1 (TObj1) Text object 1 tokens
+> Text Spatial Relation (TSR) Text spatiality concept tokens
+> Text Object 2 (TObj2) Text object 2 tokens
+> End of Generation (EOG) Concluding tokens
+> IObj1
+> ISR IObj2
+> IObj1
+> ISR IObj2
+
+Figure 24: POS tagging for Fruit-Math, ChartQA, and VSR tasks. Dataset-level findings reported in Sec. 4. 
+
+Our rule-based blocking approach as defined above is scalable and allows us to obtain a holistic dataset level perspective on how attention patterns evolve across time. 
+
+C Limitations and Future Work 
+
+We identify a few limitations of our work that could guide future explorations. • Generation-centric evaluations are difficult to scale, both in terms of systematic evaluation and causal intervention. While specifying a response format in the instruction and using Gemini to assist in tagging and grouping helps, complete free-form in-the-wild generation remains to be explored. • Attributing why specific models exhibit distinct behaviors remains challenging. For instance, Qwen2.5-VL frequently denies the presence of visual content under attention disruption, whereas LLaVA-OneVision models do not. Isolating the architectural aspect or training process responsible for such differences is not trivial. • Our work demonstrated the effectiveness of role-aware attention boosting in a global setting across all layers and heads. However, several factors remain underexplored, including decoding strategies and the optimal boost factor for different models. A systematic investigation of these aspects would require an independent study and is therefore beyond the scope of the current work. • Attention analysis requires inference in eager attention mode, which materializes the full attention matrix. While it enables access to global attention statistics, it’s significantly slower and compute-intensive than optimized implementations like FlashAttention [ 6], which are non-trivial to analyse. • Finally, our notion of multimodal interpretability is limited to vision-language interactions, leaving other modalities unexplored, and forms an interesting future pursuit. 24 D Prompts 
+
+D.1 Sport Text Creation Prompt 
+
+Your task is to generate 12 text snippets for a text classification dataset. Rules: • The text must be about {sport}. • The text MUST NOT contain the word “{sport}”. • The text MUST imply the sport by using sport specific jargon - including actions, matches, name of the key players and athletes, etc. • Each snippet should be 2-3 lines long, and snippets should be diverse in text content. • The snippets should read like news clips. You may also use recent or older news on the internet to make this. 
+
+Figure 25: Gemini sport text creation prompt for various sports. 
+
+The prompt used to create the sport themed experts for the base LLM (Sport-Math) task is presented in Fig. 25. This allows us to generate samples without contamination of the sport name (also verified manually). 
+
+D.2 MLLM Task Prompts 
+
+Fruit-Math Prompt 
+
+‘Text’: [[text_fill]] First, identify the fruit in the image provided and then answer the math puzzle in ‘Text’. Generate response in the format: The fruit in the image is [fruit_name]. The answer to the math puzzle is [numeric_answer]. 
+
+Figure 26: MLLM generation prompt for Fruit-Math task. 
+
+ChartQA Prompt 
+
+‘Text’: ‘Q1’: [[q1]], ‘Q2’: [[q2]] First solve Q1 and then solve Q2. Generate response in the format: The answer to Q1 is [answer]. The answer to Q2 is [answer]. Figure 27: MLLM generation prompt for ChartQA task. 
+
+VSR Prompt 
+
+‘Text’: [[caption]] There exists a discrepancy between the spatial location of key objects conveyed in the ‘Text’ compared to the Image provided: [[instruction]]. Identify this spatial discrepancy and answer in the format: the image has [object 1] [spatial_relation] [object 2] while the text mentions [object 1] [spatial_relation] [object 2]. Figure 28: MLLM generation prompt for VSR task. 
+
+We present the prompts (or instructions) given to the LLaVA-OneVision and Qwen2.5-VL MLLMs across tasks. The Fruit-Math prompt is shown in Fig. 26, ChartQA prompt in Fig. 27, VSR prompt in Fig. 28 and the Math-Sport prompt fed to the base Qwen2-7B LLM is also included in Fig. 29. Note, the Fruit-Math prompt (text and instruction) is also illustrated separately in Fig. 1A for one sample. 25 Math-Sport Prompt 
+
+‘Math’: [[sport_text_fill]] ‘Sport’: [[math_text_fill]] First, solve the math problem in the ’Math’ text and then identify the sport from the provided ’Sport’ text. Generate response in the format: The answer to the math problem is [numeric_answer]. The sport in the text is [sport]. 
+
+Figure 29: MLLM generation prompt for Math-Sport task. 
+
+Task: You are a precise linguistic-semantic tagger. Your job is to analyze a sequence of generated tokens and assign a semantic tag to each one. 
+
+Semantic Schema 
+
+Here is the semantic schema you MUST use: - SOG: “Start of Generation”. Use ONLY for the very first token. - FRUIT_INTRO: “Fruit Preamble”. Tokens leading up to the fruit name. - FRUIT_CONCEPT: “Fruit Entity”. The specific token(s) for the fruit name, including subwords. - HANDOFF: “First Concept or Task Transition”. Tokens after the FRUIT_CONCEPT. This token make up the shift from fruit to math solution, it neither belongs to fruit nor math solution. - MATH_INTRO: “Math Preamble”. Tokens leading up to the numeric math answer, including any symbols and special characters. - MATH_ANSWER: “Numerical Mathematical Answer”. The specific token(s) for the numerical answer to the puzzle, including decimals and delimiters. - POSTAMBLE: “Conclusion”. Tokens after the final concept, including special characters, and any final punctuations. 
+
+Task 
+
+Analyze the following list of tokens. Return a JSON list where each object in the list corresponds to a token and contains the “word” and its “tag”. The order of the tokens MUST be preserved in the list. Respond ONLY with the JSON list. 
+
+Input Tokens: 
+
+[[mllm_generated_response]] 
+
+Figure 30: Gemini prompt for semantic POS token tagging for Fruit-Math task. 
+
+D.3 Gemini POS Tagging Prompts 
+
+Next, we present the prompts used to convert variable-length outputs into a structured form through the ‘part-of-speech’ like tags. We present the prompts in Fig. 30 for Fruit-Math, Fig. 31 for VSR and, Fig. 32 for ChartQA. The output of the LLM for the text-only task is also tagged using Fig. 33. 
+
+D.4 Gemini Evaluation Prompts 
+
+Finally, the accuracy evaluation of generated outputs (fruit and math accuracy) is also achieved through Gemini. Fig. 34 presents the Fruit-Math prompt and Fig. 35 shows the VSR evaluation prompt. We manually verify the outputs to ensure robustness of the LLM-based evaluation. 
+
+E Impact Statement 
+
+This paper presents work that aims to advance the interpretability of Multimodal LLMs. This is an active area of research, and LLMs and MLLMs are increasingly being adopted at scale. While there are potential societal consequences of LLM and MLLM usage in general, we feel that none need to be specifically highlighted here with respect to this particular work on analyzing how attention patterns evolve. 26 Task: You are a precise linguistic-semantic tagger. Your job is to analyze a sequence of generated tokens and assign a semantic tag to each one. 
+
+Semantic Schema 
+
+Here is the semantic schema you MUST use: - SOG: “Start of Generation”. Use ONLY for the very first token. - IMG_INTRO: Tokens leading up to the first object in the image description. - IMG_OBJECT_1: First object in the image. - IMG_SPATIAL_RELATION: Spatial relation in the image (e.g., “left of”, “above”). - IMG_OBJECT_2: Second object in the image. - HANDOFF: Tokens indicating contrast/transition between image and text (e.g., “while”, “but”, commas if structural). - TXT_INTRO: Tokens leading up to the first object in the text description. - TXT_OBJECT_1: First object in the text. - TXT_SPATIAL_RELATION: Spatial relation in the text. - TXT_OBJECT_2: Second object in the text. - POSTAMBLE: Tokens after the final concept, including punctuation. 
+
+Task 
+
+Analyze the following list of tokens. Return a JSON array where each object in the array corresponds to a token and contains the “word” and its “tag”. The order of the tokens MUST be preserved. Respond ONLY with the JSON array. 
+
+Input Tokens: 
+
+[[mllm_generated_response]] 
+
+Figure 31: Gemini prompt for semantic POS token tagging for VSR task. 
+
+Task: You are a precise linguistic-semantic tagger. Your job is to analyze a sequence of generated tokens and assign a semantic tag to each one based on a visual Q&A task. 
+
+Semantic Schema 
+
+Here is the semantic schema you MUST use: - SOG: “Start of Generation”. Use ONLY for the very first token (e.g., usually “The” or “<pad>”). - Q1_INTRO: “Question 1 Preamble”. Tokens setting up the first answer (e.g., “The”, “answer”, “to”, “Q”, “1”, “is”). - Q1_ANSWER: “Question 1 Answer Entity”. The specific token(s) containing the extracted answer for the first question from the chart. - HANDOFF: “Task Transition”. Tokens immediately following the Q1_ANSWER (usually a punctua-tion mark like a comma). - Q2_INTRO: “Question 2 Preamble”. Tokens setting up the second answer (e.g., “the”, “answer”, “to”, “Q”, “2”, “is”). - Q2_ANSWER: “Question 2 Answer Entity”. The specific token(s) containing the extracted answer for the second question from the chart. - POSTAMBLE: “Conclusion”. Tokens after the final answer concept, including final punctuations or End of Sequence tokens. 
+
+Task 
+
+Analyze the following list of tokens. Return a JSON array where each object in the array corresponds to a token and contains the “word” and its “tag”. The order of the tokens MUST be preserved in the array. Respond ONLY with the JSON array. 
+
+Input Tokens: 
+
+[[mllm_generated_response]] 
+
+Figure 32: Gemini prompt for semantic POS token tagging for the ChartQA task. 
+
+F Compute Resources 
+
+Our work is a training-free analysis and intervention effort, and does not require a large-scale compute setup. All our experiments are conducted on the NVIDIA A6000 GPUs with 48GB VRAM. 27 Task: You are a precise linguistic-semantic tagger. Your job is to analyze a sequence of generated tokens and assign a semantic tag to each one. 
+
+Semantic Schema 
+
+Here is the semantic schema you MUST use: - SOG: “Start of Generation”. Use ONLY for the very first token. - MATH_INTRO: “Math Preamble”. Tokens leading up to the numeric math answer, including any symbols and special characters. - MATH_ANSWER: “Numerical Mathematical Answer”. The specific token(s) for the numerical answer to the puzzle, including decimals and delimiters. - FIRST_HANDOFF: “First Concept or Task Transition”. First token after the MATH_ANSWER. This token make up the shift from math to sport solution, it neither belongs to math nor sport solution. - OTHER_HANDOFF: “Concept or Task Transition”. Token after the FIRST_HANDOFF. These are tokens that make up the shift from math to sport solution, they neither belong to math nor sport solution. - SPORT_INTRO: “Sport Preamble”. Tokens leading up to the sport name. - SPORT_CONCEPT: “Sport Entity”. The specific token(s) for the sport name, including subwords. - POSTAMBLE: “Conclusion”. Tokens after the final concept, including special characters, and any final punctuations. 
+
+Task 
+
+Analyze the following list of tokens. Return a JSON list where each object in the list corresponds to a token and contains the “word” and its “tag”. The order of the tokens MUST be preserved in the list. Respond ONLY with the JSON list. 
+
+Input Tokens: 
+
+[[mllm_generated_response]] 
+
+Figure 33: Gemini prompt for semantic POS token tagging for Math-Sport task. 
+
+28 Task: Evaluate the vision-language model response against the provided ground truth labels for fruit recognition and math reasoning. 
+
+Evaluation Objective 
+
+You are an expert semantic evaluator. Grade the vision-language model response based on the ground truth. Be smart: give credit for synonyms (e.g., “mandarin” for “orange”) and different formats (e.g., “seven” for “7”). Focus on semantic intent. 
+
+Ground Truth 
+
+• Expected Fruit: [[gt_fruit]] 
+
+• Expected Math Answer: [[gt_math]] 
+
+Model Response 
+
+[[model_response]] 
+
+Normalization Rules 
+
+- Fruit must be ONE canonical lowercase label (e.g., “banana”). - If no fruit present → “none” - If unclear → “unknown” - Prefer the FINAL committed answer. 
+
+Evaluation Instructions 
+
+1. Determine whether a fruit answer was provided. 2. Determine whether the fruit answer is correct. 3. Determine whether a math answer was provided. 4. Determine whether the math answer is correct. 5. Extract the final fruit prediction committed by the model. 6. Extract the final numeric/math answer committed by the model. 7. Copy the exact phrase corresponding to the final fruit answer and normalize it to a canonical label if possible. 8. Copy the exact phrase corresponding to the final math answer and normalize it to a canonical form if possible. 9. If the fruit prediction is incorrect, assign one error category: - CROSS: Model is misdirected by terms/nouns from the math puzzle. - DENIAL: Model explicitly denies fruit presence or refuses to answer. - RESCUE: Model shows conflict or self-correction (e.g., “I see no fruit... it is a cherry” or “Apple, no, Banana”). - PRIOR: Simple misidentification or guessing common fruits without evidence. - OTHER: None of the above. Briefly describe in error_explanation .- NA: If fruit prediction is correct. 10. Provide a brief error_explanation .
+
+Output Format (STRICT JSON) 
+
+{"fruit_answered": "True/False", "fruit_correct": "True/False", "math_answered": "True/False", "math_correct": "True/False", "predicted_fruit": "string", "predicted_math": "string", "final_fruit_span": "string", "final_math_span": "string", "fruit_error_profiling": "CROSS/DENIAL/RESCUE/PRIOR/OTHER/NA", "error_explanation": "string" }
+
+Figure 34: Accuracy, answer rate and error profiling prompt for the Fruit-Math task. 
+
+29 Task: Evaluate whether the vision-language model correctly distinguishes mismatched spatial relations between the image and the accompanying text. 
+
+Evaluation Objective 
+
+You are an expert evaluator grading a vision-language model’s response. The model was presented with MISMATCHED visual and textual spatial relations. 
+
+Ground Truth 
+
+• Expected Image Description (Image): {expected_image_relation} 
+
+• Expected Text Description (Text): {expected_text_relation} 
+
+Model Response 
+
+{model_response} 
+
+Evaluation Instructions 
+
+1. Visual Check: Determine whether the model correctly identifies {expected_image_relation} as the spatial relation present in the image. Output “True” or “False”. 2. Text Check: Determine whether the model correctly identifies {expected_text_relation} as the spatial relation described in the text. Output “True” or “False”. 3. Alignment Classification: - correct : Both image and text relations are correctly identified. - incorrect - both image : Model claims both modalities show or indicate the image relation. - incorrect - both text : Model claims both modalities show or indicate the text relation. - incorrect - flip : Model swaps them, using the text relation for the image part and the image relation for the text part. - incorrect - other : Hallucination, refusal, incomplete response, or nonsensical output. 
+
+Output Format (STRICT JSON) 
+
+{"visual_check": "True/False", "text_check": "True/False", "alignment_classification": correct incorrect - both image incorrect - both text incorrect - flip incorrect - other" }
+
+Figure 35: Evaluation prompt for the VSR task. 
+
+30
