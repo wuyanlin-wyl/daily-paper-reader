@@ -1,0 +1,1145 @@
+A Multi-Agent System for Autonomous, Fine-Tuning-Free Clinical
+Symptom Detection: Development and Validation Study
+Cameron Cagan1, Pedram Fard1, Jiazi Tian1, Jingya Cheng1, Shawn N. Murphy2, and
+Hossein Estiri1
+1Department of Medicine, Massachusetts General Hospital, Boston, MA, USA
+2Department of Biomedical Informatics and Medical Education, University of Washington,
+WA, USA
+Abstract
+Clinical notes contain many of the signs and symptoms that bring patients to care, yet
+this information rarely reaches structured fields.
+Existing extraction approaches either rely
+on context-insensitive rules that generate false positives or on supervised models that require
+substantial fine-tuning.
+We present Pythia, a multi-agent system that autonomously writes
+and optimizes extraction prompts for clinical concepts without manual prompt engineering or
+fine-tuning. Running on a locally hosted open-weights model, Pythia keeps clinical notes on
+local infrastructure and selects prompts using development-set sensitivity and specificity. We
+compared Pythia with a curated lexicon across 72 signs and symptoms from 400 clinical notes
+representing 387 patients. Development (n=300) and validation (n=100) sets were partitioned
+independently for each concept. Pythia achieved mean sensitivity of 0.76 and specificity of 0.95,
+compared with 0.82 and 0.76 for the lexicon, and matched or exceeded the lexicon on both
+metrics for 20 of 62 directly comparable concepts. For 14 concepts where the lexicon labeled
+every note positive, Pythia recovered mean specificity of 0.97 by requiring a present-tense,
+patient-attributed finding rather than any textual mention of a term. Specificity transferred
+from development to validation with minimal degradation across prevalences, whereas sensitivity
+transfer weakened below 5% prevalence, reaching a mean gap of 0.25 below 2% prevalence. A
+BERT classifier fine-tuned per concept on the same development set achieved mean sensitivity of
+0.23 and collapsed to zero sensitivity for concepts below roughly 5% prevalence. These findings
+suggest that autonomous, fine-tuning-free prompt optimization can produce symptom extraction
+prompts that generalize effectively from development to validation while remaining deployable
+on local infrastructure.
+1
+Introduction
+Clinical notes record the signs and symptoms that bring patients to care, and much of that informa-
+tion never reaches the structured fields of electronic health records. Diagnosis codes and laboratory
+values capture confirmed conditions, while the presenting complaints and the day-to-day course of
+illness live in free text. Studies that depend on symptoms, including computational phenotyping,
+surveillance, and the generation of real-world evidence, therefore require extraction of these find-
+ings from notes at scale [1, 2, 4]. The quality of that extraction sets a ceiling on every downstream
+use. Post-acute COVID-19 illustrates the problem, because its case definition rests on a broad and
+shifting set of signs and symptoms that are documented almost entirely in narrative text rather
+than in diagnosis codes.
+1
+arXiv:2607.12886v1  [cs.AI]  14 Jul 2026
+
+
+Extracting a symptom reliably is more complex than just finding the symptom name in a
+piece of text. The same term often appears in negated statements, instructions to the patient,
+family history, and more. Separating a present finding from these other uses, through negation,
+attribution, and temporality, has been a central problem in clinical natural language processing
+for two decades [3, 4, 6]. Rule-based lexicons remain the default because they are transparent and
+require no labeled training data, yet they do not consider context, and their false-positive burden
+increases with the size of the negative class [7, 8].
+Learning-based methods provide an avenue for incorporating context. Transformer encoders
+trained on annotated notes reached strong extraction performance [10–12]. Further, a recent multi-
+institution benchmark placed the current state of the art at fine-tuned large language models, which
+surpass encoders when labeled data is scarce [13, 19]. These gains carry a cost, as the benchmark
+models required thousands of annotated notes and weight fine-tuning, and they are far slower than
+the encoder baseline [19]. Prompting lowers the training cost but not the design cost, because
+few-shot and hand-engineered prompts still depend on a person to write and revise them [14, 15].
+Automatic prompt optimization searches instruction space against a metric without weight updates
+[20–23], and open-weights models now run inside the institution for privacy-sensitive clinical text
+[24, 25]. The binding constraint on building these systems is the labeled data and the manual
+prompt design they require rather than the model.
+This shift has a name in agentic software engineering. Under loop engineering, the designer
+stops writing prompts for an agent and instead builds a loop that sets a goal, lets the agent iterate
+toward it, and uses a separate process to check whether the goal is met before stopping [? ]. The
+pattern rests on established machinery, because automatic prompt optimization already searches
+instruction space against a metric without weight updates [20–23], and multi-agent designs already
+separate the agent that proposes a solution from the one that verifies it. Clinical natural language
+processing has rarely evaluated such loops against the sensitivity and specificity requirements that
+clinical use imposes. Whether an autonomous prompt loop can meet those clinical requirements
+remains an open question.
+We study Pythia, a system that instantiates loop engineering for clinical symptom detection
+and removes both the fine-tuning cost of encoder models and the per-concept design cost of manual
+prompting.
+Pythia writes and optimizes its own extraction prompt for each concept, with no
+manual prompt engineering and no weight fine-tuning, and it runs on an open-weights model so
+that notes stay on local infrastructure [25, 30]. The agent selects each prompt on a development
+set scored by sensitivity and specificity, the two quantities that determine how a note-level signal
+behaves once it is applied across a population. It consumes those development labels only to score
+and select prompts, never to update model weights, and it works from the same labeled budget that
+the lexicon threshold and the supervised comparator receive. This design targets the space between
+rule-based matching, which needs no labels but reads context poorly, and supervised extraction,
+which reads context but needs extensive annotation.
+In this study we characterize the agent against two comparators across 72 signs and symptoms
+drawn from clinical notes: a curated rule-based lexicon, and a supervised BERT classifier fine-
+tuned per concept on the same 300-note development budget. To our knowledge this is the first
+evaluation of a loop-engineered extractor against a clinical detection task, with a rule-based and
+a supervised comparator, and it identifies the domain constraints that such a loop requires before
+clinical use. The supervised comparator demonstrates the annotation cost internally, rather than
+resting the claim on an external benchmark [19]. We report sensitivity and specificity rather than
+a single summary score, we group concepts by the operating-point shift the agent makes relative to
+the lexicon, and we measure how the prompt selected on the development set transfers to held-out
+validation. We also examine the agent’s optimization behavior, including when it stops refining
+2
+
+
+and retains its initial prompt. The analysis identifies where autonomous optimization improves
+extraction, where a lexicon remains preferable, and how the agent’s operating point can be set to
+a clinical use.
+2
+Background and related work
+Clinical information extraction converts narrative notes into structured variables, and rule-based
+systems defined the first generation of this work. Lexicon and pattern methods match curated
+term sets against the text, and pipelines such as cTAKES and CLAMP made them practical at
+scale [7, 8]. Their weakness is context, since terms such as “chills” appear in phrases beyond just
+acknowledging a symptom exists, such as negated statements, so a matcher keyed on the surface
+form cannot separate a present finding from other uses. As a result, handling negation, attribution,
+and temporality has occupied clinical natural language processing for two decades [4–6].
+Supervised neural models reduced this problem by learning context from annotated examples.
+Transformer encoders such as clinical BERT variants reached strong performance on entity recogni-
+tion and concept extraction [10–12]. A recent multi-institution study then established instruction-
+tuned large language models as the current state of the art, surpassing encoders most clearly in
+low-resource and cross-institution settings [13, 19]. That study also measured the cost of the gain.
+Its models required a manually annotated corpus of 1588 notes and parameter-efficient fine-tuning,
+and they ran 5 to 28 times slower than the encoder baseline at higher memory and energy [19].
+The authors recommended encoders when labeled data are plentiful, which locates the binding
+constraint in the cost of annotation rather than the model architecture.
+Large language models can also extract information without fine-tuning, through prompting.
+Few-shot prompting and manual prompt engineering improve clinical entity recognition without
+weight updates [14, 15], and instruction tuning extends this to biomedical entities [16].
+Large
+language models have also been used to accelerate the annotation that supervised methods need
+[17], and broad benchmarks have mapped the strengths and weaknesses of these models across
+biomedical tasks [13, 19].
+These approaches still depend on prompts that a person writes and
+revises. Automatic prompt optimization removes the manual step by searching instruction space
+against a development metric [20–23], yet existing clinical applications neither optimize the prompt
+toward a clinician-chosen operating point nor report how the selected prompt transfers to held-out
+data. Downstream tooling for generative extraction has begun to appear [18], and local deployment
+of open-weights models has been demonstrated for privacy-preserving tasks such as de-identification
+[24, 25], which shows that institution-internal extraction is feasible without sending notes to an
+external service.
+Pythia occupies the space these methods leave open. It optimizes an extraction prompt for each
+concept autonomously, with no manual prompt engineering and no weight fine-tuning, and it selects
+the prompt on a development set scored by sensitivity and specificity [30]. The model runs locally
+on open weights, so notes stay inside the institution [25]. The method removes the annotation
+and fine-tuning burden that supervised extraction requires [16, 19], while supplying the context
+handling that rule-based matching lacks [6, 7].
+We introduced the agent and its optimization
+procedure previously [30]. Here we characterize its behavior against a lexicon across 72 signs and
+symptoms, and we analyze where autonomous optimization helps, where it does not, and how its
+operating point can be set.
+3
+
+
+Table 1: Population statistics among the patient cohort used to test Pythia.
+Patients
+387
+Notes
+400
+Mean Age (SD)
+58.8 (17.5)
+Median Age [Min, Max]
+60.0 [20.0, 95.0]
+Sex
+Female
+211 (54.5%)
+Male
+176 (45.5%)
+Race
+Asian
+11 (2.8%)
+Black
+32 (8.3%)
+Other
+53 (13.7%)
+White
+282 (72.9%)
+Ethnicity
+Hispanic
+25 (6.5%)
+Non-Hispanic
+327 (84.5%)
+Unknown
+(9.0%)
+3
+Methods
+3.1
+Data and reference standard
+We evaluated the system on 400 clinical notes drawn from electronic health records. Clinicians
+annotated every note with binary labels for the presence or absence of each target sign or symptom,
+and these labels served as the reference standard. The set contained 72 signs and symptoms, with
+prevalence from below 2% to above 20%. Curated lexicons were made to cover these concepts,
+which define the head-to-head comparison reported here. For each concept we partitioned the 400
+notes into a development set (n = 300) and a held-out validation set (n = 100) by stratified random
+sampling on binary symptom status, which preserved prevalence across the split. Partitioning was
+independent per concept, so a patient could fall in development for one concept and in validation
+for another.
+The patient population of the study as seen in table 1, was selected randomly from a larger
+population of COVID patients. 400 notes were retrieved from the 387 patients and annotated by
+clinicians.
+3.2
+Symptom Selection
+The signs and symptoms annotated with binary labels were chosen because they are frequently
+present when patients are suffering from Long Covid, and the symptoms present in the set were
+determined by two clinicians.
+3.3
+Autonomous prompt optimization
+Pythia searches the space of natural-language prompts for a per-concept note classifier (Figure 1).
+Let P denote the space of prompt strings, X a corpus of notes, and Y = {0, 1} the label for presence
+of a concept. Given a development set Ddev ⊂X × Y, the agent seeks a prompt
+P ∗= arg max
+P∈P
+M(P; Ddev) ,
+(1)
+4
+
+
+where the score M is built from the confusion counts that prompt P induces on Ddev. Writing
+TP, FP, TN, FN for those counts, sensitivity and specificity are σ = TP/(TP + FN) and τ =
+TN/(TN + FP). We combine the two through a weighted operating-point objective
+M(P; D, w) = w σ(P; D) + (1 −w) τ(P; D),
+w ∈[0, 1],
+(2)
+where the weight w sets the target trade-off, with w →1 favoring case capture and w →0 favoring
+false-positive control. The head-to-head comparison reported here used a balanced objective, while
+the goal-setting analysis would sweep w to trace each concept’s attainable frontier. The model is
+an open-weights large language model held fixed throughout, so no weights change and the prompt
+is the only object optimized, which places the method among automatic prompt-optimization pro-
+cedures that search instruction space against a development metric [20–23].
+Pythia is a multi-agent loop implemented as a stateful directed graph G = (V, E) with cycles
+[28], in which each node is a function fi : S →∆S that reads a shared state S and returns a partial
+update [29]. A Specialist agent applies the current prompt Pt to every note in Ddev and returns
+predictions ˆyt ∈{0, 1}n, from which the loop computes σt, τt, accuracyt and F1t. An Improver
+agent then reads the misclassified notes for the active target. For a sensitivity target the error set
+is the false negatives, Et = {xi : ˆyt,i = 0 ∧yi = 1}; for a specificity target it is the false positives,
+Et = {xi : ˆyt,i = 1 ∧yi = 0}. The Improver produces a natural-language critique of each error, and
+a Summarizer agent synthesizes the next prompt,
+Pt+1 = g(Ct, Pt, S) ,
+(3)
+where Ct is the critique set and S a fixed operating procedure. When a step lowers development
+F1, the agent passes the regressing prompt to the Summarizer as a negative example, so synthesis
+avoids the change that caused the regression.
+In loop-engineering terms, the Specialist, Improver, and Summarizer are the sub-agents that
+propose a prompt, the controller is the separate process that checks the stopping condition so the
+agent proposing a prompt does not judge its own halt, and the iteration and transition histories
+are the external memory that persists state across iterations.
+3.4
+Controller and termination
+A deterministic controller reads the trajectory history and returns one of four decisions, continue,
+backtrack, reset, or halt (Algorithm 1). The controller halts when both targets clear preset thresh-
+olds, σt ≥θσ and τt ≥θτ, when the iteration count reaches Tmax, or when consecutive rejected
+refinements reach a cap kmax. It backtracks to the highest-F1 prompt when a refinement regresses
+development F1 by more than a tolerance ϵ. Repeated regeneration from an early iteration that
+recovers identical performance reaches the rejection cap and forces termination, the behavior we
+term an Infinity War halt. We set ϵ = 0.05 and kmax = 2.
+3.5
+Prompt selection and evaluation
+When the controller halts on the threshold condition, the active prompt becomes P ∗. Under any
+other halt the agent selects the prompt with the highest development F1 across the trajectory. We
+then applied P ∗once to the held-out validation set and report validation sensitivity and specificity.
+We optimized and report sensitivity and specificity rather than a single summary score, because the
+two methods occupy different regions of the operating-point plane, and a scalar such as F1 would
+obscure that distinction. F1 is used only as the internal tie-break for selection and backtracking,
+since the F1 score represents the best overall performing prompt in the development dataset to
+build off of and optimize towards the specific metrics a user requires.
+5
+
+
+Algorithm 1 Controller decision at iteration t
+Require: metrics σt, τt, F1t; history H; iteration t; thresholds θσ, θτ; limits Tmax, kmax; rejection
+count k; tolerance ϵ
+1: if σt ≥θσ and τt ≥θτ then
+2:
+return ⟨halt, P ∗←Pt ⟩
+3: else if t ≥Tmax or k ≥kmax then
+4:
+return ⟨halt, P ∗←arg maxi F1i ⟩
+5: else if |H| ≥2 and F1t < (1 −ϵ) F1t−1 then
+6:
+t∗←arg maxi F1i
+7:
+return ⟨backtrack, Pt ←Pt∗, k ←k + 1 ⟩
+8: else
+9:
+return ⟨continue, k ←0 ⟩
+10: end if
+3.6
+Model selection
+We selected the language model used for the complete set of signs and symptoms via a prelimi-
+nary phase that compared three open-weights models: Gemma-4-31B-it [26], GPT-OSS-20B [25],
+and Llama-3.1-70B [27] on five signs and symptoms spanning a range of prevalence (Table S1).
+GPT-OSS-20B was selected for the full evaluation because it was the only model to reach perfect
+validation sensitivity across all five concepts (mean 1.00, versus 0.97 for Gemma 4 31B and 0.66 for
+Llama 3.1 70B), and it produced the highest mean development F1 (0.67), the metric the controller
+itself uses for judging the right backtracking prompt. Gemma 4 31B matched GPT-OSS-20B on
+mean validation F1 but only by trading sensitivity for specificity on individual concepts, when false
+negatives are the costlier error type for a symptom detector. All models were run locally through
+an inference server at temperature 0 for deterministic output, and each optimization trajectory was
+initialized from the seed prompt “Is the patient showing signs of [symptom]?” with no additional
+clinical detail supplied.
+3.7
+Lexicon
+For each of the 72 symptom categories, we constructed a rule-based lexicon of category-specific
+terms and applied it to note-level text using exact substring matching with word boundaries. Can-
+didate matches were filtered for negation and family-history context: matches preceded within a 50-
+character window by a negation cue (e.g., ”no,” ”denies,” ”without,” ”resolved”) or a family-history
+reference (e.g., ”mother,” ”family history”) were excluded from the symptom count, consistent with
+standard approaches to discounting negated or non-patient-referent mentions in clinical text. For
+each condition, a per-note mention count was thresholded to produce a binary prediction, with the
+threshold selected to maximize F1 score on the same dataset. Performance was evaluated separately
+on the development and validation sets for each condition, with sensitivity, specificity, accuracy,
+and F1 score. Ninety-five percent confidence intervals for all metrics were derived from 1,000 strat-
+ified bootstrap resamples, in which positive and negative notes were resampled independently to
+preserve class prevalence.
+3.8
+Supervised comparator (BERT)
+For each symptom, we fine-tuned a binary classifier per-condition with Bio ClinicalBERT [11], a
+BERT based encoder trained on MIMIC-III clinical notes. Because clinical notes frequently exceed
+6
+
+
+BioClinicalBERT’s 512-token context limit, each note was segmented into overlapping 512-token
+windows (stride 64 tokens), with chunk-level labels assigned from character-level span annota-
+tions so that only chunks containing a confirmed symptom mention were labeled positive. Models
+were trained using class-weighted cross-entropy loss and stratified 5-fold cross-validation on 300
+development-set notes per condition, with early stopping (patience 2 epochs) selecting the best
+checkpoint per fold. Out-of-fold predictions were pooled across folds as the primary cross-validated
+performance estimate. The final model was then retrained on all 300 development-set notes us-
+ing the same configuration and evaluated on the validation dataset never used during training or
+model selection. Training used a learning rate of 2 × 10−5, batch size 8, weight decay 0.01, and
+a maximum of 5 epochs. Sensitivity, specificity, F1 score, and accuracy with 95% stratified boot-
+strap confidence intervals (1,000 resamples) were reported for the cross-validated development and
+validation datasets.
+3.9
+Comparator and Analysis
+The curated lexicon and the BERT classifier were used as comparators against Pythia performance.
+We computed sensitivity and specificity from validation confusion counts and report 95% confidence
+intervals via bootstrap. For each concept c we summarized the contrast against the lexicon as the
+operating-point shift ∆c = (∆σc, ∆τc) = (σPythia
+c
+−σlex
+c , τ Pythia
+c
+−τ lex
+c ), and we grouped concepts
+by the sign and magnitude of ∆c into the four regions reported below. We measured development-
+to-validation transfer as the per-metric gap δ = rdev −rval for r ∈{σ, τ} and related δ to concept
+prevalence.
+4
+Results
+4.1
+Overall detection performance
+We evaluated Pythia against a curated lexicon on 72 signs and symptoms, scoring each method
+once on a held-out validation set after prompt selection on a separate development set. Across
+all 72 concepts, Pythia reached a mean sensitivity of 0.76 and a mean specificity of 0.95, whereas
+the lexicon reached a mean sensitivity of 0.82 and a mean specificity of 0.76, and the fine-tuned
+BERT classifier achieved a mean sensitivity of 0.23 and a mean specificity of 0.91. Mean accuracy
+for BERT was 0.90, comparable to Pythia’s and the lexicon’s, despite this sensitivity deficit. The
+high accuracy was a consequence of the negative class dominating most concepts and illustrates
+why we report sensitivity and specificity separately rather than a single summary score (Section
+3.5). BERT’s sensitivity was exactly zero on 47 of 72 concepts, a failure mode distinct from the
+lexicon’s. The lexicon is overly sensitive, as on 14 concepts the lexicon labels every note as positive
+(Section 4.2), BERT under-reports, missing every positive case on concepts it had too few positive
+examples to learn from. 2 Thirteen of the 14 concepts where the lexicon fails are among the 47
+where BERT fails, the same low-prevalence concepts defeating both comparators through opposite
+mechanisms.
+Because Pythia optimizes sensitivity and specificity directly, we characterized its
+behavior as displacement in the sensitivity-specificity plane relative to the lexicon (Figure 3).
+4.2
+A sensitivity-specificity taxonomy of autonomous optimization
+Setting aside ten unambiguous single-token findings for which lexical matching remained preferable
+(Section 4.3), the remaining 62 concepts partitioned into four groups defined by the sign of the
+change in each metric (Table 2). The partition is mechanistic rather than performance-binned,
+7
+
+
+Infinity War halt: repeated
+identical-performance regen 
+ retain seed
+Optimization loop (per concept)
+Seed prompt
+P0
+Specialist
+predict yt on 
+dev
+Metrics
+t,
+t, F1, t
+Controller
+continue / backtrack
+reset / halt
+Dev set  
+dev  (n = 300)
+Improver
+error set 
+t (FN / FP)
+Summarizer
+Pt + 1 = g(
+t, Pt, S)
+Select P*
+highest-F1 or
+threshold prompt
+Validate P* on 
+val
+report ,
+  (n = 100)
+halt
+continue /
+backtrack
+t
+Pt + 1
+LLM agent
+Deterministic compute
+Controller (FSA)
+Selection / validation
+Labeled data store
+Figure 1: The Pythia optimization loop. For each concept, a Specialist agent applies the current
+prompt Pt to the development set and the loop computes sensitivity, specificity, and F1. A deter-
+ministic controller continues, backtracks to the best prior prompt, resets, or halts. On a non-halting
+step an Improver agent reads the errors for the active target, false negatives for a sensitivity target
+and false positives for a specificity target, and a Summarizer agent synthesizes the next prompt
+Pt+1 = g(Ct, Pt, S). Repeated regeneration that recovers identical performance reaches the rejec-
+tion cap and forces an Infinity War halt. At halting the agent selects P ∗and applies it once to the
+held-out validation set.
+because each group corresponds to a distinct operating-point move that the agent made under a
+single objective.
+In the largest group (n = 20), Pythia raised both sensitivity and specificity above the lexicon,
+by 0.07 and 0.33 on average. These concepts spanned common presentations such as abdominal
+pain, chest pain, cough, and weakness, together with context-dependent findings such as homicidal
+ideation and urinary frequency. For abdominal pain, sensitivity rose from 0.71 to 0.93 and specificity
+from 0.93 to 0.98; for paresthesia, sensitivity rose from 0.80 to 1.00 at a specificity of 0.99. Across
+this group autonomous optimization improved detection on both axes at once, without the loss of
+sensitivity that ordinarily accompanies a specificity gain.
+A second group (n = 12) showed the agent suppressing false positives at the cost of recall. Here
+the lexicon fired on nearly every note, with a mean specificity of 0.29 against a mean sensitivity
+of 0.99, whereas Pythia raised specificity to 0.97 and reduced sensitivity to 0.43. The recall that
+Pythia surrendered was largely artifactual, because the lexicon reached near-perfect sensitivity only
+by labeling all notes positive. Chills illustrates the shift, moving from a lexicon specificity of 0.00 to
+a Pythia specificity of 1.00 as the agent revised the prompt to require a present-tense patient finding
+rather than any textual mention of the term. Across the 14 concepts on which the lexicon returned
+a specificity of zero, which span this group and the dominance group, Pythia raised specificity to
+a mean of 0.97 (Figure 4).
+A third group (n = 16) showed the converse adjustment, with Pythia recovering missed cases
+while holding specificity nearly constant. Sensitivity rose by 0.36 on average against a specificity
+8
+
+
+1%
+2%
+5%
+10%
+20%
+Prevalence (%, log scale)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Validation sensitivity
+Validation sensitivity versus concept prevalence
+Pythia
+Lexicon
+BERT
+Figure 2: Validation sensitivity versus concept prevalence (log scale) for Pythia, the lexicon, and
+BERT, across all 72 concepts. BERT sensitivity clusters near zero below roughly 5% prevalence,
+while Pythia and Lexicon points remain mostly above 0.5 across the full range.
+change of −0.03. For headache, sensitivity rose from 0.62 to 1.00 at a specificity near 0.92, and for
+confusion from 0.71 to 1.00 at a specificity of 0.99. The agent extended detection to phrasings absent
+from the fixed vocabulary at minimal false-positive cost, the move that most closely approximates
+Pareto improvement among the trade-off groups.
+In the remaining group (n = 14), Pythia neither dominated the lexicon nor cleanly exchanged
+one metric for the other, with mean changes of −0.09 in sensitivity and −0.04 in specificity. These
+concepts were sparse and semantically diffuse, including malaise, suicidal ideation, and trauma-
+related symptoms, and they delineate the boundary of what unsupervised optimization recovered
+from the development set. We treat this group as the frontier of the current method and return to
+its implications in the Discussion.
+BERT achieved a 0.31 mean sensitivity and 0.89 mean specificity on the Pythia-dominated
+group, with 0.13 mean sensitivity and 0.96 mean specificity on the 12-symptom group, where the
+agent suppressed false positives at a cost of recall, and a mean sensitivity of 0.32 and 0.85 mean
+specificity on symptoms where Pythia had found missed cases over maintaining true negatives.
+Finally, on the remaining group where the lexicon outperformed Pythia, it achieved a mean sensi-
+tivity of 0.25 and a mean specificity of 0.91 on the frontier group. BERT’s sensitivity is low and
+roughly flat across all four groups, ranging between 0.13 and 0.32, so BERT’s comparatively low
+performance is not tied to any characteristic of the system’s operating point, unlike Pythia and the
+lexicon.
+4.3
+Concepts where lexical matching remained preferable
+For ten findings named by a single unambiguous token, including tremor, melena, and hematuria,
+exact lexical matching reached a mean specificity of 0.98 and a mean sensitivity of 0.95, and Pythia
+9
+
+
+Table 2: Validation performance of Pythia, the lexicon, and a fine-tuned BERT comparator across
+the four sensitivity-specificity groups (62 signs and symptoms). Values are group means. ∆denotes
+Pythia minus lexicon.
+Pythia
+Lexicon
+∆(Pythia−lexicon)
+BERT
+Group
+n
+Sens.
+Spec.
+Sens.
+Spec.
+∆Sens.
+∆Spec.
+Sens.
+Spec.
+Dominance
+20
+0.96
+0.95
+0.89
+0.62
+0.07
+0.33
+0.31
+0.89
+Specificity-first
+12
+0.43
+0.97
+0.99
+0.29
+-0.56
+0.68
+0.13
+0.96
+Sensitivity-first
+16
+0.95
+0.94
+0.59
+0.97
+0.36
+-0.03
+0.32
+0.85
+Frontier
+14
+0.61
+0.93
+0.7
+0.97
+-0.09
+-0.04
+0.25
+0.91
+did not improve on it, attaining a mean sensitivity of 0.60. These concepts carried a mean prevalence
+of 0.01, and their surface terms map almost one-to-one onto the finding, so string matching is both
+sensitive and specific and leaves no contextual ambiguity for the agent to resolve. BERT fared
+worse than either comparator here, with a mean sensitivity of exactly zero across all ten concepts,
+consistent with the low positive-example counts available at this prevalence (Section 4.5).
+We
+analyze this group separately because it defines the regime in which an autonomous agent confers
+no advantage over a lexicon.
+4.4
+Development-to-validation transfer
+We then asked whether the operating point selected on the development set transferred to held-out
+validation. Specificity transferred almost exactly, with a mean development-to-validation gap of
+0.004 that did not vary across prevalence strata. Sensitivity transferred well for concepts above 5%
+prevalence, where the gap was 0.015 or smaller, yet degraded as prevalence fell, reaching 0.25 below
+2% prevalence. Because the development set contained only a few positive examples for the rarest
+concepts, the sensitivity estimated during optimization overstated held-out sensitivity, whereas
+specificity, estimated against a large negative class, remained stable. The transfer behavior therefore
+tracks the denominator of each metric rather than any property of the agent, and it identifies a
+prevalence floor below which development-set selection of sensitivity is unreliable (Figure 5).
+4.5
+A prevalence floor for supervised fine-tuning
+BERT’s sensitivity tracked concept prevalence far more sharply than either Pythia’s or the lexicon’s
+(Spearman ρ = 0.75 with prevalence; ρ = 0.75 with the number of positive development notes).
+Below 2% prevalence (37 concepts, a mean of 4.6 positive development notes each), BERT’s mean
+sensitivity was 0.03, and sensitivity was exactly zero for 95% of these concepts. Mean sensitivity
+rose to 0.19 at 2–5% prevalence (17 concepts, mean 10.5 positive notes), 0.56 at 5–10% (8 concepts,
+mean 24.3 positive notes), and 0.78 above 10% (10 concepts, mean 43.7 positive notes), where no
+concept showed zero sensitivity (Table S2, Figure 2).
+This pattern differs mechanistically from Pythia’s prevalence-dependent transfer gap (Sec-
+tion 4.4). Pythia’s development-set sensitivity is optimistic at low prevalence and overstates held-
+out performance; BERT’s cross-validated development-set sensitivity pooled from predictions across
+five folds (Section 3.8) is itself near zero at low prevalence (mean 0.02 below 5% prevalence), in-
+dicating the classifier fails to learn a usable signal even within cross-validated development, rather
+than merely failing to transfer a dev-fit signal to held-out validation. Five-fold splitting compounds
+the scarcity: a concept with three to five positive notes across the full 300-note development set
+10
+
+
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Sensitivity (recall)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Specificity
+Lexicon 
+ Pythia movement in sensitivity specificity space (62 signs & symptoms)
+1 · Dominance (n=20)
+2 · Specificity-first (n=12)
+3 · Sensitivity-first (n=16)
+4 · Frontier (n=14)
+dot = lexicon start; arrowhead = Pythia
+bold arrow = cluster mean
+Figure 3: Displacement of each sign or symptom in the sensitivity–specificity plane from the lexicon
+(open marker) to Pythia (arrowhead), for the 62 concepts.
+Color encodes the four groups of
+Table 2; bold arrows give group means. The cluster of lexicon markers along the lower-right edge,
+at sensitivity near 1.0 and specificity near 0, corresponds to concepts on which the lexicon labels
+every note positive; the specificity-first arrows lift these into a usable operating region.
+may leave individual folds’ training portions with only one or two positive examples, little signal
+for gradient-based fine-tuning to shift the decision boundary away from the majority class.
+The two comparators fail in opposite directions at low prevalence. The lexicon is overly sen-
+sitive, returning a specificity of zero on 14 concepts because a matched term appears in negated,
+hypothetical, or templated contexts (Section 4.2, Figure 4); BERT under-reports, returning a sen-
+sitivity of zero on 47 concepts because too few positive examples exist to fine-tune on. Pythia
+is not immune to low prevalence, as its own sensitivity transfer degrades below 5% prevalence
+(Section 4.4). Even with reduced performance, Pythia does not collapse to zero on any concept,
+consistent with prompt optimization requiring no labeled examples beyond what the development
+set provides for scoring.
+4.6
+Optimization dynamics
+Pythia refined each prompt over a median of two development iterations, reaching eight at most.
+On 17 of 72 concepts the controller backtracked to an earlier iteration when refinement degraded
+development performance. On 8 concepts it reached the Infinity War termination, in which the
+agent regenerated a prompt from an early iteration and recovered the same measured performance,
+11
+
+
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Specificity (validation)
+Blurred vision
+Changes in desire, comfort, or capacity for sex
+Hemoptysis (coughing up blood)
+Homocidal ideation
+Joint limited range of motion
+Myoclonus
+Dyesthesia (abnormal pain sensations)
+Mood swings
+Presyncope
+Retaining urine
+Urinary frequency or urgency
+Chills
+Orthostatic intolerance (lightheadedness)
+Problems thinking or concentrating ('brain fog')
+1%
+1%
+1%
+1%
+1%
+1%
+2%
+2%
+2%
+2%
+2%
+3%
+3%
+3%
+prev.
+Specificity recovered where the lexicon flags every note
+Lexicon specificity
+Pythia specificity
+Figure 4: Specificity recovered on the 14 concepts where the lexicon returns a specificity of zero,
+ordered by prevalence. Each row connects the lexicon specificity at zero to the Pythia specificity on
+the same held-out notes, with prevalence annotated at the right. For these concepts the matched
+term appears in negated, hypothetical, templated, or historical context, so lexical matching labels
+every note positive; Pythia raised specificity to a mean of 0.97 by conditioning detection on a
+present-tense patient finding.
+then repeated the attempt without change and advanced to the next concept at the iteration
+limit.
+The repeated, performance-invariant regenerations logged for these eight concepts mark
+the development items on which continued optimization conferred no measurable gain, and they
+coincide with the frontier group rather than with the concepts on which Pythia improved over the
+lexicon. Figure S1 contrasts the two outcomes at matched prevalence, with refinement recovering
+sensitivity at held specificity for one concept and failing to improve on the seed for another, after
+which the agent retained the seed.
+5
+Discussion
+An autonomous agent that wrote and optimized its own extraction prompts matched a curated
+lexicon on case capture while raising specificity across 72 signs and symptoms. It separated from
+two comparators that failed in opposite directions, the lexicon by over-firing on the negative class
+and the supervised classifier by under-firing at low prevalence. Pythia reached a mean sensitivity
+of 0.76 against the lexicon’s 0.82, and a mean specificity of 0.95 against 0.76, and it equaled or
+exceeded the lexicon on both metrics for 20 concepts. A single summary score such as F1 hides
+this pattern, because the two methods occupy different regions of the sensitivity–specificity plane
+and the decisions that follow from note-level extraction depend on the two metrics separately. At
+the prevalence of most symptoms a specificity gain of this size decides whether an extracted signal
+12
+
+
+1%
+2%
+5%
+10%
+20%
+Prevalence (log scale)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Metric value
+Sensitivity
+Development (selected iteration)
+Validation
+1%
+2%
+5%
+10%
+20%
+Prevalence (log scale)
+Specificity
+Development-to-validation transfer by prevalence
+Figure 5: Development-to-validation transfer by prevalence. For each of the 72 concepts, the open
+marker gives the selected development iteration and the filled marker gives validation, plotted
+against prevalence on a logarithmic axis. Specificity (right) transfers with a near-zero gap across
+the full prevalence range, because it is estimated against a large negative class. Sensitivity (left)
+transfers above 5% prevalence but is overstated on the development set as prevalence falls, reaching
+a mean gap of 0.25 below 2% prevalence, where positive examples are sparse.
+is usable, since a method that fires on every note returns mostly false positives once the negative
+class is large.
+Our earlier report characterized the optimization procedure and its instability in the general
+agentic setting [30]. Here we evaluate the same system as a clinical extractor, contributing the
+sensitivity-specificity taxonomy, the transfer analysis from development to validation, and the com-
+parison against both a lexicon and a supervised classifier.
+The fine-tuned supervised comparator sharpens this picture further. This comparator reflects a
+deliberately small per-concept fine-tuning budget matched to the labels that Pythia and the lexicon
+receive, and it therefore characterizes supervised extraction under scarce annotation rather than the
+performance reported with thousands of annotated notes. Under the same 300-note development
+budget used throughout this study, BERT reached a mean sensitivity of 0.23 against Pythia’s 0.76
+and the lexicon’s 0.82, and collapsed to zero sensitivity on concepts below roughly 5% prevalence
+(Section 4.5). This gives the annotation-burden claim in the introduction a demonstration internal
+to this study, rather than resting solely on an external benchmark that required 1,588 annotated
+notes to fine-tune competitively [19]. It also illustrates, concretely, why we report sensitivity and
+specificity rather than accuracy: BERT’s mean accuracy (0.90) looked competitive with Pythia’s
+and the lexicon’s despite detecting zero true positives on 47 of 72 concepts, because accuracy is
+dominated by the negative class at low prevalence.
+The specificity gain reflects the agent recovering context handling that clinical extraction has
+historically obtained through annotation or hand-built rules [6, 7, 10]. On the 14 concepts where
+the lexicon labeled every note positive, Pythia raised specificity to a mean of 0.97 by rewriting the
+prompt to require a present-tense, patient-attributed finding rather than any textual mention of
+the term (Figure 4). The supervised benchmark that defines the current state of the art encodes
+this same information as labeled modifiers for negation, temporality, and subject [9, 19]. Pythia
+13
+
+
+reconstructs those distinctions for each concept without labels for them, which is the property that
+lets it extend to many concepts without a matching annotation effort.
+The agent did not apply one fixed trade-off.
+Across the 62 directly compared concepts, it
+occupied four regions of the sensitivity-specificity plane (Figure 3; Table 2).
+It dominated the
+lexicon on both metrics for 20 concepts, raised specificity at the cost of recall for 12, raised sensitivity
+at near-constant specificity for 16, and fell behind for 14. Because the optimization objective is an
+input to the agent rather than a fixed property, the spread across these four regions shows that one
+objective already places different concepts at different operating points. Whether a clinician can
+set that operating point deliberately, by weighting the development objective toward sensitivity
+or toward specificity, follows as a direct prediction of this design. We have not yet tested it; the
+weighted objective in Equation 2 defines the experiment, and a per-concept sweep of the weight is
+the immediate next step [21, 22]. A lexicon offers no such control, and a supervised model requires
+retraining to move [19].
+Selection on the development set transferred to validation for specificity but not uniformly for
+sensitivity. The specificity gap between development and validation averaged 0.004 and did not
+vary with prevalence, whereas the sensitivity gap widened from minimal above 5% prevalence to
+0.25 below 2% (Figure 5).
+The pattern follows the denominator of each metric.
+Specificity is
+estimated against a large negative class and stays stable, while sensitivity rests on a few positive
+examples at low prevalence and is overstated during optimization. This identifies a prevalence floor
+below which development-set sensitivity should not be trusted, and it argues for human review or
+larger development sampling for the rarest concepts. The present evaluation used one institution’s
+notes, which limits external validity but also avoids the test-set contamination that affects public
+corpora likely present in model pretraining [13, 19]. We are extending the evaluation across sites
+in a federated network, where prompts are shared and scored locally without moving notes, which
+tests cross-institution transfer under the privacy constraints that motivate local deployment [24].
+Two groups of concepts mark the limits of the approach. For ten findings named by a single
+unambiguous token, such as tremor and melena, exact matching reached a mean specificity of 0.99
+and a mean sensitivity of 0.95, and the agent did not improve on it and sometimes underperformed
+by over-specifying the prompt. For a frontier group of sparse, semantically diffuse concepts, refine-
+ment did not improve on the seed. These results support a division of labor at deployment: route
+unambiguous, high-specificity terms to a lexicon [7, 8], and reserve the agent for concepts whose
+surface form is ambiguous, where context reading is the source of its advantage.
+Pythia’s optimization includes a behavior that matters for autonomous use, because it rec-
+ognizes when refinement cannot improve and stops. On 8 concepts the controller regenerated a
+prompt from an early iteration, recovered the same development performance without change, and
+terminated under the Infinity War criterion, retaining the seed rather than shipping a degraded
+prompt (Figure S1). An autonomous loop that revises its own instructions can fail silently by drift-
+ing or looping, a known failure mode of prompt-optimization search [21, 22], and a detector that
+halts unproductive search guards against it. We report this behavior because it bears on whether
+such agents can run without supervision, beyond the task studied here.
+This study set out to test whether a loop-engineered extractor can meet the sensitivity and
+specificity requirements that clinical use imposes. The results give a qualified answer. Across 62
+directly compared concepts the loop maintained or improved specificity without additional anno-
+tation, recovered context distinctions that rule-based matching cannot supply, and transferred its
+selected operating point to held-out validation above a prevalence floor of 5 percent. The loop also
+detected when refinement could not improve and halted, the property that lets an unattended loop
+avoid silent degradation. Three domain constraints qualify the result and define what a clinical
+loop requires: a prevalence floor below which the development set is too sparse to trust the selected
+14
+
+
+prompt, a fallback to exact matching for unambiguous single-token terms, and human review at the
+rare tail. These constraints locate the human where loop engineering places them, as the designer
+and verifier of the loop rather than the writer of each prompt.
+Against rule-based extraction, the agent supplies context handling that a fixed term set cannot
+provide [6, 7]. Against supervised extraction, it removes the annotation and fine-tuning that the
+current state of the art requires [16, 19], while running locally on open weights [24, 25]. The cost
+moves rather than disappears, because optimization spends repeated inference passes during the
+per-concept search, so the saving is in annotation and training rather than in total computation, and
+we report the search budget so the trade is explicit. The practical consequence is that coverage can
+extend to many concepts without a proportional annotation effort, with the advantage concentrated
+where concepts are ambiguous and absent where they are unambiguous.
+Several limitations qualify these findings. We evaluated one open-weights model at a single
+institution, so model and site generalization remain open. The cohort consists of COVID-19 pa-
+tients and the concept set was chosen for post-acute COVID-19, so its prevalence distribution and
+documentation patterns may not represent other clinical populations. Behavior at the operating
+point may also depend on the backbone, because the model-selection phase showed Gemma 4 31B
+trading sensitivity for specificity on individual concepts where GPT-OSS-20B did not. The vali-
+dation sets are small, and the intervals are wide under low prevalence. So, several concept-level
+differences rest on one or two cases. We optimized and reported sensitivity and specificity, while
+precision and net clinical benefit were not optimization targets, and precision at low prevalence
+is sensitive to a few false positives. The reference standard and its agreement set the ceiling on
+measurable performance. We adjudicated that standard with clinicians but did not compute a
+formal inter-annotator agreement, so the residual label noise is uncharacterized. Detection of a
+sign or symptom is a surrogate for any downstream use, which we have not yet demonstrated. The
+supervised comparator we report (Section 3.8) reflects a small per-concept fine-tuning budget, not
+the state of the art; Hu et al. fine-tuned on 1,588 annotated notes and reported substantially higher
+performance [19]. Our BERT result characterizes supervised fine-tuning under the same annotation
+budget available to Pythia and the lexicon, not an upper bound on what supervised extraction can
+achieve with adequate data, and its performance should not be generalized to supervised extraction
+under adequate training data.
+Four steps follow from this work. The objective sweep will establish whether the operating point
+is controllable rather than only variable. Federated evaluation across sites will test cross-institution
+transfer without moving notes. A supervised comparator and a larger-model ceiling will place the
+agent on the spectrum from rules to fine-tuned extraction [16, 19]. A downstream phenotyping task
+will test whether agent-extracted symptoms support a clinical endpoint, the evidence that detection
+accuracy alone cannot provide [1, 2]. The study supports a measured claim, that autonomous, fine-
+tuning-free, locally run prompt optimization can build symptom extractors that favor specificity,
+generalize from development to validation outside the rare tail, and expose an operating point that
+can be set to the clinical use.
+6
+Acknowledgments
+Data and Code Availability
+This paper uses a dataset of 400 chart-reviewed EHR notes, each
+annotated with binary yes/no classifications on various signs and symptoms by clinicians. The
+dataset is confidential and not publicly available. The final metrics for each concept can be found
+within the supplementary data file. The code can be found here.
+15
+
+
+Ethics approval
+This study was approved by the Mass General Brigham Institutional Review
+Board (IRB) Protocol 2020P001063.
+Funding
+This study has been supported by grants from the National Institutes of Health: the
+National Institute on Aging (RF1AG074372) and the National Institute of Allergy and Infectious
+Diseases (R01AI165535)
+16
+
+
+References
+[1] Hripcsak G, Albers DJ. Next-generation phenotyping of electronic health records. J Am Med
+Inform Assoc. 2013;20(1):117–121.
+[2] Banda JM, Seneviratne M, Hernandez-Boussard T, Shah NH. Advances in electronic pheno-
+typing: from rule-based definitions to machine learning models. Annu Rev Biomed Data Sci.
+2018;1:53-68.
+[3] Sheikhalishahi S, Miotto R, Dudley JT, Lavelli A, Rinaldi F, Osmani V. Natural lan-
+guage processing of clinical notes on chronic diseases: systematic review. JMIR Med Inform.
+2019;7(2):e12239.
+[4] Wang Y, Wang L, Rastegar-Mojarad M, et al. Clinical information extraction applications: a
+literature review. J Biomed Inform. 2018;77:34-49.
+[5] Kreimeyer K, Foster M, Pandey A, et al. Natural language processing systems for capturing
+and standardizing unstructured clinical information: a systematic review. J Biomed Inform.
+2017;73:14-29.
+[6] Chapman WW, Bridewell W, Hanbury P, Cooper GF, Buchanan BG. A simple algorithm
+for identifying negated findings and diseases in discharge summaries. J Biomed Inform.
+2001;34(5):301-310.
+[7] Savova GK, Masanz JJ, Ogren PV, et al. Mayo clinical Text Analysis and Knowledge Ex-
+traction System (cTAKES): architecture, component evaluation and applications. J Am Med
+Inform Assoc. 2010;17(5):507-513.
+[8] Soysal E, Wang J, Jiang M, et al. CLAMP – a toolkit for efficiently building customized clinical
+natural language processing pipelines. J Am Med Inform Assoc. 2018;25(3):331-336.
+[9] Uzuner ¨O, South BR, Shen S, DuVall SL. 2010 i2b2/VA challenge on concepts, assertions, and
+relations in clinical text. J Am Med Inform Assoc. 2011;18(5):552-556.
+[10] Si Y, Wang J, Xu H, Roberts K. Enhancing clinical concept extraction with contextual em-
+beddings. J Am Med Inform Assoc. 2019;26(11):1297-1304.
+[11] Alsentzer E, Murphy J, Boag W, et al. Publicly available clinical BERT embeddings.
+arXiv:1904.03323. 2019.
+[12] Gu Y, Tinn R, Cheng H, et al. Domain-specific language model pretraining for biomedical
+natural language processing. ACM Trans Comput Healthc. 2022;3(1):1-23.
+[13] Chen Q, Hu Y, Peng X, et al. Benchmarking large language models for biomedical natural
+language processing applications and recommendations. Nat Commun. 2025;16(1):3280.
+[14] Agrawal M, Hegselmann S, Lang H, Kim Y, Sontag D. Large language models are few-shot
+clinical information extractors. In: Proc. EMNLP. 2022. arXiv:2205.12689.
+[15] Hu Y, Chen Q, Du J, et al. Improving large language models for clinical named entity recog-
+nition via prompt engineering. J Am Med Inform Assoc. 2024;31(9):1812-1820.
+[16] Keloth VK, Hu Y, Xie Q, et al. Advancing entity recognition in biomedicine via instruction
+tuning of large language models. Bioinformatics. 2024;40(4):btae163.
+17
+
+
+[17] Goel A, Gueta A, Gilon O, et al. LLMs accelerate annotation for medical information extrac-
+tion. In: Machine Learning for Health (ML4H), PMLR. 2023:82-100.
+[18] Hsu E, Roberts K. LLM-IE: a python package for biomedical generative information extraction
+with large language models. JAMIA Open. 2025;8(1):ooaf012.
+[19] Hu Y, Zuo X, Zhou Y, et al. Information extraction from clinical notes: are we ready to switch
+to large language models? J Am Med Inform Assoc. 2026;33(3):553-562.
+[20] Shin T, Razeghi Y, Logan IV RL, Wallace E, Singh S. AutoPrompt: eliciting knowledge
+from language models with automatically generated prompts. In:
+Proc. EMNLP. 2020.
+arXiv:2010.15980.
+[21] Zhou Y, Muresanu AI, Han Z, et al. Large language models are human-level prompt engineers.
+In: Proc. ICLR. 2023. arXiv:2211.01910.
+[22] Yang C, Wang X, Lu Y, et al. Large language models as optimizers. In: Proc. ICLR. 2024.
+arXiv:2309.03409.
+[23] Khattab O, Singhvi A, Maheshwari P, et al. DSPy: compiling declarative language model calls
+into self-improving pipelines. In: Proc. ICLR. 2024. arXiv:2310.03714.
+[24] Wiest IC, Leßmann M-E, Wolf F, et al. Deidentifying medical documents with local, privacy-
+preserving large language models: the LLM-anonymizer. NEJM AI. 2025;2(4):477-488.
+[25] OpenAI. gpt-oss-120b & gpt-oss-20b model card. arXiv:2508.10925. 2025.
+[26] Google DeepMind. Gemma 4 model card [Internet]. 2026 [cited 2026 June 25]. Available from:
+https://ai.google.dev/gemma/docs/core/model_card_4
+[27] Grattafiori A, Dubey A, Juahri A, et al. (Llama Team, Meta AI). The Llama 3 herd of models.
+arXiv:2407.21783. 2024.
+[28] LangChain. LangGraph: building stateful, multi-actor applications with large language models
+[Internet]. 2024 [cited 2026 June 25]. Available from: https://github.com/langchain-ai/
+langgraph.
+[29] Colvin S, Jolibois E, Ramezani H, et al. Pydantic: data validation using Python type hints [In-
+ternet]. 2024 [cited 2026 June 25]. Available from: https://github.com/pydantic/pydantic.
+[30] Cagan C, Fard P, Tian J, Cheng J, Murphy SN, Estiri H. Optimization instability in au-
+tonomous agentic workflows for clinical symptom detection. arXiv:2602.16037. 2026.
+18
+
+
+Supplementary Material
+Table S1: Validation performance of the three candidate models on five signs and symptoms span-
+ning a range of prevalence, at each model’s selected development iteration (highest development F1
+across the optimization trajectory). Values in parentheses are 95% bootstrap confidence intervals.
+GPT-OSS-20B was selected for the full evaluation.
+Sign/symptom (prevalence)
+Model
+Iter.
+Sens. (95% CI)
+Spec. (95% CI)
+F1 (95% CI)
+Chest pain or discomfort (pain, tightness, or pressure) (12%)
+Gemma 4 31B
+0
+0.92 (0.75–1.00)
+0.99 (0.97–1.00)
+0.92 (0.78–1.00)
+GPT-OSS-20B
+1
+1.00 (1.00–1.00)
+0.94 (0.89–0.99)
+0.83 (0.71–0.96)
+Llama 3.1 70B
+5
+0.75 (0.50–1.00)
+1.00 (1.00–1.00)
+0.86 (0.67–1.00)
+Fatigue (14%)
+Gemma 4 31B
+7
+1.00 (1.00–1.00)
+0.87 (0.79–0.94)
+0.72 (0.61–0.85)
+GPT-OSS-20B
+1
+1.00 (1.00–1.00)
+0.87 (0.80–0.94)
+0.72 (0.62–0.85)
+Llama 3.1 70B
+7
+0.79 (0.57–1.00)
+0.99 (0.97–1.00)
+0.85 (0.67–0.97)
+Muscle pain (myalgia) (4%)
+Gemma 4 31B
+0
+1.00 (1.00–1.00)
+0.92 (0.86–0.97)
+0.50 (0.38–0.73)
+GPT-OSS-20B
+2
+1.00 (1.00–1.00)
+0.93 (0.88–0.97)
+0.53 (0.40–0.73)
+Llama 3.1 70B
+7
+0.50 (0.00–1.00)
+0.97 (0.93–1.00)
+0.44 (0.00–0.80)
+Problems thinking or concentrating (brain fog) (3%)
+Gemma 4 31B
+0
+1.00 (1.00–1.00)
+0.94 (0.89–0.98)
+0.50 (0.35–0.75)
+GPT-OSS-20B
+4
+1.00 (1.00–1.00)
+0.95 (0.90–0.99)
+0.55 (0.38–0.86)
+Llama 3.1 70B
+7
+0.33 (0.00–1.00)
+0.96 (0.92–0.99)
+0.25 (0.00–0.67)
+Shortness of breath (22%)
+Gemma 4 31B
+7
+0.95 (0.86–1.00)
+0.92 (0.86–0.97)
+0.86 (0.76–0.94)
+GPT-OSS-20B
+2
+1.00 (1.00–1.00)
+0.91 (0.85–0.96)
+0.86 (0.79–0.94)
+Llama 3.1 70B
+7
+0.91 (0.77–1.00)
+0.87 (0.79–0.94)
+0.77 (0.65–0.86)
+Mean across 5 concepts†
+Gemma 4 31B
+–
+0.97
+0.93
+0.70
+Mean across 5 concepts†
+GPT-OSS-20B
+–
+1.00
+0.92
+0.70
+Mean across 5 concepts†
+Llama 3.1 70B
+–
+0.66
+0.96
+0.63
+†Means are simple averages of the five point estimates and have no associated CI; per-concept 95% confidence
+intervals were computed by bootstrap on the held-out notes.
+Table S2: BERT validation sensitivity by prevalence stratum, across all 72 concepts.
+Prevalence
+n
+Mean dev. positives
+BERT Sens.
+BERT Spec.
+% concepts, BERT Sens. = 0
+≤2%
+37
+4.6
+0.03
+0.98
+95%
+2–5%
+17
+10.5
+0.19
+0.95
+65%
+5–10%
+8
+24.2
+0.56
+0.79
+12%
+10–22%
+10
+43.7
+0.78
+0.68
+0%
+19
+
+
+0
+1
+2
+3
+4
+5
+6
+7
+Development iteration
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Metric value
+selected (iter 4)
+val Sn 0.50
+val Sp 1.00
+Seed (iter 0):
+Is the patient showing signs of Dyesthesia (abnormal pain
+sensations)?
+Selected (iter 4):
+Identify any clinical evidence of dysesthesia in the
+patient s history, physical exam, or review of systems. Look
+for: - Descriptions of abnormal sensory experiences that are
+not explained by a known lesion or infection, such as
+burning, itching, tingling, hotness, rash like pain, or ...
+Dysesthesia · productive refinement
+Sensitivity (dev)
+Specificity (dev)
+0
+1
+2
+3
+4
+5
+6
+7
+Development iteration
+selected (iter 0)
+val Sn 0.50
+val Sp 0.98
+Seed (iter 0):
+Is the patient showing signs of Wheezing?
+Selected (iter 0):
+Is the patient showing signs of Wheezing?
+Wheezing · Infinity War (futile refinement)
+Two outcomes of autonomous prompt optimization on hard, low-prevalence concepts
+Figure S1: Two outcomes of autonomous optimization on low-prevalence concepts for which the
+lexicon returns a specificity of zero. Development-set sensitivity and specificity are shown across
+refinement iterations, with the selected iteration circled and the validation result at the right. For
+dysesthesia (left), refinement recovers sensitivity from 0.33 to 0.83 at a held specificity near 0.97,
+the agent selects iteration 4, and the selected prompt reaches a validation specificity of 1.00. For
+wheezing (right), the seed prompt is already strongest, every refinement lowers specificity, the
+controller backtracks to iteration 0 without changing performance, and the Infinity War criterion
+terminates optimization and retains the seed. The seed and selected prompts appear beneath each
+panel. Both concepts carry a prevalence near 2%, so the divergent outcomes reflect the optimizer’s
+behavior rather than concept frequency.
+20

@@ -1,0 +1,1149 @@
+Decoupling Language Guidance from Backbones
+for Text-Guided Medical Segmentation
+Yungeng Liu∗
+Harbin Institute of Technology (Shenzhen)
+Shenzhen, China
+25B951006@stu.hit.edu.cn
+Xuanzi Fang∗
+Harbin Institute of Technology (Shenzhen)
+Shenzhen, China
+firetreehouse0@gmail.com
+Haijin Zeng
+Harbin Institute of Technology (Shenzhen)
+Shenzhen, China
+haijin.zeng2018@gmail.com
+Qi Dai
+NingBo No.2 Hospital
+NingBo, China
+yxdaiqi@163.com
+Yongyong Chen†
+Harbin Institute of Technology (Shenzhen)
+Shenzhen, China
+cyy2020@hit.edu.cn
+Abstract—Text-guided medical image segmentation leverages
+clinical semantics to improve lesion delineation, yet many existing
+models bind cross-modal fusion, supervision, and decoder design
+into a task-specific architecture. Such tight coupling makes it
+difficult to reuse language guidance modules across heterogeneous
+vision and text backbones, and often requires redesigning the
+network when the encoder pair changes. This paper presents
+BTHA, a backbone-transferable hierarchical adapter framework
+for text-guided medical image segmentation. BTHA is built
+around a stable feature-level interface: given multi-scale visual
+features and a text representation, it injects semantic guid-
+ance through shape-preserving adapters while maintaining the
+decoder-side tensor contract. To make this interface effective,
+we introduce a Hierarchical Coarse-to-Fine Supervision Strategy
+that decomposes learning into global image-text alignment, multi-
+scale auxiliary localization, and boundary-aware final mask
+refinement. We further design a Scale-Adaptive Gated Seman-
+tic Guidance (SAGSG) adapter, where resolution-specific gates
+adaptively control textual injection and channel recalibration
+suppresses redundant cross-modal responses. Evaluations across
+diverse vision and text backbones show that the same adapter
+and supervision design remains effective across convolutional
+and transformer-based visual encoders as well as different
+language encoders. Experiments on four public datasets further
+demonstrate that BTHA improves strong text-guided baselines
+with modest computational overhead.
+Index Terms—Medical Image Segmentation, Backbone Trans-
+ferability, Vision-Language Models, Hierarchical Framework,
+Cross-Modal Alignment
+I. INTRODUCTION
+Medical image segmentation is a cornerstone of modern
+clinical analysis, supporting diagnosis, treatment planning, dis-
+ease monitoring, and quantitative assessment [1]. Conventional
+automated segmentation methods mainly rely on visual appear-
+ance. Representative vision-only models, such as U-Net [2],
+nnU-Net [3], and UCTransNet [4], have advanced encoder–
+decoder design, self-configuring pipelines, transformer-based
+context modeling, and skip-connection fusion. However, be-
+cause these methods infer masks only from image appearance,
+∗These authors contributed equally to this work.
+† Corresponding author: Yongyong Chen.
+they remain vulnerable to low contrast, ambiguous lesion
+boundaries, anatomical variation, and limited pixel-level an-
+notations [5], [6]. These challenges are particularly evident
+in lesion segmentation, where target regions can be small,
+diffuse, or visually similar to surrounding tissues. Clinical
+reports and textual descriptions provide complementary se-
+mantic cues, such as lesion type, anatomical location, and
+abnormality extent. Text-guided medical image segmentation
+therefore offers a natural way to use language as a semantic
+prior for improving localization and delineation [7]–[9].
+Recent promptable segmentation models have further re-
+shaped the segmentation landscape. The Segment Anything
+Model (SAM) [10] and its medical adaptations, including
+SAM-Adapter [11], MedSAM [12], and SAM3 [13], demon-
+strate impressive generalization through prompt-driven mask
+generation. However, these models usually depend on explicit
+geometric prompts such as points and boxes, which may
+require repeated user interaction and do not directly exploit
+the rich semantic information available in clinical text [14]. In
+parallel, vision-language and text-guided medical segmenta-
+tion methods have begun to use natural-language semantics
+for dense prediction. Early and representative systems, in-
+cluding LViT [5], TGANet [15], and LanGuideMedSeg [6],
+inject language features through transformer fusion, text-
+guided attention, or language-guided decoding. More recent
+efforts, such as CPAM [16], TGCAM [17], FMISeg [18],
+and BiVLGM [19], further explore cross-position attention,
+cross-modal reconstruction, language-guided adapters, com-
+mon vision-language attention, frequency-domain fusion, vi-
+sual alignment, and graph matching. These studies show that
+clinical text can provide useful semantic constraints, making
+text-guided segmentation a promising direction for more au-
+tomated and semantically informed medical image analysis.
+The open problem addressed in this work is the transferabil-
+ity of language-guidance designs. In many existing systems,
+the text encoder, visual backbone, cross-modal fusion block,
+and decoder are co-designed as a single architecture [5], [20].
+This design can be effective in its original configuration,
+arXiv:2607.09481v1  [cs.CV]  10 Jul 2026
+
+
+Fig. 1. Comparison between existing text-guided segmentation paradigms
+and our proposed method. Existing methods require fusion redesigns when
+backbones change, leading to limited reuse. Conversely, our method introduces
+a shape-preserving interface, enabling module reuse across diverse backbones.
+but becomes fragile when the feature hierarchy or language
+representation changes. For example, replacing a convolutional
+visual encoder with a transformer backbone, or swapping
+a radiology-specific text encoder for a broader biomedical
+language model, may require redesigning projection, fusion,
+and supervision pathways [21], [22]. This architectural de-
+pendence limits reuse of language-guidance modules across
+datasets, modalities, and backbone families. Therefore, as
+shown in Fig. 1, instead of proposing another architecture-
+bound fusion block, we seek a backbone-transferable adapter
+interface: it should accept multi-scale visual features and
+text embeddings from heterogeneous backbones, inject textual
+semantics through shape-preserving operations, and return
+features compatible with existing decoders.
+Backbone transferability depends not only on architectural
+design but also on whether the optimization strategy can
+regularize heterogeneous features without enforcing a uniform
+learning target across scales. Global vision-language alignment
+is effective for recognition but lacks the spatial sensitivity re-
+quired for dense segmentation and boundary delineation [12],
+[23]. Existing methods often rely on auxiliary supervision, but
+they typically lack hierarchical structure and fail to account
+for semantic discrepancies across feature scales, leading to
+redundant or conflicting optimization signals [24]. An effective
+framework should assign distinct roles to different supervi-
+sion levels: global alignment stabilizes cross-modal semantics,
+coarse supervision guides lesion localization, and fine-grained
+supervision refines boundary details.
+Another key obstacle is the modality gap between visual
+and textual representations [25]. Directly injecting text into
+early or intermediate visual features may disturb pre-trained
+visual representations when cross-modal correspondence is
+unreliable [26], [27]. This concern is particularly relevant for a
+reusable adapter, because heterogeneous backbones can expose
+features with different distributions and semantic granularity.
+Therefore, semantic injection should not be static or overly
+aggressive. Instead, it should be scale-aware and dynamically
+gated, allowing the model to preserve visual integrity while
+adaptively controlling the strength of textual guidance.
+To address these issues, we propose BTHA, a backbone-
+transferable hierarchical adapter framework for text-guided
+medical image segmentation. BTHA assumes only a minimal
+feature interface: a backbone provides multi-scale visual fea-
+tures and a text representation, and the proposed framework
+learns reusable semantic fusion and supervision modules on
+top of these tensors. Specifically, the Hierarchical Coarse-
+to-Fine Supervision Strategy decomposes training into global
+image-text contrastive alignment, intermediate coarse lesion
+localization, and final boundary-aware refinement. Meanwhile,
+the SAGSG adapter injects textual semantics through scale-
+specific gates and channel recalibration while preserving the
+shape of visual features. This design allows the same module
+structure to be evaluated across different vision and language
+backbones, highlighting cross-backbone transferability as a
+key design goal. Our contributions are summarized as follows:
+• We formulate BTHA as a backbone-transferable adapter
+framework with a minimal feature-level interface, en-
+abling reuse of the same text-guided segmentation module
+across heterogeneous vision and language backbones.
+• We propose a Hierarchical Coarse-to-Fine Supervision
+Strategy that can be attached as auxiliary supervision
+to decompose learning into global semantic alignment,
+multi-scale auxiliary localization, and boundary-aware
+final mask refinement.
+• We design the SAGSG adapter, a shape-preserving cross-
+modal fusion module that injects textual semantics adap-
+tively via scale-specific gating and channel recalibration.
+• Experiments on four public datasets and multiple back-
+bone settings demonstrate that BTHA outperforms strong
+baselines while maintaining low computational overhead
+and strong cross-backbone transferability.
+II. METHOD
+A. Overall Architecture
+As illustrated in Fig. 2(a), BTHA is designed as a transfer-
+able adapter layer around a generic text-guided segmentation
+backbone. Let a vision encoder produce multi-scale visual
+features {F s
+v }s∈{8,16,32} and a text encoder produce text
+representation Ft. BTHA does not require a specific encoder
+implementation; it only assumes access to these feature ten-
+sors. For each scale, the SAGSG adapter maps (F s
+v , Ft) to
+a fused feature ˜F s
+v with the same spatial size and channel
+dimension as F s
+v . This shape-preserving design allows the
+fused features to be passed to an existing decoder or skip
+pathway without changing downstream tensor contracts.
+The transferability of BTHA is defined through both the
+forward feature interface and the training objective. In the
+forward pass, BTHA operates between encoder features and
+decoder reconstruction: it receives multi-scale visual tensors
+and text features, then returns fused tensors with the same
+shape as the original visual features. In the backward pass,
+it introduces auxiliary losses through lightweight prediction
+heads and projection layers, which are removed or ignored
+during inference. Therefore, when the encoder pair changes,
+the same adapter design and supervision principle can be
+reused as long as the new backbone exposes compatible multi-
+scale visual features and a text representation.
+
+
+Fig. 2.
+Overview of BTHA. (a) Overall framework of BTHA. Heterogeneous vision and text backbones provide multi-scale visual features and text
+representations. The SAGSG adapter injects textual semantics into visual features, while the hierarchical supervision strategy regularizes global image-text
+alignment, multi-scale localization, and boundary-aware refinement. (b) Detailed structure of the SAGSG adapter. SAGSG preserves the input feature shape
+while using masked cross-attention, dual-gated residual refinement, and SE channel recalibration to transfer textual semantics into multi-scale visual features.
+In the default instantiation, we follow the backbone setting
+of LanGuideMedSeg [6] and use ConvNeXt-Tiny [28] with
+CXR-BERT [29]. The decoder follows a UNETR-style recon-
+struction path [30]. Importantly, these choices are not part of
+the core assumption of BTHA; they serve as one backbone
+pair on which the transferable adapter design is evaluated.
+B. Hierarchical Coarse-to-Fine Supervision Strategy
+The Hierarchical Coarse-to-Fine Supervision Strategy is a
+transferable supervision scheme. It can be applied to any
+backbone setting that exposes global image-text features and
+intermediate segmentation features. Rather than treating seg-
+mentation as a single monolithic objective, it decomposes
+training into three complementary sub-objectives: global se-
+mantic alignment, coarse lesion localization, and fine-grained
+refinement. The motivation is to make the training signal
+match the natural hierarchy of segmentation. Global image-
+text alignment encourages the image and report to describe
+the same abnormality; intermediate supervision encourages the
+network to locate the approximate lesion extent before recover-
+ing details; the final loss emphasizes pixel-level mask quality.
+Because these objectives are implemented by additional heads
+rather than architectural changes to the backbone, the same
+strategy can be transferred together with the SAGSG adapter.
+First, to provide a backbone-agnostic semantic anchor,
+global visual and textual representations are projected by
+lightweight linear heads and L2-normalized into a shared
+embedding space. We employ an Image-Text Contrastive (ITC)
+loss LIT C following the contrastive formulation [31]. Given
+a batch of N samples, the similarity matrix s ∈RN×N is
+computed as the scaled cosine similarity between all image-
+text pairs. A symmetric cross-entropy objective maximizes
+matched image-text pairs and suppresses mismatched pairs:
+LIT C = 1
+2
+ CE(s, y) + CE(s⊤, y)
+
+,
+(1)
+where y = [0, 1, . . . , N −1] denotes the matched pair indices.
+Because this loss operates on projected global features, it
+can be added to different vision-language backbones without
+modifying their internal layers.
+Second, auxiliary segmentation heads are attached to inter-
+mediate fused features at 1/32, 1/16, and 1/8 resolutions.
+These heads are used only for supervision and do not impose
+a new decoder topology. Intermediate logits are upsampled
+by bilinear interpolation to the full mask resolution instead of
+downsampling the ground truth masks, preserving small lesion
+structures during training. Deeper features receive supervision
+for coarse lesion distribution, while shallower features con-
+tribute to local structural refinement. For both auxiliary heads
+and the final prediction, we use a unified hybrid loss:
+Lmain = λdLDice + λfLF ocal + λeLEdge + λlLLovasz. (2)
+The Dice and Focal terms optimize region overlap and class
+imbalance, the Edge term computed with the Sobel operator
+emphasizes boundary consistency, and the Lov´asz-hinge term
+
+
+Fig. 3. Motivation for backbone-transferable language guidance. (a) Existing text-guided segmentation methods tightly couple the backbone pair, fusion
+module, and decoder. (b) Replacing the backbone changes the feature hierarchy and often requires a tailored fusion redesign. (c) BTHA uses a unified
+shape-preserving SAGSG adapter, allowing the same language-guidance module to support diverse vision and text backbones.
+directly improves IoU optimization. The same objective serves
+as Ls
+aux for intermediate scales and as the final refinement loss.
+Although we adopt an identical loss function formulation
+across all scales, we assign distinct weight coefficients during
+initialization. Specifically, we increase the weight of the Dice
+loss for deep features and elevate the weight of the boundary
+loss for shallow features. This design does not impose scale-
+specific loss formulations, but the placement of auxiliary heads
+on different-resolution features provides an implicit coarse-to-
+fine training bias. Low-resolution features are allowed to focus
+on object-level semantics and lesion coverage, whereas high-
+resolution decoding concentrates on boundary-sensitive refine-
+ment. Since all intermediate predictions are supervised against
+the original full-resolution mask after logit upsampling, the
+supervision remains aligned with the final segmentation target
+and does not require dataset-specific mask preprocessing.
+The final objective integrates the three hierarchical supervi-
+sion signals:
+Ltotal = γLIT C +
+X
+s∈{8,16,32}
+αsLs
+aux + Lmain,
+(3)
+where αs and γ are hyperparameters controlling the contribu-
+tions of the intermediate and global supervisions, respectively.
+C. Scale-Adaptive Gated Semantic Guidance Adapter
+Fig. 3 motivates SAGSG: existing text-guided segmentation
+methods often tightly couple the backbone pair, fusion module,
+and decoder, so changing the vision or text backbone usually
+requires redesigning the fusion strategy. In contrast, BTHA
+uses SAGSG as a unified shape-preserving semantic adapter
+for backbone- transferable language guidance. As shown in
+Fig. 2(b), SAGSG is the feature-side semantic fusion module
+of BTHA. It injects text information into multi-scale visual
+features without changing the decoder interface. For each scale
+s ∈{8, 16, 32}, SAGSG maps visual features F s
+v and text
+features Ft to a fused feature ˜F s
+v with the same spatial size
+and channel dimension as F s
+v , allowing it to directly replace
+the original visual feature in the downstream decoding path.
+SAGSG first converts the visual feature map into a sequence
+while preserving spatial structure through positional encoding.
+The visual features are flattened into tokens, and a correspond-
+ing 2D sinusoidal positional embedding is added to retain
+spatial information. The text features are linearly projected
+at each scale to match the visual channel dimension, enabling
+interaction between text and multi-scale visual representations.
+Cross-modal
+fusion
+is
+performed
+via
+masked
+cross-
+attention, where visual tokens act as queries and text tokens
+serve as keys and values. A tokenizer-derived attention mask
+is applied to filter out padding tokens, ensuring that only valid
+clinical text contributes to the attention computation. This
+masking is applied exclusively along the text-token dimension,
+while all spatial visual tokens remain fully engaged, allowing
+each spatial location to selectively attend to relevant textual
+context without introducing noise from padded inputs.
+After masked cross-attention, SAGSG uses a dual-gated
+residual refinement design. The first gate controls how much
+text-conditioned attention is added to the original visual
+stream:
+Xs
+attn = Xs + gsAs,
+gs = tanh(ws
+g),
+(4)
+where ws
+g is a learnable scale-specific parameter initialized to
+zero. Since tanh(0) = 0, the attention residual starts as a zero
+update and gradually learns the strength of semantic injection
+during training. This conservative initialization reduces the risk
+
+
+of disturbing useful anatomical representations before reliable
+image-text alignment is established.
+TABLE I
+BACKBONE TRANSFERABILITY ACROSS TEXT ENCODERS ON
+QATA-COV19. ALL CONFIGURATIONS USE CONVNEXT-TINY AS THE
+FIXED VISION BACKBONE. THE BEST RESULTS ARE HIGHLIGHTED IN
+BOLD AND THE SECOND-BEST RESULTS ARE UNDERLINED.
+Text Backbone
+Model
+Dice (%)
+mIoU (%)
+BioViL [21]
+LanGuideMedSeg
+85.27
+74.33
+TeViA
+85.78
+75.10
+FMISeg
+90.57
+82.76
+BTHA (Ours)
+91.45
+84.25
+CLIP [31]
+LanGuideMedSeg
+90.29
+82.29
+TeViA
+90.49
+82.63
+FMISeg
+90.80
+83.15
+BTHA (Ours)
+91.68
+84.64
+BioClinicalBERT [22]
+LanGuideMedSeg
+86.67
+76.48
+TeViA
+87.02
+77.02
+FMISeg
+90.60
+82.81
+BTHA (Ours)
+88.96
+80.11
+CXR-BERT [29]
+LanGuideMedSeg
+90.89
+83.31
+TeViA
+86.97
+76.95
+FMISeg
+90.95
+83.41
+BTHA (Ours)
+91.88
+84.97
+The second gate controls the feed-forward refinement
+branch:
+Xs
+ffn = Xs
+attn + hsFFN(LN(Xs
+attn)),
+hs = tanh(ws
+f),
+(5)
+where ws
+f is another learnable gate for the same scale. This
+branch increases the representation capacity after cross-modal
+interaction while still preserving the residual visual pathway.
+Together, the attention gate and FFN gate form two separate
+residual controls: the first regulates language injection and the
+second regulates post-attention feature transformation.
+Finally, the refined sequence is reshaped back to a feature
+map and passed through an SE block for channel recalibration.
+This step suppresses redundant cross-modal responses and
+highlights lesion-sensitive channels. Since the output keeps the
+same shape as the input, SAGSG preserves the decoder inter-
+face. The SAGSG modules at 1/32, 1/16, and 1/8 resolutions
+share the same topology but use independent projections and
+gates for scale-specific textual guidance.
+III. EXPERIMENTS
+A. Experimental Settings
+To evaluate BTHA, as shown in Table III, we conduct
+experiments on four public datasets for text-guided medical
+image segmentation: MosMedData+ [32] with 2,729 CT slices,
+QaTa-COV19 [33] with 9,258 X-rays, SIIM-ACR [34] with
+12,047 X-rays, and Kvasir-SEG [35] with 1,000 endoscopic
+images. For MosMedData+ and QaTa-COV19, we follow the
+experimental setup in TeViA [8] and adopt the same data
+split ratios . For SIIM-ACR, we manually annotated the im-
+ages containing lesions. For Kvasir-SEG, textual descriptions
+are generated following the attribute-based prompting style
+TABLE II
+BACKBONE TRANSFERABILITY ACROSS VISION ENCODERS ON
+QATA-COV19. ALL CONFIGURATIONS USE CXR-BERT AS THE FIXED
+TEXT BACKBONE. THE BEST RESULTS ARE HIGHLIGHTED IN BOLD AND
+THE SECOND-BEST RESULTS ARE UNDERLINED.
+Vision Backbone
+Model
+Dice (%)
+mIoU (%)
+Swin-Transformer [36]
+LanGuideMedSeg
+86.55
+76.29
+TeViA
+82.84
+70.71
+FMISeg
+90.08
+81.95
+BTHA (Ours)
+91.02
+83.51
+ViT-Tiny [37]
+LanGuideMedSeg
+84.01
+72.43
+TeViA
+83.94
+72.32
+FMISeg
+88.95
+80.09
+BTHA (Ours)
+91.43
+84.21
+ResNet50 [38]
+LanGuideMedSeg
+84.88
+73.73
+TeViA
+87.72
+78.12
+FMISeg
+90.58
+82.78
+BTHA (Ours)
+88.50
+79.37
+ConvNeXt-Tiny [28]
+LanGuideMedSeg
+90.89
+83.31
+TeViA
+86.97
+76.95
+FMISeg
+90.95
+83.41
+BTHA (Ours)
+91.88
+84.97
+introduced in TGA-Net [15]. Dice and mIoU are used for
+evaluation.
+The framework is implemented in PyTorch with Python 3.11
+and trained on an NVIDIA A100 GPU. AdamW is used with
+a base learning rate of 3 × 10−4 for newly introduced heads
+and adapters and 3×10−5 for pre-trained backbones, managed
+by a LambdaLR scheduler with warmup.
+B. Backbone Transferability
+The central claim of BTHA is not only that it improves
+one backbone pair, but that the same adapter and supervision
+design can be reused across different vision-language combi-
+nations. To evaluate this property, we conduct controlled trans-
+ferability experiments on QaTa-COV19. In the first setting,
+the vision backbone is fixed and only the text backbone is
+replaced. In the second setting, the text backbone is fixed and
+only the vision backbone is replaced. For all configurations,
+TABLE III
+REPRESENTATIVE IMAGE-MASK-TEXT TRIPLETS FROM FOUR DATASETS
+FOR TEXT-GUIDED MEDICAL IMAGE SEGMENTATION.
+Dataset
+Image
+Mask
+Text annotation
+MosMedData+
+Bilateral pulmonary infection, five in-
+fected areas, middle left lung and all
+right lung.
+QaTa-COV19
+Bilateral pulmonary infection, two in-
+fected areas, all left lung and all right
+lung.
+SIIM-ACR
+Unilateral pneumothorax, one infected
+area, Right lung upper field.
+Kvasir-SEG
+A single small polyp in the lower-center
+region.
+
+
+TABLE IV
+COMPARISON WITH STATE-OF-THE-ART METHODS. THE BEST RESULTS ARE HIGHLIGHTED IN BOLD AND THE SECOND-BEST RESULTS ARE UNDERLINED.
+Methods
+MosMedData+
+QaTa-COV19
+SIIM-ACR
+Kvasir-SEG
+Mean
+Param
+(M)
+FLOPs
+(G)
+Dice (%)
+mIoU (%)
+Dice (%)
+mIoU (%)
+Dice (%)
+mIoU (%)
+Dice (%)
+mIoU (%)
+Dice (%)
+mIoU (%)
+U-Net [2]
+75.79
+61.01
+87.41
+77.63
+59.59
+42.44
+81.19
+68.34
+76.00
+62.36
+14.8
+25.2
+MultiResUNet [39]
+71.78
+55.98
+81.89
+69.33
+53.66
+36.67
+81.86
+69.30
+72.30
+57.82
+7.3
+14.4
+Swin-Unet [40]
+77.07
+62.70
+87.66
+78.03
+55.30
+38.21
+87.33
+77.51
+76.84
+64.11
+27.2
+5.9
+UCTransNet [4]
+75.69
+60.89
+87.75
+78.18
+57.70
+40.55
+83.23
+71.28
+76.09
+62.73
+66.4
+33.0
+SAM-Adapter [11]
+73.19
+57.71
+75.04
+60.05
+50.66
+33.92
+74.21
+59.00
+68.28
+52.67
+312.5
+1318.4
+SAM-Med2D(10Pts) [41]
+28.77
+16.80
+72.71
+57.12
+63.52
+46.54
+77.96
+63.88
+60.74
+46.09
+271.2
+65.2
+MedSAM(5Pts) [12]
+40.73
+25.57
+77.19
+62.86
+53.06
+36.11
+87.24
+77.37
+64.56
+50.48
+93.7
+372.0
+SAM3(FT, 3 epochs) [13]
+78.46
+64.55
+87.13
+77.19
+64.14
+47.21
+90.01
+81.84
+79.94
+67.70
+840.6
+3271.4
+LViT [5]
+75.09
+60.11
+88.85
+79.94
+52.19
+35.31
+82.76
+70.59
+74.72
+61.49
+39.9
+27.1
+CPAM [16]
+73.94
+58.65
+90.39
+82.46
+57.31
+40.16
+82.53
+70.26
+76.04
+62.88
+166.4
+34.6
+RecLMIS [42]
+78.95
+65.23
+91.21
+83.84
+58.08
+40.93
+87.47
+77.73
+78.93
+66.93
+220.7
+24.1
+LGA [20]
+79.08
+65.40
+89.77
+81.44
+52.62
+35.71
+88.22
+78.92
+77.42
+65.37
+97.9
+381.2
+LanGuideMedSeg [6]
+78.68
+64.86
+90.89
+83.31
+62.53
+45.48
+88.91
+80.03
+80.25
+68.42
+153.6
+11.2
+TeViA [8]
+72.59
+56.97
+86.97
+76.95
+43.14
+27.50
+82.04
+69.55
+71.19
+57.74
+153.6
+11.2
+FMISeg [18]
+77.57
+63.36
+90.95
+83.41
+61.93
+44.86
+87.08
+77.11
+79.38
+67.19
+219.8
+20.6
+BTHA (Ours)
+80.10
+66.80
+91.88
+84.97
+65.52
+48.72
+90.39
+82.46
+81.97
+70.74
+159.6
+12.5
+the SAGSG structure, hierarchical supervision and decoder-
+side interface remain unchanged. This protocol evaluates
+whether the proposed module design remains effective when
+the feature distribution changes across backbone families.
+Table
+I
+evaluates
+text-backbone
+transferability
+with
+ConvNeXt-Tiny fixed as the visual encoder. BTHA achieves
+the best performance with BioViL [21], CLIP [31], and
+CXR-BERT [29], improving the second-best Dice scores by
+0.88%, 0.88%, and 0.93%, respectively. These text encoders
+differ in pretraining domain and semantic granularity: BioViL
+and CXR-BERT are radiology-oriented, while CLIP provides
+broader image-text alignment. The consistent gains across
+these choices suggest that BTHA does not depend on one spe-
+cific text representation. Under BioClinicalBERT [22], BTHA
+ranks second with 88.96% Dice. Although it does not achieve
+the top result in this setting, it remains competitive, indicating
+that the same fusion and supervision design can still operate
+when the text embedding distribution is less aligned with chest
+X-ray semantics.
+Table II evaluates vision-backbone transferability with
+CXR-BERT fixed as the language encoder. BTHA obtains the
+best Dice scores with Swin-Transformer [36], ViT-Tiny [37],
+and ConvNeXt-Tiny [28], surpassing the second-best meth-
+ods by 0.94%, 2.48%, and 0.93%, respectively. These visual
+backbones cover transformer-based and convolutional designs,
+indicating that the shape-preserving adapter can operate on
+heterogeneous visual feature hierarchies. The improvement is
+especially clear with ViT-Tiny, where the proposed hierar-
+chical supervision and gated semantic injection substantially
+strengthen the baseline representation. The ResNet50 [38]
+setting is the only vision-backbone case where BTHA ranks
+second. This result is still informative for the transferability
+claim: the proposed module design remains usable with a
+convolutional residual backbone, but its final performance is
+influenced by the quality, resolution, and semantic compatibil-
+ity of the underlying feature hierarchy.
+Overall, BTHA achieves the best Dice score in six of eight
+backbone settings and remains second-best in the other two.
+These results indicate that the proposed design transfers across
+backbone families through a stable feature-level interface,
+while also revealing that backbone transferability does not
+imply complete independence from representation quality.
+C. Comparison with State-of-the-Art Methods
+BTHA is compared with three categories of state-of-the-art
+methods. Vision-only baselines include U-Net [2], MultiRe-
+sUNet [39], Swin-Unet [40], and UCTransNet [4]. SAM-based
+baselines include SAM-Adapter [11], SAM-Med2D [41],
+MedSAM [12], and SAM3 [13]. Vision-language baselines
+include LViT [5], CPAM [16], RecLMIS [42], LGA [20],
+LanGuideMedSeg [6], TeViA [8], and FMISeg [18]. Baselines
+are evaluated under the same dataset splits and evaluation pro-
+tocols. For the strongest direct comparison, LanGuideMedSeg,
+TeViA, FMISeg, and BTHA use ConvNeXt-Tiny and CXR-
+BERT backbone pair.
+Table IV shows that BTHA achieves the highest Dice and
+mIoU scores across all four datasets while maintaining high
+computational efficiency. Compared with vision-only methods,
+BTHA consistently improves performance across multiple
+datasets. It achieves an average Dice improvement of 4.04%
+over the strongest baselines on four datasets, demonstrating
+that incorporating textual guidance offers clear advantages
+over standard convolutional and transformer-based architec-
+tures.Compared with SAM-based methods, BTHA consis-
+tently achieves the best segmentation performance, surpassing
+the strongest baseline, SAM3, by 2.03% Dice on average
+across the four datasets while requiring only 0.38% of its
+FLOPs. BTHA achieves an average improvement of 1.54% in
+Dice score over the strongest competing models across the four
+datasets.This accuracy improvement is achieved with marginal
+architectural overhead, as BTHA requires 159.6M parameters
+and 12.5G FLOPs, which represents an increase of only
+6.0M parameters over LanGuideMedSeg and TeViA. These
+results demonstrate that the proposed hierarchical supervision
+
+
+Image
+GT
+UCTransNet
+SAM3(FT)
+LGA
+LanGuide
+TeViA
+FMISeg
+BTHA(Ours)
+Fig. 4. Qualitative comparison of segmentation results on four datasets. Rows 1 to 4 correspond to MosMedData+, QaTa-COV19, SIIM-ACR, and Kvasir-SEG,
+respectively. Columns show the input image, ground-truth mask, representative vision-only, SAM-based, and vision-language baselines, and BTHA. Green
+indicates correctly segmented regions, red indicates missed target regions, and blue indicates false-positive predictions.
+strategy and SAGSG adapter facilitate more effective cross-
+modal feature interaction, leading to consistently improved
+segmentation performance without relying on excessive model
+complexity or parameter scaling.
+The qualitative results in Fig. 4 show the same trend.
+BTHA produces more complete lesion coverage and sharper
+boundaries, while several baselines either miss lesion regions
+or generate unstable false positives. This visual evidence is
+consistent with the intended role of the hierarchical adapter:
+global alignment improves semantic localization, and scale-
+aware gated fusion preserves spatial detail during decoding.
+D. Ablation Study
+To analyze the two proposed components, we conduct
+ablation studies on QaTa-COV19. The baseline follows Lan-
+GuideMedSeg with the same default backbone and Dice-
+CELoss, without the proposed hierarchical supervision or
+SAGSG adapter. Table V summarizes the overall contribution
+of each component.
+Table V evaluates whether the two proposed components
+are individually useful and mutually compatible. Adding the
+Hierarchical Coarse-to-Fine Supervision Strategy alone im-
+proves Dice from 90.89% to 91.45%. This result indicates that
+training-side supervision provides beneficial guidance even
+when the original fusion structure is unchanged. In contrast,
+adding SAGSG alone decreases Dice to 88.12%. This does not
+imply that gated semantic fusion is intrinsically ineffective;
+rather, it reveals that a conservative adapter initialized close
+to identity is difficult to calibrate when supervised only by
+a final segmentation loss. The adapter lacks direct guidance
+on when and where textual information should be injected.
+TABLE V
+ABLATION STUDY OF THE KEY COMPONENTS IN BTHA.
+“HIERARCHICAL” DENOTES THE HIERARCHICAL COARSE-TO-FINE
+SUPERVISION STRATEGY AND “SAGSG” DENOTES THE SAGSG
+ADAPTER. MODELS WITHOUT THE HIERARCHICAL STRATEGY ARE
+TRAINED WITH DICECELOSS.
+Model
+Hierarchical
+SAGSG
+Dice (%)
+mIoU (%)
+Baseline
+90.89
+83.31
+Hierarchical Only
+✓
+91.45
+84.25
+SAGSG Only
+✓
+88.12
+78.77
+Full
+✓
+✓
+91.88
+84.97
+TABLE VI
+ABLATION OF COMPONENTS IN THE HIERARCHICAL COARSE-TO-FINE
+SUPERVISION STRATEGY. MAIN DENOTES THE FINAL HYBRID LOSS, ITC
+DENOTES GLOBAL IMAGE-TEXT ALIGNMENT, AND AUX DENOTES
+AUXILIARY SUPERVISION HEADS. ALL MODELS USE THE SAGSG.
+Model
+Main
+ITC
+Aux
+Dice (%)
+mIoU (%)
+DiceCE Only
+88.12
+78.77
+Main Only
+✓
+90.51
+82.66
+Main + ITC
+✓
+✓
+91.51
+84.35
+Main + Aux
+✓
+✓
+91.76
+84.78
+Full
+✓
+✓
+✓
+91.88
+84.97
+When SAGSG is combined with hierarchical supervision,
+performance rises to 91.88% Dice, confirming that the feature-
+side adapter and training-side supervision are complementary.
+Table VI further decomposes the hierarchical strategy under
+the SAGSG setting. Starting from DiceCE, replacing the
+original loss with the proposed hybrid main loss improves Dice
+from 88.12% to 90.51%, showing that boundary-aware and
+
+
+IoU-oriented refinement is important for the final prediction.
+Adding ITC on top of the main loss further increases Dice to
+91.51%. This gain suggests that global image-text alignment
+provides a semantic anchor for the adapter before dense
+decoding, reducing the risk that text features are injected
+in a spatially inconsistent manner. Adding auxiliary heads
+produces 91.76% Dice, demonstrating that intermediate coarse
+localization supervision is also effective. The full configuration
+achieves the best result, indicating that global alignment,
+coarse localization, and final refinement address different parts
+of the segmentation process rather than duplicating the same
+supervision signal.
+IV. CONCLUSION
+This paper presented BTHA, a backbone-transferable hi-
+erarchical adapter framework for text-guided medical image
+segmentation. BTHA separates reusable text-guided segmenta-
+tion into a training-side hierarchical supervision strategy and a
+feature-side SAGSG adapter. The supervision strategy decom-
+poses learning into global alignment, coarse localization, and
+boundary-aware refinement, while the adapter preserves fea-
+ture shape and adaptively injects text semantics. Experiments
+across multiple backbone combinations and four datasets show
+that the same module design transfers across heterogeneous
+vision-language backbones and BTHA improves strong base-
+lines with modest computational overhead.
+REFERENCES
+[1] T. Zhao, H. H. Lee, A. Santamaria-Pang, N. C. Codella, S. Kiblawi,
+Y. Gu et al., “BiomedParse-V: Scaling foundation model for universal
+text-guided volumetric biomedical image segmentation,” in MedSegFM.
+Springer Nature Switzerland, 2026, pp. 109–138.
+[2] O. Ronneberger, P. Fischer, and T. Brox, “U-Net: Convolutional net-
+works for biomedical image segmentation,” in MICCAI.
+Springer
+International Publishing, 2015, pp. 234–241.
+[3] F. Isensee, P. F. Jaeger, S. A. Kohl, J. Petersen, and K. H. Maier-Hein,
+“nnU-Net: a self-configuring method for deep learning-based biomedical
+image segmentation,” Nat. Methods, vol. 18, no. 2, pp. 203–211, 2021.
+[4] H. Wang, P. Cao, J. Wang, and O. R. Zaiane, “UCTransNet: rethinking
+the skip connections in U-Net from a channel-wise perspective with
+transformer,” in AAAI, vol. 36, no. 3, 2022, pp. 2441–2449.
+[5] Z. Li, Y. Li, Q. Li, P. Wang, D. Guo, L. Lu et al., “LViT: Language
+meets vision transformer in medical image segmentation,” IEEE Trans.
+Med. Imaging, vol. 43, no. 1, pp. 96–107, 2024.
+[6] Y. Zhong, M. Xu, K. Liang, K. Chen, and M. Wu, “Ariadne’s thread:
+Using text prompts to improve segmentation of infected areas from chest
+X-ray images,” in MICCAI.
+Springer, 2023, pp. 724–733.
+[7] Q. Pan, W. Qiao, J. Lou, B. Ji, and S. Li, “DuSSS: dual semantic
+similarity-supervised vision-language model for semi-supervised medi-
+cal image segmentation,” in AAAI, vol. 39, no. 6, 2025, pp. 6299–6307.
+[8] Q. Zeng, H. Luo, Z. Lu, Y. Xie, Z. Wang, Y. Zhang et al., “Harnessing
+text insights with visual alignment for medical image segmentation,”
+IEEE Trans. Med. Imaging, vol. 45, no. 2, pp. 477–489, 2026.
+[9] B. Ji, J. Huang, Z. Xu, M. Ou, T. Liu, S. Zeng et al., “TGS-LGP:
+Text-guided medical image segmentation via local-global perception,”
+in BIBM, 2025, pp. 993–998.
+[10] A. Kirillov, E. Mintun, N. Ravi, H. Mao, C. Rolland, L. Gustafson et al.,
+“Segment anything,” in ICCV, 2023, pp. 4015–4026.
+[11] T. Chen, L. Zhu, C. Ding, R. Cao, Y. Wang, S. Zhang et al., “SAM-
+Adapter: Adapting segment anything in underperformed scenes,” in
+ICCV Workshops, 2023, pp. 3359–3367.
+[12] J. Ma, Y. He, F. Li, L. Han, C. You, and B. Wang, “Segment anything
+in medical images,” Nat. Commun., vol. 15, no. 1, p. 654, 2024.
+[13] N. Carion, L. Gustafson, Y.-T. Hu, S. Debnath, R. Hu, D. S. Coll-Vinent
+et al., “SAM 3: Segment anything with concepts,” in ICLR, 2026.
+[14] S.-C. Huang, L. Shen, M. P. Lungren, and S. Yeung, “Gloria: A
+multimodal global-local representation learning framework for label-
+efficient medical image recognition,” in ICCV, 2021, pp. 3942–3951.
+[15] N. K. Tomar, D. Jha, U. Bagci, and S. Ali, “TGANet: Text-guided
+attention for improved polyp segmentation,” in MICCAI.
+Springer
+Nature Switzerland, 2022, pp. 151–160.
+[16] G.-E. Lee, S. H. Kim, J. Cho, S. T. Choi, and S.-I. Choi, “Text-guided
+cross-position attention for segmentation: Case of medical image,” in
+MICCAI.
+Springer Nature Switzerland, 2023, pp. 537–546.
+[17] Y. Guo, X. Zeng, P. Zeng, Y. Fei, L. Wen, J. Zhou et al., “Common
+vision-language attention for text-guided medical image segmentation
+of pneumonia,” in MICCAI, vol. LNCS 15009.
+Springer Nature
+Switzerland, 2024, pp. 192 – 201.
+[18] B. Yu, J. Yang, Z. Du, Y. Huang, C. Li, and L. Wang, “Frequency-
+domain multi-modal fusion for language-guided medical image segmen-
+tation,” in MICCAI.
+Springer, 2025, pp. 278–288.
+[19] W. Chen, J. Liu, T. Liu, and Y. Yuan, “Bi-VLGM: Bi-level class-severity-
+aware vision-language graph matching for text guided medical image
+segmentation,” Int. J. Comput. Vis., vol. 133, no. 3, pp. 1375–1391,
+2025.
+[20] J. Hu, Y. Li, H. Sun, Y. Song, C. Zhang, L. Lin et al., “LGA: A language
+guide adapter for advancing the SAM model’s capabilities in medical
+image segmentation,” in MICCAI.
+Springer Nature Switzerland, 2024,
+pp. 610–620.
+[21] S. Bannur, S. Hyland, Q. Liu, F. P´erez-Garc´ıa, M. Ilse, D. C. Castro
+et al., “Learning to exploit temporal structure for biomedical vision-
+language processing,” in CVPR, 2023, pp. 15 016–15 027.
+[22] E. Alsentzer, J. Murphy, W. Boag, W.-H. Weng, D. Jindi, T. Naumann
+et al., “Publicly available clinical BERT embeddings,” in Clin. Nat.
+Lang. Process. Workshop.
+Association for Computational Linguistics,
+2019, pp. 72–78.
+[23] Z. Huang, F. Bianchi, M. Yuksekgonul, T. J. Montine, and J. Zou, “A
+visual–language foundation model for pathology image analysis using
+medical Twitter,” Nat. Med., vol. 29, no. 9, pp. 2307–2316, 2023.
+[24] C. Liu, C. Ouyang, S. Cheng, A. Shah, W. Bai, and R. Arcucci, “G2D:
+From global to dense radiography representation learning via vision-
+language pre-training,” in NeurIPS, vol. 37.
+Curran Associates, Inc.,
+2024, pp. 14 751–14 773.
+[25] Q. Pan, Z. Li, G. Yang, Q. Yang, and B. Ji, “EviVLM: When evidential
+learning meets vision language model for medical image segmentation,”
+IEEE Trans. Med. Imaging, vol. 45, no. 4, pp. 1369–1382, 2026.
+[26] C. Wu, X. Zhang, Y. Zhang, Y. Wang, and W. Xie, “MedKLIP: Medical
+knowledge enhanced language-image pre-training for x-ray diagnosis,”
+in ICCV, 2023, pp. 21 315–21 326.
+[27] K. You, J. Gu, J. Ham, B. Park, J. Kim, E. K. Hong et al., “CXR-
+CLIP: Toward large scale chest x-ray language-image pre-training,” in
+MICCAI.
+Springer Nature Switzerland, 2023, pp. 101–111.
+[28] Z. Liu, H. Mao, C.-Y. Wu, C. Feichtenhofer, T. Darrell, and S. Xie, “A
+ConvNet for the 2020s,” in CVPR, 2022, pp. 11 976–11 986.
+[29] B. Boecking, N. Usuyama, S. Bannur, D. C. Castro, A. Schwaighofer,
+S. Hyland et al., “Making the most of text semantics to improve
+biomedical vision–language processing,” in ECCV.
+Springer Nature
+Switzerland, 2022, pp. 1–21.
+[30] A. Hatamizadeh, Y. Tang, V. Nath, D. Yang, A. Myronenko, B. Landman
+et al., “UNETR: Transformers for 3d medical image segmentation,” in
+WACV, 2022, pp. 1748–1758.
+[31] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal
+et al., “Learning transferable visual models from natural language
+supervision,” in ICML, vol. 139.
+PMLR, 2021, pp. 8748–8763.
+[32] S. P. Morozov, A. E. Andreychenko, N. A. Pavlov, A. Vladzymyrskyy,
+N. V. Ledikhova, V. A. Gombolevskiy et al., “MosMedData: Chest
+CT scans with COVID-19 related findings dataset,” arXiv preprint
+arXiv:2005.06465, 2020.
+[33] A. Degerli, S. Kiranyaz, M. E. H. Chowdhury, and M. Gabbouj,
+“OSegNet: Operational segmentation network for COVID-19 detection
+using chest x-ray images,” in ICIP, 2022, pp. 2306–2310.
+[34] A. Zawacki, C. Wu, G. Shih, J. Elliott, M. Fomitchev, M. Hussain et al.,
+“SIIM-ACR pneumothorax segmentation 2019,” 2019.
+[35] D. Jha, P. H. Smedsrud, M. A. Riegler, P. Halvorsen, T. De Lange,
+D. Johansen et al., “Kvasir-seg: A segmented polyp dataset,” in MMM.
+Springer, 2019, pp. 451–462.
+[36] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang et al., “Swin
+Transformer: Hierarchical vision transformer using shifted windows,”
+in ICCV, 2021, pp. 10 012–10 022.
+
+
+[37] H. Touvron, M. Cord, M. Douze, F. Massa, A. Sablayrolles, and
+H. Jegou, “Training data-efficient image transformers & distillation
+through attention,” in ICML, M. Meila and T. Zhang, Eds., vol. 139.
+PMLR, 2021, pp. 10 347–10 357.
+[38] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” in CVPR, 2016, pp. 770–778.
+[39] N. Ibtehaz and M. S. Rahman, “MultiResUNet: Rethinking the U-Net
+architecture for multimodal biomedical image segmentation,” Neural
+Netw., vol. 121, pp. 74–87, 2020.
+[40] H. Cao, Y. Wang, J. Chen, D. Jiang, X. Zhang, Q. Tian et al., “Swin-
+Unet: Unet-like pure transformer for medical image segmentation,” in
+ECCV Workshops.
+Springer Nature Switzerland, 2023, pp. 205–218.
+[41] J. Cheng, J. Ye, Z. Deng, J. Chen, T. Li, H. Wang et al., “SAM-Med2D,”
+arXiv preprint arXiv:2308.16184, 2023.
+[42] X. Huang, H. Li, M. Cao, L. Chen, C. You, and D. An, “Cross-
+modal conditioned reconstruction for language-guided medical image
+segmentation,” IEEE Trans. Med. Imaging, vol. 44, no. 4, pp. 1821–
+1835, 2025.

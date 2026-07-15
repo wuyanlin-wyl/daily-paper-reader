@@ -1,0 +1,483 @@
+Decouple and Reason: Anatomically Guided
+Two-Stage Voxel-Level Grounding of Free-Text
+Findings in 3D Chest CT
+Kwang-Hyun Uhm1⋆, Inhwa Son1, and Sung-Jea Ko2
+1 Department of Artificial Intelligence, Gachon University, Republic of Korea
+{khuhm, inhwa1127}@gachon.ac.kr
+2 MEDAI, Republic of Korea
+sjko@medai.im
+Abstract. Automatic voxel-level grounding of free-text findings in 3D
+chest Computed Tomography (CT) is critical for clinical interpretabil-
+ity. However, this task remains highly challenging due to the intricate
+spatial complexity of large 3D volumes and the heterogeneity of free-
+text findings. Existing end-to-end approaches often struggle to simul-
+taneously learn the localized feature representations required for accu-
+rate 3D segmentation and the complex semantic understanding needed
+for text alignment, leading to suboptimal grounding performance. To
+overcome this fundamental limitation, we propose a novel decoupled
+framework that disentangles the problem into two specialized stages: (1)
+class-agnostic lesion segmentation and (2) text-volume reasoning. This
+structural separation allows the model to first extract candidate sub-
+volumes by localizing potential abnormalities. Subsequently, intensive
+cross-modal reasoning is performed to align these localized sub-volumes
+with free-text medical findings. To resolve the spatial ambiguities in-
+herent in local regions, the reasoning module is augmented with ex-
+plicit anatomical guidance, utilizing relative spatial coordinates and lung
+lobe priors. Evaluated on the ReXGroundingCT benchmark, our method
+achieves state-of-the-art performance in overall grounding quality on the
+official leaderboard. These results demonstrate that decoupling detection
+from reasoning is a highly effective paradigm for handling the complex-
+ity of 3D medical visual grounding. Our code is publicly available at
+https://github.com/khuhm/DAGG.
+Keywords: 3D Visual Grounding · Medical Vision-Language · 3D Chest
+CT · Voxel-Level Segmentation · Anatomical Guidance.
+1
+Introduction
+Radiology reports serve as the primary medium for communicating clinical find-
+ings from 3D Computed Tomography (CT) scans [4]. However, these free-text
+reports inherently lack direct spatial mapping to the visual anatomy, limiting
+⋆Corresponding author.
+arXiv:2607.12602v1  [cs.CV]  14 Jul 2026
+
+
+2
+K.-H. Uhm et al.
+their utility for intuitive clinical interpretation and downstream automated anal-
+ysis [1]. To bridge this gap, 3D visual grounding, the task of localizing and
+segmenting specific regions in a 3D volume based on natural language queries,
+has emerged as a crucial area of research [13]. In the medical domain, advanc-
+ing this from coarse bounding boxes to precise voxel-level segmentation masks
+is of paramount importance for developing reliable Computer-Aided Diagnosis
+(CAD) systems [9].
+Driven by recent advances in Vision-Language (VL) models, predominantly
+in the 2D domain, emerging research has begun to explore text-prompted volu-
+metric segmentation in 3D medical images [3, 12, 13, 9]. However, current method-
+ologies often rely on simplistic, anatomical keywords (e.g., “lung” or “kidney”).
+Consequently, they exhibit fundamental limitations in comprehending and ground-
+ing highly descriptive, free-text abnormal findings, such as “subpleural consoli-
+dation area with air bronchograms in the left lower lobe superior segment.”
+Furthermore, adapting existing end-to-end frameworks to tackle these com-
+plex queries presents significant challenges. Medical free-text findings exhibit
+considerable complexity and heterogeneity [6]. Attempting to simultaneously
+optimize a single network for both precise 3D spatial localization and complex
+free-text reasoning imposes a substantial representational burden. This makes
+it exceptionally difficult to learn the precise cross-modal mappings required for
+accurate grounding. Consequently, state-of-the-art end-to-end approaches suffer
+from suboptimal performance, frequently failing to either detect subtle lesions
+or correctly align them with the corresponding text [1].
+To overcome these fundamental limitations, we propose a novel paradigm:
+a Decoupled Anatomically-Guided Grounding (DAGG) Framework that disen-
+tangles the complex grounding task into two specialized, manageable stages. In
+the first stage, we perform a class-agnostic lesion segmentation. By abstracting
+away the pathological and linguistic heterogeneity, the network acts as a univer-
+sal lesion detector focused solely on localizing potential abnormalities. This stage
+extracts instance-level candidate sub-volumes, allowing the subsequent module
+to focus entirely on cross-modal reasoning. In the second stage, localized text-
+volume reasoning is intensively performed on the extracted sub-volumes. To
+enrich these local representations with global anatomical context, we introduce
+an Explicit Anatomical Guidance mechanism, augmenting each sub-volume with
+relative spatial coordinates and lung lobe priors. Furthermore, we identify that
+standard contrastive learning formulations (e.g., InfoNCE [8]), which dominate
+general VL tasks, are intrinsically unsuited for medical grounding. Medical re-
+ports frequently contain semantic overlaps (e.g., identical “small nodule in the
+left upper lobe” findings across different patients), which contrastive losses incor-
+rectly penalize as negative pairs. Furthermore, false-positive candidates gener-
+ated in the first stage lack ground-truth text, making positive pairing impossible.
+To address this, we introduce an Independent Pairwise Alignment strategy. By
+optimizing the alignment score of each image-text pair independently, our model
+effectively suppresses false positives without distorting the latent space through
+false-negative sampling. Our main contributions are summarized as follows:
+
+
+Title Suppressed Due to Excessive Length
+3
+Fig. 1. Overall architecture of the proposed DAGG framework. Stage 1 localizes class-
+agnostic candidate lesions and parses anatomy, while Stage 2 aligns text embeddings
+with anatomically-enriched visual features via independent pairwise alignment.
+– We propose a novel decoupled two-stage framework for voxel-level 3D chest
+CT grounding, which explicitly disentangles lesion localization from semantic
+alignment to achieve precise cross-modal reasoning.
+– We introduce an explicit anatomical guidance mechanism to resolve spa-
+tial ambiguities in local sub-volumes, coupled with an independent pair-
+wise alignment strategy designed to robustly optimize cross-modal mappings
+given the semantic complexities of free-text medical findings.
+– Evaluated on the recently released ReXGroundingCT [1] benchmark, our
+method achieves state-of-the-art performance in overall grounding quality,
+setting a new standard on the official leaderboard.
+2
+Method
+2.1
+Problem Formulation and Overall Architecture
+Problem Formulation. Let V
+∈RH×W ×D denote an input 3D CT vol-
+ume, where H, W, and D represent the spatial dimensions (height, width, and
+depth). Given a corresponding radiology report comprising N descriptive free-
+text findings, denoted as T = {t1, t2, . . . , tN}, the objective of our 3D med-
+ical visual grounding task is to predict voxel-level segmentation masks M ∈
+{0, 1}N×H×W ×D. Specifically, for each free-text finding ti, the model aims to
+generate a precise binary mask Mi ∈{0, 1}H×W ×D that localizes the described
+abnormality within the 3D volume.
+Overall Architecture. As illustrated in Figure 1, we propose a novel decoupled
+framework that alleviates the representational burden of standard end-to-end ap-
+proaches by disentangling the grounding process into two specialized stages. In
+
+
+4
+K.-H. Uhm et al.
+the first stage, the model comprehensively scans the entire volume V to localize
+and extract candidate sub-volumes containing potential abnormalities. Subse-
+quently, in the second stage, intensive cross-modal reasoning is performed be-
+tween these localized sub-volumes and the free-text queries T to align the visual
+features with the semantic context, ultimately yielding the final grounded masks
+M.
+2.2
+Stage 1: Class-Agnostic Lesion Localization
+The primary objective of the first stage is to comprehensively detect all po-
+tential abnormalities within the input volume V , relying exclusively on visual
+features without any text intervention. To achieve this, we formulate the initial
+detection as a class-agnostic segmentation task. Specifically, rather than predict-
+ing separate masks for each finding, we merge all available ground-truth masks
+M ∈{0, 1}N×H×W ×D across the N findings into a single, unified binary lesion
+mask Mlesion ∈{0, 1}H×W ×D. This unified formulation encourages the network
+to learn generalized visual features across diverse lesion types. We adopt a stan-
+dard 3D U-Net [2] for this stage, trained following the nnU-Net framework [5].
+After training, the network generates a predicted binary lesion mask ˆ
+Mlesion
+for a given input volume V . To extract individual abnormalities for precise
+instance-level reasoning, we apply 3D connected component analysis (CCA) to
+ˆ
+Mlesion, identifying distinct lesion instances. Subsequently, we compute the spa-
+tial centroid of each instance. Using these centroids as anchor points, we crop
+local 3D sub-volumes of a fixed patch size directly from the original volume V .
+This process yields a total of K candidate lesion volumes, formalized as a 4D
+tensor Vcand ∈RK×Hp×Wp×Dp, where Hp, Wp, and Dp denote the spatial di-
+mensions of the patches. These extracted volumes are thereby prepared as the
+primary visual inputs for the cross-modal reasoning in Stage 2.
+Furthermore, to explicitly facilitate spatial reasoning in the downstream
+phase, we extract anatomical lung lobe masks from the input volume V . Specif-
+ically, we generate a multi-class lobe mask Mlobe ∈{0, 1}5×H×W ×D encompass-
+ing five distinct regions: the left upper, left lower, right upper, right middle, and
+right lower lobes. For this anatomical parsing, we employ the off-the-shelf To-
+talSegmentator tool [10], providing robust spatial priors to guide the cross-modal
+alignment.
+2.3
+Stage 2: Cross-Modal Text-Volume Reasoning
+Feature Encoding and Explicit Anatomical Guidance In this stage, we
+align the extracted candidate volumes Vcand with the free-text queries T within
+a shared latent space. We first encode the free-text queries T using a frozen pre-
+trained text encoder. Each textual finding ti ∈T is encoded into a feature vector
+hi ∈Rdtxt, where dtxt is the hidden dimension of the encoder. A trainable linear
+adapter then projects these embeddings into a shared multi-modal latent space,
+yielding the final text features Ztxt ∈RN×d, where d is the joint embedding
+dimension.
+
+
+Title Suppressed Due to Excessive Length
+5
+For the visual modality, we process the candidate volumes Vcand through a
+3D CNN-based image encoder to extract local image embeddings. However, these
+local features inherently lack the global positional context necessary to align with
+spatially descriptive text findings (e.g., “consolidation in the left lower lobe”). To
+bridge this spatial gap, we introduce explicit anatomical guidance. First, we com-
+pute a relative coordinate vector vcoord ∈[−1, 1]3 representing the 3D centroid
+of each candidate volume, normalized with respect to the global bounding box of
+the lung foreground. Second, we extract a lobe distribution vector vlobe ∈[0, 1]5,
+quantifying the volumetric fraction of each of the five lung lobes occupying the
+candidate sub-volume. These two anatomical vectors are concatenated with the
+local image embedding to form an anatomically-augmented visual feature. Fi-
+nally, a linear projection maps this concatenated representation into the shared
+latent space, yielding the final visual features Zvis ∈RK×d.
+Independent Pairwise Alignment Finally, we compute the pairwise cosine
+similarity between Zvis and Ztxt, yielding a dense similarity matrix S ∈RK×N.
+Each element Si,j represents the similarity score between the i-th visual feature
+vi ∈Zvis and the j-th text feature zj ∈Ztxt, calculated as Si,j =
+vi·zj
+∥vi∥∥zj∥. During
+training, we formulate the matching as an independent pairwise alignment task.
+For each pair (vi, zj), we assign a ground-truth label yi,j ∈{1, −1}. Specifically,
+yi,j = 1 if the lesion mask of vi spatially overlaps with the ground-truth mask
+corresponding to tj; otherwise, yi,j = −1. Notably, this independent formulation
+naturally accommodates candidate volumes that do not correspond to any text
+query, reflecting the clinical reality of false-positive localizations from the first
+stage. To establish precise, independent regional correspondences for each textual
+finding, we optimize the network using a Cosine Embedding Loss L applied to
+each pair (vi, zj), defined as
+Li,j =
+(
+1 −Si,j,
+if yi,j = 1
+max(0, Si,j −m),
+if yi,j = −1 ,
+where m ∈[−1, 1] is a predefined margin. The overall objective is computed as
+the average of the mean positive loss and the mean negative loss across all K×N
+pairs. During inference, a pair (vi, zj) is considered a valid match if Si,j > τ,
+where τ is a fixed threshold.
+Auxiliary Local Mask Refinement Additionally, to explicitly refine the lo-
+cal mask boundaries within each candidate sub-volume, we employ a separate,
+lightweight 3D U-Net. This localized module is supervised by an auxiliary seg-
+mentation loss Lseg, trained independently from the main cross-modal matching
+objective.
+
+
+6
+K.-H. Uhm et al.
+3
+Experiments
+3.1
+Experimental Setup
+Datasets We evaluate our proposed method on ReXGroundingCT [1], the first
+publicly available dataset that establishes explicit linkages between free-text
+radiological findings and pixel-level 3D segmentations. The dataset comprises
+3,142 non-contrast chest CT studies paired with standardized radiology reports
+derived from CT-RATE [4]. CT volumes exhibit varying physical dimensions
+(spacing: 0.30–0.98 mm, thickness: 0.50–5.00 mm, slices: 104–1005) with 92.6%
+reconstructed at 512×512 resolution. ReXGroundingCT provides 16,301 anno-
+tated entities across 8,028 text-to-3D-segmentation pairs. Approximately 79% of
+the findings are focal abnormalities, while the remaining 21% are non-focal. The
+dataset includes a public validation set of 50 cases and a private test set of 100
+cases, both annotated by board-certified radiologists. Private test set results are
+available on the official leaderboard.3.
+Implementation Details In Stage 1, the candidate localization model is trained
+using nnU-Net [5]. CT volumes are resampled to 0.7 × 0.7 × 1.0 mm3, intensity-
+clipped to [−999, 205] HU, and normalized. In Stage 2, candidate sub-volumes are
+extracted as 80×80×48 patches. We use Qwen3-Embedding-4B [11] (prepended
+with the instruction “describe the given CT findings”) and 3D SegResNet [7] as
+text and visual encoders, respectively. Their feature dimensions are 2560 and
+1024, both mapped to a joint embedding space d = 2560. A 4-level lightweight
+3D U-Net handles auxiliary mask refinement. Stage 2 is optimized for 100 epochs
+via Adam (lr = 1 × 10−3, batch size 32) with standard augmentations. We set
+m = 0 and τ = 0.4, conducting all experiments on a single NVIDIA H100 GPU.
+Evaluation Metrics We evaluate the overall segmentation quality using the
+Global Dice score. We also report the Global HIT Rate (HIT10%), the proportion
+of findings with Dice ≥0.1. Additionally, we report instance-level Precision,
+Recall, and F1 score, where a true positive requires a Dice ≥0.2.
+Baselines We compare our approach against four recent state-of-the-art text-
+prompted models: BiomedParseV2 [12], SegVol [3], SAT [13], and VoxTell [9].
+For fair comparison, all baselines were fine-tuned on the training split.
+3.2
+Quantitative Results
+Table 1 summarizes the quantitative performance on the ReXGroundingCT pub-
+lic validation set. Our proposed method, DAGG, consistently ranks first, main-
+taining a substantial performance gap over all compared baseline methods across
+every metric. By achieving the highest scores in both overall segmentation quality
+3 https://rexrank.ai/ReXGroundingCT
+
+
+Title Suppressed Due to Excessive Length
+7
+Table 1. Performance on the ReXGroundingCT public validation set.
+Method
+Dice ↑
+F1 ↑
+Precision ↑
+Recall ↑
+HIT10% ↑
+BiomedParseV2 [12]
+0.059
+0.072
+0.061
+0.089
+0.147
+SegVol [3]
+0.065
+0.081
+0.070
+0.097
+0.198
+SAT [13]
+0.139
+0.166
+0.123
+0.259
+0.400
+VoxTell [9]
+0.214
+0.192
+0.160
+0.240
+0.487
+DAGG (Ours)
+0.250
+0.237
+0.196
+0.298
+0.565
+Table 2. Performance on the ReXGroundingCT private test set (Official Leaderboard).
+Method
+Dice ↑
+F1 ↑
+Precision ↑
+Recall ↑
+HIT10% ↑
+SAT [13]
+0.000
+0.000
+0.000
+0.000
+0.000
+SegVol [3]
+0.000
+0.000
+0.000
+0.000
+0.000
+BiomedParseV2 [12]
+0.025
+0.012
+0.007
+0.072
+0.066
+SAT-FT [13]
+0.209
+0.123
+0.074
+0.369
+0.473
+DAGG (Ours)
+0.253
+0.247
+0.211
+0.299
+0.517
+(Dice, F1) and individual grounding accuracy (Recall, HIT10%), DAGG firmly
+demonstrates the robustness of its decoupled architecture.
+This superiority is rigorously validated on the unseen private test set of the
+official leaderboard. As presented in Table 2, DAGG achieves state-of-the-art re-
+sults in overall segmentation quality, securing the highest Global Dice, Instance
+Precision, and Instance F1 scores. While SAT-FT (fine-tuned) yields higher Re-
+call and Global HIT10%, its drastically low precision indicates a severe tendency
+for over-prediction and false positives. In contrast, DAGG effectively suppresses
+these hallucinations, maintaining a strict balance between precision and recall
+to deliver highly reliable grounding masks suitable for clinical applications.
+3.3
+Ablation Study
+We conduct a progressive ablation study on the ReXGroundingCT validation
+set to validate each core component, as summarized in Table 3. A naive base-
+line using only Stage 1 localization, which indiscriminately assigns all candidate
+lesions to every textual finding, yields the lowest performance. Introducing the
+Stage 2 mapping module significantly improves all metrics by establishing seman-
+tic correspondences between text queries and visual sub-volumes. Incorporating
+Explicit Anatomical Guidance (EAG) further boosts grounding accuracy by pro-
+viding structural priors to resolve spatial ambiguities among adjacent regions.
+Finally, integrating the Auxiliary Mask Refinement (AMR) module achieves our
+best overall results, demonstrating its effectiveness in refining coarse boundaries
+to ensure fine-grained spatial coherence.
+
+
+8
+K.-H. Uhm et al.
+Table 3. Progressive ablation study on the ReXGroundingCT validation set.
+Stage 2 EAG AMR
+Dice ↑
+F1 ↑
+Precision ↑
+Recall ↑
+HIT10% ↑
+✗
+✗
+✗
+0.120
+0.132
+0.080
+0.378
+0.304
+✓
+✗
+✗
+0.183
+0.179
+0.128
+0.301
+0.496
+✓
+✓
+✗
+0.217
+0.217
+0.172
+0.296
+0.548
+✓
+✓
+✓
+0.250
+0.237
+0.196
+0.298
+0.565
+3.4
+Qualitative Results
+Figure 2 visualizes the segmentation results guided by the free-text radiological
+findings. Compared to the baseline models, our proposed method consistently
+generates the most accurate segmentation masks. As depicted, our model suc-
+cessfully localizes the queried lesions and provides precise boundary delineation
+that most closely aligns with the ground truth, effectively handling complex and
+ambiguous anatomical structures.
+4
+Conclusion
+In this paper, we proposed a novel decoupled two-stage framework for voxel-level
+3D chest CT grounding that explicitly disentangles lesion localization from se-
+mantic alignment. To address the inherent complexities of free-text medical find-
+ings, we introduced an explicit anatomical guidance mechanism coupled with an
+independent pair-wise alignment strategy, effectively resolving spatial ambigui-
+ties within local sub-volumes. Extensive experiments on the ReXGroundingCT
+benchmark validate the effectiveness of our approach. By achieving a superior
+balance between precision and recall, our method achieves state-of-the-art per-
+formance on the official leaderboard. This establishes a robust and highly precise
+foundation for cross-modal reasoning in medical imaging.
+References
+1. Baharoon, M., Luo, L., Moritz, M., Kumar, A., Kim, S.E., Zhang, X., Zhu, M.,
+Alabbad, M.H., Alhazmi, M.S., Mistry, N.P., et al.: Rexgroundingct: A 3d chest
+ct dataset for segmentation of findings from free-text reports. arXiv preprint
+arXiv:2507.22030 (2025)
+2. Çiçek, Ö., Abdulkadir, A., Lienkamp, S.S., Brox, T., Ronneberger, O.: 3d u-net:
+learning dense volumetric segmentation from sparse annotation. In: Medical Image
+Computing and Computer-Assisted Intervention–MICCAI 2016: 19th International
+Conference, Athens, Greece, October 17-21, 2016, Proceedings, Part II 19. pp. 424–
+432. Springer (2016)
+3. Du, Y., Bai, F., Huang, T., Zhao, B.: Segvol: Universal and interactive volumetric
+medical image segmentation. Advances in Neural Information Processing Systems
+37, 110746–110783 (2024)
+
+
+Title Suppressed Due to Excessive Length
+9
+Fig. 2. Qualitative results for the grounding of free-text findings across multiple slices.
+4. Hamamci, I.E., Er, S., Wang, C., Almas, F., Simsek, A.G., Esirgun, S.N., et al.: De-
+veloping generalist foundation models from a multimodal dataset for 3d computed
+tomography. Nature Biomedical Engineering (2026)
+5. Isensee, F., Jaeger, P.F., Kohl, S.A., Petersen, J., Maier-Hein, K.H.: nnu-net: a
+self-configuring method for deep learning-based biomedical image segmentation.
+Nature methods 18(2), 203–211 (2021)
+6. Jain, S., Agrawal, A., Saporta, A., Truong, S.Q., Duong, D.N., Bui, T., Chambon,
+P., Zhang, Y., Lungren, M.P., Ng, A.Y., et al.: Radgraph: Extracting clinical enti-
+ties and relations from radiology reports. arXiv preprint arXiv:2106.14463 (2021)
+7. Myronenko, A.: 3d mri brain tumor segmentation using autoencoder regularization.
+In: Brainlesion: Glioma, Multiple Sclerosis, Stroke and Traumatic Brain Injuries:
+4th International Workshop, BrainLes 2018, Held in Conjunction with MICCAI
+2018, Granada, Spain, September 16, 2018, Revised Selected Papers, Part II 4. pp.
+311–320. Springer (2019)
+8. Oord, A.v.d., Li, Y., Vinyals, O.: Representation learning with contrastive predic-
+tive coding. arXiv preprint arXiv:1807.03748 (2018)
+9. Rokuss, M., Langenberg, M., Kirchhoff, Y., Isensee, F., Hamm, B., Ulrich, C.,
+Regnery, S., Bauer, L., Katsigiannopulos, E., Norajitra, T., Maier-Hein, K.:
+Voxtell: Free-text promptable universal 3d medical image segmentation (2025),
+https://arxiv.org/abs/2511.11450
+10. Wasserthal, J., Breit, H.C., Meyer, M.T., Pradella, M., Hinck, D., Sauter, A.W.,
+Heye, T., Boll, D.T., Cyriac, J., Yang, S., et al.: Totalsegmentator: robust 3d
+
+
+10
+K.-H. Uhm et al.
+medical image segmentation for 104 classes. Radiology: Artificial Intelligence 5(5)
+(2023)
+11. Zhang, Y., Li, M., Long, D., Zhang, X., Lin, H., Yang, B., Xie, P., Yang, A., Liu,
+D., Lin, J., et al.: Qwen3 embedding: Advancing text embedding and reranking
+through foundation models. arXiv preprint arXiv:2506.05176 (2025)
+12. Zhao, T., Gu, Y., Yang, J., Usuyama, N., Lee, H.H., Naumann, T., Gao, J., Crab-
+tree, A., Abel, J., Moung-Wen, C., et al.: Biomedparse: a biomedical foundation
+model for image parsing of everything everywhere all at once. arXiv preprint
+arXiv:2405.12971 (2024)
+13. Zhao, Z., Zhang, Y., Wu, C., Zhang, X., Zhou, X., Zhang, Y., Wang, Y., Xie, W.:
+Large-vocabulary segmentation for medical images with text prompts. npj Digital
+Medicine (2025)

@@ -1,0 +1,898 @@
+MSA-DCNN: A Data-Efficient Multi-Scale
+Deformable CNN for Medical Image
+Classification
+Hamza Hussaini1[0009−0005−6463−1607], Shahana Bano1[0000−0002−6907−1777],
+Eyad Elyan1[0000−0002−8342−9026], and Carlos Francisco
+Moreno-García1[0000−0001−7218−9023]
+Robert Gordon University, School of Computing, Engineering and Technology,
+Aberdeen, Scotland, UK
+h.hussaini;s.bano;e.elyan;c.moreno-garcia@rgu.ac.uk
+http://www.rgu.ac.uk
+Abstract. Existing deep learning methods perform well in medical im-
+age classification but struggle with multi-scale morphology and limited
+annotations due to fixed sampling and data-hungry training. Existing
+approaches address these challenges in isolation: DCN-based models pro-
+vide adaptive sampling but lack explicit multi-scale attention fusion and
+label-efficient regularisation; multi-scale architectures typically rely on
+static fusion; and semi-supervised methods target label scarcity without
+jointly modelling adaptive cross-scale representations. We propose MSA-
+DCNN, a scale-consistent deformable attention learning framework that
+introduces adaptive multi-scale sampling, within-scale saliency refine-
+ment, learned cross-scale fusion, and auxiliary self-distillation within a
+unified optimisation scheme, with potential to generalise to structurally
+heterogeneous anatomy. We evaluate on three public benchmarks and
+an external hold-out set for leukaemia. MSA-DCNN demonstrates com-
+petitive and often better performance against ViT baselines, CNN base-
+lines, and a MICCAI semi-supervised baseline under distribution shift
+and label scarcity in accuracy, F1, and AUC (binary), while using fewer
+parameters. Ablations confirm complementary component contributions,
+supporting MSA-DCNN as a practical foundation for data-efficient med-
+ical image classification.
+Keywords: Multi-scale attention learning · Deformable convolutional
+networks · Data-efficient medical image classification · Scale-consistent
+feature fusion · Self-distillation learning.
+1
+Introduction
+Automated medical image classification is a key enabler of computational health-
+care, delivering fast, objective, and reproducible analysis across radiography,
+histopathology, and microscopy [12,18]. Convolutional neural networks (CNNs)
+remain the workhorse due to their hierarchical feature learning and strong perfor-
+mance across lung, brain, oncology, and haematology tasks [29,6,20,16,17]. Yet,
+arXiv:2607.06083v1  [cs.CV]  7 Jul 2026
+
+
+2
+Hussaini et al.
+standard CNNs inherit fixed receptive fields and uniform sampling, which are of-
+ten poorly matched to the heterogeneous textures and multi-scale structural vari-
+ability of medical imagery [28,24,26]. Prior remedies, including attention modules
+and multi-scale designs, improve feature focus and coverage [21,8,10,30], but of-
+ten rely on global aggregation that can wash out subtle cues [9], retain fixed
+kernels that do not adapt sampling across scales [27], and rarely provide internal
+supervision to strengthen shallow layers in data-limited regimes [13]. Moreover,
+medical image classification is frequently constrained by limited labelled data
+[11,14,15,3], limiting generalisation and sensitivity to minority patterns.
+We address these gaps with the Multi-Scale Attention Deformable Convolu-
+tional Neural Network (MSA-DCNN). This work introduces a general principle
+for scale-consistent learning under structural heterogeneity and label scarcity,
+designed to perform effectively at low label fractions with a lean parameter
+budget while enforcing semantic alignment across resolution levels. Critically,
+attention is applied scale-specifically, and the resulting features are fused by
+a learned multi-scale attention mechanism, coupling within-scale recalibration
+with across-scale selection, an integration not explicitly studied in prior de-
+formable or attention-based CNNs.
+We evaluate MSA-DCNN on three publicly available benchmarks against
+data-efficient baselines spanning diverse morphological patterns, from dermo-
+scopic imagery [2] to fine-grained cellular structure in blood and leukaemia
+smears [1,7]. Ablations confirm complementary component effects, and exter-
+nal testing on an independent leukaemia cohort assesses generalisation. Across
+benchmarks, MSA-DCNN improves AUC (binary), accuracy, and F1 with fewer
+parameters.
+Contributions: We introduce a scale-consistent learning framework for multi-
+scale medical image analysis, implemented as a compact CNN with three estab-
+lished principles:
+1. Adaptive receptive-field optimisation, where deformable sampling is struc-
+tured at each scale to preserve fine-grained detail while maintaining global
+context.
+2. Scale-consistent saliency refinement, achieved through sub-block-pooled chan-
+nel and spatial attention, which regularises within-scale feature distributions
+under limited supervision.
+3. Content-aware cross-scale integration via learned attention over projected
+multi-resolution embeddings, with auxiliary self-distillation to align shallow
+and deep representations for stable, label-efficient learning.
+Unlike prior multi-scale or deformable CNNs that treat adaptive sampling,
+attention, and fusion as separate stages, MSA-DCNN jointly learns where to
+sample, what to emphasise, and how to combine features under a unified ob-
+jective. Attention regularises scale-local representations within each deformable
+branch, while a learned multi-scale operator performs content-adaptive selection
+across projected embeddings (Eq. 7–9). An auxiliary self-distillation head en-
+forces cross-scale semantic alignment via KL-divergence minimisation (Eq. 10),
+
+
+MSA-DCNN
+3
+promoting coherent representation geometry and explaining the monotonic gains
+observed in the ablation study.
+2
+Methodology
+Figure 1a provides a concise overview of the proposed MSA-DCNN, which is
+designed around jointly optimising where features are sampled, how saliency
+is preserved within each scale, and how information is integrated across scales
+under limited supervision. After standard preprocessing and a lightweight stem,
+features traverse three compact Inception stages detailed in Figure 1b. Each stage
+comprises two sequential Inception blocks with three parallel branches operating
+at distinct receptive fields, where deformable convolutions adapt the sampling
+grid to structurally heterogeneous, variable-scale patterns. Within each branch,
+a scale-specific MCBAM with sub-block pooling (shown in Figure 1c) performs
+channel–spatial recalibration that preserves fine-grained morphological detail.
+The branch outputs are then projected to a common resolution (via 1×1 conv +
+resize), and a multi-scale attention module computes content-dependent weights
+across scales to yield a unified representation. An auxiliary head attached to the
+first stage supplies self-distillation during training, aligning shallow and deep
+embeddings, while the main path proceeds to global average pooling, dropout,
+and a linear classification head. The model is trained end-to-end and uses a
+single forward pass at inference.
+2.1
+Multi-Scale Deformable Convolution with Attention Fusion
+Let s ∈{1, . . . , S} index the deformable convolution branches (in this case,
+S = 3). The output F of branch s is defined as:
+Fs ∈RCs×Hs×Ws.
+(1)
+where C, H and W represent the channel, height, and width of the output.
+Deformable Convolution Deformable convolution introduces learnable offsets
+∆pk for each sampling point [4]. The output at position p0 is:
+DefConv(p0) =
+K
+X
+k=1
+w(k) x(p0 + pk + ∆pk) ,
+(2)
+where pk denotes the fixed grid offsets and w(k) are the kernel weights. The
+offsets ∆pk allow the receptive field to shift adaptively, enabling improved align-
+ment with structurally heterogeneous and multi-scale patterns.
+
+
+4
+Hussaini et al.
+Pooling
+Conv.
+Block 1
+Pooling
+Pooling
+Logits (Zi)
+Logits (Zt)
+Self-Distillation
+Loss  (LSD)
+Primary Loss
+(LCE)
+Logits Layer
+(Deeper Layers)
+Logits Layer
+(Shallow Layers)
+Inception
+Block 1
+Inception
+Block 2
+Inception
+Block 3
+Inception
+Block 4
+Inception
+Block 5
+Inception
+Block 6
+Compact Inception 
+Compact Inception 
+Compact Inception 
+(a) Pipeline overview.
+ith Conv.
+Block
+1 x 1
+Conv.
+1 x 1
+Conv.
+1 x 1
+Conv.
+1 x 1
+Conv.
+1 x 1
+Conv.
+1 x 1
+Conv.
+5 x 5
+Conv.
+3 x 3
+Conv.
+5 x 5
+Conv.
+3 x 3
+Conv.
+Si Inception
+Block
+Output
+MCBAM
+MCBAM
+MCBAM
+MCBAM
+MCBAM
+MCBAM
+Feature Projection and
+Concatenation
+Multi-Scale Attention 
+Module
+Feature Projection and
+Concatenation
+Multi-Scale Attention 
+Module
+(b) Compact Inception.
+Input Conv.
+Block
+Channel
+Attention
+Module
+Channel
+Attention
+Spatial
+Attention
+Module
+Spatial
+Attention
+MCBAM
+Refined Conv.
+Block
+Sub-Block 1
+Sub-Block 2
+Sub-Block n
+Context Desc 1
+Context Desc 2
+Context Desc n
+Shared MLP
+Avg. Pool
+Attention vect. n
+Sub-Block 1
+Sub-Block 2
+Sub-Block m
+Avg. Pool
+Feature Desc 1
+Feature Desc 2
+Feature Desc m
+Features
+Concat.
+Attention
+Map
+Attention vect. 1
+Attention vect. 2
+(c) MCBAM.
+Fig. 1: MSA-DCNN overview and key components: (a) end-to-end pipeline; (b)
+compact Inception (multi-scale deformable conv); (c) MCBAM internals.
+Scale-Specific MCBAM Refinement Each branch is refined using a two-
+stage MCBAM module. First, channel attention A(c)
+s
+is computed from Fs as:
+A(c)
+s (Fs) = σ
+ N
+X
+n=1
+Who,s δ
+ Wih,s AvgPoolhs×ws×1(Ps,n)
+
+!
+∈R1×1×Cs,
+(3)
+where Wih,s and Who,s are MLP learnable weights, δ is the ReLU activation, N
+is the number of spatial sub-blocks (4 in this case, which improves computational
+efficiency), and σ is the sigmoid activation. Channel refinement is then applied
+as:
+F (c)
+s
+= A(c)
+s (Fs) ⊙Fs.
+(4)
+The channel-refined map F (c)
+s
+is partitioned into (m = 3, which improves
+efficiency) channel sub-blocks {Qs,j}m
+j=1, as shown in the spatial attention com-
+ponent of Figure 1c. Spatial attention is computed by aggregating sub-block
+descriptors and applying a convolutional filter (7 × 7 spatial dimension is used,
+as derived from [9]):
+
+
+MSA-DCNN
+5
+A(s)
+s (F (c)
+s ) = σ(Conv7×7(Conc.[AP1×1×d(Qs,1), . . . , AP1×1×d(Qs,m)]))
+∈R1×Hs×Ws.
+(5)
+Finally, spatial attention is applied to the channel-refined feature map to
+obtain the MCBAM-modified output:
+F ′
+s = A(s)
+s (F (c)
+s ) ⊙F (c)
+s .
+(6)
+Projection and Multi-Scale Attention Fusion Each refined feature map is
+projected into a common space using a scale-projection operator:
+Us(F ′
+s) = resize(Conv1×1(F ′
+s)) ∈RC×H×W .
+(7)
+Sample-wise multi-scale attention is computed from concatenated global de-
+scriptors as:
+α = softmax
+ W2 δ
+ W1 ConcatS
+s=1 [GAP(Us(F ′
+s))]
+
+∈RS.
+(8)
+W1 and W2 are learnable parameters for multi-scale attention; GAP denotes
+global average pooling. The fused multi-scale representation is:
+FMSA =
+S
+X
+s=1
+α Us(F ′
+s).
+(9)
+Eq. (1–9) define a scale-attentive operator that jointly regularises within-scale
+saliency and across-scale selection, yielding a unified, content-adaptive embed-
+ding for irregular morphology.
+2.2
+Self-Distillation
+We formalise self-distillation as a geometric constraint on cross-scale represen-
+tation alignment that regularises early deformable offsets by aligning low- and
+high-resolution semantic manifolds in low-label regimes. This enforces invariance
+of semantic structure across resolution levels rather than simple logit matching.
+Let zT and zi denote deep and shallow projections, respectively. The distillation
+loss is:
+LSD = KLDiv
+
+Softmax
+zT
+τ
+
+, Softmax
+zi
+τ
+
+,
+(10)
+where τ is a temperature parameter. The overall training objective is
+Ltotal = λCELCE + λF LLFocal + λLSD,
+(11)
+where LCE denotes the class-weighted cross-entropy loss, LFocal denotes the
+focal loss for handling class imbalance, and LSD represents the self-distillation
+loss, and the λCE, λF L, and λ are the corresponding loss weighting coefficients.
+
+
+6
+Hussaini et al.
+3
+Experiments
+3.1
+Datasets and Evaluation Metrics
+We evaluate MSA-DCNN on three public benchmarks and an external hold-out
+set. Our experiments assess quality, robustness, and label efficiency of multi-scale
+representations under distribution shift and class imbalance. C-NMC contains
+15,114 white blood cell smear images (450×450, RGB) with class imbalance
+between normal and leukaemia cells; PBC comprises 17,092 images across eight
+peripheral blood cell classes (360×363, RGB) with pronounced class imbalance;
+and ISIC-2020 is a large-scale dermoscopic dataset with severe skew (≈32k
+benign vs. 500 malignant) and varying image resolutions. For external validation,
+we evaluate on an entirely independent leukaemia smear dataset1, where pre-,
+early-, and pro-leukaemia labels are merged into a single leukaemia class to match
+the binary setting. Importantly, this external dataset is not used at any stage
+of model development, including training, validation, hyperparameter tuning,
+model selection, or internal testing. Instead, it is reserved exclusively for post hoc
+evaluation to assess the generalisation capability and robustness of MSA-DCNN
+under distribution shift. We report Accuracy and F1-score for all datasets, and
+AUC for binary tasks. Model efficiency is assessed using parameter count and
+floating-point operations (FLOPs).
+3.2
+Experimental Details
+Experiments were conducted on an NVIDIA A100 GPU using PyTorch with a
+70/15/15 train/validation/test split. Images were processed at dataset-specific
+resolutions: PBC (299×299), C-NMC (450×450), and ISIC-2020 (768×768). All
+methods, incl. a DeiT ImageNet-pretrained transformer, followed identical pro-
+tocols and were trained with Adam (1×10−4, batch size 32) for 20 epochs using
+class-balanced sampling, class-weighted cross-entropy (binary BCE for two-class
+tasks), focal loss, and minority-targeted augmentations. Evaluation used nor-
+malised test images only; binary tasks employed BCE-with-logits, and PBC used
+categorical cross-entropy, with auxiliary heads weighted at 0.3. Hyperparame-
+ters were selected on validation and fixed across datasets. Results are reported
+as mean ± standard deviation over five seeds, with significance assessed using
+paired Wilcoxon tests (p < 0.05) and 1,000-sample bootstrap CIs. Code will be
+released upon acceptance.
+3.3
+Comparison with State-of-the-Art Methods
+Table 1 shows that MSA-DCNN achieves competitive and often better perfor-
+mance across datasets, surpassing foundational and data-efficient transformers
+(DINOv2-S [19], DeiT-S [25]), compact CNNs (Inception-v3 [22], EfficientNet
+1 https://www.kaggle.com/datasets/mehradaria/leukemia?resource=download
+
+
+MSA-DCNN
+7
+[23]), the deformable-convolution-based DGConv [5], and a semi-supervised base-
+line (TS-MS [15]) while using substantially fewer parameters. DGConv consis-
+tently provides the strongest baseline performance across most datasets, high-
+lighting the effectiveness of deformable convolutions for modelling geometric
+variations; however, MSA-DCNN achieves further gains in AUC, accuracy, and
+F1-score with lower parameter complexity. As shown in Fig. 2, performance re-
+mains higher under reduced label fractions, indicating improved label efficiency
+relative to both supervised and semi-supervised baselines. Gains in AUC and
+F1 persist under class imbalance, reflecting improved sensitivity to minority
+patterns. Paired Wilcoxon tests across seeds confirm significant AUC gains (C-
+NMC: p = 0.018, ISIC-2020: p = 0.011, ALL: p = 0.024), with 95% bootstrap
+CIs of [+0.014, +0.029], [+0.010, +0.030], and [+0.006, +0.032], respectively.
+Despite increased FLOPs at higher resolutions, MSA-DCNN remains compu-
+tationally competitive, and performance on the external ALL cohort degrades
+modestly yet remains consistently above all baselines, supporting robustness un-
+der distribution shift.
+Table 1: Performance and efficiency of MSA-DCNN and baselines on PBC, C-
+NMC, ISIC-2020, and an external ALL set. For MSA-DCNN, values denote mean
+± std; † indicates significant AUC gains (p < 0.05)
+DB
+Method
+AUC
+Acc
+F1
+FLOPs Params
+PBC
+Inception-v3 [22]
+–
+0.92
+0.91
+5.74
+23.9
+EfficientNet-B3 [23]
+–
+0.90
+0.89
+1.78
+12.0
+DeiT-S [25]
+–
+0.89
+0.88
+5.03
+22.1
+DINOv2-S [19]
+–
+0.91
+0.90
+11.08
+21.3
+TS-MS [15]
+–
+0.92
+0.91
+3.10
+8.4
+DGConv [5]
+–
+0.92
+0.92
+3.42
+7.98
+MSA-DCNN
+–
+0.94
+0.93
+1.99
+5.25
+C-NMC
+Inception-v3 [22]
+0.94
+0.93
+0.92
+7.57
+23.9
+EfficientNet-B3 [23]
+0.92
+0.91
+0.90
+3.12
+12.0
+DeiT-S [25]
+0.91
+0.90
+0.89
+6.99
+22.1
+DINOv2-S [19]
+0.93
+0.92
+0.90
+13.97
+21.3
+TS-MS [15]
+0.91
+0.90
+0.88
+4.60
+8.4
+DGConv [5]
+0.94
+0.92
+0.93
+4.54
+7.98
+MSA-DCNN
+0.96±0.003† 0.94±0.002 0.93±0.004
+3.80
+5.25
+ISIC-2020
+Inception-v3 [22]
+0.95
+0.94
+0.93
+16.60
+23.9
+EfficientNet-B3 [23]
+0.93
+0.92
+0.91
+10.98
+12.0
+DeiT-S [25]
+0.92
+0.91
+0.89
+13.40
+22.1
+DINOv2-S [19]
+0.94
+0.93
+0.91
+19.04
+21.3
+TS-MS [15]
+0.95
+0.93
+0.92
+12.10
+8.4
+DGConv [5]
+0.96
+0.94
+0.94
+9.36
+7.98
+MSA-DCNN
+0.97±0.003† 0.95±0.002 0.94±0.006
+11.07
+5.25
+Hold-Out
+ALL
+Inception-v3 [22]
+0.91
+0.90
+0.89
+7.57
+23.9
+EfficientNet-B3 [23]
+0.89
+0.89
+0.88
+3.12
+12.0
+DeiT-S [25]
+0.88
+0.88
+0.87
+6.24
+22.1
+DINOv2-S [19]
+0.90
+0.90
+0.88
+13.97
+21.3
+TS-MS [15]
+0.89
+0.87
+0.86
+4.60
+8.4
+DGConv [5]
+0.91
+0.90
+0.91
+4.54
+7.98
+MSA-DCNN
+0.93±0.005† 0.92±0.004 0.91±0.006
+3.80
+5.25
+
+
+8
+Hussaini et al.
+3.4
+Ablation Studies
+Table 2: Full Ablation Studies on the PBC Dataset, and Reduced Ablation
+Studies on the C-NMC and ISIC-2020 Datasets.
+Dataset
+Baseline DC SSA MSA SD AUC Acc
+F1
+PBC
+✓
+–
+0.88 0.88
+✓
+✓
+–
+0.90 0.90
+✓
+✓
+–
+0.90 0.89
+✓
+✓
+–
+0.91 0.91
+✓
+✓
+–
+0.91 0.90
+✓
+✓
+✓
+–
+0.92 0.92
+✓
+✓
+✓
+–
+0.92 0.91
+✓
+✓
+✓
+–
+0.92 0.91
+✓
+✓
+✓
+–
+0.92 0.92
+✓
+✓
+✓
+–
+0.92 0.91
+✓
+✓
+✓
+–
+0.92 0.91
+✓
+✓
+✓
+✓
+–
+0.93 0.93
+✓
+✓
+✓
+✓
+–
+0.93 0.93
+✓
+✓
+✓
+✓
+–
+0.93 0.92
+✓
+✓
+✓
+✓
+–
+0.93 0.93
+✓
+✓
+✓
+✓
+✓
+–
+0.94 0.93
+C-NMC
+✓
+0.92 0.91 0.90
+✓
+✓
+0.94 0.92 0.92
+✓
+✓
+✓
+0.95 0.93 0.92
+✓
+✓
+✓
+✓
+0.95 0.93 0.92
+✓
+✓
+✓
+✓
+✓0.96 0.94 0.93
+ISIC-2020
+✓
+0.93 0.91 0.89
+✓
+✓
+0.94 0.92 0.91
+✓
+✓
+✓
+0.95 0.94 0.93
+✓
+✓
+✓
+✓
+0.96 0.94 0.93
+✓
+✓
+✓
+✓
+✓0.97 0.95 0.94
+Table 2 quantifies the impact of Deformable Convolution (DC), Scale-Specific
+Attention (SSA), Multi-Scale Attention (MSA), and Self-Distillation (SD). On
+PBC, each component improves over the baseline, with additive gains yielding
+the best accuracy–F1 trade-off. On the highly imbalanced ISIC-2020, all vari-
+ants use identical class-balanced training, as the unbalanced baseline collapses
+toward benign prediction. Reduced ablations on C-NMC and ISIC-2020 show a
+consistent monotonic trend, where DC and SSA strengthen discrimination, MSA
+improves cross-scale fusion, and SD provides further refinement, producing gains
+in AUC, accuracy, and F1. The full configuration performs best across datasets,
+including under reduced labels (Fig. 2a, Fig. 2b), confirming complementary and
+generalisable contributions.
+
+
+MSA-DCNN
+9
+4
+Conclusion
+We presented MSA-DCNN, a scale-consistent framework for data-efficient med-
+ical image classification that integrates adaptive sampling, scale-specific feature
+refinement, learned multi-scale attention fusion, and auxiliary self-distillation.
+Across C-NMC, PBC, ISIC-2020, and an external leukaemia hold-out set, it
+achieves competitive and often better performance; ablations confirm comple-
+mentary contributions of DC, SSA, MSA, and SD, with consistent gains under
+reduced labels (Fig. 2a, Fig. 2b), supporting robustness under scanner, staining,
+and cohort shift. Future work will explore uncertainty-aware inference, enhanced
+interpretability, and trustworthy clinical decision support.
+10
+20
+50
+Labeled Data (%)
+0.00
+0.01
+0.02
+0.03
+0.04
+0.05
+F1 Drop (relative to 100%)
+Subset Ablation on ISIC-2020
+MSA-DCNN (proposed)
+TS-MS
+DINOv2-S
+EfficientNet-B3
+DeiT
+Inception-v3
+(a) Subset ablation.
+20
+40
+60
+80
+100
+Fraction of labeled training data (%)
+0.80
+0.82
+0.84
+0.86
+0.88
+0.90
+0.92
+0.94
+0.96
+Accuracy
+Learning Curve Comparison on ISIC-2020
+MSA-DCNN
+TS-MS
+Inception-v3
+DINOv2-S
+EfficientNet-B3
+DeiT
+(b) Data-efficiency curves.
+Fig. 2: Label-efficiency on ISIC-2020: (a) F1 degradation under reduced labels;
+(b) accuracy learning curves versus supervised and semi-supervised baselines.
+References
+1. Acevedo, A., Merino, A., Alférez, S., Molina, Á., Boldú, L., Rodellar, J.: A dataset
+of microscopic peripheral blood cell images for development of automatic recogni-
+tion systems. Data in brief 30, 105474 (2020)
+2. Adepu, A.K., Sahayam, S., Jayaraman, U., Arramraju, R.: Melanoma classification
+from dermatoscopy images using knowledge distillation for highly imbalanced data.
+Computers in Biology and Medicine 154, 106571 (2023)
+3. Chen, X., Wang, X., Zhang, K., Fung, K.M., Thai, T.C., Moore, K., Mannel, R.S.,
+Liu, H., Zheng, B., Qiu, Y.: Recent advances and clinical applications of deep
+learning in medical image analysis. Medical image analysis 79, 102444 (2022)
+4. Dai, J., Qi, H., Xiong, Y., Li, Y., Zhang, G., Hu, H., Wei, Y.: Deformable convolu-
+tional networks. In: Proceedings of the IEEE international conference on computer
+vision. pp. 764–773 (2017)
+5. Gong, X., Xia, X., Zhu, W., Zhang, B., Doermann, D., Zhuo, L.: Deformable ga-
+bor feature networks for biomedical image classification. In: Proceedings of the
+IEEE/CVF Winter Conference on applications of computer vision. pp. 4004–4012
+(2021)
+
+
+10
+Hussaini et al.
+6. Guo, Y., Li, N., Song, C., Yang, J., Quan, Y., Zhang, H.: Artificial intelligence-
+based automated breast ultrasound radiomics for breast tumor diagnosis and treat-
+ment: a narrative review. Frontiers in Oncology 15, 1578991 (2025)
+7. Gupta, R., Gehlot, S., Gupta, A.: C-nmc: B-lineage acute lymphoblastic leukaemia:
+A blood cancer dataset. Medical Engineering & Physics 103, 103793 (2022)
+8. Han, Q., Qian, X., Xu, H., Wu, K., Meng, L., Qiu, Z., Weng, T., Zhou, B., Gao,
+X.: Dm-cnn: Dynamic multi-scale convolutional neural network with uncertainty
+quantification for medical image classification. Computers in biology and medicine
+168, 107758 (2024)
+9. Hussaini, H., Bano, S., Elyan, E., Moreno-Garcia, C.F.: Modified cbam: Sub-block
+pooling for improved channel and spatial attention. In: Annual Conference on
+Medical Image Understanding and Analysis. pp. 116–130. Springer (2025)
+10. Jin, Y., You, Z., Cai, N.: Simplified inception module based hadamard attention
+mechanism for medical image classification. Journal of Computer and Communi-
+cations 11(6), 1–18 (2023)
+11. Ju, L., Wu, Y., Feng, W., Yu, Z., Wang, L., Zhu, Z., Ge, Z.: Universal semi-
+supervised learning for medical image classification. In: International Conference
+on Medical Image Computing and Computer-Assisted Intervention. pp. 355–365.
+Springer (2024)
+12. Khalifa, M., Albadawy, M.: Ai in diagnostic imaging: Revolutionising accuracy
+and efficiency. Computer Methods and Programs in Biomedicine Update p. 100146
+(2024)
+13. Kishore, J., Mukherjee, S.: Designing autotuned student models by knowledge
+distillation from self-supervised teacher models. SN Computer Science 6(5), 1–16
+(2025)
+14. Kunanbayev, K., Shen, V., Kim, D.S.: Training vit with limited data for alzheimer’s
+disease classification: An empirical study. In: International Conference on Medi-
+cal Image Computing and Computer-Assisted Intervention. pp. 334–343. Springer
+(2024)
+15. Li, H., Wang, Y., Zhu, J., Guo, D., Yu, Q., Yan, K., Lu, L., Ye, X., Zhang, L., Wang,
+Q., et al.: Semi-supervised lymph node metastasis classification with pathology-
+guided label sharpening and two-streamed multi-scale fusion. In: International
+Conference on Medical Image Computing and Computer-Assisted Intervention.
+pp. 623–633. Springer (2024)
+16. Mall, P.K., Singh, P.K., Srivastav, S., Narayan, V., Paprzycki, M., Jaworska, T.,
+Ganzha, M.: A comprehensive review of deep neural networks for medical image
+processing: Recent developments and future opportunities. Healthcare Analytics
+4, 100216 (2023)
+17. Mienye, I.D., Swart, T.G., Obaido, G., Jordan, M., Ilono, P.: Deep convolutional
+neural networks in medical image analysis: A review. Information 16(3), 195 (2025)
+18. Obuchowicz, R., Strzelecki, M., Piórkowski, A.: Clinical applications of artificial
+intelligence in medical imaging and image processing—a review (2024)
+19. Oquab, M., Darcet, T., Moutakanni, T., Vo, H., Szafraniec, M., Khalidov, V.,
+Fernandez, P., Haziza, D., Massa, F., El-Nouby, A., et al.: Dinov2: Learning robust
+visual features without supervision. arXiv preprint arXiv:2304.07193 (2023)
+20. Rayed, M.E., Islam, S.S., Niha, S.I., Jim, J.R., Kabir, M.M., Mridha, M.: Deep
+learning for medical image segmentation: State-of-the-art advancements and chal-
+lenges. Informatics in Medicine Unlocked p. 101504 (2024)
+21. Subba, A.B., Sunaniya, A.K.: Computationally optimized brain tumor classifica-
+tion using attention based googlenet-style cnn. Expert Systems with Applications
+260, 125443 (2025)
+
+
+MSA-DCNN
+11
+22. Szegedy, C., Vanhoucke, V., Ioffe, S., Shlens, J., Wojna, Z.: Rethinking the incep-
+tion architecture for computer vision. In: Proceedings of the IEEE conference on
+computer vision and pattern recognition. pp. 2818–2826 (2016)
+23. Tan, M., Le, Q.: Efficientnet: Rethinking model scaling for convolutional neural
+networks. In: International conference on machine learning. pp. 6105–6114. PMLR
+(2019)
+24. Tong, S., Zuo, Z., Liu, Z., Sun, D., Zhou, T.: Hybrid attention mechanism of feature
+fusion for medical image segmentation. IET Image Processing 18(1), 77–87 (2024)
+25. Touvron, H., Cord, M., Douze, M., Massa, F., Sablayrolles, A., Jégou, H.: Training
+data-efficient image transformers & distillation through attention. In: International
+conference on machine learning. pp. 10347–10357. PMLR (2021)
+26. Wei, X.S., Song, Y.Z., Mac Aodha, O., Wu, J., Peng, Y., Tang, J., Yang, J., Be-
+longie, S.: Fine-grained image analysis with deep learning: A survey. IEEE trans-
+actions on pattern analysis and machine intelligence 44(12), 8927–8948 (2021)
+27. Xu, Z., Ren, H., Zhou, W., Liu, Z.: Isanet: Non-small cell lung cancer classification
+and detection based on cnn and attention mechanism. Biomedical Signal Processing
+and Control 77, 103773 (2022)
+28. Yu, H., Yang, L.T., Zhang, Q., Armstrong, D., Deen, M.J.: Convolutional neural
+networks for medical image analysis: state-of-the-art, comparisons, improvement
+and perspectives. Neurocomputing 444, 92–110 (2021)
+29. Yu, J., Ge, R., Wang, Z., Yang, C., Lin, C., Fu, X., Liu, J., Elazab, A., Wang, C.:
+Small lesions-aware bidirectional multimodal multiscale fusion network for lung
+disease classification. In: International Conference on Medical Image Computing
+and Computer-Assisted Intervention. pp. 589–598. Springer (2025)
+30. Zhang, R., Han, X., Lei, Z., Jiang, C., Gul, I., Hu, Q., Zhai, S., Liu, H., Lian, L.,
+Liu, Y., et al.: Rcmnet: A deep learning model assists car-t therapy for leukemia.
+Computers in biology and medicine 150, 106084 (2022)

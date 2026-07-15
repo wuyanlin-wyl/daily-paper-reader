@@ -1,0 +1,2585 @@
+3D-DefectBench: A Controlled Factorial Study of
+Vision-Language Model Evaluation Pipelines for Fine-Grained
+3D Generation Defects
+Zhenyu Zhao1,†, Nanshan Jia1,2,*, Jihyeon Je1,3,*, Yifu Tang1,2,*, Alvin Chan1, Michael
+Spedden1, Michael V. Palleschi1, Sui Huang1, Jingshen Wang4, Zeyu Zheng2
+1Roblox Corporation
+2Berkeley AI Research Lab & Department of Industrial Engineering and Operations Research, University of California, Berkeley
+3Computer Science Department, Stanford University
+4Division of Biostatistics, University of California, Berkeley
+Abstract
+Automated evaluation is essential for scaling generative 3D systems, where exhaustive human review is costly
+and slow. Yet the reliability of an automated judge depends on the full evaluation pipeline—not only the underlying
+vision-language model (VLM), but also how the asset is rendered, which visual evidence is provided, how the task is
+specified, and how human reference labels are constructed. We introduce 3D-DefectBench, a large-scale instantiation
+of a methodology for rigorous evaluation-pipeline analysis. The benchmark complements holistic ratings and pairwise
+preferences with nine fine-grained binary defects spanning geometry, texture, and prompt adherence, providing
+actionable diagnostics for generator development and detailed visibility into judge behavior. Using a balanced factorial
+design, we vary the VLM, camera protocol, visual input, and prompt schema across 84 inference designs, then use a
+cost-aware staged study to validate the resulting design conclusions on a broader frontier-model set. Model choice is
+the dominant source of variation in agreement with human labels, but the remaining pipeline factors also influence
+agreement, interact with the model, and can alter the best configuration for a given judge. Within the tested design
+space, a compact six-view RGB protocol performs comparably to denser view sets and configurations augmented with
+depth or normal channels, making it a strong cost-effective default. Under this fixed design, the best of 12 VLMs still
+trail trained human labelers, while texture agreement drops sharply when moving from expert-agreement labels to
+noisier silver labels. These results show that automated judges should be evaluated as complete pipelines and calibrated
+across human reference regimes, rather than benchmarked solely as standalone models. We release labels, prompts,
+predictions, and Croissant metadata on HuggingFace.
+Keywords vision-language models · 3D generation · evaluation · LLM-as-judge · benchmark
+1
+Introduction
+Evaluating generative 3D systems at scale is difficult. Both the input and the output are open ended: a text prompt can
+describe an effectively unbounded set of objects, while the resulting textured mesh may vary in geometry, appearance,
+composition, and adherence to the prompt. In production and model-development settings, evaluation may cover large
+volumes of generations, repeated checkpoint comparisons, online failure analysis, and even annotation of training data
+for evaluators or downstream models. Exhaustive human review at this scale is costly and slow, motivating the use
+of vision-language models (VLMs) as automated judges that inspect multi-view renders together with the generation
+prompt [Duggal et al., 2025, Wu et al., 2024b, Zhang et al., 2025b]. However, evaluating VLM judges is fundamentally
+a measurement problem, not simply a model benchmarking problem.
+Using a VLM as a judge involves more than choosing a VLM model. Human labelers can inspect a 3D asset
+interactively by rotating and zooming the mesh, whereas a VLM receives a constructed representation of that asset. Its
+* This work was done while Nanshan Jia, Jihyeon Je, and Yifu Tang were interns at Roblox Corporation.
+† Correspondence: zzhao@roblox.com.
+1
+arXiv:2607.10826v1  [cs.CV]  12 Jul 2026
+
+
+3D-DEFECTBENCH
+A PREPRINT
+agreement with human labels may therefore depend not only on the VLM’s capability, but also on how the asset is
+rendered, which visual channels are shown, how the task and output format are specified, and how the reference labels
+are constructed. Evaluating judges under different settings can consequently confound model quality with differences
+in the surrounding evaluation setup. We therefore treat a VLM judge as a configurable evaluation pipeline and study
+how each component contributes to agreement with human labels.
+Evaluating a VLM judge against humans is itself a measurement problem. A simple approach is to compare
+each VLM prediction with a single human annotation, but this implicitly assumes that the annotation is a reliable
+target. In practice, agreement can vary with annotator expertise, rubric interpretation, and example difficulty, so a
+low VLM–human agreement score may reflect limitations in the reference labels as well as in the judge. To separate
+these sources of variation, we construct two complementary reference regimes: a large silver set annotated by trained
+vendor labelers and a smaller expert set labeled by the 3D artists who developed the rubric. Each asset receives
+multiple independent annotations. This design lets us estimate inter-labeler agreement, compare VLMs under silver and
+expert references, and examine whether judge performance deteriorates on defects or examples that humans also label
+inconsistently.
+Reliable calibration alone, however, is not sufficient. Many existing 3D-generation evaluations summarize an asset
+with a holistic rating or pairwise preference [Gu et al., 2025, Yang et al., 2024c,b,d]. Such signals remain valuable for
+ranking generators and summarizing overall quality, but they provide limited insight into why a generation succeeds or
+fails and can therefore be difficult to act on during model development. A system can improve its average preference
+score while producing more fused parts, misplaced textures, or missing prompt-specified components—failures that
+require different data and modeling interventions. We therefore complement holistic evaluation with fine-grained defect
+assessment. Given a text prompt and a generated textured mesh, the judge predicts a nine-dimensional binary vector
+spanning geometry, texture, and prompt adherence. These defect-level judgments provide actionable diagnostics for
+generator improvement, enable more detailed quantification of model performance, and reveal which categories of
+defects VLM judges can and cannot assess reliably.
+Studying these questions requires varying pipeline components jointly. Camera protocol, visual input, prompt
+schema, and judge model may interact: a rendering or prompting choice that helps one model may hurt another. We
+therefore adopt a balanced factorial design that crosses the practitioner-controllable pipeline factors and estimates both
+their main effects and interactions with a defect-level logistic factor model. Because evaluating every configuration
+with every frontier VLM would be prohibitively expensive, we further employ a staged experimental design. We
+first screen all 84 inference configurations using a diverse set of cost-effective VLMs, then validate the resulting
+design recommendations on a broader set of frontier models, before fixing a near-optimal pipeline configuration for
+comprehensive comparison against expert labels, held-out silver labels, and trained human labelers.
+This study is enabled by 3D-DefectBench, a benchmark designed specifically for studying VLM judges rather than
+merely ranking them. It contains text prompts, generated textured meshes, and fine-grained defect annotations from
+complementary human reference sources. The benchmark includes a large silver set of 1,049 assets labeled by trained
+vendor annotators and a smaller expert set of 129 assets independently reviewed by two expert 3D artists. Assets are
+drawn from multiple text-to-3D generator arms, enabling us to study judge reliability, calibration across reference-label
+regimes, and the stability of downstream generator-comparison conclusions.
+We organize the study around three questions:
+1. Pipeline sensitivity: How much do the judge model, camera protocol, visual input, and prompt schema—and their
+interactions—affect agreement with human labels?
+2. Deployment design: Which evaluation pipeline provides the best reliability–cost trade-off, and do those conclusions
+transfer from the screening models to a broader frontier-judge set?
+3. Human calibration: Under a fixed pipeline, how closely do VLM judges agree with trained humans, how
+robust are their rankings across silver and expert reference regimes, and do they support consistent downstream
+generator-comparison decisions?
+Our contributions are:
+• A fine-grained 3D defect benchmark and evaluation task. We introduce a nine-category defect taxonomy spanning
+geometry, texture, and prompt adherence, together with silver and expert reference labels. The resulting benchmark
+complements holistic quality metrics by providing actionable diagnostics for generator development and detailed
+characterization of VLM judges.
+• A factorial framework for studying VLM evaluation pipelines. We jointly vary the judge model, camera protocol,
+visual input, and prompt schema across 84 inference designs and use a defect-level logistic factor model to estimate
+2
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 1: Overview of 3D-DefectBench. Text prompts are converted into textured GLB meshes by two anonymized
+text-to-3D generator arms. Human reviewers inspect interactive meshes, whereas VLM judges receive rendered multi-
+view images together with the prompt. We treat the VLM judge as a configurable evaluation pipeline, systematically
+varying the judge model, camera protocol, visual input, and prompt schema through a balanced factorial design before
+evaluating frontier VLMs under a fixed near-optimal pipeline. Multiple annotations from trained vendor and expert
+labelers provide complementary reference-label regimes for calibration.
+3
+
+
+3D-DEFECTBENCH
+A PREPRINT
+their main effects and interactions, treating automated judging as a configurable measurement pipeline rather than a
+standalone model.
+• A cost-aware staged methodology for evaluating automated judges. We combine broad factorial screening with
+cost-effective VLMs, targeted validation on a wider frontier-model set, and comprehensive fixed-pipeline comparison.
+This separates the question of which evaluation pipeline to deploy from which VLM to use.
+• Calibration against human and reference-label variability. We evaluate 12 VLM judges against expert and silver
+reference regimes, benchmark them against trained human labelers under matched protocols, analyze defect-level
+strengths and weaknesses, and study how judge choice influences downstream generator-comparison conclusions.
+Although our empirical study focuses on text-to-3D generation, we believe the underlying methodology is broadly
+applicable to GenAI evaluation. In many domains, an automated judge operates as a configurable evaluation pipeline
+whose reliability depends jointly on the judge model, input construction, prompt design, output schema, and the
+quality of human reference labels. The combination of balanced factorial experiments, staged evaluation, multiple
+reference-label regimes, and calibration against human labelers provides a general framework for studying automated
+judges beyond 3D generation.
+2
+Related work
+Automated evaluation with LLM/VLM judges.
+LLM- and VLM-based judges automate evaluation in text, code,
+and multimodal tasks [Yang et al., 2024a, Lin et al., 2024, Liu et al., 2023, Zheng et al., 2023]. These methods raise a
+common measurement concern: a judge’s score can conflate model capability with prompt design, input representation,
+and label quality. This concern is central in 3D generation, where the visual evidence is not a natural image but a
+rendered representation of a mesh. We therefore treat rendering, view layout, prompt format, and output schema as part
+of the evaluated judging system rather than fixed implementation details. A parallel line of work studies the reliability
+of LLM/VLM judges themselves—position and verbosity biases, self-consistency, and calibration [Zheng et al., 2023,
+Lin et al., 2024]; we complement it by measuring, for a 3D defect-judging task, how much of a judge’s agreement is
+governed by pipeline choices rather than the underlying model.
+Visual evaluator benchmarks.
+MMBench and MMMU assess multimodal reasoning [Liu et al., 2024, Yue et al.,
+2024]; Q-Bench targets low-level visual perception [Wu et al., 2024a]; VISCO benchmarks fine-grained, step-wise
+binary critique of visual-reasoning chains [Wu et al., 2025]; GenAI-Bench and VQAScore target 2D text-to-visual
+generation [Li et al., 2024, Lin et al., 2024]. These benchmarks primarily compare model capability under a fixed input
+and evaluation protocol. Of them, VISCO is closest to our fine-grained binary labeling in spirit—it assigns a binary
+correctness label per reasoning step—though it critiques natural-image reasoning chains rather than defects on rendered
+3D assets. In contrast, our benchmark evaluates VLMs inside a configurable 3D judging pipeline and reports how
+system-level choices affect defect-level accuracy.
+3D generation evaluation.
+Prior work scores text-to-3D and image-to-3D outputs with a range of protocols rather
+than a single VLM-judge recipe: VLM/MLLM judges producing pairwise or hierarchical scores [Wu et al., 2024b,
+Zhang et al., 2025b], interpretable multi-criterion metrics computed from foundation models [Duggal et al., 2025],
+dedicated non-VLM metrics motivated by concerns that direct GPT scoring inherits model biases [Cai et al., 2024],
+trained human-preference reward models fit to large crowd-plus-expert vote collections [Zhang et al., 2025a], and
+learned rank metrics fit to human mean-opinion scores with GPT-4o used only for prompt construction [Cui et al.,
+2025]. Several of these collect substantial human annotation for validation, and 3DGen-Bench in particular gathers
+both crowd and expert votes [Zhang et al., 2025a]. CLIP alignment [Radford et al., 2021] and 2D perceptual metrics
+[Zhang et al., 2018, Heusel et al., 2017] are not designed for localized geometry/texture defects. Earlier text-to-shape
+retrieval and text-driven mesh stylization methods [Chen et al., 2019, Michel et al., 2022] provide complementary
+alignment signals but likewise do not target per-defect judgments. Two choices set 3D-DefectBench apart from this
+body of work. First, the unit of measurement. Recent 3D evaluators have moved toward localized and categorical
+assessment: Eval3D enumerates inconsistency types—structural, semantic, and geometric inconsistency, and text–3D
+misalignment [Duggal et al., 2025]—and Hi3DEval scores geometry and texture quality at the part level, localizing
+flaws below the whole-object level [Zhang et al., 2025b]; others report multi-dimensional quality on absolute scales,
+such as T23D-CompBench’s twelve sub-components [Cui et al., 2025] and DB-3DME’s coarse 1–3 ordinal mesh
+ratings [Jia et al., 2026]. Our unit is finer and more categorical still: a binary label for each of nine independently
+4
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 1: Canonical accounting for splits, API calls, and scored defect cells. Screening scores all 1,049 silver assets
+on every design: geometry on all 84 configs and texture on the 48 RGB-bearing configs (color is required to judge
+texture). The 500/549-asset figures used for configuration selection and the silver holdout are a disjoint partition of
+these 1,049 assets, not a limit on screening coverage. The final row is the both-experts-agree subset of the Expert eval
+(c004) predictions above—no additional inference—counted as unique reference cells rather than per-model scored
+cells, so the per-run columns do not apply.
+Phase
+Assets
+Configs
+Models
+Aspects
+Calls
+Scored cells
+Screening (factor analysis)
+1,049
+84
+5
+2
+692,340
+3,209,954
+Silver holdout eval
+549
+1
+12
+2
+13,176
+59,292
+Expert eval (c004)
+129
+1
+12
+2
+3,096
+13,932
+Expert agreement-only cells
+129
+—
+—
+—
+—
+877
+defined failure modes—five geometry (form/surface quality, fused or incomplete parts, pose/placement, missing parts,
+extra geometry) and four texture—recording whether each specific defect is present rather than rating quality on a
+continuous or ordinal scale. This defect-vector granularity, rather than localization per se (which Hi3DEval and Eval3D
+already provide in coarser or continuous form), is what reduces judge evaluation to a per-defect classification problem.
+Second, the object of study. Prior 3D benchmarks are aimed primarily at ranking generators, and where they examine
+the judging pipeline they do so as a validation step for a chosen configuration: GPTEval3D, for instance, ablates a
+few judge-side inputs—how GPT-4V is prompted and its outputs ensembled, the number of views shown at once, and
+RGB versus surface-normal renders—to justify its final setup [Wu et al., 2024b], while other evaluators ablate their
+own learned scoring components [Zhang et al., 2025b, Cui et al., 2025]. We instead hold the generated assets fixed
+and make the judge pipeline the object of a systematic factorial study, varying rendering style, camera-view layout,
+visual input, and prompt/output schema to measure how much defect-level agreement depends on pipeline design
+rather than the model alone. The per-defect binary taxonomy makes this possible by turning judge evaluation into a
+classification problem with a well-defined agreement metric, enabling attribution to specific pipeline factors and their
+interactions. Large-scale silver labels, expert annotations on the same schema, broad model comparisons, and a held-out
+trained human evaluated on the same per-defect metric further validate and stress-test the analysis. The benchmark is
+distinguished primarily by its localized defect unit and its treatment of the judge as a measurement system.
+Taken together, prior work establishes automated judging, multimodal benchmarking, and structured 3D evaluation,
+often validating individual judge-design choices in service of ranking generators. Our contribution is to study the
+judging pipeline itself. By scoring localized binary defects rather than aggregate quality, we systematically quantify
+how rendering, view layout, visual input, prompt schema, and output format affect agreement. Staged model validation,
+multiple human-reference regimes, and calibration against trained human labelers then connect this analysis to the
+practical question of which evaluation pipeline to trust.
+3
+3D-DefectBench: fine-grained evaluation task and human reference sys-
+tems
+Task and taxonomy.
+Each example is a text prompt and a generated textured GLB mesh. Human labelers inspect
+the mesh interactively with rotation and zoom; VLM judges receive rendered views plus the prompt. The target
+is a nine-dimensional binary defect vector: five geometry defects (form/surface quality, fused or incomplete parts,
+pose/placement, missing parts, and extra geometry) and four texture defects (noise/blur, misplaced or overlapping
+texture, baked lighting/shadow artifacts, and visual-textual mismatch). Missing parts, pose/placement, and visual-textual
+mismatch are prompt-conditioned because the labeler must compare the asset to the text prompt. The released tables
+use stable machine-readable column names; Appendix A maps them to the reader-facing labels used here.
+Generator provenance.
+Assets are generated by two variants of Roblox’s Cube text-to-3D system [Roblox Foundation
+Model for 3D Intelligence Team, 2025], referred to throughout the benchmark as models A and B. We resample the
+generated assets to construct the evaluation set, so its defect distribution is designed to support judge-pipeline evaluation
+and should not be interpreted as representative of the generators’ production performance. Prompts are short object
+descriptions, with median lengths of 24 and 14 characters in the silver and expert splits, respectively. Figure 2 shows
+that their category, length, and compositionality distributions are closely matched across splits. Benchmark conclusions
+5
+
+
+3D-DEFECTBENCH
+A PREPRINT
+0
+5
+10
+15
+20
+25
+30
+% of assets
+Land Vehicles
+Set Dressing & Household
+Air Vehicles
+Animals
+Monsters
+Buildings & Habitable Structures
+Weapons
+Clothing and Armor
+Humanoids
+Natural Set Decoration
+Robots
+Water Vehicles
+Technology & Electronics
+Recreational Equipment
+Other
+Prompt category
+Single
+(1)
+Short
+(2-5)
+Medium
+(6-10)
+Long
+(11-20)
+XL
+(21+)
+0
+10
+20
+30
+40
+% of assets
+Prompt length
+Single
+Mixed
+0
+20
+40
+60
+80
+% of assets
+Prompt compositionality
+Silver (n=1,049)
+Expert (n=129)
+Figure 2: Prompt distribution across the silver and expert splits. Left: prompt category (the 14 largest categories by
+silver share; less-frequent categories are grouped into “Other”). Top-right: prompt length in words. Bottom-right:
+prompt compositionality (single- vs. mixed-concept). Both splits are dominated by short (2–5 word), single-concept
+prompts describing everyday game objects, with land vehicles the most common category; the silver and expert splits
+have closely matched distributions on all three axes.
+are therefore scoped to this sampled generator mix and to evaluating the judging pipeline, rather than to estimating the
+performance of any single production system.
+Labeler pool and training.
+Two distinct populations produce the reference labels. The expert labelers are two 3D
+artists embedded with the generation-modeling team, who routinely perform 3D-generation evaluation tasks; they
+authored the defect rubrics used throughout the benchmark and trained the silver labelers against them. The silver
+labelers are vendor annotators who work with the team and were trained and calibrated on the same expert-authored
+rubric. Crucially, both populations are experienced rather than first-time raters for this task: prior to the data used
+here, the same labelers completed earlier pilot evaluations, calibration rounds, and a formal evaluation on a separate
+model-checkpoint-selection effort. The released labels therefore reflect trained, calibrated annotators rather than a
+cold-start crowd.
+Splits and labeling.
+The silver split contains 1,049 generated assets labeled by trained vendor annotators, with at least
+three labels per asset (mean 3.91, maximum 13). Because some assets were reused in evaluations of multiple model
+versions, we pool their annotations across evaluation runs, resulting in more labels for those assets. This evaluation
+set was formed by a sampling procedure over the generator outputs—prior to VLM evaluation—that reshapes the
+defect-prevalence distribution relative to the raw generator population. Silver ground truth is the per-defect majority vote
+across labelers. A subset supports the silver leave-one-labeler-out benchmark in Section 7 on the 549-asset evaluation
+split. The expert split contains 129 assets with two labels per asset from the expert 3D reviewers; a small number of
+assets also appear in the silver split and are kept as independent labeling passes.
+Labeling interface.
+Figure 3 shows the human labeling UI: labelers view the textured mesh with orbit controls, rotate
+and zoom freely, and mark each defect category independently. A submission marked Pass (Perfect) sets all defect
+labels to 0, whereas Critical Failure flags a generation that is unrecognizable with respect to its prompt and so cannot
+receive granular defect labels; Cannot Review indicates the object is not loaded in the UI and Not Sure flags the labeler
+is uncertain to score, and labelers are trained to use Not Sure sparingly. These non-granular verdicts are dropped at the
+submission level—we retain only per-labeler submissions marked as a defect or as Pass—not at the asset level: an asset
+is removed only when too few granular submissions remain (below the per-tier label threshold of three for silver and
+6
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 2: Per-defect silver prevalence (n=1,049 assets), mean crowd-label agreement, and chance-corrected inter-
+annotator agreement: silver Fleiss’ κ (κsilver) and expert Cohen’s κ (κexp, n=129). Texture κ is markedly lower
+than geometry—the chance-corrected form of the texture label-noise ceiling. Fleiss’ κ deflates under extreme class
+imbalance (pose/placement); a prevalence-robust Randolph free-marginal κ is in Appendix J.
+Aspect
+Defect
+Prevalence
+Mean agr.
+κsilver
+κexp
+Geometry
+Missing parts
+0.162
+0.870
+0.225
+0.380
+Geometry
+Pose or placement mismatch
+0.012
+0.970
+0.085
+0.485
+Geometry
+Fused or incomplete parts
+0.415
+0.822
+0.309
+0.424
+Geometry
+Extra geometry
+0.111
+0.909
+0.276
+0.566
+Geometry
+Form or surface quality
+0.295
+0.785
+0.103
+0.380
+Texture
+Noise, blur, or grain
+0.512
+0.754
+0.117
+0.359
+Texture
+Misplaced or overlapping texture
+0.491
+0.794
+0.254
+0.284
+Texture
+Baked lighting or shadow
+0.437
+0.763
+0.129
+0.277
+Texture
+Visual-textual mismatch
+0.369
+0.781
+0.139
+0.316
+Figure 3: Interactive GLB labeling UI used for crowd and expert annotation. Labelers orbit, zoom, and toggle each
+defect category independently.
+two for expert assets), so an asset can still enter the evaluation set when a minority of its labelers marked it critical or
+unsure.
+4
+A factorial framework for analyzing VLM evaluation pipelines
+We operationalize the pipeline view by varying four components that together turn a 3D asset into a structured defect
+judgment: the VLM model and three practitioner-controllable choices—camera-view protocol, visual input, and prompt
+schema. Their full crossing forms a grid of 84 inference designs:
+• Camera-view protocol (3 levels): (i) a compact six-view oblique turntable—four oblique equatorial views spaced
+around the asset plus one top-down and one bottom-up view; (ii) a 14-view equatorial turntable—twelve equatorial
+views plus a top-down and bottom-up view; and (iii) a 14-view multi-ring turntable—oblique views sampled across
+multiple elevation rings plus a top-down and bottom-up view. All protocols pack the views into a single multi-view
+grid image (Figure 4).
+• Visual input (7 levels): RGB renders alone or paired with geometry-only, depth, or normal-map channels; depth-only;
+geometry-only; or normal-map-only views.
+• Prompt schema (4 levels): Compact Binary, Definition-Guided Binary, Rubric-Guided Binary, Rubric-Guided
+Checklist (Table 3).
+7
+
+
+3D-DEFECTBENCH
+A PREPRINT
+6-view oblique
+14-view equatorial
+14-view multi-ring
+(a) Camera-view protocols (RGB).
+RGB
+geometry-only
+depth
+normal map
+(b) Visual-input channels (six-view oblique).
+Figure 4: Visual evidence factors on one example asset (a stone cottage with a thatched roof). (a) The three camera-
+view protocols; (b) the four base visual-input channels rendered with the six-view oblique protocol. Each panel is the
+single grid image passed to the VLM.
+Depth and normal channels are visualization encodings, not metric buffers: depth is per-frame min–max normalized
+over the visible mesh and shown inverted (white near, black far), and normals are view-space, flat-shaded, mapped
+by (n · 0.5 + 0.5); encoding details are in Appendix J. The full mapping from released configuration IDs to these
+human-readable descriptions is in Appendix B. Figure 4 illustrates the camera-view protocols and visual-input channels
+on a single example asset. We refer to the configuration carried forward into model comparison as c004 (six-view
+oblique RGB turntable with a rubric-guided checklist prompt); the factor analysis in Section 5 motivates this choice
+as a well-performing default rather than a uniquely optimal design. We pack all views into one grid image so each
+judgment is a single-image call with a fixed token cost and consistent cross-view alignment, rather than a multi-image
+or multi-turn exchange whose cost and context handling vary by model.
+Rendering details.
+All views are rendered offscreen with pyrender/trimesh at 512 × 512 per view and packed
+into a single grid (six-view oblique →3 × 2, 1536 × 1024). Each mesh is centered at the origin, normalized to a unit
+sphere, and framed by an auto-fit perspective camera (yfov=30◦, unit aspect) with a 1.10 distance margin held fixed
+across the views of a protocol. Lighting is flat ambient only (no directional light or HDRI) on a black background;
+images are 8-bit sRGB PNGs with no explicit tonemapping. These settings were held fixed for every configuration;
+we did not vary background or lighting, so sensitivity of judge agreement to those choices is left to future work. Full
+renderer parameters and per-protocol camera angles are in Appendix J.
+Prompt schemas.
+The prompt-schema factor has four levels, applied in parallel to the geometry and texture aspects.
+All four share an identical preamble (evaluation scope, per-view inspection instruction, and the binary marking rule)
+and differ only in how much rubric detail and structure they add; Table 3 summarizes them. The schemas form an
+increasing ladder of guidance, from a one-line definition per defect (Compact Binary) to a full rubric with named failure
+examples emitted as a per-defect checklist (Rubric-Guided Checklist, used by c004). The full text of the selected
+geometry prompt is reproduced in Appendix C.
+Model factor.
+The factor-analysis phase uses a full factorial design over all 84 inference designs. To keep this large
+sweep affordable, we evaluate it with five VLMs chosen to represent distinct model families and capability tiers rather
+than an exhaustive model list: Gemini 3.1 Flash-Lite, GPT-5 Mini, Qwen 3.5 397B-A17B, Mistral Small 3.1 24B, and
+8
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 3: The four prompt schemas in the screening grid (geometry/texture parallel). Schemas progressively add rubric
+detail; c004 uses Rubric-Guided Checklist. Character counts are for the geometry prompt.
+Schema
+Design intent
+Output
+Chars
+Compact Binary
+One-sentence definition per defect category; minimal guidance.
+Single-line rating string
+3,324
+Definition-Guided Binary
+Adds an explicit “examples of what to count” bullet list per category.
+Single-line rating string
+5,221
+Rubric-Guided Binary
+Full inclusion criteria plus concrete named failure examples per
+category.
+Single-line rating string
+7,551
+Rubric-Guided Checklist
+Same rubric as rubric-guided binary, emitted as a per-defect checklist.
+Per-defect checklist
+8,176
+the frontier-scale GPT-5.4. Because a five-model screen could in principle drive the design conclusions, we insert a
+confirmation phase before narrowing the design: we re-score a 20-configuration subset around c004 (the anchor_20
+grid, a reference-anchored star that varies the camera, visual-input, and prompt-schema axes) across six additional
+judges on the same 1,049 silver assets, and confirm that the factor-family ordering and the c004 choice replicate on
+the stronger frontier judges (Section 5.5). From this we carry forward one well-performing configuration (c004) and,
+conditional on that fixed design, broaden the model set for a more thorough comparison: the model-comparison phase
+evaluates 12 VLMs by adding Gemini 3.1 Pro, Gemini 2.5 Pro, Claude Opus 4.7, Claude Sonnet 4.6, Claude Haiku 4.5,
+GPT-4o, and Qwen2.5-VL-7B, and additionally probes repeated-run stability across seeds.
+Metrics.
+The primary metric is macro Matthews correlation coefficient (MCC) over the five geometry or four
+texture defects, computed on successfully parsed predictions. MCC is robust to class imbalance and is informative
+for rare defects such as pose errors. We also report macro F1. Silver-label analyses use crowd majority vote. For the
+expert split we report two complementary targets rather than a single one: agreement on cells where both experts agree,
+which provides clean, strong defect signals (877 unique cells: 539 geometry, 338 texture); and an either-expert union
+target, where a defect is positive if either expert flags it (1,161 cells), which captures softer defect identification and
+gives full coverage on the disagreement cells where two labelers admit no majority (expert label modes are detailed in
+Appendix H). Bootstrap standard errors and 95% confidence intervals are clustered by asset. The defect-level factor
+model that turns this grid into importance estimates is defined at the head of Section 5, where it is used.
+5
+Screening the evaluation-pipeline design space: which factors govern relia-
+bility?
+This phase is a full factorial sweep of all 84 inference designs on the 1,049 silver assets, scored with five VLMs that
+span open-weight and closed-weight families and several capability tiers (∼3.2M scored defect cells; geometry on
+all 84 configs, texture on the 48 RGB-bearing configs; full accounting in Table 1). We use them as a representative
+cross-section of judge types and ask: which design factors—and which interactions—most affect how well a VLM judge
+agrees with human labels? We answer this with the defect-level logistic factor model of Eq. (1), then use the result to
+motivate a default configuration for model comparison. Because the analysis is observational over a finite grid, we read
+it as prioritizing engineering choices, not as causal claims beyond the tested designs.
+The factor model.
+For each defect d we fit a logistic regression whose binary dependent variable ydi = 1 when
+the VLM prediction matches the reference (silver majority) label on parse-ok row i. Writing the four factor families
+as dummy-coded design blocks—VLM model (m), camera-view protocol (c), visual input (v), and prompt schema
+(p)—the model is
+logit Pr(ydi=1) = β0 + β⊤
+mmi + β⊤
+c ci + β⊤
+v vi + β⊤
+p pi +
+X
+(f,g)∈P
+β⊤
+fg (fi⊗gi),
+(1)
+where each factor block is dummy-coded against a held-out reference level, and P is the set of six two-way factor pairs.
+We rank each factor family by its McFadden partial pseudo-R2—the drop in fit when that family’s design block is
+removed—and test it with an omnibus likelihood-ratio test; every confidence interval we rely on uses an asset-cluster
+bootstrap. Full estimation, multiple-testing, and clustering details are in Appendix E.
+9
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 5: Main-effect factor importance. Mean partial pseudo-R2 per factor family by aspect (main effects only,
+interaction block excluded). VLM model dominates, but visual input and prompt schema remain non-negligible.
+Table 4: Per-model marginal macro MCC in the factor-analysis phase (pooled over 84 inference designs, silver majority
+labels).
+Model
+Geometry
+Texture
+Gemini 3.1 Flash-Lite
+0.180
+0.075
+GPT-5.4
+0.173
+0.083
+Qwen 3.5 397B-A17B
+0.137
+0.057
+GPT-5 Mini
+0.115
+0.039
+Mistral Small 3.1 24B
+0.040
+0.033
+5.1
+The model dominates, but pipeline factors are not negligible
+Model choice explains far more agreement variance than any single pipeline factor—but the pipeline factors are not
+negligible. Ranking the four main-effect families by partial pseudo-R2 and omnibus likelihood-ratio tests, VLM model
+explains the most variance (mean partial pseudo-R2 4.8 × 10−4), followed by visual input, prompt schema, and
+camera-view protocol (Figure 5). These main effects are significant for 9/9, 7/9, 5/9, and 5/9 defects at p<0.05, with
+identical counts after Benjamini–Hochberg FDR correction across 45 omnibus tests; the per-defect breakdown is in
+Figure 6. The same ordering appears in raw per-model marginals: pooling over all 84 designs, Gemini 3.1 Flash-Lite
+(geometry 0.180) and GPT-5.4 (0.173) lead, while texture marginals stay below 0.10 for every model (Figure 7, Table 4).
+Operationally, the best-vs-worst level gap is ∼0.14 macro MCC for VLM model (geometry), ∼0.04 for visual input,
+∼0.02 for camera protocol, and ∼0.01 for prompt schema (Table 16).
+5.2
+Color is essential; rubric guidance helps the hard geometry defects
+RGB is worth far more than any added geometric channel, and rubric detail gives a small but consistent lift on the
+hardest geometry defects. Beyond family importance, the fitted coefficients show which level of each factor helps or
+hurts each defect. Figure 8 reports the main-effect logit coefficients relative to the reference level. Two patterns stand
+out. First, on geometry defects the color-free inputs (depth-only, normals-only, geometry-only) carry strongly negative
+coefficients—stripping color hurts geometry agreement—whereas RGB augmented with a geometry or normals channel
+is roughly neutral to mildly helpful. This likely reflects the reference itself: the silver labels are produced by human
+annotators inspecting the textured (RGB) render, so a judge shown only geometric channels is scored against evidence
+the humans never used, depressing agreement independent of any change in judging ability. In other words, part of
+RGB’s advantage may be input-condition alignment with the reference rather than perception alone; disentangling
+the two would require a human-side modality ablation, which we leave to future work (Section 8). Second, the
+rubric-guided prompts add small but consistently positive coefficients on the harder geometry defects (fused/incomplete,
+10
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 6: Per-defect factor-family importance. Partial pseudo-R2 per defect (main effects only); the family ordering
+(VLM model ≫visual input, prompt schema, camera protocol) holds for most individual defects rather than being an
+artifact of macro-averaging.
+Figure 7: Per-model marginal macro MCC pooled over all 84 inference designs.
+11
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 5: Top inference designs by pooled macro MCC vs. silver majority. c004 (row A) is carried forward; the released
+configuration manifest provides exact reproducibility IDs.
+ID
+Camera views
+Visual input
+Prompt schema
+Geo MCC
+Tex MCC
+A (c004)
+6 oblique
+RGB
+Rubric checklist
+0.167
+0.087
+B
+6 oblique
+RGB
+Compact binary
+0.164
+0.061
+C
+6 oblique
+RGB
+Definition-guided binary
+0.156
+0.069
+D
+6 oblique
+RGB
+Rubric-guided binary
+0.153
+0.084
+E
+6 oblique
+RGB + geometry cue
+Rubric checklist
+0.152
+0.084
+extra geometry, form/surface) relative to the compact binary prompt. Texture coefficients are uniformly small, consistent
+with the low texture ceiling.
+5.3
+Factors interact with the judge: the precise optimum can be judge-specific
+There is no universally best pipeline setting: the same visual or prompt change can help one model and hurt another.
+Collectively, the six interaction families carry the largest aggregate partial pseudo-R2 block (mean 2.1 × 10−3) and
+are significant for 8/9 defects—because this block pools many factor pairs and parameters, no single interaction is as
+influential as model choice—so the effect of one factor often depends on another. Figure 9 summarizes interaction
+strength at the factor-pair level: the model×prompt, model×visual, and model×camera pairs are the strongest,
+confirming that the same visual or prompt change can help one model and hurt another. Figure 10 resolves these to the
+level×level detail, separately for geometry and texture.
+5.4
+More views and extra channels add no value: a cheap six-view RGB design is near-
+optimal
+A practically important pattern emerges once the factors are read together: the cheapest design is also among the best.
+Neither denser camera protocol earns its cost—the 14-view equatorial and 14-view multi-ring turntables do not improve
+on the compact six-view oblique turntable (best-vs-worst camera gap ∼0.02 macro MCC; Table 16)—and no visual
+channel beyond RGB helps: the strongest geometry designs all use the six-view protocol with RGB or, at best neutrally,
+geometry-augmented RGB, while stripping color hurts (as the coefficient analysis above shows—an effect that may
+partly reflect alignment with the RGB-viewing human reference). Color (RGB) and a rubric-guided prompt are the
+only choices that clearly matter, but interactions mean no single design is provably best for every model, so we select a
+well-performing default empirically. Table 5 lists the top designs by pooled macro MCC: c004 (six oblique RGB views,
+rubric-guided checklist) ranks first for both geometry (0.167) and texture (0.087). The point-estimate gaps within this
+top cluster are small (∼0.003 macro MCC) and confidence intervals overlap, so c004 is not uniquely separable from its
+neighbors. Asset-cluster bootstrap resampling ranks it first for geometry in 67% of draws and for texture in 51%, and
+top-three in 97%/96% (detailed in Appendix F). We therefore carry c004 forward as the concrete instance of a general
+recommendation—use the cheapest member of the near-optimal cluster: a compact six-view RGB turntable with a
+rubric-guided prompt—rather than as a globally optimal design. This is not in tension with the judge interactions of the
+previous subsection: those interactions relocate each judge’s optimum slightly within this tied cluster, not outside it,
+so fixing one cheap member (c004) costs any single judge only a negligible, in-cluster gap while buying a controlled,
+reproducible design.
+5.5
+The design conclusions are pipeline properties, not screening-model artifacts
+The full screen above fits five models. Do its conclusions—the factor-family ordering and the c004 choice—survive
+when we broaden to the frontier judges added for model comparison? To check, we re-ran a 20-configuration subset
+(the anchor_20 grid: a reference-anchored star around c004 that varies the camera, visual-input, and prompt-schema
+axes) across eleven judges—the model-comparison roster of Section 6 minus the cost-prohibitive Claude Opus 4.7,
+which we do not run on this broad silver sweep (the lower-cost Claude Haiku 4.5 is retained)—scoring every design
+on the same 1,049 silver assets. Refitting the main-effects model separately on the five screening models and the six
+extended frontier judges yields the same factor-family ranking in both groups—VLM model ≫visual input > prompt
+schema > camera protocol (design-family rank Spearman ρ=1.0; Table 6, Figure 11a). VLM model is significant for
+all nine defects in both groups, and on the extended frontier judges visual input is significant for 8/9 defects (up from
+12
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 8: Main-effect logit coefficients from Eq. (1), per factor family (rows) and defect (columns; G1–G5 geometry,
+T1–T4 texture). Positive (red) values increase agreement vs. the reference level; */** mark bootstrap significance at
+p<0.05/0.01. VLM-model reference is Qwen 3.5 397B-A17B.
+13
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 9: Interaction strength by factor pair. Macro-mean interaction logit β per factor pair (*/**: bootstrap
+p<0.05/0.01). Model-involving pairs dominate.
+7/9)—the design factors that matter do so more, not less, for stronger models. Configuration rankings also transfer:
+per-config macro MCC correlates at ρ=0.95 (geometry) and ρ=0.88 (texture) between the screening models and the
+extended frontier judges, and c004 remains the top-ranked configuration for both aspects under the extended pool
+(Figure 11b). The design conclusions and the carried-forward default therefore reflect the judging pipeline rather than
+an artifact of the screening models. Note the two distinct senses of “model” at play: individual factor levels interact with
+the judge (Section 5, “Factors interact with the judge”), yet the factor-importance ordering and the near-optimal region
+are invariant to the judge set—the same whether fit on the five screening judges or the six frontier judges—which is
+why a single fixed design generalizes.
+Table 6: Design-factor importance replicates on the broad judge set. The anchor_20 grid (20 configurations
+around c004) re-run across all 11 judges on the 1,049 silver assets. For each factor family we report the number of
+defects (of nine) with an omnibus p<0.05 and the mean partial pseudo-R2, separately for the five screening models
+(as in Section 5) and the six extended frontier judges. The family ordering is identical for both groups (design-family
+rank Spearman ρ=1.0), and config-level macro-MCC ranks agree strongly (screening vs. extended Spearman ρ=0.95
+geometry, 0.88 texture).
+Screening (5 judges)
+Extended (6 judges)
+Factor family
+Sig. (/9)
+Mean partial R2
+Sig. (/9)
+Mean partial R2
+VLM model
+9
+4.9 × 10−3
+9
+2.0 × 10−2
+Visual input
+7
+1.9 × 10−3
+8
+2.4 × 10−3
+Prompt schema
+6
+2.6 × 10−4
+5
+2.0 × 10−4
+Camera protocol
+6
+2.3 × 10−4
+4
+1.0 × 10−4
+6
+Extended VLM judge comparison and calibration under a fixed pipeline
+We compare all 12 VLMs under a single fixed configuration. The configuration is selected by two complementary
+routes, and—reassuringly—both select c004: (1) a silver-only route that selects the configuration on a 500-asset silver
+14
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 10: Level×level interaction coefficients for geometry (top) and texture (bottom): lower-triangle mean interaction
+logit β (*/**: bootstrap p<0.05/0.01). Model-involving level pairs carry the strongest interactions.
+15
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 11: Design-factor findings replicate on the broad 11-judge set (anchor_20: 20 configurations around c004,
+scored on the 1,049 silver assets). (a) Mean partial pseudo-R2 per factor family, five screening models vs. six extended
+frontier judges (log scale); the ordering is preserved. (b) Per-configuration macro MCC, screening models vs. extended
+frontier judges, for geometry and texture, with c004 circled.
+subset and then tests the extended model set on the disjoint 549-asset silver holdout; and (2) an expert-transfer route
+that selects the configuration on the full silver set and then tests the extended model set against the higher-quality expert
+labels. The two routes use different label pools for selection but converge on the same design, which is why we report a
+single leaderboard against both references.
+6.1
+The Gemini family leads; texture drops sharply from expert to silver
+The Gemini family tops nearly every column, and absolute agreement—texture especially—falls when the reference
+shifts from clean expert labels to the noisier silver holdout. Table 7 reports macro MCC and macro F1 for both
+aspects on the expert-agreement cells and the 549-asset silver holdout. Gemini 3.1 Pro leads expert geometry (MCC
+0.298±0.047 SE) and expert texture is led by Gemini 3.1 Flash-Lite (0.406), with Gemini 3.1 Pro close behind (0.386).
+The Gemini family occupies the top of every expert column and all but one silver column (GPT-5.4 edges ahead on
+silver-holdout geometry MCC); smaller and open models trail, and the two weakest judges—Qwen2.5-VL-7B and,
+despite its frontier billing, Claude Haiku 4.5—sit near zero on the expert cells. Absolute scores drop from expert to
+silver—sharply for texture (best 0.406→0.160)—while geometry holds a similar range (0.298→0.240), consistent
+with noisier silver texture labels. Per-defect MCC (with bootstrap CIs) and F1 by model are shown in Appendix G
+(Figures 26–27). The leaderboard is an accuracy comparison under one fixed inference design; it does not isolate
+whether errors arise from visual perception, prompt following, or taxonomy understanding. The rank-1 model is stable
+whether we score the both-experts-agree cells or the either-expert union, though absolute MCC and the lower ranks
+shift (Appendix H).
+6.2
+Over- and under-calling by defect
+Beyond aggregate accuracy, we ask whether judges systematically over- or under-call each defect by comparing per-
+defect recall against precision, averaged across the 12 models (Figure 13): a positive recall−precision gap means false
+positives dominate (the model overcalls the defect), a negative gap means false negatives dominate (it undercalls). VLM
+judges tend to overcall missing parts on the expert cells—recall exceeds precision and most models are false-positive-
+heavy—and overcall baked lighting/shadow on both references, while pervasive texture defects such as misplaced
+or overlapping texture are strongly undercalled (high precision, low recall); the per-model precision–recall structure
+is shown in Figure 14. Because the released predictions are binary (no model-emitted probabilities), we report this
+false-positive/false-negative asymmetry rather than probabilistic calibration curves or Brier scores. The model-averaged
+per-defect breakdown is in Table 8.
+16
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 7: Model-comparison leaderboard under the selected configuration (c004): macro MCC and macro F1 on the
+129-asset expert split (agreement cells) and the 549-asset silver holdout, by aspect. Rows ordered by expert geometry
+MCC. Per-defect metrics are macro-averaged within each aspect.
+Expert (agreement cells)
+Silver holdout (n=549)
+Geometry
+Texture
+Geometry
+Texture
+Model
+MCC
+F1
+MCC
+F1
+MCC
+F1
+MCC
+F1
+Gemini 3.1 Pro
+0.298
+0.402
+0.386
+0.711
+0.209
+0.377
+0.160
+0.606
+Gemini 2.5 Pro
+0.282
+0.415
+0.280
+0.614
+0.212
+0.379
+0.118
+0.549
+Gemini 3.1 Flash-Lite
+0.253
+0.370
+0.406
+0.647
+0.228
+0.338
+0.147
+0.512
+GPT-5.4
+0.217
+0.356
+0.218
+0.494
+0.240
+0.346
+0.153
+0.434
+Claude Opus 4.7
+0.180
+0.341
+0.301
+0.552
+0.210
+0.360
+0.114
+0.449
+GPT-4o
+0.163
+0.221
+0.255
+0.467
+0.172
+0.212
+0.103
+0.388
+Qwen 3.5 397B-A17B
+0.162
+0.324
+0.140
+0.457
+0.147
+0.297
+0.052
+0.400
+Claude Sonnet 4.6
+0.145
+0.296
+0.226
+0.454
+0.178
+0.314
+0.034
+0.395
+GPT-5 Mini
+0.142
+0.237
+0.122
+0.358
+0.214
+0.278
+0.072
+0.325
+Mistral Small 3.1 24B
+0.051
+0.237
+0.066
+0.237
+0.085
+0.229
+0.063
+0.254
+Qwen2.5-VL-7B
+0.017
+0.015
+0.078
+0.102
+0.030
+0.017
+0.022
+0.058
+Claude Haiku 4.5
+0.014
+0.079
+0.029
+0.157
+0.122
+0.185
+0.016
+0.205
+Geometry
+Texture
+Figure 12: Expert-label macro MCC leaderboards (±1 SE).
+6.3
+Baseline calibration and modality ablations: the rendered views carry most of the signal,
+the prompt a smaller lift
+To calibrate what these MCC values mean, we benchmark the full pipeline against simple baselines scored with the same
+macro-MCC machinery. Label-only baselines use only the label distribution: always-negative predicts “no defect”
+everywhere; majority-class predicts each defect’s most common label; both yield macro MCC 0.0 by construction.
+Prevalence-matched random samples predictions from the per-defect base rate, giving macro MCC ≈0. Modality
+ablations on the selected config (c004) with Gemini 3.1 Pro: prompt-only (text rubric, no image) and image-only
+(multi-view RGB, no prompt line). CLIP is a local zero-shot heuristic (ViT-B-32) with per-defect contrastive templates
+and thresholds calibrated on the silver screening split.
+Tables 9 and 10 report macro MCC with asset-cluster bootstrap 95% confidence intervals. On expert-agreement
+geometry, image-only retains most of the full-pipeline signal (0.248 vs. 0.298 MCC) while text-only is much weaker
+(0.096) and CLIP is near zero; the same ordering holds on the silver holdout (full pipeline 0.212 geometry / 0.162
+texture; image-only 0.208 / 0.178; prompt-only 0.068 / 0.053; CLIP near zero). This confirms the judges rely primarily
+on the rendered evidence, that the prompt schema contributes a smaller but real increment, and that all trained VLMs
+clear the label-only and CLIP baselines.
+6.4
+Generator-comparison verdicts depend on the judge
+A common downstream use of a defect judge is model comparison: deciding which generator produces fewer defects.
+We test whether judges agree on this task using a matched-pair design. Restricting to the common-prompt set—prompts
+for which both generator arms (model A, model B) produced an asset—removes prompt-composition confounds, so
+any measured A−B difference reflects the generators, not the prompt mix. Because the silver and expert assets both
+carry human majority-vote labels, we pool the two splits into a single analysis over their combined common-prompt
+17
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 13: Per-defect over-/under-calling for the 12 VLM judges under c004: mean recall−precision across models
+(whiskers ±1 SD). Right of zero = overcall (false-positive-heavy); left = undercall (false-negative-heavy). Expert-
+agreement cells (left) and 549-asset silver holdout (right).
+Table 8: Per-defect over-/under-calling by the 12 VLM judges under c004, averaged across models. Prec and Rec
+are mean precision and recall; Rec−Prec is the mean signed gap (positive ⇒false positives dominate, i.e. the judges
+overcall the defect; negative ⇒undercall); FP share is FP/(FP+FN) (> 0.5 = overcall). Because released predictions
+are binary, this false-positive/false-negative asymmetry stands in for probabilistic calibration.
+Aspect
+Defect
+Split
+Prec
+Rec
+Rec−Prec
+FP share
+Geometry
+Extra geometry
+expert
+0.29
+0.42
++0.14
+0.65
+silver
+0.31
+0.23
+-0.07
+0.36
+Form or surface quality
+expert
+0.67
+0.53
+-0.14
+0.45
+silver
+0.39
+0.50
++0.11
+0.58
+Fused or incomplete parts
+expert
+0.27
+0.39
++0.11
+0.54
+silver
+0.57
+0.28
+-0.29
+0.23
+Missing parts
+expert
+0.32
+0.42
++0.10
+0.60
+silver
+0.35
+0.36
++0.01
+0.51
+Pose or placement mismatch
+expert
+0.00
+0.05
++0.05
+0.74
+silver
+0.14
+0.41
++0.26
+0.79
+Texture
+Baked lighting or shadow
+expert
+0.47
+0.66
++0.19
+0.69
+silver
+0.44
+0.65
++0.21
+0.69
+Visual-textual mismatch
+expert
+0.61
+0.43
+-0.18
+0.34
+silver
+0.50
+0.42
+-0.08
+0.42
+Misplaced or overlapping texture
+expert
+0.86
+0.25
+-0.61
+0.08
+silver
+0.56
+0.23
+-0.33
+0.18
+Noise, blur, or grain
+expert
+0.71
+0.56
+-0.15
+0.41
+silver
+0.60
+0.33
+-0.27
+0.30
+set (462 paired prompts). For each judge (the human majority vote and each of the 11 VLMs scored under c004 on
+both splits, ordered as in the Table 7 leaderboard) and each defect, we compute the per-prompt difference in defect
+rate δ = rateA −rateB and run a paired t-test (H0: ¯δ=0); Figure 17 reports ¯δ with 95% CIs and significance per
+defect×judge.
+By the human reference, the two generators differ significantly on 6 of 9 defects. Judge performance varies
+substantially on this comparison task. For each judge, we count how many of these six human-significant gaps point in
+the same direction—that is, identify the same generator as worse—regardless of the judge’s own significance. Stronger
+judges agree on most defects (5/6 for GPT-5.4, GPT-5 Mini, GPT-4o, Gemini 2.5 Pro, and Gemini 3.1 Flash-Lite; 4/6 for
+Gemini 3.1 Pro), whereas weaker judges are near-random or opposite (0/6 for Mistral Small, 1/6 for Claude Sonnet 4.6,
+18
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 14: Precision vs. recall per defect; each point is one of the 12 judges. Points above the diagonal overcall the
+defect (recall>precision), below undercall it. Circles = expert-agreement cells, triangles = silver holdout.
+Geometry
+Texture
+Figure 15: Simple baseline macro MCC on expert-agreement cells (±95% bootstrap CI).
+19
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 9: Simple baselines on expert-agreement cells (539 geometry / 338 texture unique cells). Macro MCC with 95%
+asset-cluster bootstrap CI.
+Baseline
+Geometry
+Texture
+Full pipeline
+0.298 [0.203, 0.391]
+0.386 [0.299, 0.477]
+Image-only
+0.248 [0.139, 0.360]
+0.364 [0.265, 0.458]
+Prompt-only
+0.096 [−0.010, 0.213]
+0.034 [−0.031, 0.100]
+CLIP zero-shot
+0.029 [−0.050, 0.108]
+0.047 [−0.074, 0.133]
+Prevalence-matched random
+0.000 [−0.006, 0.006]
+-0.000 [−0.007, 0.007]
+Always-negative
+0.000 [0.000, 0.000]
+0.000 [0.000, 0.000]
+Majority-class
+0.000 [0.000, 0.000]
+0.000 [0.000, 0.000]
+Table 10: Simple baselines on the 549-asset silver holdout (silver majority labels). Macro MCC with 95% asset-cluster
+bootstrap CI.
+Baseline
+Geometry
+Texture
+Full pipeline
+0.212 [0.166, 0.251]
+0.162 [0.122, 0.203]
+Image-only
+0.208 [0.162, 0.247]
+0.178 [0.138, 0.216]
+Prompt-only
+0.068 [−0.000, 0.148]
+0.053 [0.014, 0.090]
+CLIP zero-shot
+0.007 [−0.031, 0.043]
+0.021 [−0.012, 0.052]
+Prevalence-matched random
+0.000 [−0.002, 0.003]
+0.000 [−0.003, 0.003]
+Always-negative
+0.000 [0.000, 0.000]
+0.000 [0.000, 0.000]
+Majority-class
+0.000 [0.000, 0.000]
+0.000 [0.000, 0.000]
+Geometry
+Texture
+Figure 16: Simple baseline macro MCC on the 549-asset silver holdout (±95% bootstrap CI).
+and 2/6 for Qwen2.5-VL-7B). Under a stricter criterion requiring the judge’s gap to be both significant (p<0.05) and in
+the human direction, performance drops sharply: GPT-5.4 confirms 4/6, Gemini 2.5 Pro 3/6, and Gemini 3.1 Flash-Lite
+and GPT-4o 2/6, while several directionally consistent but under-powered judges fall to 0/6. Weak judges also report
+spurious gaps where humans find none; for example, Qwen2.5-VL-7B flags 3 of 9 defects as significant. Thus, generator
+rankings depend materially on the judge: frontier judges are usually directionally consistent on large, prevalent defects
+but remain unreliable on subtle and texture defects, while weaker judges are unsuitable for model ranking. The pipeline
+effect therefore propagates downstream evaluation use cases and decisions.
+6.5
+Judge rankings transfer across human references on geometry, but not texture
+An evaluation pipeline depends not only on the judge model but also on the human reference used to measure it. We
+therefore ask whether the ranking of judges is stable across two independently collected human reference systems:
+embedded 3D-artist experts (expert) and a larger pool of trained vendor annotators (silver). A stable ranking suggests
+the measured pipeline quality reflects the judges themselves, whereas a reordered leaderboard indicates sensitivity to the
+underlying human reference. The expert split provides cleaner labels but limited sample size, while the silver holdout
+provides broader coverage at higher label noise. To evaluate ranking robustness without reusing the data employed
+for screening and pipeline selection, we use a silver holdout of 549 assets disjoint from the 500-asset selection set,
+score judges against the silver majority vote, and compute asset-cluster bootstrap confidence intervals (Figure 18).
+Figure 19 compares expert-label and silver-holdout macro MCC for each judge. Geometry rankings are moderately
+20
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 17: Paired generator comparison by judge on the pooled silver+expert common-prompt set (462 prompts
+present in both arms; human reference is crowd majority on silver and expert majority on the expert assets). Each panel
+is a defect; each bar is a judge—human majority vote (hatched), then the 11 VLMs scored under c004 on both splits,
+in leaderboard (Table 7) order. Bar height is the mean paired defect-rate difference ¯δ = rateA −rateB (positive =
+model A flagged more), error bars are 95% CIs, and */**/*** mark paired-t p<0.05/0.01/0.001. One judge appears
+on only one side of the pool and is omitted: Claude Opus 4.7, which is scored on the expert set but not on the broad
+silver sweep (Section 5.5). Judges frequently disagree in magnitude, significance, and occasionally sign.
+preserved across the two references (Figure 20), indicating that judge ordering is relatively robust to the choice of
+human reference. Texture rankings, however, differ substantially, and absolute MCC drops on the silver holdout (best
+0.406→0.160). This instability reflects the evaluation task itself rather than label quantity alone. Texture defects are
+considerably harder for humans to assess, exhibiting substantially lower inter-annotator agreement than geometry under
+both labeling systems (Table 2). Moreover, the two human reference systems disagree with each other on the same
+assets: on the 129 expert assets that also carry silver annotations, silver and expert majority votes agree on 78.6% of
+geometry labels (Cohen’s κ = 0.44) but only 57.6% of texture labels (κ = 0.16), while experts consistently identify
+texture defects more frequently than the crowd (Table 11). Thus, the two reference systems differ in both annotation
+noise and labeling threshold.
+These results show that judge rankings can inherit the biases of the reference labeling system. When human
+agreement is high, as for geometry, pipeline conclusions transfer across reference populations. When the underlying
+task is difficult and human agreement is low, as for texture, different human populations induce different judge
+leaderboards. Consequently, judge rankings should be interpreted relative to the reference system on which they are
+measured, particularly for challenging evaluation tasks. Separately, Gemini 3.1 Flash-Lite remains competitive with
+frontier models on geometry under both references, suggesting that inexpensive models remain useful for pipeline
+selection even when final reporting relies on stronger judges. Our analysis is descriptive rather than prescriptive: it
+evaluates the robustness of judge rankings across the two human reference systems available in this benchmark rather
+than making claims about all future generators or labeler populations.
+21
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Geometry
+Texture
+Figure 18: Silver-holdout macro MCC with 95% asset-cluster confidence intervals for geometry and texture.
+22
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Geometry
+Texture
+Figure 19: Expert-label vs. silver-holdout macro MCC per model. Bars show seed-0 point estimates with 95% bootstrap
+CIs; dots show independent reruns for seeds 1–2 on expert and silver holdout arms.
+23
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 11: Between-system human agreement on the 129 expert assets, all of which also carry silver crowd labels.
+Chance-corrected agreement (Cohen’s κ) between the silver-majority and expert-majority verdicts is far higher on
+geometry than texture, mirroring the judge-ranking transfer gap and paralleling the within-system κ of Table 2.
+Aspect
+#Defects
+Agreement
+κsilver↔exp
+Geometry
+5
+78.6%
+0.44
+Texture
+4
+57.6%
+0.16
+Figure 20: Rank alignment: expert-label macro MCC rank vs. silver-holdout rank.
+7
+Positioning VLM judges relative to trained human labelers
+Model scores are only meaningful relative to human-labeler variability. We therefore report two human-reference
+protocols that score a held-out human labeler and the VLMs against the same target labels.
+Expert-labeler reference.
+The expert split has two labelers per asset. We randomly hold out one expert as the test
+labeler for each asset and use the other expert as ground truth; VLMs are evaluated against the same ground-truth
+expert. This single held-out expert target differs from the expert-agreement target of the leaderboard (Table 7): it scores
+every asset against one expert rather than restricting to cells where both experts agree, so absolute MCC is higher and
+the top VLM can differ. The held-out expert achieves macro MCC 0.519 on geometry and 0.312 on texture. The best
+VLMs on this single-expert protocol reach 0.403 geometry (Gemini 2.5 Pro) and 0.206 texture (Gemini 3.1 Flash-Lite),
+below the held-out expert on both aspects.
+Silver leave-one-labeler-out reference.
+On the 231 silver assets with more than three crowd labels, we hold out
+one random labeler and use the majority vote of the remaining labelers as ground truth. The held-out crowd labeler
+achieves 0.401 geometry and 0.215 texture macro MCC. The best VLMs on the same protocol reach 0.271 geometry
+(Gemini 2.5 Pro) and 0.127 texture (Gemini 3.1 Flash-Lite). This reference is stricter than scoring against the original
+three-label silver majority because it focuses on assets with richer labeler coverage.
+Silver labeler percentiles in the expert set.
+As a third human reference, we place each VLM against the distribution
+of individual silver labelers who labeled the expert assets. Scoring each labeler and each VLM against the expert target
+on shared cells, the strongest VLMs land around the middle of the trained-labeler distribution on geometry but below
+it on texture, and no VLM exceeds the top labelers on either aspect. This is consistent with the leave-one-out and
+expert-labeler benchmarks: VLM judges are competitive with, but do not surpass, trained human labelers, with the
+largest human advantage on geometry.
+24
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Geometry
+Texture
+Figure 21: Expert-labeler benchmark: one expert labeler vs. VLM judges, all scored against the other expert labeler.
+25
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Geometry
+Texture
+Figure 22: Silver leave-one-labeler-out benchmark: one crowd labeler vs. VLM judges, all scored against the majority
+of the remaining labelers.
+26
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 12: Human vs. best VLM macro MCC under matched target-label protocols. Expert split: one expert held out as
+the test labeler, with the other expert as ground truth. Silver LOO: one crowd labeler held out, with the remaining-labeler
+majority as ground truth.
+Evaluator
+Geometry
+Texture
+Expert-labeler reference
+Human expert
+0.519
+0.312
+Best VLM
+0.403 (Gemini 2.5 Pro)
+0.206 (Gemini 3.1 Flash-Lite)
+Silver leave-one-labeler-out
+Human (LOO)
+0.401
+0.215
+Best VLM
+0.271 (Gemini 2.5 Pro)
+0.127 (Gemini 3.1 Flash-Lite)
+8
+Limitations
+Label noise and texture ceiling.
+Texture macro MCC is uniformly low on silver labels and sensitive to expert-to-silver
+shift. Crowd-label agreement is lower for texture defects (0.75–0.79 mean) than geometry (0.79–0.97), so VLMs may
+be partially capped by reference-label noise rather than perception limits alone.
+Untested inference designs and future work.
+The screening grid varies camera-view protocol, visual input, and
+prompt schema, but holds the delivery format fixed: every judgment is a single stitched multi-view grid in one call.
+Separate per-view images, turntable video, and multi-turn interactive inspection are untested here and are plausibly
+stronger, as are reasoning-augmented prompting (chain-of-thought or rationale-augmented judgments [Wei et al., 2022,
+Sprague et al., 2025]) and per-defect targeted prompts rather than one shared schema. Results are descriptive over the
+observed 84-design grid rather than universal over all VLM-judge pipelines; broadening to these designs, and to more
+and publicly available generators, is left to future work.
+Model and generator coverage.
+The benchmark covers a fixed generator pool and 12 VLM families; transfer to new
+generators or future models is not guaranteed.
+Unresolved error attribution.
+The benchmark measures end-to-end agreement with human labels. It does not
+determine whether a wrong prediction is caused by insufficient rendered evidence, a model perception error, a
+prompt/schema failure, or ambiguity in the human label. Controlled ablations with human-visible render audits would
+be needed to separate these causes. A related confound is that the human reference labels were produced from the
+textured RGB rendering—the same modality shown to the RGB judge—so the strong RGB effect may partly reflect
+alignment between the judge’s input and the humans’ viewing condition rather than color being intrinsically necessary
+for defect perception. Isolating this would require a human-side ablation, collecting reference labels from annotators
+shown only depth, normal, or untextured-geometry views, which we leave to future work.
+Human-reference sample size.
+The expert split has 129 assets and two expert labels per asset. This is sufficient to
+expose large gaps between VLMs and held-out experts, but not to estimate fine-grained expert-labeler variability across
+many annotators. The silver leave-one-labeler-out analysis provides a complementary crowd-label reference but uses a
+different labeler population.
+Compute and cost.
+The 84-design screening phase scores ∼3.2M defect cells (692k model calls on all 1,049 silver
+assets); the expert and silver model-comparison runs add 2,838 and 12,078 model calls respectively (Table 1). A
+per-phase breakdown of these counts is in Appendix I.
+9
+Conclusion
+We presented a methodology for rigorously studying automated VLM judges as evaluation pipelines rather than isolated
+models, with 3D-DefectBench serving as its first large-scale instantiation for fine-grained 3D generation evaluation.
+The central premise is that the reliability of an automated judge depends not only on the underlying VLM, but also on
+how evidence is constructed, how the evaluation task is specified, and how human reference labels are collected and
+27
+
+
+3D-DEFECTBENCH
+A PREPRINT
+interpreted. Understanding automated evaluation therefore requires analyzing the complete measurement system rather
+than benchmarking judge models in isolation.
+Our study demonstrates three key principles. First, evaluation pipelines should be analyzed systematically.
+Although VLM capability is the dominant determinant of agreement with human labels, camera protocol, visual input,
+and prompt schema all contribute measurable effects and interact with the underlying model. Second, pipeline design
+should be studied and optimized through controlled experimentation. A balanced factorial design, followed by
+cost-aware staged validation, identifies a compact six-view RGB protocol with a rubric-guided prompt as a strong
+cost–performance trade-off while showing that denser rendering protocols and additional geometric channels provide
+limited benefit within the studied design space (though the RGB advantage may partly reflect alignment with the
+RGB-based human reference). Third, automated judges should be evaluated against carefully characterized human
+labeling systems, rather than against human labels treated as unquestioned ground truth. Human label quality
+depends on annotator expertise, rubric interpretation, and task difficulty, so measured VLM agreement can reflect
+weaknesses in the reference labels as well as in the judge. Our tiered design—trained silver labelers, expert rubric
+authors, and multiple independent annotations per asset—allows us to quantify human-label reliability, compare VLMs
+across reference regimes, and study how reference quality influences apparent judge performance.
+Beyond the specific findings for 3D generation, we believe the broader contribution is methodological. Many
+GenAI evaluation systems rely on automated judges operating over constructed inputs and imperfect human references.
+Rather than viewing these systems simply as foundation models applied to an evaluation task, we argue that they should
+be treated as measurement systems whose reliability emerges from the interaction between model capability, input
+construction, task specification, statistical evaluation, and human reference labels. Understanding such systems requires
+more than reporting a leaderboard: it requires systematically studying which design choices matter, how they interact,
+how conclusions transfer across settings, and how the resulting measurements relate to human judgment. We hope
+this work helps move automated evaluation from model-centric benchmarking toward rigorous measurement-system
+analysis.
+We release 3D-DefectBench, including labels, prompts, model predictions, Croissant metadata, and reproducible
+analysis code, on HuggingFace at https://huggingface.co/datasets/zzhao0500/3D-DefectBench.
+Acknowledgments
+We gratefully acknowledge our colleagues at Roblox—Kiran Bhat, Tinghui Zhou, and Daniel Chin—for their support
+of this work. We thank Kiran Bhat and Tinghui Zhou for sharing their insights on developing and using this evaluation
+rubric system for model development, and Daniel Chin for his contributions to guiding the annotation resources and
+practice.
+References
+Xiao Cai, Sitong Su, Jingkuan Song, Pengpeng Zeng, Ji Zhang, Qinhong Du, Mengqi Li, Heng Tao Shen, and Lianli
+Gao. GT23D-Bench: A comprehensive general text-to-3d generation benchmark. arXiv preprint arXiv:2412.09997,
+2024.
+Kevin Chen, Christopher B. Choy, Manolis Savva, Angel X. Chang, Thomas Funkhouser, and Silvio Savarese.
+Text2shape: Generating shapes from natural language by learning joint embeddings. In C. V. Jawahar, Hongdong Li,
+Greg Mori, and Konrad Schindler, editors, Computer Vision – ACCV 2018, pages 100–116, Cham, 2019. Springer
+International Publishing.
+Bingyang Cui, Yujie Zhang, Qi Yang, Zhu Li, and Yiling Xu. Towards fine-grained text-to-3d quality assessment: A
+benchmark and a two-stage rank-learning metric. arXiv preprint arXiv:2509.23841, 2025.
+Shivam Duggal, Yushi Hu, Oscar Michel, Aniruddha Kembhavi, William T. Freeman, Noah A. Smith, Ranjay
+Krishna, Antonio Torralba, Ali Farhadi, and Wei-Chiu Ma. Eval3D: Interpretable and fine-grained evaluation for 3d
+generation. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 13326–13336,
+2025. arXiv:2504.18509.
+28
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Yunqi Gu, Ian Huang, Jihyeon Je, Guandao Yang, and Leonidas Guibas. Blendergym: Benchmarking foundational
+model systems for graphics editing. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 18574–18583, June 2025.
+Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter. Gans trained by a two
+time-scale update rule converge to a local nash equilibrium. In I. Guyon, U. Von Luxburg, S. Bengio, H. Wallach,
+R. Fergus, S. Vishwanathan, and R. Garnett, editors, Advances in Neural Information Processing Systems, volume 30.
+Curran Associates, Inc., 2017. URL https://proceedings.neurips.cc/paper_files/paper/2017/file/
+8a1d694707eb0fefe65871369074926d-Paper.pdf.
+Nanshan Jia, Zhenyu Zhao, Sui Huang, Jingshen Wang, and Zeyu Zheng. DB-3DME: From dataset to benchmark for
+human-aligned automatic 3d mesh evaluation. In IEEE/CVF Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 4631–4640, 2026.
+Baiqi Li, Zhiqiu Lin, Deepak Pathak, Jiayao Li, Yixin Fei, Kewen Wu, Tiffany Ling, Xide Xia, Pengchuan Zhang,
+Graham Neubig, and Deva Ramanan. GenAI-Bench: Evaluating and improving compositional text-to-visual
+generation. arXiv preprint arXiv:2406.13743, 2024.
+Zhiqiu Lin, Deepak Pathak, Baiqi Li, Jiayao Li, Xide Xia, Graham Neubig, Pengchuan Zhang, and Deva Ramanan.
+Evaluating text-to-visual generation with image-to-text generation. In European Conference on Computer Vision
+(ECCV), pages 366–384. Springer, 2024.
+Yang Liu, Dan Iter, Yichong Xu, Shuohang Wang, Ruochen Xu, and Chenguang Zhu. G-eval: Nlg evaluation using
+gpt-4 with better human alignment. In Proceedings of the 2023 Conference on Empirical Methods in Natural
+Language Processing (EMNLP), pages 2511–2522, 2023.
+Yuan Liu, Haodong Duan, Yuanhan Zhang, Bo Li, Songyang Zhang, Wangbo Zhao, Yike Yuan, Jiaqi Wang, Conghui
+He, Ziwei Liu, Kai Chen, and Dahua Lin. MMBench: Is your multi-modal model an all-around player? In European
+Conference on Computer Vision (ECCV), pages 216–233. Springer, 2024.
+Oscar Michel, Roi Bar-On, Richard Liu, Sagie Benaim, and Rana Hanocka. Text2mesh: Text-driven neural stylization
+for meshes. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 13492–13502,
+2022.
+Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda
+Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning transferable visual models
+from natural language supervision. In Marina Meila and Tong Zhang, editors, Proceedings of the 38th International
+Conference on Machine Learning, volume 139 of Proceedings of Machine Learning Research, pages 8748–8763.
+PMLR, 18–24 Jul 2021. URL https://proceedings.mlr.press/v139/radford21a.html.
+Roblox Foundation Model for 3D Intelligence Team. Roblox Cube: A foundation model for 3d intelligence. Technical
+report, Roblox, 2025. URL https://corp.roblox.com/newsroom/2025/03/roblox-cube.
+Zayne Sprague, Fangcong Yin, Juan Diego Rodriguez, Dongwei Jiang, Manya Wadhwa, Prasann Singhal, Xinyu Zhao,
+Xi Ye, Kyle Mahowald, and Greg Durrett. To CoT or not to CoT? chain-of-thought helps mainly on math and
+symbolic reasoning. In International Conference on Learning Representations (ICLR), 2025.
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed H. Chi, Quoc V. Le, and Denny
+Zhou. Chain-of-thought prompting elicits reasoning in large language models. In Advances in Neural Information
+Processing Systems (NeurIPS), volume 35, pages 24824–24837, 2022.
+Haoning Wu, Zicheng Zhang, Erli Zhang, Chaofeng Chen, Liang Liao, Annan Wang, Chunyi Li, Wenxiu Sun, Qiong
+Yan, Guangtao Zhai, and Weisi Lin. Q-Bench: A benchmark for general-purpose foundation models on low-level
+vision. In ICLR, 2024a.
+Tong Wu, Guandao Yang, Zhibing Li, Kai Zhang, Ziwei Liu, Leonidas Guibas, Dahua Lin, and Gordon Wetzstein.
+GPT-4V(ision) is a human-aligned evaluator for text-to-3d generation. In IEEE/CVF Conference on Computer Vision
+and Pattern Recognition (CVPR), pages 22227–22238, 2024b.
+29
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Xueqing Wu, Yuheng Ding, Bingxuan Li, Pan Lu, Da Yin, Kai-Wei Chang, and Nanyun Peng. VISCO: Benchmarking
+fine-grained critique and correction towards self-improvement in visual reasoning. In IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR), pages 9527–9537, 2025.
+John Yang, Carlos Jimenez, Alexander Wettig, Kilian Lieret, Shunyu Yao, Karthik Narasimhan, and Ofir
+Press.
+Swe-agent:
+Agent-computer interfaces enable automated software engineering.
+In A. Glober-
+son, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang, editors, Advances in
+Neural Information Processing Systems, volume 37, pages 50528–50652. Curran Associates, Inc., 2024a.
+doi: 10.52202/079017-1601. URL https://proceedings.neurips.cc/paper_files/paper/2024/file/
+5a7c947568c1b1328ccc5230172e1e7c-Paper-Conference.pdf.
+Xiuyu Yang, Yunze Man, Jun-Kun Chen, and Yu-Xiong Wang. Scenecraft: Layout-guided 3d scene generation. In
+Advances in Neural Information Processing Systems, volume 37, pages 82060–82084, 2024b.
+Yixuan Yang, Junru Lu, Zixiang Zhao, Zhen Luo, James J. Q. Yu, Victor Sanchez, and Feng Zheng. Llplace: The
+3d indoor scene layout generation and editing via large language model, 2024c. URL https://arxiv.org/abs/
+2406.03866.
+Yue Yang, Fan-Yun Sun, Luca Weihs, Eli VanderBilt, Alvaro Herrasti, Winson Han, Jiajun Wu, Nick Haber, Ranjay
+Krishna, Lingjie Liu, et al. Holodeck: Language guided generation of 3d embodied ai environments. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 16227–16237, 2024d.
+Xiang Yue, Yuansheng Ni, Kai Zhang, Tianyu Zheng, Ruoqi Liu, Ge Zhang, Samuel Stevens, Dongfu Jiang, Weiming
+Ren, Yuxuan Sun, et al. MMMU: A massive multi-discipline multimodal understanding and reasoning benchmark
+for expert AGI. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 9556–9567,
+2024.
+Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. The unreasonable effectiveness of deep
+features as a perceptual metric. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR),
+pages 586–595, 2018.
+Yuhan Zhang, Mengchen Zhang, Tong Wu, Tengfei Wang, Gordon Wetzstein, Dahua Lin, and Ziwei Liu. 3DGen-Bench:
+Comprehensive benchmark suite for 3d generative models. arXiv preprint arXiv:2503.21745, 2025a.
+Yuhan Zhang, Long Zhuo, Ziyang Chu, Tong Wu, Zhibing Li, Liang Pan, Dahua Lin, and Ziwei Liu. Hi3deval:
+Advancing 3d generation evaluation with hierarchical validity. arXiv preprint arXiv:2508.05609, 2025b.
+Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuo-
+han Li, Dacheng Li, Eric Xing, Hao Zhang, Joseph Gonzalez, and Ion Stoica.
+Judging llm-as-a-judge
+with mt-bench and chatbot arena.
+In A. Oh, T. Naumann, A. Globerson, K. Saenko, M. Hardt, and
+S. Levine, editors, Advances in Neural Information Processing Systems, volume 36, pages 46595–46623. Cur-
+ran Associates, Inc., 2023.
+URL https://proceedings.neurips.cc/paper_files/paper/2023/file/
+91f18a1287b398d378ef22505bf41832-Paper-Datasets_and_Benchmarks.pdf.
+A
+Taxonomy column mapping
+The nine defect categories are: form/surface quality, fused or incomplete parts, pose/placement mismatch, missing parts,
+extra geometry, noise/blur/grain, misplaced or overlapping texture, baked lighting/shadow artifacts, and visual-textual
+mismatch. The prompt-conditioned categories are missing parts, pose/placement mismatch, and visual-textual mismatch.
+Released tables include stable machine-readable column names; Table 13 maps them to the reader-facing labels used
+throughout.
+30
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 13: Mapping from released column names to reader-facing defect labels.
+Released column
+Reader-facing label
+q_form_surface
+Form or surface quality
+q_fused_incomplete
+Fused or incomplete parts
+q_pose_placement
+Pose or placement mismatch
+q_missing_parts
+Missing parts
+q_extra_geometry
+Extra geometry
+t_noisy_blurry_grainy
+Noise, blur, or grain
+t_misplaced_overlapping
+Misplaced or overlapping texture
+t_baked_lighting_shadow
+Baked lighting or shadow
+t_incorrect_visual_textual
+Visual-textual mismatch
+B
+Full 84 inference-design grid
+Configurations are the Cartesian product of 3 camera-view protocols, 7 visual inputs, and 4 prompt schemas (84
+total). Released configuration IDs are deterministic identifiers used only for reproducibility. The selected evaluation
+configuration corresponds to released ID c004; Table 14 gives the human-readable mapping and Table 15 lists the full
+grid.
+Table 14: Human-readable mapping for the selected inference design.
+Design component
+Released value
+Meaning
+Camera protocol
+6_oblique_tb
+Six oblique turntable views around the asset
+Visual input
+RGB
+Standard color renders only
+Prompt schema
+Rubric-Guided Checklist
+Per-defect checklist with rubric definitions
+Table 15: Full 84-configuration inference-design grid. Configuration IDs are deterministic reproducibility keys.
+ID
+Camera protocol
+Visual input
+Prompt schema
+c001
+6 oblique
+RGB
+Compact Binary
+c002
+6 oblique
+RGB
+Definition-Guided Binary
+c003
+6 oblique
+RGB
+Rubric-Guided Binary
+c004
+6 oblique
+RGB
+Rubric-Guided Checklist
+c005
+6 oblique
+Geometry-only
+Compact Binary
+c006
+6 oblique
+Geometry-only
+Definition-Guided Binary
+c007
+6 oblique
+Geometry-only
+Rubric-Guided Binary
+c008
+6 oblique
+Geometry-only
+Rubric-Guided Checklist
+c009
+6 oblique
+Normals
+Compact Binary
+c010
+6 oblique
+Normals
+Definition-Guided Binary
+c011
+6 oblique
+Normals
+Rubric-Guided Binary
+c012
+6 oblique
+Normals
+Rubric-Guided Checklist
+c013
+6 oblique
+Depth
+Compact Binary
+c014
+6 oblique
+Depth
+Definition-Guided Binary
+c015
+6 oblique
+Depth
+Rubric-Guided Binary
+c016
+6 oblique
+Depth
+Rubric-Guided Checklist
+c017
+6 oblique
+RGB + geometry
+Compact Binary
+c018
+6 oblique
+RGB + geometry
+Definition-Guided Binary
+c019
+6 oblique
+RGB + geometry
+Rubric-Guided Binary
+c020
+6 oblique
+RGB + geometry
+Rubric-Guided Checklist
+c021
+6 oblique
+RGB + normals
+Compact Binary
+c022
+6 oblique
+RGB + normals
+Definition-Guided Binary
+Continued on next page
+31
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 15 – continued from previous page
+ID
+Camera protocol
+Visual input
+Prompt schema
+c023
+6 oblique
+RGB + normals
+Rubric-Guided Binary
+c024
+6 oblique
+RGB + normals
+Rubric-Guided Checklist
+c025
+6 oblique
+RGB + depth
+Compact Binary
+c026
+6 oblique
+RGB + depth
+Definition-Guided Binary
+c027
+6 oblique
+RGB + depth
+Rubric-Guided Binary
+c028
+6 oblique
+RGB + depth
+Rubric-Guided Checklist
+c029
+14_eq_tb
+RGB
+Compact Binary
+c030
+14_eq_tb
+RGB
+Definition-Guided Binary
+c031
+14_eq_tb
+RGB
+Rubric-Guided Binary
+c032
+14_eq_tb
+RGB
+Rubric-Guided Checklist
+c033
+14_eq_tb
+Geometry-only
+Compact Binary
+c034
+14_eq_tb
+Geometry-only
+Definition-Guided Binary
+c035
+14_eq_tb
+Geometry-only
+Rubric-Guided Binary
+c036
+14_eq_tb
+Geometry-only
+Rubric-Guided Checklist
+c037
+14_eq_tb
+Normals
+Compact Binary
+c038
+14_eq_tb
+Normals
+Definition-Guided Binary
+c039
+14_eq_tb
+Normals
+Rubric-Guided Binary
+c040
+14_eq_tb
+Normals
+Rubric-Guided Checklist
+c041
+14_eq_tb
+Depth
+Compact Binary
+c042
+14_eq_tb
+Depth
+Definition-Guided Binary
+c043
+14_eq_tb
+Depth
+Rubric-Guided Binary
+c044
+14_eq_tb
+Depth
+Rubric-Guided Checklist
+c045
+14_eq_tb
+RGB + geometry
+Compact Binary
+c046
+14_eq_tb
+RGB + geometry
+Definition-Guided Binary
+c047
+14_eq_tb
+RGB + geometry
+Rubric-Guided Binary
+c048
+14_eq_tb
+RGB + geometry
+Rubric-Guided Checklist
+c049
+14_eq_tb
+RGB + normals
+Compact Binary
+c050
+14_eq_tb
+RGB + normals
+Definition-Guided Binary
+c051
+14_eq_tb
+RGB + normals
+Rubric-Guided Binary
+c052
+14_eq_tb
+RGB + normals
+Rubric-Guided Checklist
+c053
+14_eq_tb
+RGB + depth
+Compact Binary
+c054
+14_eq_tb
+RGB + depth
+Definition-Guided Binary
+c055
+14_eq_tb
+RGB + depth
+Rubric-Guided Binary
+c056
+14_eq_tb
+RGB + depth
+Rubric-Guided Checklist
+c057
+14_multi_ring_tb
+RGB
+Compact Binary
+c058
+14_multi_ring_tb
+RGB
+Definition-Guided Binary
+c059
+14_multi_ring_tb
+RGB
+Rubric-Guided Binary
+c060
+14_multi_ring_tb
+RGB
+Rubric-Guided Checklist
+c061
+14_multi_ring_tb
+Geometry-only
+Compact Binary
+c062
+14_multi_ring_tb
+Geometry-only
+Definition-Guided Binary
+c063
+14_multi_ring_tb
+Geometry-only
+Rubric-Guided Binary
+c064
+14_multi_ring_tb
+Geometry-only
+Rubric-Guided Checklist
+c065
+14_multi_ring_tb
+Normals
+Compact Binary
+c066
+14_multi_ring_tb
+Normals
+Definition-Guided Binary
+c067
+14_multi_ring_tb
+Normals
+Rubric-Guided Binary
+c068
+14_multi_ring_tb
+Normals
+Rubric-Guided Checklist
+c069
+14_multi_ring_tb
+Depth
+Compact Binary
+c070
+14_multi_ring_tb
+Depth
+Definition-Guided Binary
+c071
+14_multi_ring_tb
+Depth
+Rubric-Guided Binary
+c072
+14_multi_ring_tb
+Depth
+Rubric-Guided Checklist
+Continued on next page
+32
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 15 – continued from previous page
+ID
+Camera protocol
+Visual input
+Prompt schema
+c073
+14_multi_ring_tb
+RGB + geometry
+Compact Binary
+c074
+14_multi_ring_tb
+RGB + geometry
+Definition-Guided Binary
+c075
+14_multi_ring_tb
+RGB + geometry
+Rubric-Guided Binary
+c076
+14_multi_ring_tb
+RGB + geometry
+Rubric-Guided Checklist
+c077
+14_multi_ring_tb
+RGB + normals
+Compact Binary
+c078
+14_multi_ring_tb
+RGB + normals
+Definition-Guided Binary
+c079
+14_multi_ring_tb
+RGB + normals
+Rubric-Guided Binary
+c080
+14_multi_ring_tb
+RGB + normals
+Rubric-Guided Checklist
+c081
+14_multi_ring_tb
+RGB + depth
+Compact Binary
+c082
+14_multi_ring_tb
+RGB + depth
+Definition-Guided Binary
+c083
+14_multi_ring_tb
+RGB + depth
+Rubric-Guided Binary
+c084
+14_multi_ring_tb
+RGB + depth
+Rubric-Guided Checklist
+C
+Full selected prompt text
+For reference, we reproduce the full text of the selected geometry prompt (Rubric-Guided Checklist) below; the texture
+prompt is structurally identical with texture-specific categories. The other three geometry schemas are this prompt with
+progressively less rubric detail and a single-line output format (Table 3).
+You are a 3D model quality evaluator. Your task is to assess ONLY the geometry quality
+of a generated 3D asset by comparing the provided text prompt against a multi-view PNG
+image of the asset.
+The PNG image contains a grid of renderings from different viewpoints. Carefully inspect
+all views before making a judgment. If a geometry defect is visible in any view, even if
+only partially visible, mark that defect as present.
+Evaluation scope:
+- Evaluate geometry only.
+- Ignore texture, color, material, lighting, shadow, transparency, surface pattern,
+decals, logos, and text readability unless they directly reveal a geometry issue.
+- Use the prompt to determine required objects, parts, quantity, pose, placement, and
+structural expectations.
+- Do not over-penalize fantastical or stylized objects if they still satisfy the prompt
+and are structurally coherent.
+- Do not assume hidden defects that are not visually supported.
+- If the asset is clearly a completely different object category from the prompt, mark
+the relevant prompt-adherence geometry defects.
+- If the prompt is too ambiguous to determine the expected object, make the best visual
+judgment based only on clearly observable defects.
+Rate the model’s geometry using the following five defect categories. For each category,
+output 1 if the defect is present and 0 if the defect is clearly not present.
+1. Incorrect Prompt Quantity / Missing Parts
+Mark 1 if the number of objects or major parts does not match the prompt or common
+expectation for the object. This includes:
+- Required objects or parts are missing.
+- Major anatomy, facial features, wheels, limbs, blades, handles, cockpit, doors,
+windows, or other essential components are absent.
+- The prompt specifies a quantity and the generated count is wrong.
+- Extra separate objects appear when the prompt asks for one integrated object.
+- Prompt-specific components are missing even if the overall object category is
+recognizable.
+Examples:
+- A prompt for "robot with a shield" produces a robot without the shield.
+- A bus is missing a required wheel.
+33
+
+
+3D-DEFECTBENCH
+A PREPRINT
+- A windmill has the wrong number of blades.
+- A humanoid statue is missing arms.
+- A monster truck is missing its cockpit and only produces the chassis.
+- A turtle is missing its mouth and nose.
+- A hotel courtesy shuttle is missing many required prompt elements.
+- A mobile pet-grooming van is missing key van features such as cockpit, doors, and
+windows.
+- A prompt for "three cubes" produces only two cubes.
+Do not mark this category for minor simplification unless an important part is missing
+or the prompt clearly requires the detail.
+2. Incorrect Prompt Pose / Placement
+Mark 1 if the object’s pose, orientation, action, or spatial relation does not match the
+prompt. This includes:
+- The requested pose or action is wrong, such as standing vs sitting.
+- A part is oriented in the wrong direction.
+- Parts are attached in the wrong place.
+- Object-to-object placement is wrong, such as an object under another object when the
+prompt says it should be on top.
+- Components are visibly misplaced, such as wheels too high, sails facing the wrong
+direction, or structural parts clipping into the wrong area.
+Examples:
+- A bear is on all fours when it should be standing.
+- A boat’s sail faces the wrong direction.
+- A car wheel is positioned too high and clips through the car body.
+- An apple appears under a plate when the prompt asks for an apple on a plate.
+- A ship’s tail fin or sail is positioned incorrectly.
+3. Fused or Incomplete Parts
+Mark 1 if geometry is improperly formed, disconnected, merged, broken, or structurally
+incomplete. This includes:
+- Separate parts that should remain distinct are fused, melted, or over-connected.
+- Parts that should connect are floating, detached, or disconnected.
+- Surfaces contain holes, gaps, missing sections, or unsealed geometry.
+- Components are truncated, unfinished, or only partially formed.
+- Internal structure is incomplete enough to make the object structurally incorrect.
+Examples:
+- A dog’s legs are fused together.
+- A frog’s front arms and rear legs merge into one continuous mesh near the torso.
+- A hand is fused with the object it is holding.
+- A monitor is not connected to its stand.
+- Harp strings are disconnected from the frame.
+- A chest has a visible hole in the main body, and the lid and base are fused.
+- A mountain mesh has visible holes.
+- A fairy’s legs are unintentionally merged together.
+- A sailboat has an unintended fused connection between the sail and the boat body, and
+part of the sail is missing.
+- A tennis racket has net strings that are fused together or inconsistently separated.
+Do not mark this category for intended artistic simplification unless the form is
+visibly broken, fused, disconnected, or incomplete.
+4. Unrecognizable Extra Geometry
+Mark 1 if there are geometric elements that should not exist and cannot be interpreted
+as meaningful parts of the prompt. This includes:
+- Random blobs, protrusions, floating pieces, internal junk geometry, or loose
+structures.
+- Extra appendages or shapes not implied by the object.
+- Nonsensical interior geometry.
+- Geometry that makes the model confusing even if the main object is recognizable.
+Examples:
+34
+
+
+3D-DEFECTBENCH
+A PREPRINT
+- A car’s exterior shell is recognizable, but the interior cabin contains dense, blobby,
+nonsensical geometry that does not correspond to seats, dashboard, or other correct
+interior components.
+- A half-human, half-dog model contains unrecognizable extra geometry on the back of the
+shoe.
+- A sailboat has floating unrecognizable geometry beside the hull.
+- A cargo ship has floating extra geometry that should not be part of the model.
+- A Skibidi toilet contains unrecognizable extra geometry inside the toilet.
+- A burger cart has extra geometry on top of the burger that does not correspond to a
+meaningful component.
+Do not mark this category for legitimate decorative or stylized elements that plausibly
+belong to the object.
+5. Form and Surface Quality Issues
+Mark 1 if the object’s shape, proportions, symmetry, surface, or structural fidelity is
+poor. This includes:
+- Warped, lumpy, jagged, collapsed, noisy, or uneven geometry.
+- Incorrect proportions, asymmetric parts that should be symmetric, or distorted
+anatomy.
+- Important structural details are overly smoothed, rounded, softened, or missing.
+- Surfaces lack physical plausibility, sharpness, thickness, or defining form.
+- The object is recognizable but the geometric form is low quality or lacks expected
+structural coherence.
+Examples:
+- A wreath or ornaments are overly smooth and lose expected detail.
+- A fire engine lacks defined details between the window and grille, and the siren
+lights are warped.
+- A star has uneven surface quality and lacks symmetry.
+- Mansion stairs have warped or uneven edges, and pillars are too round or lack detail.
+- A hamster’s whisker geometry is uneven and lacks symmetry.
+- A dog’s head has sharp edges that should not be present on the cheek or nose.
+- A turtle has uneven bumpiness on the shell and lacks sharpness/detail around the eyes.
+- A stack of money has an incorrect square shape instead of a rectangular shape.
+- A Roman stone building has blobby pillars and warped pediment surfaces.
+- A flower has uneven petals or an asymmetric center.
+Output format:
+Return exactly the following JSON object and nothing else:
+{
+"geometry_checklist": {
+"q_missing_parts": {
+"label": 0 or 1,
+"evidence": "short evidence or not observed"
+},
+"q_pose_placement": {
+"label": 0 or 1,
+"evidence": "short evidence or not observed"
+},
+"q_fused_incomplete": {
+"label": 0 or 1,
+"evidence": "short evidence or not observed"
+},
+"q_extra_geometry": {
+"label": 0 or 1,
+"evidence": "short evidence or not observed"
+},
+"q_form_surface": {
+"label": 0 or 1,
+"evidence": "short evidence or not observed"
+}
+},
+"geometry_rating": [q_missing_parts, q_pose_placement, q_fused_incomplete,
+q_extra_geometry, q_form_surface]
+}
+35
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 16: Best-vs-worst level gaps in pooled screening macro MCC per factor (silver labels).
+Aspect
+Factor
+Best MCC
+Worst level
+∆MCC
+Geometry
+VLM model
+0.180
+Mistral Small 3.1 24B
+0.139
+Geometry
+Visual input
+0.141
+depth
+0.037
+Geometry
+Camera protocol
+0.133
+14 equatorial
+0.020
+Geometry
+Prompt schema
+0.127
+Definition-Guided Binary
+0.010
+Texture
+VLM model
+0.083
+Mistral Small 3.1 24B
+0.050
+Texture
+Camera protocol
+0.065
+14 multi-ring
+0.024
+Texture
+Visual input
+0.063
+RGB+normals
+0.020
+Texture
+Prompt schema
+0.064
+Compact Binary
+0.018
+Each label must be 0 or 1.
+Keep each evidence field concise.
+Do not include any text outside the JSON.
+D
+Factor effect sizes
+Figure 23 shows the distribution of macro MCC (one point per model×config) across the levels of each factor, separately
+for geometry and texture—the raw signal underlying the fitted coefficients. Table 16 translates the small partial pseudo-
+R2 values (∼10−4–10−3) into the best-vs-worst level gap in pooled macro MCC: the VLM-model factor moves
+geometry macro MCC by ∼0.14, an order of magnitude larger than the prompt-schema gap (∼0.01), matching the
+pseudo-R2 ordering.
+E
+Statistical methodology
+Model and importance.
+We fit Eq. (1) (defined at the head of Section 5) for each of the nine defects with L2-
+regularized logistic regression (scikit-learn, C=106, lbfgs, tol=10−7), i.e. effectively unregularized so the fit ap-
+proximates the maximum-likelihood solution. Writing ℓfull for the fitted log-likelihood and ℓ0 for the intercept-only
+log-likelihood, the McFadden pseudo-R2 is R2
+McF = 1 −ℓfull/ℓ0. For factor family f we refit without that family’s
+design block (ℓ−f) and report the partial pseudo-R2, ∆R2
+f = R2
+full −R2
+−f, as the family’s importance, together with
+an omnibus likelihood-ratio test LRf = 2(ℓfull −ℓ−f), referred to a χ2
+dff distribution with dff equal to the number of
+coefficients dropped with family f.
+Multiple testing.
+Across the 45 omnibus tests (9 defects × 5 factor families) we report Benjamini–Hochberg FDR-
+adjusted p-values alongside raw p-values. At q<0.05 the significant-defect counts are unchanged from the raw counts
+(VLM model 9/9, visual input 7/9, prompt schema 5/9, camera protocol 5/9, interactions 8/9), so the family ordering is
+robust to FDR control.
+Clustering and repeated measures.
+Each asset contributes many correlated rows to a defect’s regression—one per
+(model, config) cell in which it was scored—so the rows are not independent. The omnibus LR χ2 tests pool these
+rows as if independent and therefore yield anti-conservative p-values; we accordingly use them only to rank factor
+families by importance rather than as calibrated significance statements, and we verify that the ranking survives FDR
+control. Every interval we rely on for inference—macro MCC per model and per configuration, bootstrap coefficient
+CIs, and the configuration/model difference CIs (Table 18)—instead uses an asset-cluster bootstrap that resamples
+whole assets with replacement, so all defect cells from one mesh move together and within-asset correlation is carried
+into the interval. This is the conservative interval underlying all ranking and separation claims in the paper.
+F
+Configuration-selection stability and paired tests
+The selected configuration c004 is the top row of the pooled silver-screening ranking (geometry macro MCC
+0.167 [0.144, 0.197]; nearest rivals c001 0.164, c002 0.156, c003 0.153). The point-estimate gap to the next con-
+figuration is small (∼0.003 macro MCC) and its bootstrap CI overlaps those of the runners-up, so c004 is not separable
+36
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Geometry
+Texture
+Figure 23: Macro MCC by factor level (one point per model×config) in the factor-analysis phase.
+37
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 17: Bootstrap configuration-selection stability (100 asset-cluster resamples). Rank-1 and top-3 frequency for the
+leading configurations.
+Aspect
+Config
+Rank-1 freq.
+Top-3 freq.
+Geometry
+c004
+0.67
+0.97
+Geometry
+c001
+0.25
+0.89
+Geometry
+c020
+0.04
+0.23
+Geometry
+c002
+0.02
+0.40
+Texture
+c004
+0.51
+0.96
+Texture
+c020
+0.19
+0.69
+Texture
+c003
+0.15
+0.66
+Texture
+c048
+0.14
+0.38
+from the top cluster on point estimates alone. We therefore assess selection stability with an asset-cluster bootstrap (100
+resamples of the silver assets; for each resample we recompute pooled per-config macro MCC and record the rank-1
+and top-3 configurations). Table 17 reports the resulting winner frequencies: c004 is rank-1 in 67% (geometry) and
+51% (texture) of resamples and top-3 in 97%/96%. The high top-3 frequency together with the small point-estimate
+gaps supports treating c004 as a pragmatic default that is reliably near-optimal, rather than a uniquely optimal design.
+Selection uses noisy silver labels, so we do not claim global optimality.
+Is c004 separably better than its rivals?
+Rank frequencies show which configuration wins a resample but not
+whether the winning margin is statistically real. We therefore test c004 directly against its four nearest rivals with a
+paired asset-cluster bootstrap of the pooled macro-MCC difference (Table 18). The result reinforces the “near-optimal
+default, not uniquely optimal” reading. On geometry, c004 is statistically indistinguishable from its closest rival c001
+(95% difference CI [−0.009, 0.017] spans zero), while separably beating the lower configurations c003 and c032 (and
+c020 only marginally, CI lower bound ≈0.000). On texture, c004 separably beats only c001 and is statistically tied
+with c003, c020, and c032. No single design is uniquely best: on both aspects c004 sits inside a small cluster of
+statistically tied top configurations, which is why we treat it as a pragmatic default rather than an optimum and do not
+tune downstream conclusions to it. Because these are eight pre-specified comparisons against a single anchor we report
+the raw difference CIs without multiplicity correction; a Bonferroni adjustment (α=0.05/8) would only widen the
+intervals and strengthen the “tied cluster” conclusion.
+Table 18: Paired asset-cluster bootstrap comparison of the carried-forward c004 against its nearest screening rivals
+(pooled macro MCC on the 1,049 silver assets, 100 resamples). ∆is c004 minus the rival; a 95% difference CI
+excluding zero marks c004 as separably better. We read the difference CIs—not the bootstrap tail probabilities—as the
+inferential object, and apply no multiplicity correction across the eight comparisons.
+Aspect
+Comparison
+∆macro MCC
+95% CI
+Separable
+Geometry
+c004 vs. c032
+0.020
+[0.005, 0.035]
+✓
+Geometry
+c004 vs. c020
+0.015
+[0.000, 0.031]
+✓
+Geometry
+c004 vs. c003
+0.014
+[0.003, 0.030]
+✓
+Geometry
+c004 vs. c001
+0.003
+[-0.009, 0.017]
+✗
+Texture
+c004 vs. c001
+0.026
+[0.016, 0.041]
+✓
+Texture
+c004 vs. c032
+0.011
+[-0.002, 0.022]
+✗
+Texture
+c004 vs. c020
+0.004
+[-0.006, 0.015]
+✗
+Texture
+c004 vs. c003
+0.004
+[-0.009, 0.017]
+✗
+Why selection uses silver rather than expert labels.
+Configuration selection is performed on silver labels because
+only the carried-forward c004 design was ever scored against the 129-asset expert set; the five screening models were
+not run on the expert assets under the other 83 designs, so re-ranking configurations directly on expert labels would
+require new inference that this study does not perform. The expert-transfer route (Section 6) validates the choice
+indirectly—selecting on the full silver set and evaluating on the higher-quality expert labels independently returns
+c004—and the paired tests above bound how much any other top-cluster configuration could have shifted the selection.
+38
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 24: Per-defect geometry MCC by configuration and screening model (gray: all 84 configs; blue: c004). Error
+bars are 95% asset-cluster bootstrap CIs.
+Per-defect view of configuration spread.
+Figures 24 and 25 show, for each screening model, the per-defect MCC
+(with bootstrap CIs) of every configuration in gray and the carried-forward c004 in blue. c004 sits at or near the top
+of the configuration spread on most geometry defects across models, while on texture the configurations are tightly
+bunched and largely overlapping—consistent with the small selection margins and the low texture ceiling.
+G
+Per-defect model-comparison metrics
+Figure 26 shows the per-defect MCC for every model on expert-agreement cells as a model×defect matrix; Figure 27
+shows the same per-defect MCC with asset-cluster bootstrap 95% CIs. Per-defect F1 follows the same structure and is
+included in the released tables alongside MCC, precision, and recall.
+H
+Expert label modes
+The expert split has exactly two expert labels per asset, so a disagreement cell (one pass, one fail) has no majority. We
+therefore construct the expert leaderboard from two complementary consensus targets, plus a per-expert diagnostic.
+Agreement-only (primary) keeps only the 877 unique defect cells where both experts agree (539 geometry, 338 texture);
+this isolates clean targets but excludes the 284 disagreement cells. Either-expert union marks a defect present if either
+expert flags it, covering the full grid of 1,161 unique cells (645 geometry, 516 texture); this is recall-oriented and gives
+full coverage. These two consensus targets are the ones reported in the main leaderboard (Table 7). The per-expert
+diagnostic instead scores each VLM separately against expert 0 and expert 1 to expose sensitivity to the labeler choice;
+it is distinct from the single held-out expert protocol used for the human-labeler comparison (Section 7, Table 12),
+which holds one expert out as the test labeler and scores both that expert and the VLMs against the other.
+Table 19 shows the top models under agreement-only and either-expert union. The rank-1 model is stable across
+modes (Gemini 3.1 Pro leads geometry, Gemini 3.1 Flash-Lite leads texture in both), but absolute MCC and the
+39
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Figure 25: Per-defect texture MCC by configuration and screening model (gray: all texture-eligible configs; blue:
+c004). Error bars are 95% asset-cluster bootstrap CIs.
+Geometry
+Texture
+Figure 26: Per-defect MCC heatmaps (model × defect) on expert-agreement cells.
+40
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Geometry
+Texture
+Figure 27: Per-defect MCC with 95% asset-cluster bootstrap CI by model (expert-agreement cells).
+Table 19: Expert leaderboard top-3 by label mode (macro MCC, c004). Agreement-only uses both-experts-agree cells;
+union marks a defect if either expert flags it.
+Mode / aspect
+Rank-1
+Rank-2
+Agreement, geometry
+Gemini 3.1 Pro (0.298)
+Gemini 2.5 Pro (0.282)
+Agreement, texture
+Gemini 3.1 Flash-Lite (0.406)
+Gemini 3.1 Pro (0.386)
+Union, geometry
+Gemini 3.1 Pro (0.273)
+Gemini 3.1 Flash-Lite (0.199)
+Union, texture
+Gemini 3.1 Flash-Lite (0.281)
+Gemini 3.1 Pro (0.235)
+rank-2 ordering shift: the agreement filter changes the target, not just the sample size. Table 20 breaks down the 284
+disagreement cells by defect; Table 21 lists the top-five models under each label mode.
+Table 20: Expert-expert disagreement cells by defect (n=284 of 1,161 unique cells).
+Aspect
+Defect
+Disagreement cells
+Geometry
+Extra geometry
+8
+Geometry
+Form or surface quality
+41
+Geometry
+Fused or incomplete parts
+28
+Geometry
+Missing parts
+25
+Geometry
+Pose or placement mismatch
+4
+Texture
+Baked lighting or shadow
+47
+Texture
+Visual-textual mismatch
+45
+Texture
+Misplaced or overlapping texture
+43
+Texture
+Noise, blur, or grain
+43
+I
+Cost and compute
+Table 1 summarizes API call and scored-cell counts by phase. Screening costs are dominated by the 84-design grid
+(∼692k model calls on all 1,049 silver assets); final comparison costs are dominated by frontier model calls on
+multi-image inputs (2,838 expert calls + 12,078 silver holdout calls). We quantify cost as these API-call and scored-cell
+counts rather than as dollar figures, since per-call prices differ across providers and change over time.
+J
+Reproducibility
+Every results table and analysis figure in this paper is reproducible from the released labels and model predictions
+with no new model inference. The public release includes the analysis code that recomputes the factor-importance
+estimates, the bootstrap configuration-selection stability and the paired c004-vs-neighbor comparisons (Appendix F),
+the expert-consensus leaderboards, and the per-defect and baseline metrics reported here. The overview schematic
+(Figure 1) is composed manually from the released per-defect prevalence statistics.
+41
+
+
+3D-DEFECTBENCH
+A PREPRINT
+Table 21: Expert leaderboard by label mode (macro MCC, top five models per mode; c004). Agreement-only uses
+both-experts-agree cells; union marks a defect if either expert flags it.
+Label mode
+Aspect
+Model
+Macro MCC
+Agreement-only
+Geometry
+Gemini 2.5 Pro
+0.247
+Geometry
+Gemini 3.1 Pro
+0.229
+Geometry
+Gemini 3.1 Flash-Lite
+0.221
+Geometry
+Claude Opus 4.7
+0.183
+Geometry
+GPT-5.4
+0.183
+Texture
+Gemini 3.1 Flash-Lite
+0.297
+Texture
+Gemini 3.1 Pro
+0.290
+Texture
+Claude Opus 4.7
+0.230
+Texture
+GPT-4o
+0.174
+Texture
+Gemini 2.5 Pro
+0.172
+Either-expert union
+Geometry
+Gemini 3.1 Pro
+0.273
+Geometry
+Gemini 3.1 Flash-Lite
+0.199
+Geometry
+Gemini 2.5 Pro
+0.175
+Geometry
+GPT-5.4
+0.172
+Geometry
+Qwen 3.5 397B-A17B
+0.113
+Texture
+Gemini 3.1 Flash-Lite
+0.281
+Texture
+Gemini 3.1 Pro
+0.235
+Texture
+Gemini 2.5 Pro
+0.223
+Texture
+Claude Opus 4.7
+0.196
+Texture
+GPT-4o
+0.182
+Rendering configuration.
+Views are rendered with pyrender on trimesh geometry in an offscreen buffer. Each
+mesh is recentered to the origin, scaled so its bounding sphere has unit radius, then placed at radius 2.0; the camera
+distance is auto-fit to frame the object with a 1.10 margin, capped to the maximum fit distance across the views of a
+protocol so all panels share one scale. The camera is a perspective camera with yfov=30◦and aspect ratio 1.0. Scenes
+use flat ambient lighting only (ambient_light=[1, 1, 1]; no directional or image-based lighting); the background is
+black (0, 0, 0), with meshes rendered to RGBA and composited over black. Outputs are 8-bit sRGB PNGs; no explicit
+gamma correction or tonemapping is applied. The six-view oblique protocol uses azimuths {45◦, 135◦, 225◦, 315◦} at
+0◦elevation plus top (+90◦) and bottom (−90◦) views; the 14-view equatorial and 14-view multi-ring protocols add
+equatorial and multi-elevation rings respectively (exact angle lists in the released factorial_config.py). Because
+these settings were fixed across all 84 designs, the study does not measure how judge agreement responds to background
+color or lighting; that sensitivity analysis requires new renders and is future work.
+Table 22: Rendering parameters, fixed across all inference designs.
+Parameter
+Value
+Renderer
+pyrender + trimesh, offscreen
+Per-view resolution
+512 × 512 (six-oblique grid 3 × 2, 1536 × 1024)
+Camera
+perspective, yfov=30◦, aspect 1.0
+Object framing
+centered, unit-sphere normalized, radius 2.0, 1.10 fit margin
+Lighting
+flat ambient [1, 1, 1]; no directional/HDRI
+Background
+black (0, 0, 0); RGBA composited on black
+Color/encoding
+8-bit sRGB PNG; no explicit gamma/tonemap
+Depth and normal encodings.
+The depth channel is normalized per frame: over pixels on the visible mesh (mask>0)
+we take the min and max depth and render grey = 255 (1 −(d −dnear)/span), i.e. inverted so the nearest surface is
+white and the farthest black, replicated across RGB. Because normalization is per frame rather than against a fixed
+near/far plane, depth greys are not comparable in absolute scale across views or assets. The normal channel is in view
+(camera) space with flat shading, encoded by the standard color=(n · 0.5 + 0.5) · 255 XYZ→RGB map. Alternative
+encodings—fixed near/far depth, or world-space/absolute normals—could change the geometry-only utility of these
+channels and are not explored here.
+Chance-corrected agreement (robustness).
+Table 2 reports silver Fleiss’ κ, which deflates under extreme class
+imbalance. As a prevalence-robust companion we also compute Randolph’s free-marginal κ per defect: geometry
+macro 0.52 vs. texture macro 0.18 on silver—a starker geometry-over-texture gap than Fleiss’ κ because it removes
+42
+
+
+3D-DEFECTBENCH
+A PREPRINT
+the base-rate paradox (e.g. pose/placement rises from Fleiss 0.09 to free-marginal 0.88 at 1.2% prevalence). The
+texture-below-geometry ordering is consistent across Fleiss’ κ, Randolph’s κ, and expert Cohen’s κ, quantifying the
+texture label-noise ceiling.
+Model versions.
+Table 23 lists the evaluated judges by provider and phase. Names are public model identifiers;
+screening and model-comparison runs were executed between 2026-05-21 and 2026-06-30 (evaluation configuration
+selected 2026-06-30). All proprietary models are accessed through hosted APIs, so exact served snapshots may drift
+over time and are not fully pinnable from the public names alone; to make results reproducible independent of that drift
+we release every model’s raw predictions, and all tables and figures recompute from those predictions without new
+inference.
+Table 23: VLM judges evaluated, by provider and phase. “Screen” = five-model factor-analysis sweep; “Anchor-20” =
+eleven-model × 20-configuration robustness sweep (anchor_20) around c004; “Compare” = twelve-model comparison
+under c004.
+Model
+Provider
+Phase
+Gemini 3.1 Flash-Lite
+Google
+Screen + Anchor-20 + Compare
+GPT-5 Mini
+OpenAI
+Screen + Anchor-20 + Compare
+GPT-5.4
+OpenAI
+Screen + Anchor-20 + Compare
+Qwen 3.5 397B-A17B
+Alibaba (Qwen)
+Screen + Anchor-20 + Compare
+Mistral Small 3.1 24B
+Mistral
+Screen + Anchor-20 + Compare
+Gemini 3.1 Pro
+Google
+Anchor-20 + Compare
+Gemini 2.5 Pro
+Google
+Anchor-20 + Compare
+Claude Opus 4.7
+Anthropic
+Compare
+Claude Sonnet 4.6
+Anthropic
+Anchor-20 + Compare
+Claude Haiku 4.5
+Anthropic
+Anchor-20 + Compare
+GPT-4o
+OpenAI
+Anchor-20 + Compare
+Qwen2.5-VL-7B
+Alibaba (Qwen)
+Anchor-20 + Compare
+43

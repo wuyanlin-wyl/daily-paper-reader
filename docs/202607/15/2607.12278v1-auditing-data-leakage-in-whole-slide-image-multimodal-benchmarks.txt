@@ -1,0 +1,641 @@
+AUDITING DATA LEAKAGE IN WHOLE-SLIDE IMAGE
+MULTIMODAL BENCHMARKS
+Wenhao Zhang
+University of Virginia
+bdu8us@virginia.edu
+Zhongliang Zhou
+Merck & Co., Inc.
+zhongliang.zhou@merck.com
+John Kang
+Merck & Co., Inc.
+jia.kang@merck.com
+Sheng Li
+University of Virginia
+vga8uf@virginia.edu
+July 15, 2026
+ABSTRACT
+Recent vision-language models (VLMs) for computational pathology report striking zero-shot per-
+formance on whole-slide image (WSI) visual question answering (VQA) benchmarks. We audit
+these claims and find them fundamentally compromised by data leakage at two hierarchical lev-
+els: patient-level leakage, where slides from the same case appear in both training and test folds,
+and institutional-level leakage, where different cases nonetheless share staining-batch and scanner
+signatures through a common Tissue Source Site (TSS). By tracing canonical slide, case, and TSS
+identifiers across major public resources, we document case-level train–test overlaps of 92.3–100%
+on TCGA-derived benchmarks, together with near-complete TSS overlap. We further demonstrate
+that both leakage levels are linearly decodable from foundation-model feature space, that they induce
+a measurable accuracy gap between leaked and audit-clean cases on a published checkpoint, and that
+across multiple published WSI VLMs, peak reported accuracies concentrate on the most heavily con-
+taminated benchmarks. Therefore, the current WSI VQA evaluation cannot distinguish genuine mul-
+timodal reasoning from nearest-neighbor retrieval over memorized institutional and patient-specific
+artifacts. Finally, we outline concrete recommendations for contamination-free evaluation. By ad-
+dressing benchmark construction, provenance disclosure, and automated overlap auditing, we aim
+to guide future research toward verifiable claims of progress.
+1
+Introduction
+Large labeled datasets have been critical to the success of vision-language models (VLMs) in computational pathol-
+ogy, enabling rapid progress on tasks such as whole-slide image (WSI) captioning, visual question answering (VQA),
+and diagnostic subtyping. [30] Recent studies routinely report state-of-the-art performance on standard WSI bench-
+marks under nominally zero-shot evaluation protocols, and these numbers are taken at face value as evidence of
+genuine out-of-distribution generalization. [6, 23] However, the training datasets behind these models are constructed
+by aggressively scraping the same monolithic public repository: The Cancer Genome Atlas (TCGA), from which the
+evaluation benchmarks are independently derived. The possibility that training and test data substantially overlap has
+received little systematic attention.
+This overlap constitutes a fundamental methodological flaw driven by two distinct levels of leakage. At the patient
+level, evaluating on previously seen slides collapses zero-shot generalization into mere memorized retrieval. At the
+institutional level, shared Tissue Source Sites (TSS) enable models to exploit laboratory-specific batch effects (e.g.,
+staining and scanner artifacts) as predictive shortcuts rather than learning genuine pathology. Both forms of con-
+tamination guarantee silent generalization failure when these systems are deployed in real-world, out-of-distribution
+clinical settings.
+arXiv:2607.12278v1  [cs.CV]  14 Jul 2026
+
+
+A PREPRINT - JULY 15, 2026
+Figure 1: Two-level data leakage in pathology vision-language models. (a) Hierarchical organization of TCGA whole-
+slide images. (b) Three partitioning regimes considered in this work. (c) The evaluation-time shortcut induced by either
+form of leakage.
+We present the first systematic audit of train-test contamination across the public WSI vision-language ecosystem. By
+tracing canonical TCGA case and slide barcodes across instruction-tuning corpora and public evaluation benchmarks ,
+we construct a cross-contamination matrix that quantifies overlap at the slide, case, and institutional levels. The results
+are striking: train-test overlap on TCGA-derived benchmarks reaches 92.3% to 100% at the case level, with near-
+complete institutional (Tissue Source Site) overlap as well. WSI-VQA-test, one of the most widely cited evaluation
+sets, shares 100% of its cases with WSI-Bench-train. Figure 1 illustrates the hierarchical structure that gives rise to
+this contamination and the three partitioning regimes we consider.
+In summary, our contributions are:
+1. A two-level taxonomy of data leakage specific to WSI vision-language modeling, separating patient-level
+from institutional (TSS-level) contamination, together with a reproducible audit pipeline operating on canon-
+ical TCGA case, slide, and TSS identifiers.
+2. Empirical evidence that both forms of leakage are linearly encoded in the foundation-model feature space,
+that they produce a measurable in-benchmark accuracy gap on a published checkpoint, and that this pattern
+reproduces in a cross-paper meta-analysis spanning multiple published WSI VLMs.
+3. Methodological guidelines, strict slide-, patient-, and TSS-level deduplication, mandatory disclosure of
+training-test samples overlap at these levels, and the adoption of independently curated multi-center hold-
+out sets as preconditions for credible progress claims in WSI VQA.
+2
+Related Work
+2.1
+WSI Multimodal Benchmarks and Models
+The pathology multimodal literature comprises a tightly coupled set of training corpora, benchmarks, and models.
+Two structural facts about this ecosystem motivate our audit.
+First, slide-level supervision has grown by roughly two orders of magnitude within two years. Early efforts such as
+ARCH [13] mined 7.6K image-caption groups from textbooks. Web-scale patch corpora including OpenPath [17],
+Quilt-1M [18], and CONCH [26] then emerged, followed by PathGen-1.6M [32] and slide-level instruction-tuning
+resources such as WSI-VQA [8], SlideInstruction [7], WSI-Bench [23], and TITAN [12], together with the report-
+generation corpora WsiCaption [5] and HistGen [15]. Across this trajectory, TCGA dominates the source pool, with
+BCNB and CPTAC the only widely used alternatives, since the joint requirement of diagnostic-grade WSIs, free
+redistribution, and paired reports admits no comparable source. The resulting structural convergence, in which many
+corpora draw from the same case pool and are then re-released as both training and evaluation splits, is the precondition
+for the contamination we quantify in Section 4.1. We exclude patch-level corpora such as OpenPath and Quilt-1M
+2
+
+
+A PREPRINT - JULY 15, 2026
+from the audit because their tiles carry no canonical patient or slide identifier and are not the substrate of slide-level
+VQA.
+Second, the VLMs that consume these corpora are evaluated almost exclusively on the benchmarks those same corpora
+spawn. Branching from LLaVA-Med [22], pathology-specific systems span three design axes. Along the input-scale
+axis, patch-level systems such as PathAsst [37], Quilt-LLaVA [31], and PathChat [25] coexist with slide-level systems
+including SlideChat [7], WSI-LLaVA [23], and TITAN [12], the last pretrained natively over 8,192 × 8,192 regions.
+Along the unification axis, CPath-Omni [33] consolidates patch- and slide-level tasks within a single 15B-parameter
+LMM. Along the reasoning and agency axis, Patho-R1 [37] and PathReasoner-R1 [20] adopt RL-style post-training,
+while CPathAgent [34] and PathAgent [4] emulate the pathologist’s zoom-and-pan workflow. Every system reports
+headline state-of-the-art numbers on TCGA-derived test sets, and none report training-test overlap at the case or TSS
+level. As Section 4.3 shows, the most contaminated benchmarks host the strongest reported gains, leaving it unclear
+whether current accuracy reflects multimodal reasoning or retrieval over memorized reports.
+2.2
+Data Leakage in Medical Imaging and Digital Pathology
+Leakage is a documented shortcut hazard across medical imaging. DeGrave et al. [9] showed that COVID-19 chest-
+radiograph models latched onto hospital-specific markers rather than pulmonary findings. Roberts et al. [28] reported
+that none of 415 reviewed studies were of sufficient quality for clinical use, citing patient duplication and inadequate
+external validation among the most common failure modes.
+Within pathology, prior findings form a hierarchy of granularity that our audit directly extends. At the patch-within-
+slide level, Bussola et al. [3] demonstrated up to 41 pp inflation when tiles from a single patient appear in both training
+and validation folds. At the slide-within-patient level, Oner et al. [27] reanalyzed a prominent TCGA-LUAD model
+and showed that its apparent performance collapsed once patient-level splitting was enforced. At the patient-within-
+institution level, Howard et al. [16] established that TSS identity is recoverable from H&E features with AUROC up
+to 0.998 and proposed preserved-site cross-validation as a remedy. Subsequent work by de Jong et al. [21] showed
+that the same TSS signature persists in current pathology foundation models, indicating that the hazard has scaled with
+rather than been mitigated by modern encoders.
+These prior audits share two limitations that our work addresses. First, all are confined to unimodal CNNs or self-
+supervised foundation models, and to classification or representation probing; none audit a multimodal VLM corpus.
+Second, each leakage level has been studied in isolation. We provide the first joint audit of patient- and institutional-
+level leakage across the multimodal WSI VLM ecosystem. In this setting the leakage surface is broader, since each
+contaminated case carries an entire instruction-tuning record rather than a single label, and the downstream conse-
+quence is more severe, since a contaminated benchmark cannot distinguish multimodal reasoning from textual retrieval
+of memorized reports.
+3
+Formalizing Data Leakage in Pathology VLMs
+Unlike natural image benchmarks, where data leakage typically manifests as exact image duplication, whole-slide
+images (WSIs) admit a hierarchical form of contamination. This section first describes the architectural paradigm
+of WSI VLMs that motivates auditing at the encoder feature level, then formalizes the hierarchical contamination
+structure, defines two levels of leakage, and specifies the metrics used in our audit.
+3.1
+The Offline-Encoder Paradigm of WSI VLMs
+A defining characteristic of the WSI VLM ecosystem is that visual representation learning and instruction tuning are
+decoupled into two strictly sequential stages, following the LLaVA-style recipe [24, 22]. In Stage 1, each WSI is
+processed once through a pretrained visual encoder to produce a fixed slide-level or patch-bag representation. In Stage
+2, a lightweight projector and a large language model are trained on these cached features paired with instruction-
+following text. The visual encoder itself remains frozen throughout instruction tuning.
+Within this universal paradigm, current WSI VLMs differ in how their frozen encoder is obtained, and we distin-
+guish two categories. The first one adopts an off-the-shelf pathology foundation model without further modifica-
+tion. Representative examples include SlideChat [7], which composes the patch-level encoder CONCH [26] with a
+LongNet-based slide-level encoder [11], and WSI-LLaVA [23], which uses a dual-scale patch and slide encoder built
+on pretrained components. The second one pretrains a pathology-domain CLIP variant specifically for the VLM. Rep-
+resentative examples include Quilt-LLaVA [31], which uses Quilt-CLIP pretrained on Quilt-1M [18], and PathGen-
+LLaVA, which uses PathGen-CLIP-L pretrained on PathGen-1.6M [32]. The two categories differ in the provenance
+3
+
+
+A PREPRINT - JULY 15, 2026
+and supervision of their encoder, but they are identical in one respect that matters for our audit: in both cases, the
+encoder is fixed before instruction tuning begins and is not updated during it.
+This shared design is not a stylistic choice but a computational necessity. A single diagnostic WSI typically contains
+tens of thousands of 224 × 224 patches, so end-to-end backpropagation through the encoder during instruction tuning
+is intractable at scale. As a direct consequence, the visual representation that a WSI VLM operates on is fixed by
+its choice of encoder. Any patient or institutional signal that the encoder embeds into the feature space becomes a
+permanent input to the projector and the LLM. The downstream parameters can only reweight what the encoder has
+already encoded; they cannot remove a confounder that is already present. This observation motivates the auditing
+strategy adopted in Section 4.2, where we probe representative encoders from both categories. Probing the frozen
+encoder’s feature space is methodologically equivalent to probing the visual input of every VLM built on that encoder,
+while avoiding the confounds introduced by downstream projector and LLM hidden states.
+3.2
+Hierarchical Structure and Two Levels of Leakage
+We begin with the WSI data hierarchy. Every diagnostic WSI in the TCGA repository is identified by a barcode
+encoding a three-level nesting [29]:
+TCGA-BH
+|
+{z
+}
+TSS
+- A0BS
+|{z}
+Case
+- 01Z-00-DX1
+|
+{z
+}
+Slide
+−→{ p1, p2, . . . , pN }Patches.
+(1)
+First, the Tissue Source Site (TSS) identifies the contributing institution. Second, the case identifier maps one-to-one
+to a patient. Third, the slide suffix (DX1, DX2, . . .) distinguishes tissue sections taken from the same case. We write
+case(s) for the case to which slide s belongs and tss(c) for the TSS to which case c belongs. Sibling slides from
+a single case share patient phenotype, staining batch, and scanner calibration, while cases from a single TSS share
+laboratory-level staining and scanning signatures.
+Given a training dataset Dtrain and an evaluation benchmark Dtest, each consisting of a set of slides, we define two
+contamination conditions. First, a test slide s ∈Dtest is patient-leaked if there exists a training slide s′ ∈Dtrain drawn
+from the same case:
+Lpatient =
+
+s ∈Dtest | ∃s′ ∈Dtrain :
+case(s) = case(s′)
+	
+.
+(2)
+Second, a test slide is institution-leaked if it is not patient-leaked but shares a TSS with some training slide:
+LTSS =
+
+s ∈Dtest \ Lpatient | ∃s′ ∈Dtrain :
+tss
+ case(s)
+
+= tss
+ case(s′)
+ 	
+.
+(3)
+A test slide belonging to neither set is audit-clean. The three sets partition the test benchmark exhaustively,
+Dtest = Lpatient ∪LTSS ∪Dclean,
+(4)
+and a benchmark qualifies as a valid zero-shot evaluation only when Dclean = Dtest. To quantify contamination, we
+report the case-level and TSS-level overlap ratios,
+ρcase = | Ctest ∩Ctrain |
+| Ctest |
+, ρTSS = | Ttest ∩Ttrain |
+| Ttest |
+,
+(5)
+where C and T denote the sets of cases and TSSs underlying the corresponding slide collections. A benchmark
+with ρcase = 1 has been entirely subsumed at the patient level, whereas ρTSS = 1 indicates that no institutional
+generlizationablity remains.
+Two scope clarifications are in order. First, we restrict this audit to the instruction-tuning stage of the VLM pipeline,
+where structured TCGA metadata renders ρcase and ρTSS computable via Eq. (5). Upstream leakage through the visual
+encoder’s pretraining corpus is acknowledged but falls outside our scope, since such corpora are typically not publicly
+available. Second, we exclude ROI-level and tile-level datasets such as OpenPath [17] and Quilt-1M [18], which lack
+canonical patient or slide identifiers and for which the functions case(·) and tss(·) are undefined. The structural reason
+such high overlap arises in WSI corpora is that TCGA is the only public repository satisfying the prerequisites for
+multimodal instruction tuning, which forces all major training dataset and benchmarks to draw from the same pool.
+4
+Experiments
+This section presents four lines of evidence that the contamination formalized in Section 3 is pervasive and consequen-
+tial. We first quantify train-test overlap across the public WSI VLM ecosystem (§4.1). We then verify that both levels
+4
+
+
+A PREPRINT - JULY 15, 2026
+Figure 2: Two-panel train-test overlap matrix across pathology VLM training corpora (rows) and four TCGA-derived
+evaluation benchmarks (columns). (a) Case-level overlap ρcase (%). (b) TSS-level overlap ρTSS (%). TCGA-derived
+benchmarks are heavily contaminated at both levels. TSS-level overlap is uniformly higher than case-level overlap,
+revealing institutional contamination even where case-level deduplication appears successful. Non-TCGA benchmarks
+(BCNB, CPTAC, HistAI) trivially maintain 0% at both levels and are omitted.
+of leakage leave detectable traces in foundation-model feature space (§4.2), using two structurally distinct encoders to
+show the effect is not an artifact of any single representation. Finally, we demonstrate that these traces translate into
+measurable benchmark inflation, across multiple published models (§4.3).
+4.1
+Cross-Dataset Overlap Audit
+For every pairing of training corpus and evaluation benchmark, we compute both ρcase and ρTSS (Eq. 5) by matching
+canonical TCGA case and tissue-source-site (TSS) identifiers. Figure 2 reports the resulting two-panel overlap matrix
+spanning eight instruction-tuning corpora and four TCGA-derived test benchmarks. Our audit covers the most widely
+used public WSI datasets, including SlideBench [6], WSI-Bench [23], WSI-VQA [8], HistGen [15], and PathGen-
+1.6M [32]. Three findings emerge:
+First, case-level overlap on TCGA-derived benchmarks is extreme across most training corpora. WSI-Bench-train
+overlaps with 92.3%, 90.2%, 100%, and 83.1% of SlideBench-VQA-TCGA, SlideBench-Cap-TCGA, WSI-VQA-test,
+and WSI-Bench-test cases, respectively. PathGen-1.6M shows comparable contamination at 94.3%, 94.1%, 90.7%,
+and 70.8%. WSI-VQA-test is fully subsumed by WSI-Bench-train at ρcase = 100%, meaning every test patient was
+seen during training. A particularly striking case is internal to a single benchmark: WSI-Bench-train and WSI-Bench-
+test themselves share 83.1% of their cases, indicating that the benchmark curators’ own data partition does not separate
+patients between the two halves.
+Second, TSS-level overlap is uniformly higher than case-level overlap and reveals institutional contamination that a
+case-level audit alone would miss. Two pairs make this particularly clear. WSI-VQA-train and WSI-VQA-test exhibit
+0% case overlap, indicating that the WSI-VQA authors correctly performed patient-level deduplication, yet their TSS
+overlap is 100%. Every test patient comes from an institution already represented in training. SlideInstruction++
+overlaps with SlideBench-VQA-TCGA at 0% case but 85.5% TSS, and with WSI-VQA-test at 66.3% case but 94.7%
+TSS. This pattern shows that patient-level deduplication, while necessary, leaves the same staining, scanning, and
+laboratory batch effects in both train and test splits, satisfying the formal definition of LTSS leakage (Eq. 3).
+Third, attempted decontamination is achievable at the case level but remains incomplete at the TSS level. SlideInstruc-
+tion+ is the only training corpus we audited that achieves ρcase = 0% against all four TCGA-derived test benchmarks.
+Even so, it retains 11.0% TSS overlap with SlideBench-VQA-TCGA, 10.1% with SlideBench-Cap-TCGA, and 11.3%
+with WSI-Bench-test. Eliminating patient-level overlap can be accomplished by metadata filtering, but eliminating in-
+stitutional overlap requires sourcing test data from Tissue Source Sites not represented in any major public training
+corpus, which TCGA-derived benchmarks structurally cannot provide. This is why genuine zero-shot evaluation in
+the current ecosystem is feasible only on independently curated, non-TCGA cohorts.
+5
+
+
+A PREPRINT - JULY 15, 2026
+Figure 3: Excess slide-level cosine similarity over each encoder’s own cross-TSS baseline, on the shared set of 6,756
+slides. For both encoders, similarity increases monotonically with hierarchical proximity (cross-TSS < intra-TSS <
+intra-patient), and the increase is markedly steeper for TITAN, the natively slide-level encoder. Absolute baseline
+similarities are 0.664 (CONCH-v1) and 0.233 (TITAN).
+4.2
+Feature-Space Evidence of Leakage
+The overlap documented above is defined at the level of metadata identifiers. A natural question is whether this
+identifier-level overlap translates into measurable redundancy in the learned feature representations that VLMs ac-
+tually consume. We address this with two complementary experiments, a pairwise similarity analysis and a linear
+probing study, and run both on two structurally distinct slide encoders. The first is CONCH-v1 [26], a patch-level
+contrastive encoder whose slide representation we obtain by mean-pooling ℓ2-normalized patch features. The second is
+TITAN [12], a natively slide-level pretrained encoder. If leakage were merely an artifact of patch-level mean-pooling,
+it would not survive in TITAN’s native slide embeddings. Both experiments are computed on the 6,756 slides for
+which both encoders’ features are available, so the two encoders are always compared on an identical slide population.
+Pairwise similarity.
+For each encoder we compute cosine similarity between slide embeddings across three configu-
+rations of hierarchical proximity: (i) intra-patient pairs (sibling slides from the same case), (ii) intra-TSS, cross-patient
+pairs (different patients from the same Tissue Source Site), and (iii) cross-TSS pairs (slides from different institutions,
+n=20,000 sampled pairs). The two encoders occupy feature spaces with different intrinsic scales. TITAN’s cross-TSS
+baseline similarity is 0.233, while CONCH-v1’s is 0.664. Absolute similarity values are therefore not directly com-
+parable across encoders. We report each group relative to its own encoder’s cross-TSS baseline, isolating the excess
+similarity attributable to shared patient or institutional identity.
+Figure 3 reveals a monotonic separation across the three groups for both encoders. For CONCH-v1, intra-TSS pairs
+sit +0.183 above the cross-TSS baseline and intra-patient pairs +0.272 above it. For TITAN the same ordering holds
+and the gaps are substantially larger, +0.506 for intra-TSS and +0.669 for intra-patient pairs. All four transitions
+are statistically significant (Mann-Whitney U, p < 10−200). Two conclusions follow: First, the monotonic structure
+(cross-TSS < intra-TSS < intra-patient) reproduces across two encoders with entirely different pretraining objectives
+and input granularities. This establishes that the effect is a property of pathology slide content rather than of any single
+representation. Second, the natively slide-level encoder does not attenuate the effect. TITAN’s intra-patient excess
+similarity (+0.669) is more than double CONCH-v1’s (+0.272), indicating that slide-level pretraining concentrates
+rather than dilutes patient-identifying signal. These two configurations map directly onto the leakage levels. Intra-
+patient proximity realizes Lpatient, and intra-TSS proximity realizes LTSS.
+Linear probing for latent confounders.
+If patient and institutional signatures are encoded in the feature space, a
+linear classifier should recover them. We formulate two probing tasks on each encoder’s frozen slide embeddings,
+patient re-identification (ReID) restricted to multi-slide cases, and TSS detection. For each task we retain only classes
+6
+
+
+A PREPRINT - JULY 15, 2026
+Figure 4: Linear probing on frozen slide embeddings for two encoders, on the shared 6,756-slide population. (a) TSS
+detection macro AUROC. (b) Patient ReID top-1 accuracy as a multiple of the chance baseline (absolute accuracy
+in parentheses). Both confounders are recoverable far above chance for both encoders, and the natively slide-level
+encoder (TITAN) yields the stronger leakage signal on both tasks.
+Table 1: Published accuracy (%) on three WSI VQA benchmarks alongside audit-verified case-level leakage (%).
+Red marks ρcase > 80%.
+Orange marks 20% to 80%. White cells are audit-clean (0%). ⋄: reproduced from
+MLLM-HWSI Table 3 [2].
+*: SlideChat-filtered subset (filter criterion unspecified).
+†: 80.2% case overlap with
+unfiltered SlideInstruct.
+Model
+Venue
+Training data
+Accuracy (%)
+ρcase (%)
+SB-TCGA
+WSI-VQA
+SB-TCGA
+WSI-VQA
+Quilt-LLaVA [31]
+CVPR ’24
+Quilt-1M (patch)
+40.2⋄
+35.4⋄
+0
+–
+WSI-VQA [8]
+ECCV ’24
+WSI-VQA-train
+27.6⋄
+46.9⋄
+10.4
+internal
+SlideChat [7]
+CVPR ’25
+SlideInstruct
+81.2
+60.1*
+0
+80.2†
+PathGen-LLaVA [32]
+ICLR ’25
+PathGen-1.6M
+46.5
+33.1⋄
+94.3
+90.7
+WSI-LLaVA [23]
+arXiv ’24/12
+WSI-Bench-train
+82.5⋄
+54.6⋄
+92.3
+100.0
+MLLM-HWSI [2]
+arXiv ’26/03
+WSI-Bench+
+89.6
+69.2
+92.3
+100.0
+with at least two slides, use a stratified 70/30 train-test split, and fit a logistic-regression probe. ReID is scored by
+top-1 accuracy against the chance rate 1/(#patients). TSS detection is scored by one-versus-rest macro AUROC.
+Figure 4 confirms that both confounders are linearly separable in both encoders. Patient ReID reaches 14.0% for
+CONCH-v1 and 20.3% for TITAN, corresponding to 44.9× and 65.0× their respective chance baselines. TSS detec-
+tion yields macro AUROC of 0.955 and 0.980. Two points deserve emphasis. First, Howard et al. [16] reported in
+2021 that ResNet-50 features could detect TSS with AUROC > 0.95. Four years and two generations of pathology
+foundation models later, the institutional confound has not been mitigated, but even sharpened. Second, the consistent
+ordering TITAN > CONCH-v1 on both tasks mirrors the pairwise-similarity finding. The encoder designed specif-
+ically for slide-level representation encodes patient and institutional identity most explicitly. Any downstream VLM
+consuming these features therefore inherits both the patient-identity leak and the institutional batch-effect leak. This
+concern is increasingly relevant because slide-level VLMs are increasingly adopting exactly this class of encoder.
+4.3
+Cross-Paper Meta-Analysis
+The preceding experiments establish that overlap exists (§4.1) and that it produces detectable feature-space redundancy
+(§4.2). A remaining question is whether this redundancy inflates the performance numbers reported in the published
+literature.
+Table 1 reveals two patterns. First, the highest reported accuracies on SlideBench-VQA-TCGA and WSI-VQA-
+test consistently co-occur with severe contamination (ρcase > 90%, red cells). MLLM-HWSI reports 89.6% on
+7
+
+
+A PREPRINT - JULY 15, 2026
+Table 2: WSI-LLaVA accuracy on SlideBench-VQA-TCGA, stratified by audit-verified leakage status across cancer
+type and question category. Leaked accuracy exceeds clean accuracy by 3 to 8 pp across all well-powered subsets.
+Subset
+Leaked
+Clean
+Gap
+Microscopy Qs
+71.8% (n=78)
+64.3% (n=14)
++7.5
+UCEC stratum
+67.4% (n=190)
+61.1% (n=36)
++6.3
+UCEC+COAD pool
+65.9% (n=325)
+62.1% (n=58)
++3.8
+Diagnosis Qs
+64.8% (n=233)
+61.4% (n=44)
++3.4
+SlideBench-VQA-TCGA with 92.3% case overlap. WSI-LLaVA reports 82.5% with identical overlap. Both report on
+WSI-VQA-test with 100% case overlap. Second, models whose training data is non-TCGA or patch-level (LLaVA-
+Med, Quilt-LLaVA, TITAN) show no detectable case-level overlap under our identifier-based audit. We stress that this
+is a lower bound rather than a certificate of cleanliness: the pretraining provenance of these models is either undis-
+closed or composed of patch-level web sources that carry no canonical case or slide identifiers, so the functions case(·)
+and tss(·) are undefined on their training data and Eq. 5 cannot resolve any overlap that may nonetheless exist. The
+horizontal rule in the table separates models with no detectable case-level contamination (above) from models with at
+least one contaminated (model, benchmark) pair (below).
+A notable finding concerns the community’s partial awareness of this issue. SlideChat [7] (CVPR 2025) explicitly
+acknowledges overlap with WSI-VQA-test and constructs a filtered subset (WSI-VQA*), reporting 60.1% on it. How-
+ever, the filter criterion is unspecified, the pre-filter accuracy is unreported, and no subsequent SOTA paper replicates
+this filtering step. Five models published after SlideChat, namely WSI-LLaVA, PathGen-LLaVA, CPath-Omni and
+MLLM-HWSI, report on the unfiltered, fully contaminated WSI-VQA-test as zero-shot external validation without
+acknowledgment.
+These observations are consistent with the hypothesis that contaminated benchmarks inflate reported accuracy. How-
+ever, cross-benchmark comparisons confound leakage with intrinsic task difficulty. The next experiment controls for
+this confound.
+4.4
+Within-Benchmark Stratification
+To control for task difficulty, we exploit the fact that SlideBench-VQA-TCGA contains both leaked and audit-clean
+patients within the same test set. Our audit identifies leaked slides and audit-clean slides among its 1,292 total. We
+run inference using the published WSI-LLaVA checkpoint and stratify accuracy by leakage status across cancer type
+and question category.
+Table 2 reports the results. Across every well-powered subset, leaked accuracy exceeds clean accuracy. Gaps range
+from +3.4 pp on Diagnosis questions to +7.5 pp on Microscopy questions, the category most dependent on fine-
+grained visual recognition. The direction is positive in all four independent subsets. The consistency of the gap across
+four subsets that vary independently in cancer type and question category constitutes the reliable signal. This result
+closes the evidence chain. The overlap audit (§4.1) established that contamination is pervasive. The feature-space
+analysis (§4.2) established that it produces detectable memorization across two structurally distinct encoders. The
+meta-analysis (§4.3) established that the highest published accuracies co-occur with the most severe contamination.
+The within-benchmark stratification presented here isolates the effect. On the same benchmark, the same model, the
+same cancer types, and the same question categories, patients seen during training score 3 to 8 percentage points higher
+than unseen patients.
+5
+Discussion
+5.1
+Objections Considered
+The first objection holds that strong performance on a TCGA-overlapping test set still demonstrates clinical compe-
+tence, since TCGA broadly samples the global oncology distribution. This misidentifies the deployment barrier. The
+challenge in clinical translation is not diagnosing familiar presentations within a known laboratory but maintaining
+reliability under the domain shifts that deployment guarantees, including new scanner hardware, altered staining pro-
+tocols, and unseen patient demographics [21, 28]. A model that retrieves memorized batch artifacts rather than reason-
+ing over morphology will fail silently at a new institution, the failure mode that site-specific shortcuts produce across
+medical imaging [9, 16]. Evaluation on strictly held-out cohorts is therefore not artificially harsh but the minimum
+condition under which a generalization claim can be falsified. A second objection holds that exhaustive deduplication
+8
+
+
+A PREPRINT - JULY 15, 2026
+across millions of multimodal pairs is computationally impractical and that some leakage is an acceptable price of
+scale. This conflates two distinct operations. Deduplicating the training datasets is expensive, but auditing the train-
+test boundary is cheap and non-negotiable, and as Section 4 shows it is decidable in closed form from canonical TCGA
+identifiers (Eq. 5). The premise also fails for pathology in particular. In natural-image domains scaling absorbs diverse
+visual concepts, whereas uncurated scaling in pathology typically ingests near-redundant tiles of the same phenotype
+from the same patient and site, so scale amplifies the batch confounders we document rather than diluting them. If the
+benchmark itself is contaminated, no amount of training-set scaling can be verified as progress.
+5.2
+Toward Contamination-Free Evaluation
+We outline three mutually reinforcing directions that together form a protocol for credible evaluation:
+The first lever is benchmark construction. A credible replacement benchmark must draw its test cohort independently
+of every public instruction-tuning corpus. Because TCGA is the largest public repository meeting the joint requirement
+of diagnostic-grade WSIs, free redistribution, and paired reports, removing institutional overlap requires evaluation
+data from Tissue Source Sites absent from all major training datasets, which TCGA-derived sets structurally cannot
+provide. We therefore recommend independently curated multi-center holdout cohorts partitioned under preserved-
+site cross-validation, so that no Tissue Source Site is split across the train-test boundary [16]. Each benchmark should
+publish its canonical slide, case, and TSS identifiers, retain a privately held evaluation portion that is never released,
+and migrate over time to submission-based infrastructure in which models are uploaded to an isolated server rather
+than test data distributed to authors [36]. A public and private split with rate-limited submissions, the standard defense
+against leaderboard overfitting [36, 35], blunts the slow test-set memorization that even held-out benchmarks otherwise
+suffer.
+The second lever is provenance disclosure. Contamination is invisible today because papers report a single headline
+zero-shot accuracy without disclosing what the model has seen. Following the documentation discipline of datasheets
+for datasets and the Data Provenance Initiative [14], we propose three mandatory disclosures for any zero-shot general-
+ization claim: the complete list of training, instruction-tuning, and visual-encoder pretraining corpora consumed by the
+model; the case-level and TSS-level overlap, ρcase and ρTSS, between every disclosed dataset and the benchmark, com-
+puted with the released audit pipeline, and stratified accuracy on audit-clean and audit-contaminated subsets whenever
+overlap is non-zero. Emitting these fields as machine-readable metadata [1] would let reviewers verify provenance
+automatically rather than by manual cross-referencing.
+The third lever is automated overlap auditing. Sustained decontamination requires community tooling rather than per-
+paper diligence. Identifier-level matching, the basis of our audit, is exact but presumes intact metadata, and should
+be complemented by content-level detection that survives re-export and relabeling, such as perceptual hashing and
+digital fingerprinting of whole-slide images [19], paralleling the n-gram and canary-based contamination detection
+now standard in language-model evaluation [35, 10]. For upstream encoder corpora that identifier matching cannot
+reach, the linear-probing strategy offers a black-box test: recoverability of patient or TSS identity from frozen features
+is itself a contamination signal even when the pretraining data is proprietary. Released as a continuously maintained
+open pipeline against which any new corpus or checkpoint can be checked, such tooling would convert contamination
+auditing from a one-off exercise into a standing community resource.
+5.3
+Limitations
+Three scope conditions qualify our findings. First, the audit covers only the instruction-tuning stage, where structured
+TCGA metadata makes ρcase and ρTSS computable in closed form; leakage propagated through the proprietary visual-
+encoder pretraining datasets, which are generally undisclosed, remains unquantified, though the linear probe offers
+a black-box signal for this upstream channel. Second, the within-benchmark stratification is computed on a single
+contaminated checkpoint by partitioning its test set into audit-clean and audit-contaminated slides within the same
+benchmark; because the audit-clean partition is comparatively small, the +3 to +8 pp gap is directionally consistent
+across four independently varying subsets but imprecisely estimated in magnitude. Third, our audit detects overlap
+via TCGA identifiers, so it assumes intact provenance metadata and yields a lower bound on true contamination:
+slides whose barcodes have been stripped, re-exported, or relabeled escape identifier matching and would require the
+content-level detection we recommend in Section 5.2. Despite these conditions, our core result remains robust across
+two distinct encoders via exact identifier matching. These boundaries simply mark where quantification ends and our
+proposed replacement benchmark begins.
+9
+
+
+A PREPRINT - JULY 15, 2026
+6
+Conclusion
+We present the first systematic audit of train-test contamination across the public WSI vision-language ecosystem.
+Tracing TCGA case, slide, and TSS barcodes across the instruction-tuning datasets and TCGA-derived benchmarks,
+we document 92.3% to 100% case-level overlap. We show that both leakage levels are linearly decodable from the
+feature spaces of two structurally distinct foundation encoders. Notably, the natively slide-level encoder concentrates
+rather than dilutes patient-identifying signals, translating into a consistent accuracy gap between leaked and clean
+slides. Consequently, the highest reported state-of-the-art accuracies across WSI VLMs cluster on the most heavily
+contaminated benchmarks. These findings do not diminish the engineering achievements of recent pathology VLMs,
+but establish that current zero-shot generalization claims are unreliable: present benchmarks cannot distinguish gen-
+uine multimodal reasoning from nearest-neighbor retrieval over memorized institutional and patient-specific artifacts.
+The remedy is a strict change in evaluation practice. Until the community enforces slide-, patient-, and TSS-level
+deduplication, discloses cohort overlaps, and evaluates on independently curated multi-center holdouts, reported gains
+in WSI vision-language modeling cannot be separated from memorization artifacts.
+References
+[1] Akhtar, M., Benjelloun, O., Conforti, C., Foschini, L., Gijsbers, P., Giner-Miguelez, J., Goswami, S., Jain, N.,
+Karamousadakis, M., Krishna, S., et al.: Croissant: A metadata format for ml-ready datasets. Advances in Neural
+Information Processing Systems 37, 82133–82148 (2024) 9
+[2] Alawode, B., Mahmood, A., Al-Radi, M.K., Albastaki, S., Khan, A., Bilal, M., Abdalla, M.A., Bennamoun, M.,
+Javed, S.: MLLM-HWSI: A multimodal large language model for hierarchical whole slide image understanding.
+In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) (2026),
+arXiv:2603.23067 7
+[3] Bussola, N., Marcolini, A., Maggio, V., Jurman, G., Furlanello, C.: Ai slipping on tiles: data leakage in digital
+pathology. In: International Conference on Pattern Recognition. pp. 167–182. Springer (2021) 3
+[4] Chen, o.: PathAgent: An agent-based system for whole-slide image analysis. arXiv preprint (2025) 3
+[5] Chen, P., Li, H., Zhu, C., Zheng, S., Shui, Z., Yang, L.: Wsicaption: Multiple instance generation of pathology
+reports for gigapixel whole-slide images (2024), https://arxiv.org/abs/2311.16480 2
+[6] Chen, Y., Wang, G., Ji, Y., Li, Y., Ye, J., Li, T., Hu, M., Yu, R., Qiao, Y., He, J.: Slidechat: A large vision-language
+assistant for whole-slide pathology image understanding (2025), https://arxiv.org/abs/2410.11761 1, 5
+[7] Chen, Y., Zhao, G., Li, X., Gao, J., Peng, H., et al.: SlideChat: A large vision-language assistant for whole-slide
+pathology image understanding. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR) (2025) 2, 3, 7, 8
+[8] Chen, Y., et al.: WSI-VQA: Interpreting whole slide images by generative visual question answering. In: Pro-
+ceedings of the European Conference on Computer Vision (ECCV) (2024) 2, 5, 7
+[9] DeGrave, A.J., Janizek, J.D., Lee, S.I.: Ai for radiographic covid-19 detection selects shortcuts over signal.
+Nature Machine Intelligence 3(7), 610–619 (2021) 3, 8
+[10] Deng, C., Zhao, Y., Tang, X., Gerstein, M., Cohan, A.: Investigating data contamination in modern benchmarks
+for large language models. In: Proceedings of the 2024 Conference of the North American Chapter of the Asso-
+ciation for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers). pp. 8706–8719
+(2024) 9
+[11] Ding, J., Ma, S., Dong, L., Zhang, X., Huang, S., Wang, W., Wei, F.: Longnet: Scaling transformers to
+1,000,000,000 tokens. In: Proceedings of the 10th International Conference on Learning Representations (2023)
+3
+[12] Ding, T., et al.: TITAN: A clinically-grounded pathology foundation model for slide-level analysis. Nature
+Medicine (2025) 2, 3, 6
+[13] Gamper, J., Rajpoot, N.: Multiple instance captioning: Learning representations from histopathology textbooks
+and articles. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp.
+16549–16559 (2021) 2
+[14] Gebru, T., Morgenstern, J., Vecchione, B., Vaughan, J.W., Wallach, H., Iii, H.D., Crawford, K.: Datasheets for
+datasets. Communications of the ACM 64(12), 86–92 (2021) 9
+[15] Guo, Z., et al.: HistGen: Histopathology report generation via local-global feature encoding and cross-modal
+context interaction. arXiv preprint arXiv:2403.05396 (2024) 2, 5
+10
+
+
+A PREPRINT - JULY 15, 2026
+[16] Howard, F.M., Dolezal, J., Kochanny, S., Schulte, J., Chen, H., Heij, L., Huo, D., Nanda, R., Olopade, O.I.,
+Kather, J.N., Cipriani, N., Grossman, R.L., Pearson, A.T.: The impact of site-specific digital histology signatures
+on deep learning model accuracy and bias. Nature Communications 12(1), 4423 (2021) 3, 7, 8, 9
+[17] Huang, Z., Bianchi, F., Yuksekgonul, M., Montine, T.J., Zou, J.: A visual–language foundation model for pathol-
+ogy image analysis using medical Twitter. Nature Medicine 29(9), 2307–2316 (2023) 2, 4
+[18] Ikezogwo, W.O., Seyfioglu, M.S., Ghezloo, F., Geva, D.S.C., Mohammed, F.S., Anand, P.K., Krishna, R.,
+Shapiro, L.: Quilt-1M: One million image-text pairs for histopathology. In: Advances in Neural Information
+Processing Systems (NeurIPS), Datasets and Benchmarks Track (2023) 2, 3, 4
+[19] Jakhar, Y., Borah, M.D.: Effective near-duplicate image detection using perceptual hashing and deep learning.
+Information Processing & Management 62(4), 104086 (2025) 9
+[20] Jiang, o.: PathReasoner-R1: Reasoning-enhanced pathology vision-language model. arXiv preprint (2026) 3
+[21] de Jong, E.D., Marcus, E., Teuwen, J.: Current pathology foundation models are unrobust to medical center
+differences. arXiv preprint arXiv:2501.18055 (2025) 3, 8
+[22] Li, C., Wong, C., Zhang, S., Usuyama, N., Liu, H., Yang, J., Naumann, T., Poon, H., Gao, J.: LLaVA-Med:
+Training a large language-and-vision assistant for biomedicine in one day. In: Advances in Neural Information
+Processing Systems (NeurIPS), Datasets and Benchmarks Track (2024) 3
+[23] Liang, Y., Lyu, X., Chen, W., Ding, M., Zhang, J., He, X., Wu, S., Xing, X., Yang, S., Wang, X., Shen, L.: Wsi-
+llava: A multimodal large language model for whole slide image (2025), https://arxiv.org/abs/2412.
+02141 1, 2, 3, 5, 7
+[24] Liu, H., Li, C., Wu, Q., Lee, Y.J.: Visual instruction tuning (2023), https://arxiv.org/abs/2304.08485 3
+[25] Lu, M.Y., Chen, B., Williamson, D.F., Chen, R.J., Zhao, M., Chow, A.K., Ikemura, K., Kim, A., Pouli, D., Patel,
+A., et al.: A multimodal generative ai copilot for human pathology. Nature 634(8033), 466–473 (2024) 3
+[26] Lu, M.Y., Chen, B., Zhang, A., Williamson, D.F.K., Chen, R.J., Ding, T., Le, L.P., Chuang, Y.S., Mahmood, F.:
+Visual language pretrained multiple instance zero-shot transfer for histopathology images. In: Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 19764–19775 (June 2023) 2,
+3, 6
+[27] Oner, M.U., Cheng, Y.C., Lee, H.K., Sung, W.K.: Training machine learning models on patient level data segre-
+gation is crucial in practical clinical applications. medRxiv pp. 2020–04 (2020) 3
+[28] Roberts, M., Driggs, D., Thorpe, M., Gilbey, J., Yeung, M., Ursprung, S., Aviles-Rivero, A.I., Etmann, C.,
+McCague, C., Beer, L., et al.: Common pitfalls and recommendations for using machine learning to detect and
+prognosticate for covid-19 using chest radiographs and ct scans. Nature Machine Intelligence 3(3), 199–217
+(2021) 3, 8
+[29] Saltz, J., Gupta, R., Hou, L., Kurc, T., Singh, P., Nguyen, V., Samaras, D., Shroyer, K.R., Zhao, T., Batiste, R.,
+Van Arnam, J., The Cancer Genome Atlas Research Network, Shmulevich, I., Rao, A.U.K., Lazar, A.J., Sharma,
+A., Thorsson, V.: Spatial organization and molecular correlation of tumor-infiltrating lymphocytes using deep
+learning on pathology images. Cell Reports 23(1), 181–193.e7 (2018) 4
+[30] Seyfioglu, M.S., Ikezogwo, W.O., Ghezloo, F., Krishna, R., Shapiro, L.: Quilt-llava: Visual instruction tuning
+by extracting localized narratives from open-source histopathology videos (2025), https://arxiv.org/abs/
+2312.04746 1
+[31] Seyfioglu, M.S., Ikezogwo, W.O., Ghezloo, F., Krishna, R., Shapiro, L.: Quilt-LLaVA: Visual instruction tuning
+by extracting localized narratives from open-source histopathology videos. In: Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition (CVPR) (2024), arXiv:2312.04746 3, 7
+[32] Sun, Y., Zhang, Y., Si, Y., Zhu, C., Shui, Z., Zhang, K., Li, J., Lyu, X., Lin, T., Yang, L.: PathGen-1.6M: 1.6 mil-
+lion pathology image-text pairs generation through multi-agent collaboration. arXiv preprint arXiv:2407.00203
+(2024), accepted at ICLR 2025 2, 3, 5, 7
+[33] Sun, Y., Zhang, Y., Zhu, C., Li, J., Shui, Z., et al.: CPath-Omni: A unified multimodal foundation model for patch
+and slide level computational pathology. In: Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR) (2025) 3
+[34] Sun, Y., et al.: CPathAgent: An agent-based framework for computational pathology. arXiv preprint (2025) 3
+[35] Xu, C., Guan, S., Greene, D., Kechadi, M., et al.: Benchmark data contamination of large language models: A
+survey. arXiv preprint arXiv:2406.04244 (2024) 9
+[36] Xu, Z., Escalera, S., Pavão, A., Richard, M., Tu, W.W., Yao, Q., Zhao, H., Guyon, I.: Codabench: Flexible,
+easy-to-use, and reproducible meta-benchmark platform. Patterns 3(7) (2022) 9
+11
+
+
+A PREPRINT - JULY 15, 2026
+[37] Zhang, W., Zhang, P., Guo, J., Cheng, T., Chen, J., Zhang, S., Zhang, Z., Yi, Y., Bu, H.: Patho-r1: A multimodal
+reinforcement learning-based pathology expert reasoner (2025), https://arxiv.org/abs/2505.11404 3
+12

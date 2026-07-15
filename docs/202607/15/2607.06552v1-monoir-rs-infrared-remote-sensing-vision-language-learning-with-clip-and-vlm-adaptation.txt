@@ -1,0 +1,2823 @@
+MonoIR-RS: Infrared Remote Sensing
+Vision-Language Learning with CLIP and VLM
+Adaptation
+Jiaju Han1,3, Ma Yaqi2, Yahui Chai1, Xuemeng Sun1, Xin Li1, Qike Zhang1,
+Yingying Zhao1, Xiang Chen1, Luwei Yang3, Chengyin Hu1, and Jiahuan
+Long4
+1 China University of Petroleum-Beijing at Karamay, Karamay, Xinjiang, China
+2 Guizhou University, Guiyang, China
+3 Shenzhen Research Institute of Big Data, Shenzhen, China
+4 Shanghai Jiao Tong University, Shanghai, China
+Abstract. Infrared remote-sensing imagery captures intensity structure,
+object-background contrast, and illumination-invariant cues often in-
+visible in RGB imagery. Yet, most remote-sensing vision-language re-
+sources and models focus on visible-band semantics, leaving infrared
+vision-language understanding underexplored. We introduce MonoIR-
+RS, a large-scale infrared remote-sensing vision-language dataset and
+benchmark that couples IR-aware data construction with CLIP-style
+contrastive adaptation and VLM instruction tuning. Built from the same
+source pool and split as FusionRS, MonoIR-RS retains only the infrared
+image as the model-facing modality, yielding 600,000 synthesized infrared
+images and 59,032 retained IR-aware caption records. The model ex-
+periments use this retained language-supervision subset, whose captions
+rewrite supervision around grayscale structure and infrared-style con-
+trast instead of RGB appearance. We show that the synthesized infrared
+is markedly closer to real thermal imagery than a grayscale conversion
+on the AVIID benchmark. We fine-tune five CLIP backbones and six
+VLM backbones, and calibrate them against zero-shot behavior: IR-
+aware adaptation lifts CLIP mean recall by up to +12.8 points (best
+checkpoint 19.2% on the 9,720-image filtered split) and drives VLM cap-
+tioning IR-cue coverage to 100% while reducing residual RGB-color leak-
+age to near zero. By isolating the infrared modality from RGB–IR dual-
+modal learning, MonoIR-RS offers a controlled, reproducible testbed for
+aligning infrared remote-sensing evidence with language.
+Keywords: Infrared remote sensing · Vision-language learning · CLIP
+fine-tuning · Visual instruction tuning · Dataset evaluation
+1
+Introduction
+Infrared remote sensing is important for visual understanding under illumina-
+tion changes, low-visibility conditions, and intensity contrast not captured by
+arXiv:2607.06552v1  [cs.CV]  7 Jul 2026
+
+
+2
+J. Han et al.
+s
+t
+r
+ee
+t
+IR
+TEXT
+airport
+road
+…
+The ship exhibits high-intensity grayscale 
+patterns in the harbor.
+High-contrast structural outlines of parked 
+planes near airport terminals.
+Low-texture regions indicate parking lots 
+and runways.
+street
+RGB
+TEXT
+airport
+road
+…
+Multi-Modal Seed Inputs
+RGB
+IR
+prompt
+Qwen2.5VL-72B
+60k IR-aware Text
+NWPU
+RS5M
+RSITMD
+RSICD
+SkyScript
+RGB datasets
+NWPU
+RS5M
+RSITMD
+RSICD
+SkyScript
+IR datasets
+Diffusion Model
+IR
+600k
+Images
+CLIP Retrieval Tasks
+VLM Understanding Tasks
+Infrared Image Captioning
+Text-to-IR Retrieval
+IR-to-text Retrieval
+Scene Classification
+Object Presence Recognition
+Infrared Cue Explanation
+Hard-negative Reasoning Tasks
+Hard Scene Discrimination
+Visual Evidence QA
+Hard-negative Contrast
+Adversarial Robustness Tasks
+Attack Success Rate
+Top-1 Prediction Flip
+Transfer Attack Evaluation
+Clean-vs-Adversarial Response
+Dataset Quality Checks
+Caption Coverage
+Split Integrity Check
+Missing Image Check
+RGB Leakage Check
+Fig. 1: Overview of the MonoIR-RS construction workflow. The shared FusionRS
+source pool is converted into an infrared image-text corpus, IR-aware text, and evalu-
+ation tasks covering retrieval, VLM understanding, and dataset-quality checks.
+visible-band imagery, where discriminative evidence includes object-background
+separation and grayscale response rather than color. This makes infrared imagery
+valuable for nighttime monitoring, fire observation, and low-visibility analysis,
+yet difficult to serve with vision-language models trained on RGB web photog-
+raphy. The gap goes beyond a domain shift: infrared and visible sensors register
+the same scene under different physical principles, so captions written for vis-
+ible images frequently describe color cues that are absent or misleading in the
+infrared modality.
+Recent vision-language models, including CLIP-style contrastive models and
+instruction-following VLMs, have made remote-sensing retrieval, captioning, and
+question answering more practical. RemoteCLIP and GeoRSCLIP show that
+domain-specific supervision improves remote-sensing representations, while GRAFT
+aligns satellite and ground-level imagery without direct text annotations [18,23,
+35], and remote-sensing VLMs extend this toward grounded dialogue and geospa-
+tial benchmarking [9,16,36]. Infrared-specific efforts such as Infrared-LLaVA and
+IRGPT have begun to address the modality gap, but they target general surveil-
+lance or pedestrian infrared rather than remote sensing and rely on real sensor
+captures that are scarce and expensive to scale [6,15]. Transfer to infrared remote
+sensing therefore faces three bottlenecks: image-text resources are dominated by
+visible images; infrared captions must describe thermal evidence and grayscale
+structure rather than RGB appearance; and fair evaluation requires clean cate-
+gory protocols and strict split hygiene, since mixed phrases, residual RGB paths,
+or loose candidate pools can inflate conclusions.
+This paper tackles infrared remote-sensing vision-language learning as an in-
+tegrated data, adaptation, and evaluation problem. We build an IR-aware data
+pipeline that synthesizes infrared imagery from visible remote-sensing sources
+via diffusion and rewrites supervision around infrared-style visual evidence, fine-
+tune five CLIP and six VLM backbones under a train-only protocol, and evaluate
+against zero-shot behavior where the comparison is available. Rather than claim-
+ing photorealism, we validate the synthetic modality directly: it is closer to real
+thermal imagery than a grayscale conversion under both FID and histogram dis-
+tance against the AVIID benchmark. As an auxiliary transfer sanity check, an
+
+
+MonoIR-RS
+3
+IR-aware fine-tuned CLIP retrieves matching visible images from real infrared
+queries +6.5 mean-recall points better than its zero-shot counterpart on AVIID;
+this check is separate from the main infrared benchmark. This unified view
+(Fig. 1) lets us test whether IR-aware supervision benefits both retrieval mod-
+els and VLMs under one data boundary, and whether gains survive controlled
+candidates, split audits, and per-source diagnosis. Our contributions follow.
+– We propose MonoIR-RS, a large-scale infrared remote-sensing vision-language
+dataset and benchmark with 600,000 synthetic infrared images and 59,032
+retained IR-aware caption records supervised around infrared-style visual
+evidence. Validated against the real AVIID benchmark, its synthetic modal-
+ity is closer to real infrared than a grayscale conversion by both FID and
+histogram distance.
+– We adapt five CLIP and six VLM backbones under a train-only protocol, cal-
+ibrating each family against zero-shot behavior. IR-aware CLIP adaptation
+yields +3.5 to +12.8 mean-recall gains (best 19.2%), with a seed-stability
+check on OpenAI CLIP ViT-B/32, and transfers to real-infrared image re-
+trieval on AVIID.
+– We show that fine-tuning drives VLM captioning IR-cue coverage to 100%
+while reducing RGB-color leakage relative to zero-shot models. Five diag-
+nostic metrics—IR-cue rate, color-leakage rate, overclaim rate, class-hit rate,
+and response length—capture complementary failure modes that no single
+metric summarizes.
+2
+Related Work
+2.1
+Vision-Language Learning for Remote Sensing
+Remote-sensing vision-language learning has expanded from image classification
+toward retrieval, captioning, grounding, and multimodal reasoning, with CLIP-
+style contrastive learning aligning image-text embeddings and VLMs extending
+to free-form instructions. RemoteCLIP builds a remote-sensing foundation model
+from large-scale image-text supervision [18]; RS5M and GeoRSCLIP scale the
+dataset and model for retrieval and zero-shot recognition [35]; GRAFT aligns
+satellite with ground-level imagery to reduce annotation dependence [23]; and
+longer-text and transductive methods further refine image-text matching [7,33].
+GeoChat studies grounded remote-sensing dialogue [16]. SkySense and
+SkySense-O address open-world Earth observation interpretation [10,36]. Earth-
+Dial, GEOBench-VLM, and large-image VLM work cover dialogue, benchmark-
+ing, and token handling [9,22,28]. These efforts advance RGB and multi-sensor
+remote-sensing VLMs, but do not isolate the infrared setting, where color de-
+scriptions are unreliable and thermal evidence should guide supervision.
+2.2
+Infrared and Thermal Remote-Sensing Data
+Infrared remote-sensing data differ from RGB in sensing physics and visual se-
+mantics: intensity contrast, sensor artifacts, and missing color make captions
+
+
+4
+J. Han et al.
+Table 1: Comparison with related datasets by modality, scale, domain, and primary
+use. The final row highlights the infrared vision-language setting of MonoIR-RS, in
+contrast to dual-modal RGB–IR resources and RGB-only remote-sensing image-text
+datasets.
+Dataset
+Modality
+Scale
+Domain
+Primary use / limitation
+LLVIP [14]
+RGB–IR
+15K pairs
+Low-light surveillance
+Detection / fusion; no language
+M3FD [20]
+RGB–IR
+4K pairs
+Street scenes
+Fusion / detection; non-RS
+MFNet [11]
+RGB–thermal
+1.6K pairs
+Urban driving
+Segmentation; no language
+VEDAI [26]
+Multi-spectral
+1.2K images
+Aerial vehicles
+Detection; no language
+DroneVehicle [29]
+UAV RGB–IR
+28K pairs
+UAV traffic
+Detection; no caption/VQA
+RSICD [21] / RSITMD [32] RGB–text
+10.9K / 4.7K
+Remote sensing
+Caption/retrieval; RGB-only
+RS5M / GeoRSCLIP [35]
+RGB–text
+5M pairs
+Remote sensing
+CLIP pretraining; RGB-only
+SkyScript [30]
+RGB–text
+2.6M pairs
+Remote sensing + OSM VLM data; RGB-only
+IRGPT / IR-TD [6]
+IR–text
+260K pairs
+General infrared
+IR language; non-RS
+FireMM-IR [4]
+RGB–IR + instr. task-specific
+Forest-fire RS
+Dual-modal; scenario-specific
+FusionRS [12]
+RGB–IR–text
+600K triplets
+General remote sensing Dual-modal RGB–IR CLIP/VLM training
+MonoIR-RS (ours)
+IR–text + instr. 600K IR images / 59K caption records General remote sensing Infrared CLIP/VLM fine-tuning
+like “green field” or “blue roof” inappropriate for infrared scenes, so IR vision-
+language datasets need IR-aware text, not RGB captions copied onto infrared
+images. Table 1 positions MonoIR-RS against nearby RGB–IR, infrared, and
+remote-sensing vision-language resources.
+Existing efforts span spectral and multi-modal Earth observation. S2MAE
+studies spatial-spectral pretraining for spectral RS [17], AnySat targets multiple
+resolutions and modalities [1], and Infrared-LLaVA adapts MLLMs to infrared
+understanding [15]. Most relevant, IRGPT [6] builds a large real-infrared cor-
+pus and argues synthetic IR introduces a modality gap. We differ: IRGPT tar-
+gets general IR (surveillance, pedestrian) with text produced by an LLM from
+the paired visible image, whereas we target remote-sensing IR with supervision
+rewritten around infrared evidence; and we adopt DiffV2IR [25], whose visible-
+to-infrared translation attains strong fidelity (low FID/PSNR/SSIM against real
+thermal benchmarks), and validate the modality against real infrared directly
+(Sec. 3). Per the synthetic-data literature, we treat downstream utility, not pho-
+torealism, as the bar.
+2.3
+Fine-Tuning CLIP and VLM Backbones
+Fine-tuning pretrained CLIP improves alignment for domain-specific image-text
+pairs, while VLM instruction tuning adapts multimodal assistants to specialized
+questions and scene descriptions. Domain prompt learning and controlled CLIP-
+transfer studies show that data distribution and adaptation strategy strongly
+affect downstream behavior, and that scaling data without quality control can
+degrade representations [5, 31]. Visual instruction tuning is now the standard
+route for adapting VLMs [19], with work on data selection, compact visual to-
+kens, and low-rank adaptation [3,27,34]. These methods compare heterogeneous
+backbones under a shared training budget, which is essential when the contri-
+bution lies in data and protocol rather than one model.
+For infrared remote sensing, CLIP and VLM fine-tuning play different roles:
+CLIP targets compact retrieval and embedding-space alignment, while VLMs
+target instruction following, captioning, and evidence-grounded QA. Our pipeline
+
+
+MonoIR-RS
+5
+Table 2: Distance to real infrared (AVIID, 804 test images). Synthetic infrared from
+DiffV2IR is compared with a direct RGB-to-gray baseline over Inception FID and
+grayscale-histogram metrics; lower is closer for FID/KL/JS/χ2, higher for histogram
+intersection.
+vs. Real IR
+FID ↓
+KL ↓
+JS ↓
+χ2 ↓
+Hist. inter. ↑
+Synthetic IR (DiffV2IR)
+85.2
+0.103
+0.027
+0.051
+0.822
+RGB-to-gray baseline
+126.3
+0.545
+0.079
+0.139
+0.711
+separates the two families and couples both with data-integrity diagnostics, so
+gains are judged by task scores and by whether they survive controlled candidate
+pools, split audits, and zero-shot calibration.
+3
+Dataset Description
+3.1
+Data Sources and Construction Goal
+MonoIR-RS targets infrared remote-sensing vision-language training rather than
+dual-modal RGB–IR inference. It follows the same source pool and sample-
+level split as FusionRS but changes the modeling target: each sample exposes
+only the infrared image to the model, while the visible image is retained only
+for construction-time alignment and auditing. This isolates the infrared modal-
+ity, where scene understanding must rely on grayscale structure, intensity con-
+trast, and object-background separation rather than color. As shown in Ta-
+bles 3 and 4, the corpus contains 600,000 infrared samples from five sources
+and 59,032 IR-aware caption records after filtering. The image pool and the
+retained language-supervision subset are reported separately: not every syn-
+thesized infrared image contributes a retained caption after filtering, and the
+reported CLIP/VLM experiments use only retained train-split language super-
+vision. RS5M and SkyScript provide large-scale coverage, while NWPU, RSICD,
+and RSITMD add established scene categories and fine-grained benchmark ex-
+amples. The retained records are normalized into a unified infrared image-text
+format, supporting CLIP contrastive fine-tuning, VLM instruction tuning, and
+controlled evaluation under one split protocol. Figure 2 previews the resulting
+task formats.
+Because the five source collections provide only visible-band imagery, the in-
+frared modality is synthesized rather than sensor-captured. We generate each
+infrared image from its registered visible image with DiffV2IR [25], a visible-to-
+infrared diffusion model that couples a progressive full-range-to-target-wavelength
+learning module with vision-language guidance and is trained on a large infrared
+image collection. This yields infrared-style renderings whose grayscale struc-
+ture, object-background contrast, and thermal-response layout follow the source
+scene while removing color cues. We treat these renderings as a controlled, re-
+producible infrared testbed for vision-language adaptation rather than as radio-
+metrically calibrated sensor measurements. This construction choice motivates
+
+
+6
+J. Han et al.
+Table 3: Infrared split derived from the
+shared FusionRS source pool after retain-
+ing only model-facing IR images.
+Source
+Total
+Train
+Val
+Test
+RS5M [35]
+488,033 471,729
+8,166
+8,138
+SkyScript [30]
+65,266
+63,134
+1,036
+1,096
+NWPU [8]
+31,186
+30,122
+549
+515
+RSICD [21]
+10,824
+10,494
+166
+164
+RSITMD [32]
+4,691
+4,521
+83
+87
+Total
+600,000 580,000 10,000 10,000
+Table 4: Distribution of IR-aware caption
+records across splits after filtering RGB-
+dependent, empty, and invalid entries.
+Split
+Records
+Model use
+Train
+48,616
+CLIP training / VLM source pool
+Val
+416
+Checkpoint selection
+Test
+10,000
+Held-out evaluation
+Total
+59,032
+Train/val/test captions
+our IR-aware supervision and RGB-leakage audits, since color words carried over
+from the source captions are unsupported by the synthesized infrared evidence.
+To check that the synthesized modality is closer to real infrared than a naive
+grayscale conversion, we compare against the real aerial visible-infrared dataset
+AVIID [13]. We render synthetic infrared from its 804 visible test images with the
+same DiffV2IR pipeline and compare the synthetic infrared, the real infrared, and
+a direct RGB-to-gray conversion (Table 2). By both FID and all four grayscale-
+histogram metrics, the synthetic infrared is markedly closer to real infrared than
+the grayscale baseline (FID 85.2 vs. 126.3). DiffV2IR thus captures infrared
+intensity structure beyond simple desaturation, though we still treat it as an
+infrared-like approximation, not a radiometrically calibrated sensor substitute.
+Beyond distributional similarity, we run an auxiliary paired image-image re-
+trieval sanity check on AVIID to test whether synthetic-IR adaptation transfers
+to real-infrared inputs. Using the selected IR-CLIP checkpoint, real-IR queries
+retrieve visible targets with 18.7% mean recall, a +6.5-point gain over the cor-
+responding zero-shot CLIP (12.2%); with synthetic-IR queries against real-IR
+targets, the gain is +23.4 points. This experiment is not part of the main in-
+frared benchmark itself, but it tests whether the learned infrared representation
+carries signal beyond the synthetic training domain.
+3.2
+IR-Aware Text Generation
+Source captions often contain color words or visible-band details unreliable in in-
+frared imagery, so we rewrite supervision to emphasize grayscale structure, ther-
+mal contrast, and scene layout. IR-aware captions are generated with Qwen2.5-
+VL-72B-Instruct [2] from the source text and infrared evidence, preserving scene
+semantics while replacing RGB-dependent descriptions with infrared-grounded
+cues and discouraging unsupported color terms. Table 4 summarizes the subset
+after filtering empty outputs, weak descriptions, unsupported claims, missing
+images, and invalid split entries. The retained supervision serves two formats:
+image-text pairs for CLIP contrastive fine-tuning and a train-only source pool
+from which VLM instruction-answer examples are constructed.
+
+
+MonoIR-RS
+7
+VLM Understanding Tasks
+Describe this infrared remote-sensing image in 
+one concise sentence.
+An industrial area with high-contrast structures and 
+dark vegetation in grayscale infrared imagery.
+Infrared Image Captioning
+Hard-negative Reasoning Tasks
+Classify the scene type in this infrared remote-
+sensing image. Answer with the scene name and 
+one short visual reason.
+Industrial area; Circular tank structure visible in 
+grayscale
+Object Presence Recognition
+List the main visible objects or land-cover 
+elements in this infrared remote-sensing image.
+Tennis court; Buildings
+Scene Classification
+Explain the infrared visual cues that support 
+your interpretation of this image.
+The infrared image shows high-contrast structural 
+outlines of buildings and low-texture regions of palm 
+trees, with varying grayscale intensities indicating 
+different material properties.
+Infrared Cue Explanation
+CLIP Retrieval Tasks
+Query : Aerial photo of a small baseball field and 
+truck
+Matched infrared baseball-field image
+Text-to-IR Retrieval
+Query : Infrared image of a parking lot
+An aerial grayscale view captures a parking lot where 
+cars appear as dark low-texture shapes against lighter 
+pavement.
+IR-to-text Retrieval
+Choose the most likely scene class for this infrared 
+image and explain why it is not a confusing alternative.
+Airport; visible runway structure in grayscale patterns
+Hard Scene Discrimination
+Describe one plausible wrong scene label for this 
+image and explain why that label is less likely.
+Airport; the layout shows dense building clusters and 
+railway tracks, not airport features like runways or 
+terminals.
+Hard-negative Contrast
+What visible infrared evidence supports the scene 
+interpretation?
+Visible scene: Aerial view of a bridge over water with 
+surrounding landmasses. 
+Infrared cues: high contrast between bright bridge 
+structure and darker water.
+Visual Evidence QA
+Fig. 2: Representative MonoIR-RS task formats derived from infrared remote-sensing
+supervision, including VLM understanding, CLIP retrieval, and visual-evidence QA
+with paired prompts and target responses.
+3.3
+Split Hygiene and Quality Control
+We constrain all fine-tuning data to the train split; validation and test images
+are excluded before CLIP or VLM training, and empty or non-train entries are
+treated as invalid. This shared boundary adapts both model families under the
+same train-only protocol, preventing hidden differences between the contrastive
+and instruction-tuning stages. We also keep dataset-integrity checks in the release
+surface: split-overlap auditing, missing-image checks, duplicate-path inspection,
+and RGB-leakage inspection, since residual visible-band paths or mixed entries
+can overstate infrared generalization. The original test split has 10,000 samples;
+the formal filtered surface retains 9,720 after flagging 280 RGB-named paths.
+4
+CLIP and VLM Model Fine-Tuning
+4.1
+Overview
+The model adaptation pipeline has two stages, as illustrated in Fig. 3. The first
+fine-tunes CLIP-style encoders for infrared-text contrastive alignment; the sec-
+ond adapts VLM backbones for instruction-style infrared understanding. We
+use fine-tuning rather than from-scratch pretraining to test how existing vision-
+language priors can be redirected toward infrared evidence under a controlled
+data boundary, keeping backbone capacity fixed so the effect of IR-aware su-
+pervision is comparable across models. The two stages are intentionally sep-
+arated: CLIP provides compact embeddings for retrieval, whereas VLMs gen-
+erate free-form answers for captioning, visual-evidence QA, object recognition,
+and infrared-cue explanation. This matters because retrieval alignment does not
+guarantee reliable instruction following, and fluent generation does not guaran-
+tee correct infrared grounding. Both stages use only train-split infrared images
+and IR-aware supervision.
+
+
+8
+J. Han et al.
+IR-VLM Instruction Fine-tuning
+IR Image
+Visual Tokens
+Projector
+Aligned
+ Visual Tokens
+Question
+Describe 
+it.
+What 
+objects?
+Text
+Tokenizer
+Text Tokens
+Vision
+Encoder
+LLM
+(BASE)
+LoRA
+IR Image
+Image
+Encoder
+Image Embedding
+Caption 
+Text
+Original 
+Caption
+IR-aware 
+Caption
+Text
+Encoder
+Text Embedding
+IR-CLIP Contrastive Fine-tuning
+…
+…
+…
+…
+…
+…
+Contrastive Alignment
+Fig. 3: Two-stage model adaptation used for MonoIR-RS. The left branch fine-tunes
+CLIP-style encoders with infrared image-text contrastive alignment, while the right
+branch adapts VLM backbones with infrared visual tokens, a projector, and LoRA-
+based instruction tuning.
+4.2
+Training Data Interface
+The same infrared source boundary is exposed to the two model families through
+different interfaces. For CLIP, each retained train record is an image-text pair
+(Iir, tir), matching the bidirectional retrieval objective used in evaluation. For
+VLMs, train-split records are converted and filtered into instruction triples (Iir, q, a),
+where q may request captioning, scene recognition, object presence, or infrared-
+cue explanation. The final VLM recipe uses the API-v3 multitask subset of
+32,000 conversations selected from the train split, rather than all 48,616 retained
+train captions. RGB images stay outside the model-facing path, used only as
+construction-time alignment evidence. The two stages thus share one data dis-
+cipline: train-only optimization and no use of held-out evaluation images during
+adaptation.
+4.3
+IR-CLIP Contrastive Fine-Tuning
+For IR-CLIP fine-tuning, the image encoder maps the infrared input into a vi-
+sual embedding, the text encoder maps the IR-aware caption into a language
+embedding, and a symmetric contrastive objective aligns matched pairs while
+separating in-batch negatives. This adapts pretrained vision-language priors to
+infrared remote sensing without relying on RGB appearance, where the visual
+evidence is dominated by grayscale layout, thermal contrast, sensor-specific tex-
+ture, and fine structural boundaries. We evaluate five CLIP backbones spanning
+general and remote-sensing variants. During fine-tuning, the text side is frozen
+and the visual tower plus projection layers are adapted, so the main optimization
+pressure falls on aligning infrared evidence to the existing language space while
+preserving stable text semantics. Checkpoints are selected by validation mean
+recall and used for bidirectional IR-text retrieval.
+4.4
+IR-VLM Instruction Fine-Tuning
+For IR-VLM fine-tuning, each example contains an infrared image, an instruc-
+tion, and a target answer derived from IR-aware supervision. The vision encoder
+
+
+MonoIR-RS
+9
+Table 5: Training configuration for IR-CLIP and IR-VLM fine-tuning. Backbones are
+listed together within each family, while shared trainable modules, objectives, sched-
+ules, and checkpoint-selection rules are reported once per family.
+Field
+Configuration
+IR-CLIP family — contrastive IR image-text fine-tuning
+Backbones
+OpenAI CLIP ViT-B/32, OpenAI CLIP ViT-L/14, OpenCLIP ViT-B/32,
+RemoteCLIP ViT-B/32, GeoRSCLIP ViT-B/32
+Trainable /
+objective
+Visual tower and projection layers; text encoder frozen; contrastive IR
+image-text alignment
+Schedule
+2 epochs; batch size 768 (OpenAI B/32), 128 (OpenAI L/14), 1024
+(OpenCLIP, RemoteCLIP, GeoRSCLIP); learning rate 2×10−6 for B/32-family
+backbones and 1×10−6 for OpenAI L/14
+Selection
+Best checkpoint by validation mean recall
+IR-VLM family — instruction-style infrared understanding
+Backbones
+Qwen2.5-VL-7B [2], InstructBLIP-FLAN-T5-XL, LLaVA-1.5-7B [19],
+LLaVA-1.6-Vicuna-7B, GeoChat-7B [16], H2RSVLM-VHM-7B [24]
+Trainable /
+objective
+LoRA adapters (r = 32, α = 64, dropout 0.05) and trainable multimodal
+projector where exposed by the backbone; base LLM frozen;
+instruction-following loss
+Schedule
+1 epoch; batch/accum. 1×8 (Qwen), 2×8 (InstructBLIP), 4×4 (LLaVA,
+GeoChat, H2RSVLM); learning rate 2×10−4, cosine schedule, 0.03 warmup
+ratio
+Selection
+Final-epoch adapter; save-total-limit 1
+extracts infrared visual tokens, a projector maps them into the language-model
+embedding space when the backbone exposes a trainable projector, and LoRA
+adapters update instruction-following behavior while keeping the base language
+model frozen. This parameter-efficient setting makes it feasible to compare het-
+erogeneous VLM backbones under a common infrared interface and reduces con-
+founding from full-model optimization. The instruction data cover complemen-
+tary forms of infrared understanding: captioning prompts summarize global scene
+structure, scene and object prompts encourage short semantic decisions, and
+infrared-cue or visual-evidence prompts require answers grounded in grayscale
+layout, object-background contrast, thermal evidence, and observable scene ge-
+ometry.
+4.5
+Training Configuration
+Table 5 reports the training configuration for the two model families: CLIP uses
+contrastive alignment with a frozen text encoder, and VLMs use parameter-
+efficient instruction tuning with LoRA adapters and projector tuning where ap-
+plicable. The settings keep each family within a standard regime while preserving
+the same data boundary and evaluation protocol. CLIP checkpoints are selected
+by validation mean recall; for VLMs we retain the final-epoch adapter under a
+
+
+10
+J. Han et al.
+Table 6: Clean IR-CLIP retrieval on the 9,720-image filtered infrared test split. All
+values are percentages; mR averages R@1, R@5, and R@10 for both retrieval directions.
+The final two columns compare zero-shot mR (original pretrained weights, no IR-
+aware fine-tuning) with our fine-tuned mR, and ∆is the absolute gain from IR-aware
+adaptation.
+Model
+I2T R@1
+I2T R@5
+I2T R@10
+T2I R@1
+T2I R@5
+T2I R@10
+Zero-shot mR
+mR
+∆
+OpenAI CLIP ViT-L/14
+8.3
+19.8
+27.1
+9.5
+21.4
+28.8
+6.3
+19.2
++12.8
+GeoRSCLIP ViT-B/32
+5.3
+14.1
+20.4
+5.6
+14.2
+20.6
+4.2
+13.4
++9.2
+OpenCLIP ViT-B/32
+5.1
+13.0
+18.5
+6.2
+14.1
+19.8
+5.5
+12.8
++7.3
+OpenAI CLIP ViT-B/32
+4.8
+12.5
+17.7
+5.5
+13.0
+18.5
+4.3
+12.0
++7.7
+RemoteCLIP ViT-B/32
+1.1
+4.0
+6.5
+1.5
+4.7
+7.8
+0.8
+4.3
++3.5
+fixed one-epoch schedule. All fine-tuning and evaluation are restricted to a sin-
+gle GPU by setting CUDA_VISIBLE_DEVICES=0, and each configuration is trained
+once; we therefore report single-run results, plus a three-seed stability check for
+OpenAI CLIP ViT-B/32 in Sec. 5.2.
+5
+Experiments
+5.1
+Evaluation Protocol
+The formal CLIP evaluation uses the filtered infrared test split with 9,720 sam-
+ples after auditing the original 10,000-image test split, and all reported evalu-
+ation samples are excluded from fine-tuning. VLM diagnostics use held-out in-
+frared prompts and report task-level averages over the six final VLM backbones;
+the prompt sampling files are part of the release artifacts. We separate the eval-
+uation by model family because each measures a different aspect of infrared
+vision-language learning: retrieval evaluates whether infrared images and IR-
+aware captions are aligned in a shared embedding space, whereas VLM diagnos-
+tics evaluate whether an instruction-tuned model produces language grounded
+in infrared evidence. Combining these into a single aggregate would obscure
+family-specific failure modes.
+5.2
+IR-CLIP Retrieval
+For IR-CLIP fine-tuning, the image encoder maps the infrared input into a vi-
+sual embedding, the text encoder maps the IR-aware caption into a language
+embedding, and a symmetric contrastive objective aligns matched pairs while
+separating in-batch negatives. This adapts pretrained vision-language priors to
+infrared remote sensing without relying on RGB appearance, where the visual
+evidence is dominated by grayscale layout, thermal contrast, sensor-specific tex-
+ture, fine structural boundaries, and object-background separation. We evalu-
+ate five CLIP backbones spanning general and remote-sensing variants to test
+whether infrared adaptation benefits both generic and geospatially pretrained
+representations. During fine-tuning, the text side is frozen and the visual tower
+plus projection layers are adapted, so the main optimization pressure falls on
+
+
+MonoIR-RS
+11
+Table 7: Per-source clean retrieval on the filtered infrared test split, retrieving within
+each source’s own candidate pool. mR averages R@1, R@5, and R@10 over both direc-
+tions. Small pools (RSICD, RSITMD) inflate recall and are not directly comparable
+across sources; sample counts are reported for context.
+Source
+# Samples
+OpenAI ViT-L/14 mR
+GeoRSCLIP ViT-B/32 mR
+RS5M
+7,858
+22.8
+15.8
+SkyScript
+1,096
+10.8
+10.8
+NWPU
+515
+34.0
+31.7
+RSICD
+164
+37.7
+32.6
+RSITMD
+87
+54.6
+54.6
+aligning infrared evidence to the existing language space while preserving sta-
+ble text semantics. This design avoids re-learning the caption space and instead
+asks the visual encoder to reinterpret infrared patterns as language-grounded
+remote-sensing concepts. Checkpoints are selected by validation mean recall and
+used for bidirectional IR-text retrieval.
+Table 6 reports clean bidirectional retrieval on the formal filtered test split.
+OpenAI CLIP ViT-L/14 achieves the strongest result, reaching 19.2% mean re-
+call and leading both retrieval directions across all recall cutoffs. GeoRSCLIP and
+OpenCLIP form the next tier, while OpenAI CLIP ViT-B/32 remains compet-
+itive despite lacking remote-sensing-specific pretraining. RemoteCLIP performs
+poorly under this infrared split despite remote-sensing adaptation, suggesting
+that RGB-oriented remote-sensing pretraining does not transfer uniformly when
+evidence is dominated by grayscale layout, thermal contrast, and sensor-specific
+texture.
+The task remains challenging: even the best model reaches only 8.3% I2T
+R@1 and 9.5% T2I R@1, since many remote-sensing categories share similar
+infrared layouts and removing color eliminates shortcuts used by RGB-trained
+models. The consistent gain of ViT-L/14 over B/32 variants suggests stronger
+visual capacity helps capture infrared structure under IR-relevant supervision.
+To calibrate these numbers, the last three columns of Table 6 compare each
+backbone against its own zero-shot performance using the original pretrained
+weights without IR-aware fine-tuning. Zero-shot mean recall is low across all
+backbones (0.8–6.3%), confirming that off-the-shelf CLIP transfers poorly to
+synthetic infrared imagery, and IR-aware adaptation yields a consistent absolute
+gain of +3.5 to +12.8 points. This gap shows that the reported scores reflect
+genuine infrared adaptation rather than residual visible-domain priors, and that
+MonoIR-RS is non-trivial: infrared alignment must be learned directly rather
+than inherited from RGB pretraining. To check one representative training run
+for seed sensitivity, we re-ran OpenAI CLIP ViT-B/32 fine-tuning under three
+random seeds with an otherwise identical recipe, obtaining a mean recall of
+11.9 ± 0.02 (mean ± standard deviation over seeds). This check indicates low
+variance for that backbone, while the remaining backbone results are single-run
+measurements.
+Table 7 decomposes the best two backbones by source, retrieving within
+each source’s own candidate pool. Difficulty varies sharply: SkyScript is hard-
+est (mR≈10.8), consistent with its noisy OpenStreetMap-derived supervision;
+
+
+12
+J. Han et al.
+Table 8: CLIP supervision ablation on a smaller development retrieval split, averaged
+over five backbones. Original mR and IR-aware mR average R@1, R@5, and R@10
+in both retrieval directions; these values are used for recipe comparison and are not
+directly comparable to the formal 9,720-sample test split.
+Supervision setting
+Original mR
+IR-aware mR
+Original-caption only
+35.1
+30.2
+IR-aware-caption only
+31.2
+43.0
+Joint RGB–IR diagnostic
+37.0
+42.9
+RSICD and RSITMD show higher mR largely due to small pools (164 and 87
+candidates), so per-source counts are reported. The aggregate in Table 6 is dom-
+inated by the large, noisy RS5M and SkyScript pools.
+Table 8 reports the supervision ablation motivating the final CLIP recipe on
+a development retrieval split, whose candidate pool is smaller and therefore not
+directly comparable to the 9,720-sample formal test split in Table 6. Averaged
+over five backbones, replacing original captions with IR-aware captions improves
+development IR-aware retrieval mean recall from 30.2% to 43.0%, showing that
+infrared-grounded text is a better language target for infrared retrieval under the
+ablation protocol. Original captions remain stronger on original-text retrieval
+because they preserve visible-domain wording, but that is not our target setting.
+A joint RGB–IR diagnostic obtains a similar IR-aware score but is not adopted,
+since our model-facing setting is infrared-modality inference. The ablation thus
+supports prioritizing IR-text alignment over RGB–IR matching.
+5.3
+IR-VLM Understanding Results
+We deliberately use lexical proxy diagnostics rather than a single accuracy score,
+because the corpus has no human-verified scene or object labels and the reference
+captions are machine-generated. Each metric is a keyword-match rate over the
+generated text, interpreted as a behavior signal, not semantic correctness: IR-
+cue rate is the fraction of answers with an infrared term (e.g. infrared, thermal,
+grayscale, intensity, contrast, texture); RGB-color rate (lower better) the frac-
+tion with a visible-color word (e.g. green, blue, red, colorful); overclaim rate
+(lower better) the fraction asserting unsupported physical detail (e.g. tempera-
+ture, heat source, hot, cold); class-hit rate the fraction containing a source-class
+token; and average words the response length. Thus a high IR-cue rate indi-
+cates infrared-style phrasing rather than verified grounding, and a low RGB-color
+rate indicates reduced leakage rather than stronger recognition. The ablations
+follow the actual development path: IR-aware text supervision for CLIP, and
+caption-only, class-aware, and multitask instruction data for VLMs.
+Table 9 summarizes the clean diagnostic evaluation for the final IR-VLM
+recipe. Rather than a single accuracy score, each task is checked with script-
+level diagnostics reflecting the infrared instruction goal: IR-cue mentions, color
+leakage, overclaim, class-hit, and response length. The table reports averages
+over the six final backbones for each task type.
+
+
+MonoIR-RS
+13
+Table 9: Clean IR-VLM diagnostic evaluation on held-out infrared prompts, averaged
+over the six final VLM backbones. IR-cue rate, RGB-color rate, overclaim rate, and
+class-hit rate are percentages; average words measures response length.
+Task
+IR-cue rate ↑
+RGB-color rate ↓
+Overclaim rate ↓
+Class-hit rate ↑
+Avg. words
+Infrared image captioning
+100.0
+0.0
+0.07
+0.93
+17.80
+Scene question
+64.63
+0.0
+0.07
+0.40
+8.05
+Object-presence question
+0.17
+0.0
+0.00
+0.63
+3.40
+Infrared-cue explanation
+82.73
+1.53
+10.67
+0.60
+21.62
+Visual-evidence QA
+63.63
+0.07
+19.87
+0.83
+22.20
+The diagnostic results show that the captioning prompt reliably elicits infrared-
+aware language (100.0% IR-cue rate, almost no overclaiming). Infrared-cue ex-
+planation and visual-evidence QA also reference grayscale or thermal evidence
+frequently, but their higher overclaim rates show that longer explanatory answers
+introduce unsupported detail. Object-presence prompts are intentionally short,
+hence low IR-cue rate but nonzero class-hit. Class-hit stays near 1% by design,
+as it measures literal repetition of the source class token (rare in infrared scene
+descriptions) and thus acts as a conservative lower-bound signal, not a recog-
+nition score. These patterns justify task-separated diagnostics: low RGB-color
+leakage alone does not imply strong grounding, and high infrared-cue frequency
+does not guarantee semantic precision.
+These patterns also differ across backbones under identical data and prompts.
+Some models produce longer, more explicitly infrared-aware answers, but this
+often comes with higher overclaiming because explanatory responses encourage
+unsupported thermal or physical detail. Others stay short and conservative, re-
+ducing hallucinated evidence but also offering weaker infrared-cue coverage. This
+backbone-dependent trade-off means no single model dominates every diagnos-
+tic, and it motivates reporting behavior-specific metrics rather than collapsing
+VLM performance into one aggregate score.
+To confirm that the captioning behavior comes from IR-aware instruction
+tuning rather than the base models alone, Table 11 compares zero-shot and fine-
+tuned captioning under the same prompts. The effect is large and consistent for
+captioning: fine-tuning raises the IR-cue rate to 100% for every backbone (from
+as low as 4.0% for LLaVA-1.5 and 16.2% for H2RSVLM), eliminates visible-
+color leakage (e.g. H2RSVLM 16.0% →0.0%, InstructBLIP 3.8% →0.0%), and
+suppresses overclaiming (Qwen2.5-VL 28.8% →0.4%). The gains are especially
+meaningful for models whose zero-shot responses either ignore infrared modality
+cues or revert to generic remote-sensing descriptions. This shows that IR-aware
+supervision, not the pretrained prior alone, is responsible for infrared-grounded
+captioning style, reduced color leakage, and more controlled use of thermal evi-
+dence.
+5.4
+VLM Training-Stage Ablation
+The VLM training pipeline was developed in several stages, summarized in Ta-
+ble 10. V1 used 5,000 caption-only samples, which were sufficient for teaching
+
+
+14
+J. Han et al.
+Table 10: VLM training-stage ablation. Development metrics are averaged across the
+available backbones on a 12-case sanity set; they are used to select the training recipe,
+while Table 9 reports the formal clean-task evaluation.
+Stage
+Data size Main change
+IR-cue rate RGB-word rate Dev class-hit
+Caption-only V1
+5,000
+Single infrared caption prompt
+98.6
+0.0
+–
+Full class-aware V2
+48,616
+Full train split with scene hints
+83.3
+0.0
+0.0
+API-v3 multitask
+32,000
+30K text QA + 2K vision-audited QA
+100.0
+0.0
+5.6
+basic infrared description but too narrow for class-aware or evidence-seeking
+questions; the model learned to mention infrared cues, yet had little exposure
+to short discriminative answers or grounded reasoning prompts. V2 expanded
+to the full train split with class-aware scene hints, improving data coverage
+but weakening diagnostic balance because the supervision still lacked diverse
+instruction forms. The selected API-v3 multitask version combines 30,000 text-
+rewritten QA examples with 2,000 vision-audited examples in a conversation
+format, training all six backbones after removing malformed rows. This recipe
+preserves clean infrared-cue behavior while adding explicit scene, object, and
+evidence instruction types. It therefore gives the best balance of infrared-cue
+coverage, zero RGB-word leakage, and nonzero class-hit on the sanity set, while
+better matching the final evaluation tasks in Table 9.
+5.5
+Dataset Quality Checks
+The release-facing checks verify that the benchmark follows the intended split
+boundary: train–validation, train–test, and validation–test overlaps are all zero,
+and the referenced infrared paths have no missing-image cases. These checks
+are essential because MonoIR-RS draws from multiple collections with different
+naming rules, split conventions, and file organizations, where duplicate, stale, or
+mixed entries could silently inflate retrieval and instruction-tuning results. The
+RGB-leakage audit found 280 RGB-named paths in the original 10,000-image
+test split, which are excluded from the formal evaluation to leave the 9,720-image
+filtered split used in Table 6. To support reproducibility, error tracing, and in-
+dependent auditing, the release package includes infrared images, IR-aware cap-
+tions, split files, filtering logs, and evaluation scripts under a research-use setting;
+the source imagery inherits the licenses of its original collections. As the data de-
+rive from public remote-sensing collections and contain no personally identifiable
+information, we foresee no direct ethical concerns beyond the synthetic-infrared
+caveats, possible domain bias, and modality-transfer limitations noted above.
+6
+Conclusion
+This paper presents MonoIR-RS, a large-scale infrared remote-sensing vision-
+language dataset and benchmark connecting dataset construction, CLIP adap-
+tation, VLM instruction tuning, and data-integrity evaluation under one infrared
+
+
+MonoIR-RS
+15
+Table 11: Zero-shot (original pretrained weights) vs. fine-tuned captioning diagnostics,
+showing the effect of IR-aware instruction tuning. Values are percentages.
+Backbone
+IR-cue (zero→ft)
+RGB-color (zero→ft)
+Overclaim (zero→ft)
+Avg. words (zero→ft)
+Qwen2.5-VL-7B
+98.6 →100.0
+3.4 →0.0
+28.8 →0.4
+24.2 →17.9
+InstructBLIP-FLAN-T5-XL
+93.0 →100.0
+3.8 →0.0
+0.0 →0.0
+56.9 →17.1
+LLaVA-1.5-7B
+4.0 →100.0
+0.8 →0.0
+0.0 →0.0
+14.2 →17.8
+LLaVA-1.6-Vicuna-7B
+72.4 →100.0
+0.0 →0.0
+0.0 →0.0
+11.1 →18.4
+GeoChat-7B
+26.8 →100.0
+0.4 →0.0
+0.0 →0.0
+13.8 →17.9
+H2RSVLM-VHM-7B
+16.2 →100.0
+16.0 →0.0
+0.0 →0.0
+14.8 →17.7
+protocol. Beyond a set of infrared images, its contribution is an end-to-end work-
+flow that rewrites visible-centric supervision into IR-aware text, enforces train-
+only hygiene, and evaluates models against zero-shot behavior where available.
+IR-aware text is essential: development retrieval mean recall rises from 30.2%
+to 43.0% over original captions under the ablation protocol, the strongest CLIP
+reaches 19.2% (+12.8 over zero-shot) on the formal filtered test split, and fine-
+tuning drives VLM captioning IR-cue coverage to 100% while reducing color
+leakage.
+Two limitations bound the scope: the infrared modality is synthesized with
+DiffV2IR (closer to real infrared than grayscale, but not a sensor substitute), and
+IR-aware supervision is generated by Qwen2.5-VL-72B, so our diagnostics are
+lexical proxies rather than human-verified correctness. Future work can extend
+to real sensor data, more infrared bands, human-verified instructions, and full
+multi-seed evaluation.
+
+
+16
+J. Han et al.
+References
+1. Astruc, G., Gonthier, N., Mallet, C., Landrieu, L.: Anysat: One earth observation
+model for many resolutions, scales, and modalities. In: Proceedings of the Com-
+puter Vision and Pattern Recognition Conference. pp. 19530–19540 (2025)
+2. Bai, S., Chen, K., Liu, X., Wang, J., Ge, W., Song, S., Dang, K., Wang, P., Wang,
+S., Tang, J., Zhong, H., Zhu, Y., Yang, M., Wan, J., Ding, W., Fu, Z., Xu, Y., Ye,
+J., Zhang, X., Xie, T., Cheng, Z., Zhang, H., Yang, Z., Xu, H., Lin, J.: Qwen2.5-vl
+technical report (2025)
+3. Bi, J., Wang, Y., Chen, H., Xiao, X., Hecker, A., Tresp, V., Ma, Y.: Llava steer-
+ing: Visual instruction tuning with 500x fewer parameters through modality linear
+representation-steering. In: Proceedings of the 63rd Annual Meeting of the Asso-
+ciation for Computational Linguistics (Volume 1: Long Papers). pp. 15230–15250
+(2025)
+4. Cao, J., Liu, X., Xue, R.: Firemm-ir: An infrared-enhanced multi-modal large lan-
+guage model for comprehensive scene understanding in remote sensing forest fire
+monitoring. Sensors 26(2), 390 (2026)
+5. Cao, Q., Xu, Z., Chen, Y., Ma, C., Yang, X.: Domain prompt learning with quater-
+nion networks. In: Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition. pp. 26637–26646 (2024)
+6. Cao, Z., Zhang, J., Zhang, R.: Irgpt: Understanding real-world infrared image
+with bi-cross-modal curriculum on large-scale benchmark. In: Proceedings of the
+IEEE/CVF International Conference on Computer Vision. pp. 166–176 (2025)
+7. Chen, W., Chen, J., Deng, Y., Chen, J., Feng, Y., Xi, Z., Liu, D., Li, K., Meng, Y.:
+Lrsclip: A vision-language foundation model for aligning remote sensing image with
+longer text. In: Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (2025)
+8. Cheng, G., Han, J., Lu, X.: Remote sensing image scene classification: Benchmark
+and state of the art. Proceedings of the IEEE 105(10), 1865–1883 (2017)
+9. Danish, M., Munir, M.A., Shah, S.R.A., Kuckreja, K., Khan, F.S., Fraccaro, P.,
+Lacoste, A., Khan, S.: Geobench-vlm: Benchmarking vision-language models for
+geospatial tasks. In: Proceedings of the IEEE/CVF International Conference on
+Computer Vision. pp. 7132–7142 (2025)
+10. Guo, X., Lao, J., Dang, B., Zhang, Y., Yu, L., Ru, L., Zhong, L., Huang, Z.,
+Wu, K., Hu, D., et al.: Skysense: A multi-modal remote sensing foundation model
+towards universal interpretation for earth observation imagery. In: Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp.
+27672–27683 (2024)
+11. Ha, Q., Watanabe, K., Karasawa, T., Ushiku, Y., Harada, T.: Mfnet: Towards real-
+time semantic segmentation for autonomous vehicles with multi-spectral scenes. In:
+2017 IEEE/RSJ International Conference on Intelligent Robots and Systems. pp.
+5108–5115. IEEE (2017)
+12. Han, J., Zhang, B., Sun, X., Zhang, Q., Dong, Y., Hu, C., Zhang, F., Wei, Y.,
+Guo, J.: Fusionrs: A large-scale rgb-infrared remote sensing dataset for dual-modal
+vision-language foundation models. arXiv preprint arXiv:2606.17020 (2026)
+13. Han, Z., Zhang, Z., Zhang, S., Zhang, G., Mei, S.: Aerial visible-to-infrared image
+translation: Dataset, evaluation, and baseline. Journal of Remote Sensing 3, 0096
+(2023)
+14. Jia, X., Zhu, C., Li, M., Tang, W., Zhou, W.: Llvip: A visible-infrared paired
+dataset for low-light vision. In: Proceedings of the IEEE/CVF International Con-
+ference on Computer Vision Workshops (ICCVW). pp. 3496–3504 (2021)
+
+
+MonoIR-RS
+17
+15. Jiang, S., Chen, Z., Liang, J., Zhao, Y., Liu, M., Qin, B.: Infrared-llava: Enhancing
+understanding of infrared images in multi-modal large language models. In: Find-
+ings of the Association for Computational Linguistics: EMNLP 2024. pp. 8573–8591
+(2024)
+16. Kuckreja, K., Danish, M.S., Naseer, M., Das, A., Khan, S., Khan, F.S.: Geochat:
+Grounded large vision-language model for remote sensing. In: Proceedings of the
+IEEE/CVF conference on computer vision and pattern recognition. pp. 27831–
+27840 (2024)
+17. Li, X., Hong, D., Chanussot, J.: S2mae: A spatial-spectral pretraining foundation
+model for spectral remote sensing data. In: Proceedings of the IEEE/CVF Confer-
+ence on Computer Vision and Pattern Recognition. pp. 24088–24097 (2024)
+18. Liu, F., Chen, D., Guan, Z., Zhou, X., Zhu, J., Ye, Q., Fu, L., Zhou, J.: Remoteclip:
+A vision language foundation model for remote sensing. IEEE Transactions on
+Geoscience and Remote Sensing 62, 1–16 (2024)
+19. Liu, H., Li, C., Li, Y., Lee, Y.J.: Improved baselines with visual instruction tun-
+ing. In: Proceedings of the IEEE/CVF conference on computer vision and pattern
+recognition. pp. 26296–26306 (2024)
+20. Liu, J., Fan, X., Huang, Z., Wu, G., Liu, R., Zhong, W., Luo, Z.: Target-aware
+dual adversarial learning and a multi-scenario multi-modality benchmark to fuse
+infrared and visible for object detection. In: Proceedings of the IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition. pp. 5802–5811 (2022)
+21. Lu, X., Wang, B., Zheng, X., Li, X.: Exploring models and data for remote sensing
+image caption generation. IEEE Transactions on Geoscience and Remote Sensing
+56(4), 2183–2195 (2017)
+22. Luo, J., Zhang, Y., Yang, X., Wu, K., Zhu, Q., Liang, L., Chen, J., Li, Y.: When
+large vision-language model meets large remote sensing imagery: Coarse-to-fine
+text-guided token pruning. In: Proceedings of the IEEE/CVF International Con-
+ference on Computer Vision. pp. 9206–9217 (2025)
+23. Mall, U.K., Phoo, C.P., Liu, M., Vondrick, C., Hariharan, B., Bala, K.: Remote
+sensing vision-language foundation models without annotations via ground remote
+alignment. In: International Conference on Learning Representations. vol. 2024,
+pp. 49294–49314 (2024)
+24. Pang, C., Weng, X., Wu, J., Li, J., Liu, Y., Sun, J., Li, W., Wang, S., Feng, L., Xia,
+G.S., He, C.: Vhm: Versatile and honest vision language model for remote sensing
+image analysis. In: Proceedings of the AAAI Conference on Artificial Intelligence.
+vol. 39, pp. 6381–6388 (2025)
+25. Ran, L., Wang, L., Wang, G., Wang, P., Zhang, Y.: Diffv2ir: Visible-to-infrared dif-
+fusion model via vision-language understanding. arXiv preprint arXiv:2503.19012
+(2025)
+26. Razakarivony, S., Jurie, F.: Vehicle detection in aerial imagery: A small target
+detection benchmark. Journal of Visual Communication and Image Representation
+34, 187–203 (2016)
+27. Safaei, B., Siddiqui, F., Xu, J., Patel, V.M., Lo, S.Y.: Filter images first, gener-
+ate instructions later: Pre-instruction data selection for visual instruction tuning.
+In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition. pp. 14247–14256 (2025)
+28. Soni, S., Dudhane, A., Debary, H., Fiaz, M., Munir, M.A., Danish, M.S., Fraccaro,
+P., Watson, C.D., Klein, L.J., Khan, F.S., et al.: Earthdial: Turning multi-sensory
+earth observations to interactive dialogues. In: Proceedings of the Computer Vision
+and Pattern Recognition Conference. pp. 14303–14313 (2025)
+
+
+18
+J. Han et al.
+29. Sun, Y., Cao, B., Zhu, P., Hu, Q.: Drone-based rgb-infrared cross-modality vehi-
+cle detection via uncertainty-aware learning. IEEE Transactions on Circuits and
+Systems for Video Technology 32(10), 6700–6713 (2022)
+30. Wang, Z., Prabha, R., Huang, T., Wu, J., Rajagopal, R.: Skyscript: A large and
+semantically diverse vision-language dataset for remote sensing. In: Proceedings of
+the AAAI Conference on Artificial Intelligence. vol. 38, pp. 5805–5813 (2024)
+31. Wen, X., Zhao, B., Chen, Y., Pang, J., Qi, X.: What makes clip more robust to
+long-tailed pre-training data? a controlled study for transferable insights. Advances
+in Neural Information Processing Systems 37, 36567–36601 (2024)
+32. Yuan, Z., Zhang, W., Fu, K., Li, X., Deng, C., Wang, H., Sun, X.: Exploring a fine-
+grained multiscale method for cross-modal remote sensing image retrieval. IEEE
+Transactions on Geoscience and Remote Sensing 60, 1–19 (2021)
+33. Zanella, M., Gérin, B., Ayed, I.B.: Boosting vision-language models with transduc-
+tion. Advances in Neural Information Processing Systems 37, 62223–62256 (2024)
+34. Zhang, S., Fang, Q., Yang, Y., Feng, Y.: Llava-mini: Efficient image and video
+large multimodal models with one vision token. In: International Conference on
+Learning Representations. vol. 2025, pp. 53285–53310 (2025)
+35. Zhang, Z., Zhao, T., Guo, Y., Yin, J.: Rs5m and georsclip: A large-scale vision-
+language dataset and a large vision-language model for remote sensing. IEEE
+Transactions on Geoscience and Remote Sensing 62, 1–23 (2024)
+36. Zhu, Q., Lao, J., Ji, D., Luo, J., Wu, K., Zhang, Y., Ru, L., Wang, J., Chen, J.,
+Yang, M., et al.: Skysense-o: Towards open-world remote sensing interpretation
+with vision-centric visual-language modeling. In: Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition. pp. 14733–14744 (2025)
+
+
+MonoIR-RS
+19
+A
+Mathematical Formulation and Algorithms
+This appendix formalizes the dataset construction, model adaptation, and eval-
+uation metrics used in the main paper. The notation follows the implementation
+used for the reported IR-CLIP and IR-VLM experiments: CLIP models are fine-
+tuned with a symmetric image-text contrastive loss, VLMs are adapted with
+instruction-following loss and LoRA adapters, and VLM behavior is evaluated
+with lexical diagnostics rather than human-verified semantic accuracy.
+A.1
+Notation
+Let the source remote-sensing pool be
+  \mathc
+a
+l {S } = \{(I
+_i^{
+\ m athrm {rgb}}, c_i, s_i, d_i)\}_{i=1}^{N}, \qquad N=600{,}000, 
+(1)
+where Irgb
+i
+is the visible-band source image, ci is the original source caption or
+metadata text, si ∈{train, val, test} is the split, and di is the source dataset
+identifier. The model-facing infrared image is generated by a visible-to-infrared
+translation function,
+  I
+_ i ^{\math
+r
+m {ir}} = T_{\phi }(I_i^{\mathrm {rgb}}), 
+(2)
+where Tϕ denotes the DiffV2IR-based synthesis pipeline used in the paper. The
+IR-aware text is written as
+  t _i = R_
+{
+\ ome
+g a }(I_i^{\mathrm {rgb}}, I_i^{\mathrm {ir}}, c_i), 
+(3)
+where Rω denotes the IR-aware caption rewriting process. The RGB image is
+used only at construction time to preserve scene semantics during rewriting; the
+model-facing example used for fine-tuning and evaluation is
+  x _i =
+ ( I_i ^{\ mathrm {ir}}, t_i, s_i, d_i). 
+(4)
+For CLIP-style fine-tuning, each retained training item is an image-text pair
+(Iir
+i , ti). For VLM instruction tuning, a train-only subset of retained records is
+converted into an instruction triple
+  z _i =
+ ( I_i ^{\mathrm {ir}}, q_i, a_i), 
+(5)
+where qi is a task prompt and ai is the target answer. The final API-v3 multitask
+VLM recipe uses 32,000 train-split conversations constructed from the retained
+training pool.
+A.2
+Filtering and Split Hygiene
+The retained IR-aware caption set is defined by a binary validity predicate
+  m _
+i
+ = 
+\ mathbf {1} \ l e ft [ I_i^{ \mat hrm { i r}}\ \ math
+r
+m {exists} \ \wedge \|t_i| > 0 \ \wedge \s_i \in \{\mathrm {train}, \mathrm {val}, \mathrm {test}\} \ \wedge \Q(x_i)=\mathrm {pass} \right ], 
+(6)
+
+
+20
+J. Han et al.
+where Q(·) summarizes the quality checks for empty entries, malformed split
+fields, missing images, weak IR descriptions, and unsupported text. The retained
+split-specific sets are
+  \ mat h ca l { D} _ {s}
+ = \{x_i : m_ i=1,\ s_i=s\}, \qquad s \in \{\mathrm {train},\mathrm {val},\mathrm {test}\}. 
+(7)
+The paper uses |Dtrain| = 48,616, |Dval| = 416, and |Dtest| = 10,000 IR-aware
+caption records. CLIP uses the retained train records as image-text pairs. The
+final VLM recipe uses Ztrain ⊂Dtrain, with |Ztrain| = 32,000 conversations.
+For the formal CLIP retrieval evaluation, we further apply a path-level audit
+and remove test entries whose path strings indicate residual visible-band naming.
+Let
+  \ rho _i = \mathbf {1}[\mathr
+m {``rgb''}\in \mathrm {lowercase}(\mathrm {path}(I_i^{\mathrm {ir}}))]. 
+(8)
+The filtered evaluation set is
+  \mat
+hcal
+ {D} _ {\mat h rm {te
+st}}^{\
+math r m {clean}} = \{x_i \in \mathcal {D}_{\mathrm {test}} : \rho _i=0\}, \qquad |\mathcal {D}_{\mathrm {test}}^{\mathrm {clean}}|=9{,}720. 
+(9)
+This audit is deliberately conservative and file-name based: it prevents path-level
+visible-band leakage in the reported retrieval surface, but it is not a content-level
+detector of all possible source-domain artifacts. The release keeps the flagged
+list so that stronger content-level audits can be added without changing the
+reported split definition. Equivalently, the model-facing sets used by the two
+training stages are
+  \ma t hcal 
+{ P }_{ \ ma t hrm {CLIP}} &= \{(I_i^{\mathrm {ir}},t_i):x_i\in \mathcal {D}_{\mathrm {train}}\}, \\ \mathcal {Z}_{\mathrm {train}} &= \{G_{\xi }(x_i):x_i\in \mathcal {D}_{\mathrm {train}},\ h_{\xi }(x_i)=1\}, \qquad |\mathcal {Z}_{\mathrm {train}}|=32{,}000, \\ \mathcal {E}_{\mathrm {CLIP}} &= \mathcal {D}_{\mathrm {test}}^{\mathrm {clean}} ,
+(12)
+where Gξ converts a retained train record into an instruction tuple and hξ de-
+notes the API-v3 multitask selection and validity filter.
+A.3
+Synthetic-IR Realism Metrics
+To compare synthetic infrared images with real infrared images from AVIID,
+the main paper reports FID and grayscale-histogram distances. Let X and Y be
+two image sets, and let µX , ΣX and µY, ΣY be the mean and covariance of their
+Inception features. The Fréchet Inception Distance is
+  \mat hr m {F I D}(\
+m a th
+c
+al {X } ,\ma thcal {
+Y}) = \|\mu _{\mathcal {X}}-\mu _{\mathcal {Y}}\|_2^2 + \mathrm {Tr} \left ( \Sigma _{\mathcal {X}}+\Sigma _{\mathcal {Y}} - 2(\Sigma _{\mathcal {X}}\Sigma _{\mathcal {Y}})^{1/2} \right ). 
+(13)
+For grayscale histograms, let p, q ∈RB be normalized intensity histograms
+with PB
+b=1 pb = PB
+b=1 qb = 1. With a small numerical constant ϵ > 0, the
+
+
+MonoIR-RS
+21
+histogram metrics are
+  D_{\ma t
+h
+r
+m {
+KL }}( p\ | q
+) & = 
+\sum
+ _{b=1 }^ { B
+} p_b \lo g 
+\frac {p_b
++ \ e p s
+i
+l
+on }
+{q_b+ \e p s
+i
+l
+o
+n }
+, \ \ D_{
+\m a th r m 
+{JS}
+}(p,q ) &
+=
+ 
+\fr
+ac {1}{ 2}D_{\mathrm {KL}}(p\|m) + \frac {1}{2}D_{\mathrm {KL}}(q\|m), \qquad m=\frac {p+q}{2}, \\ \chi ^2(p,q) &= \frac {1}{2} \sum _{b=1}^{B} \frac {(p_b-q_b)^2}{p_b+q_b+\epsilon }, \\ \mathrm {HI}(p,q) &= \sum _{b=1}^{B}\min (p_b,q_b) .
+(17)
+Lower values are better for FID, KL, JS, and χ2, while higher values are better
+for histogram intersection.
+A.4
+IR-CLIP Contrastive Objective
+For a mini-batch of B retained image-text pairs {(Iir
+i , ti)}B
+i=1, the image encoder
+fθ and text encoder gψ produce normalized embeddings
+  u
+_i = \
+f r
+ac {f_{
+\ the
+t
+a }
+(I_i^{
+\mathrm {
+ir}})} {\|f_{\theta }(I_i^{\mathrm {ir}})\|_2}, \qquad v_i = \frac {g_{\psi }(t_i)} {\|g_{\psi }(t_i)\|_2}. 
+(18)
+The implementation freezes the text side when freeze-text is enabled and
+updates the visual tower, projection parameters, and logit scale. Let α = exp(γ)
+be the learned logit scale. The image-text similarity logits are
+  z _ { ij
+} = \alpha \, u_i^{\top }v_j. 
+(19)
+The image-to-text and text-to-image losses are
+  \m a t h
+c
+a
+l
+ {L
+}_{
+I\righta
+rr
+ow T} &= -\
+f
+rac 
+{1 }{ B } 
+\
+s
+u
+m _
+{i=
+1}^{B} \
+lo
+g \ frac {\exp (z_{ii})} {\sum _{j=1}^{B}\exp (z_{ij})}, \\ \mathcal {L}_{T\rightarrow I} &= -\frac {1}{B} \sum _{i=1}^{B} \log \frac {\exp (z_{ii})} {\sum _{j=1}^{B}\exp (z_{ji})}
+.
+(21)
+The final symmetric contrastive loss is
+  \ma t h
+c al {L } _{ \ma thrm {CLIP}} = \frac {1}{2} \left ( \mathcal {L}_{I\rightarrow T} + \mathcal {L}_{T\rightarrow I} \right ). 
+(22)
+A.5
+Retrieval Metrics
+For a retrieval set of M paired examples, let U and V denote the normalized
+image and text embeddings. The correct text for image i is vi, and the correct
+
+
+22
+J. Han et al.
+image for text i is ui. The rank of the paired text under image-to-text retrieval
+is
+  r_
+i
+^ { I
+\
+righ
+tarr
+o w T } 
+= 1+ \sum _{j\neq i} \mathbf {1} [u_i^{\top }v_j > u_i^{\top }v_i]. 
+(23)
+The rank rT →I
+i
+is defined analogously by ranking images for text query vi. Recall
+at K is
+  R_ {I \ r
+i
+g
+h
+tar
+row T}
+@
+K = \frac {1}{M} \sum _{i=1}^{M} \mathbf {1}[r_i^{I\rightarrow T}\le K], 
+(24)
+with RT →I@K defined similarly. The mean recall reported in the paper averages
+the three recall cutoffs in both retrieval directions:
+  \ m
+a
+t
+hrm {mR} =
+ \fra c { 1} {6} \ sum _{K\in \{1,5,10\}} \left ( R_{I\rightarrow T}@K + R_{T\rightarrow I}@K \right ). 
+(25)
+The same definition is used for the synthetic-IR retrieval benchmark and the
+AVIID paired retrieval sanity check, with only the query and gallery modalities
+changed. Checkpoint selection is written as
+  c ^{\ sta
+r } &= \arg 
+\max
+ _{c\in \ m athca l { C} } \mathrm {mR}_
+{\
+mathrm
+ {va l}}(c), \\ \mathrm {Score}_{\mathrm {test}} &= \{R_{I\rightarrow T}@K,\ R_{T\rightarrow I}@K\}_{K\in \{1,5,10\}} \big |_{\mathcal {D}_{\mathrm {test}}^{\mathrm {clean}},c^{\star }} .
+(27)
+A.6
+IR-VLM Instruction-Tuning Objective
+For VLM training, each example is represented as (Iir
+i , qi, ai) ∈Ztrain, where
+qi is the instruction and ai = (ai,1, . . . , ai,Li) is the target answer. The visual
+encoder Eη produces visual tokens, and a multimodal projector Pω maps them
+into the language-model embedding space when the backbone exposes such a
+projector:
+  H _i = P_{\
+o mega }(E_{\eta }(I_i^{\mathrm {ir}})). 
+(28)
+The instruction-tuned language model predicts answer tokens conditioned on
+the visual tokens and the user prompt:
+  p_{ \ The
+t a }( a
+_i
+ 
+\mi
+d I_i^{ \ mat hrm {ir}},q_i) = \prod _{\ell =1}^{L_i} p_{\Theta } (a_{i,\ell }\mid H_i,q_i,a_{i,<\ell }). 
+(29)
+Only assistant-answer tokens contribute to the supervised loss; prompt tokens
+are masked. The training objective is
+  \m a t
+h
+c
+a l 
+{
+L
+}_
+{
+\ma
+thr m {VLM} } = -\f rac {1}{\sum _i L_i} \sum _{i} \sum _{\ell =1}^{L_i} \log p_{\Theta } (a_{i,\ell }\mid H_i,q_i,a_{i,<\ell }). 
+(30)
+The selected adapter parameters are therefore
+  \ The
+ta 
+^{\sta r } = \arg \m in _{\Theta _{\mathrm {LoRA}},\,\omega } \mathcal {L}_{\mathrm {VLM}}(\mathcal {Z}_{\mathrm {train}};\Theta ,\omega ), 
+(31)
+
+
+MonoIR-RS
+23
+with the base language model parameters fixed.
+Parameter-efficient adaptation is implemented with LoRA. For a frozen linear
+layer W ∈Rdout×din, LoRA replaces the effective weight by
+  W ' = W
+ + \Delt
+a
+ W, \qquad \Delta W = \frac {\alpha _{\mathrm {LoRA}}}{r}BA, 
+(32)
+where A ∈Rr×din and B ∈Rdout×r are trainable low-rank matrices. The ex-
+periments use r = 32, αLoRA = 64, and dropout 0.05. For Qwen2.5-VL, LoRA
+is applied to attention and MLP projection modules. For InstructBLIP, LoRA
+is applied to the query and value modules. For LLaVA-style, GeoChat, and
+H2RSVLM-style models, LoRA adapters and the exposed multimodal projector
+are trained while the base LLM is kept fixed.
+A.7
+VLM Diagnostic Metrics
+The VLM metrics in the main paper are lexical diagnostics, not human-verified
+semantic accuracy. For n generated answers {yi}n
+i=1, define keyword sets KIR,
+KRGB, and Kover for infrared evidence terms, visible-color terms, and unsup-
+ported thermal overclaim terms. Let hit(y, K) be one when any keyword in K
+appears in y, and zero otherwise. Then
+  \mathrm {IR
+C
+u
+e
+Rat
+e} &= \ frac 
+{100
+}{n} \sum _{ i =1}
+^
+{
+n
+} \
+mathrm {hit}(
+y_i,
+\mathcal {K}_ { \ma
+t
+h
+r
+m {
+IR}}), \\ \mathrm {RGBColorRate} &= \frac {100}{n} \sum _{i=1}^{n} \mathrm {hit}(y_i,\mathcal {K}_{\mathrm {RGB}}), \\ \mathrm {OverclaimRate} &= \frac {100}{n} \sum _{i=1}^{n} \mathrm {hit}(y_i,\mathcal {K}_{\mathrm {over}}) .
+(35)
+The class-hit diagnostic uses a source class token set Ci extracted from the source
+class name or task metadata:
+  \mathrm {C l ass
+H
+i
+t
+Rat
+e} = \frac { 1 00 }{ n} \sum _{i=1}^{n} \mathbf {1} [\mathrm {tokens}(y_i)\cap \mathcal {C}_i \neq \emptyset ]. 
+(36)
+The average response length is
+  \mathr m 
+{
+A
+v
+gWo
+rds} = \frac {1}{n} \sum _{i=1}^{n} |\mathrm {words}(y_i)|. 
+(37)
+The reported task-level diagnostic vector is
+  \
+m
+athbf
+ {m}_{\tau
+ } = \begin {
+bmatrix} \math
+rm {IRCueRate
+}_{\tau }
+ 
+\\ \m
+athrm {RGBColorRate}_{\tau } \\ \mathrm {OverclaimRate}_{\tau } \\ \mathrm {ClassHitRate}_{\tau } \\ \mathrm {AvgWords}_{\tau } \end {bmatrix}, 
+(38)
+
+
+24
+J. Han et al.
+Algorithm 1 Infrared record construction
+Require: S, Tϕ, Rω, Q, hξ, Gξ
+Ensure: {Ds}s, PCLIP, Ztrain, Dclean
+test
+1: for i = 1, . . . , N do
+2:
+Synthesize and rewrite: Iir
+i ←Tϕ(Irgb
+i
+),
+ti ←Rω(Irgb
+i
+, Iir
+i , ci)
+3:
+Form one candidate record: xi ←(Iir
+i , ti, si, di)
+4:
+Apply quality gate: mi ←1[Iir
+i exists ∧|ti| > 0
+∧si ∈{train, val, test} ∧Q(xi) = pass]
+5: end for
+6: Retain split records: Ds ←{xi : mi = 1, si = s},
+s ∈{train, val, test}
+7: Derive CLIP pairs: PCLIP ←{(Iir
+i , ti) : xi ∈Dtrain}
+8: Derive VLM conversations: Ztrain ←{Gξ(xi) : xi ∈Dtrain, hξ(xi) = 1}
+9: Clean retrieval test: Dclean
+test
+←{xi ∈Dtest : ρi = 0}
+Algorithm 2 IR-CLIP contrastive adaptation and retrieval
+Require: PCLIP, Dval, Dclean
+test
+Ensure: c⋆, Scoretest
+1: Set trainable parameters: ΩCLIP = {θvis, θproj, γ},
+ψ ←ψ0
+2: for e = 1, . . . , E do
+3:
+Optimize contrastive objective:
+Ω(e)
+CLIP ←arg minΩCLIP
+P
+(I,t)∈PCLIP LCLIP(I, t; ΩCLIP, ψ0)
+4:
+Save candidate checkpoint: ce ←Ω(e)
+CLIP
+5: end for
+6: Select by validation retrieval: c⋆←arg maxc∈{ce}E
+e=1 mRval(c)
+7: Report held-out retrieval:
+Scoretest ←{RI→T @K, RT →I@K}K∈{1,5,10}
+
+Dclean
+test ,c⋆
+where τ indexes the prompt type. These diagnostics are intentionally conserva-
+tive. A high IR-cue rate indicates that the response uses infrared-style evidence
+language, while a low RGB-color rate indicates reduced visible-color leakage.
+Neither should be interpreted as object-level or scene-level semantic accuracy.
+Algorithms 1–3 summarize how the equations above are instantiated in the
+experimental pipeline. Each algorithm keeps the operational step in text and
+places the actual transformation or selection rule in mathematical form, so that
+the appendix remains reproducible without duplicating implementation details
+from the code.
+A.8
+Implementation Traceability
+The equations above correspond to the experimental scripts used to produce
+the paper tables. The CLIP objective follows the symmetric cross-entropy im-
+plementation used for both HuggingFace CLIP and OpenCLIP backbones. Re-
+trieval metrics follow the evaluation routine that computes top-K hits from the
+image-text similarity matrix and then averages R@1, R@5, and R@10 across the
+two directions. The VLM objective follows the train-only multitask QA scripts,
+
+
+MonoIR-RS
+25
+Algorithm 3 IR-VLM instruction adaptation and diagnostics
+Require: Ztrain, Hτ, Θ0
+Ensure: Θ⋆and {mτ}τ
+1: Set trainable parameters: ΩVLM = {ΘLoRA, ω},
+Θbase ←Θ0
+2: Fit adapters on train-only conversations:
+Ω⋆
+VLM ←arg minΩVLM LVLM(Ztrain; ΩVLM, Θ0)
+3: for all τ do
+4:
+for all (Iir
+j , qj) ∈Hτ do
+5:
+Generate answer: yj ←arg maxy pΩ⋆
+VLM,Θ0(y | Iir
+j , qj)
+6:
+end for
+7:
+Compute lexical diagnostics: mτ ←[IRτ, RGBτ, Overτ, Classτ, Lenτ]
+8: end for
+9: Θ⋆←(Ω⋆
+VLM, Θ0)
+where labels are applied only to assistant answer tokens. The VLM diagnostic
+metrics follow the clean evaluation scripts that count infrared evidence words,
+visible-color words, overclaim words, class-token hits, and response length.
+
+
+26
+J. Han et al.
+B
+Supplementary Experimental Results
+This appendix expands the aggregate tables of the main paper into per-backbone,
+per-source, and per-configuration form. It is intended to expose the variation that
+is compressed by averaged results, including backbone-specific retrieval behavior,
+source-dependent gallery difficulty, auxiliary paired-retrieval transfer, and seed-
+level stability. All numbers are taken directly from the evaluation outputs used
+for the main paper; no values are re-estimated or post-processed beyond table
+formatting.
+B.1
+Extended Per-Source Retrieval
+Table 12 gives the full bidirectional recall behind the per-source summary of
+the main paper, for the two strongest CLIP backbones, retrieving within each
+source’s own candidate pool. This breakdown is useful because a single pooled
+score mixes backbone alignment quality, gallery size, caption noise, and repeated
+remote-sensing layouts. The source-difficulty ordering is consistent across both
+backbones: SkyScript is hardest because its OpenStreetMap-derived supervision
+is noisier and less caption-like, while the small RSICD and RSITMD pools in-
+flate recall by presenting fewer competing candidates. We therefore report their
+sample counts directly. Per-source retrieval was computed only for these two
+backbones; for completeness, Table 13 lists the pooled mean recall of all five
+CLIP backbones on the merged 9,720-image split.
+Table 12: Full per-source bidirectional recall (%) for the two strongest CLIP backbones
+on the filtered infrared test split, retrieving within each source’s candidate pool. I2T
+is image-to-text, T2I is text-to-image; mR averages all six recall values.
+Source
+#
+I2T R@1
+I2T R@5
+I2T R@10
+T2I R@1
+T2I R@5
+T2I R@10
+mR
+OpenAI CLIP ViT-L/14
+RS5M
+7,858
+10.13
+23.61
+32.09
+11.53
+25.49
+33.76
+22.77
+SkyScript
+1,096
+3.28
+9.31
+15.51
+4.47
+12.77
+19.43
+10.80
+NWPU
+515
+12.23
+34.56
+49.32
+11.84
+40.58
+55.15
+33.95
+RSICD
+164
+15.24
+40.85
+54.27
+13.41
+43.29
+59.15
+37.70
+RSITMD
+87
+17.24
+57.47
+77.01
+28.74
+66.67
+80.46
+54.60
+GeoRSCLIP ViT-B/32
+RS5M
+7,858
+6.58
+16.80
+24.13
+6.62
+16.79
+24.14
+15.84
+SkyScript
+1,096
+3.56
+9.31
+14.96
+4.38
+13.23
+19.07
+10.75
+NWPU
+515
+12.04
+32.23
+48.74
+12.23
+34.17
+50.68
+31.68
+RSICD
+164
+12.20
+32.32
+48.17
+13.41
+36.59
+53.05
+32.62
+RSITMD
+87
+22.99
+60.92
+74.71
+25.29
+64.37
+79.31
+54.60
+The per-source table explains why the same checkpoint can look stronger or
+weaker depending on the gallery being queried. Smaller caption datasets produce
+higher recall partly because they have fewer competing candidates, while larger
+sources expose noisier supervision and more visually repeated layouts. This is
+why the appendix reports both source-specific and pooled retrieval instead of
+using only the most favorable view.
+
+
+MonoIR-RS
+27
+Table 13: Pooled bidirectional recall (%) of all five CLIP backbones on the merged
+9,720-image filtered test split (all sources in one candidate pool). mR averages the six
+recall values and matches the fine-tuned column of the main-paper retrieval table.
+Backbone
+I2T R@1
+I2T R@5
+I2T R@10
+T2I R@1
+T2I R@5
+T2I R@10
+mR
+OpenAI CLIP ViT-L/14
+8.33
+19.78
+27.14
+9.50
+21.43
+28.80
+19.16
+GeoRSCLIP ViT-B/32
+5.32
+14.15
+20.43
+5.56
+14.22
+20.57
+13.37
+OpenCLIP ViT-B/32
+5.13
+13.01
+18.48
+6.21
+14.15
+19.81
+12.80
+OpenAI CLIP ViT-B/32
+4.76
+12.46
+17.69
+5.49
+13.05
+18.52
+11.99
+RemoteCLIP ViT-B/32
+1.14
+3.97
+6.50
+1.48
+4.72
+7.82
+4.27
+The pooled results in Table 13 should be read together with Table 12. Per-
+source evaluation explains where the model succeeds or struggles, whereas pooled
+evaluation reflects the harder deployment-like setting in which all sources com-
+pete in the same gallery. The gap between RS5M/SkyScript and the smaller
+caption datasets also warns against over-reading per-source recall without con-
+sidering candidate-pool size and supervision noise.
+B.2
+Auxiliary AVIID Paired Retrieval
+Table 14 gives the full paired image-image retrieval behind the auxiliary AVIID
+sanity check summarized in the main paper. Two configurations are evaluated on
+the 804 AVIID test triplets: configuration A retrieves between real infrared and
+visible images, and configuration C retrieves between real infrared and DiffV2IR-
+synthesized infrared. In both configurations the IR-aware fine-tuned CLIP im-
+proves over its zero-shot counterpart in every direction and at every cutoff, with
+mean-recall gains of +6.5 (A) and +23.4 (C) points. Because the fine-tuning
+never uses AVIID data, this result provides limited auxiliary evidence of cross-
+dataset transfer under paired retrieval, rather than a claim of full real-sensor
+generalization.
+Table 14: Full AVIID paired image-image retrieval sanity check (%) with OpenAI
+CLIP ViT-L/14, zero-shot vs. IR-aware fine-tuned, on 804 test triplets. Configura-
+tion A: real-IR ↔visible; configuration C: real-IR ↔synthetic-IR. mR averages the
+six recall values per configuration.
+Config.
+Direction
+R@1
+R@5
+R@10
+mR
+Zero-shot (original pretrained weights)
+A: real-IR ↔visible
+IR→RGB
+2.74
+12.44
+19.78
+12.17
+RGB→IR
+3.73
+13.68
+20.65
+C: real-IR ↔synthetic-IR
+IR→Syn
+7.46
+23.51
+36.44
+19.84
+Syn→IR
+3.98
+18.91
+28.73
+IR-aware fine-tuned
+A: real-IR ↔visible
+IR→RGB
+4.48
+15.42
+25.12
+18.70
+RGB→IR
+6.72
+24.75
+35.70
+C: real-IR ↔synthetic-IR
+IR→Syn
+21.02
+50.87
+62.56
+43.24
+Syn→IR
+18.41
+46.89
+59.70
+
+
+28
+J. Han et al.
+This auxiliary result is included to make the synthetic-to-real boundary ex-
+plicit. The improvement on AVIID indicates that the selected CLIP checkpoint
+is not merely memorizing the synthetic benchmark surface, but the experiment
+is still a small paired-retrieval check rather than a full real-sensor benchmark.
+We therefore use it as supporting evidence for representation transfer and keep
+the main claims tied to the controlled MonoIR-RS evaluation.
+B.3
+Seed Stability
+Table 15 expands the seed-stability check of the main paper. OpenAI CLIP ViT-
+B/32 is fine-tuned under three random seeds with an otherwise identical recipe
+and evaluated on the 9,720-image filtered split. The mean recall is 11.88 ± 0.02
+(sample standard deviation over seeds), suggesting that this backbone is stable
+under the tested recipe rather than driven by a single-run artifact.
+Table 15: Seed-stability check for OpenAI CLIP ViT-B/32 on the 9,720-image filtered
+split. I2T is IR→IR-aware-text, T2I is the reverse; mR averages the six recall values.
+Seed
+I2T R@1
+I2T R@5
+I2T R@10
+T2I R@1
+T2I R@5
+T2I R@10
+mR
+1
+4.73
+12.13
+17.49
+5.28
+13.02
+18.76
+11.90
+2
+4.69
+12.25
+17.52
+5.35
+12.95
+18.58
+11.89
+3
+4.56
+12.25
+17.48
+5.35
+12.97
+18.53
+11.86
+Mean ± std
+11.88 ± 0.02
+The seed check is deliberately narrow. It controls for run-to-run variation
+on one representative CLIP backbone and confirms that the reported OpenAI
+CLIP ViT-B/32 result is not an obvious single-seed outlier. It does not replace
+a full multi-seed study over every backbone, which remains a larger-scale repro-
+ducibility extension.
+B.4
+Per-Backbone VLM Lexical Diagnostics
+Table 16 reports the five lexical diagnostics for all six IR-VLM backbones on
+every evaluation task (500 held-out prompts per task; all prompts returned
+parseable text). The aggregate table in the main paper averages each column
+over these backbones. The per-backbone view exposes the trade-off discussed
+in the main text: on explanatory prompts (Infrared-cue explanation, Visual-
+evidence QA) the backbones that reach the highest lexical IR-cue rates, such as
+Qwen2.5-VL and H2RSVLM, also produce the longest answers and the highest
+overclaim rates, whereas InstructBLIP stays short and conservative with much
+lower IR-cue rates. No single backbone dominates all five diagnostics simulta-
+neously, which is why the paper reports behavior-specific lexical metrics rather
+than one aggregate score.
+
+
+MonoIR-RS
+29
+Table 16: Per-backbone IR-VLM lexical diagnostics across the seven evaluation tasks
+(500 prompts each). IR-cue, RGB-color, overclaim, and class-hit are percentages; avg.
+words is response length. RGB-color and overclaim are lower-is-better; IR-cue and class-
+hit are higher-is-better. These metrics describe response wording and do not measure
+full semantic correctness.
+Task
+Backbone
+IR-cue ↑
+RGB-color ↓
+Overclaim ↓
+Class-hit ↑
+Avg. words
+Captioning
+Qwen2.5-VL-7B
+100.0
+0.0
+0.4
+0.8
+17.9
+InstructBLIP-FLAN-T5-XL
+100.0
+0.0
+0.0
+1.0
+17.1
+LLaVA-1.5-7B
+100.0
+0.0
+0.0
+1.0
+17.8
+LLaVA-1.6-Vicuna-7B
+100.0
+0.0
+0.0
+0.8
+18.4
+GeoChat-7B
+100.0
+0.0
+0.0
+0.8
+17.9
+H2RSVLM-VHM-7B
+100.0
+0.0
+0.0
+1.2
+17.7
+Scene question
+Qwen2.5-VL-7B
+58.8
+0.0
+0.0
+0.4
+7.9
+InstructBLIP-FLAN-T5-XL
+12.4
+0.0
+0.0
+0.2
+2.4
+LLaVA-1.5-7B
+82.4
+0.0
+0.2
+0.4
+9.9
+LLaVA-1.6-Vicuna-7B
+88.2
+0.0
+0.2
+0.2
+11.0
+GeoChat-7B
+79.6
+0.0
+0.0
+0.6
+9.7
+H2RSVLM-VHM-7B
+66.4
+0.0
+0.0
+0.6
+7.4
+Object presence
+Qwen2.5-VL-7B
+0.4
+0.0
+0.0
+0.8
+3.3
+InstructBLIP-FLAN-T5-XL
+0.0
+0.0
+0.0
+0.6
+3.1
+LLaVA-1.5-7B
+0.0
+0.0
+0.0
+0.6
+3.5
+LLaVA-1.6-Vicuna-7B
+0.0
+0.0
+0.0
+0.4
+3.5
+GeoChat-7B
+0.4
+0.0
+0.0
+0.4
+3.6
+H2RSVLM-VHM-7B
+0.2
+0.0
+0.0
+1.0
+3.4
+Infrared-cue expl.
+Qwen2.5-VL-7B
+100.0
+0.0
+9.4
+0.8
+28.1
+InstructBLIP-FLAN-T5-XL
+100.0
+0.0
+0.0
+0.4
+12.8
+LLaVA-1.5-7B
+60.6
+2.6
+7.0
+0.6
+13.7
+LLaVA-1.6-Vicuna-7B
+79.2
+2.0
+12.0
+0.2
+15.4
+GeoChat-7B
+56.6
+1.8
+10.8
+0.4
+13.8
+H2RSVLM-VHM-7B
+100.0
+2.8
+24.8
+1.2
+45.9
+Hard scene
+Qwen2.5-VL-7B
+61.2
+0.0
+0.0
+0.6
+12.9
+InstructBLIP-FLAN-T5-XL
+0.0
+0.0
+0.0
+0.2
+1.2
+LLaVA-1.5-7B
+73.8
+0.0
+0.0
+0.2
+12.8
+LLaVA-1.6-Vicuna-7B
+64.4
+0.0
+0.0
+0.6
+14.5
+GeoChat-7B
+72.8
+0.0
+0.0
+0.4
+14.2
+H2RSVLM-VHM-7B
+58.4
+0.0
+0.0
+0.6
+13.4
+Hard-negative
+Qwen2.5-VL-7B
+26.6
+1.4
+0.0
+0.4
+15.6
+InstructBLIP-FLAN-T5-XL
+2.0
+0.0
+0.0
+0.2
+1.5
+LLaVA-1.5-7B
+65.8
+3.2
+0.0
+1.0
+18.1
+LLaVA-1.6-Vicuna-7B
+35.4
+0.6
+0.0
+1.0
+28.0
+GeoChat-7B
+46.6
+1.4
+0.0
+1.6
+30.2
+H2RSVLM-VHM-7B
+30.8
+0.0
+0.0
+1.0
+26.6
+Visual-evidence QA
+Qwen2.5-VL-7B
+100.0
+0.0
+33.4
+1.4
+35.1
+InstructBLIP-FLAN-T5-XL
+100.0
+0.0
+16.2
+1.2
+33.5
+LLaVA-1.5-7B
+26.0
+0.0
+8.8
+0.4
+10.0
+LLaVA-1.6-Vicuna-7B
+28.4
+0.0
+7.8
+0.6
+10.1
+GeoChat-7B
+27.4
+0.2
+7.6
+0.4
+9.6
+H2RSVLM-VHM-7B
+100.0
+0.2
+45.4
+1.0
+34.9
+The per-backbone table is intended as a diagnostic breakdown rather than
+a leaderboard. It shows that the selected VLM recipe makes captioning consis-
+tently use infrared-style language, while explanatory prompts remain more frag-
+ile because longer answers increase unsupported physical wording. The practical
+conclusion is therefore bounded: the fine-tuned VLMs are usable as first-version
+infrared instruction models, but their open-ended reasoning should still be in-
+terpreted through the lexical checks defined in Appendix A.7.
+
+
+30
+J. Han et al.
+C
+Reproducibility Details
+This appendix reports the prompts, hyperparameters, and generation settings
+used to produce the dataset and all reported results. Values are transcribed from
+the release scripts.
+C.1
+VLM Instruction and Evaluation Prompts
+The final API-v3 multitask recipe covers seven prompt types. Each training
+instruction is prefixed with the image token; the answers are rewritten by a text
+model and audited by a vision model before use. Table 17 lists the evaluation
+prompts (500 held-out infrared images per task) verbatim.
+Table 17: Evaluation prompts for the seven IR-VLM diagnostic tasks. Each row defines
+one fixed held-out prompt template used for VLM behavior analysis; the left column
+names the diagnostic task, and the right column gives the exact prompt issued to each
+model. The prompt set covers concise captioning, scene classification, object listing,
+evidence-grounded explanation, visual-evidence QA, hard scene discrimination, and
+hard-negative contrast under the same infrared remote-sensing image pool.
+Task
+Prompt
+Infrared image
+captioning
+Describe this infrared remote-sensing image in one concise
+sentence.
+Scene classification
+Classify the scene type in this infrared remote-sensing image.
+Answer with the scene name and one short visual reason.
+Object presence
+List the main visible objects or land-cover elements in this
+infrared remote-sensing image.
+Infrared-cue
+explanation
+Explain the infrared visual cues that support your
+interpretation of this image.
+Visual-evidence QA
+What visible infrared evidence supports the scene
+interpretation?
+Hard scene
+discrimination
+Choose the most likely scene class for this infrared image and
+explain why it is not a confusing alternative.
+Hard-negative contrast
+Describe one plausible wrong scene label for this image and
+explain why that label is less likely.
+These prompts define the evaluation interface rather than a hidden training
+advantage. Each task uses the same held-out image pool and a fixed prompt
+template, so changes in the diagnostic metrics reflect model behavior under
+comparable instructions. The prompt wording is included verbatim to make
+later reruns sensitive to the same instruction constraints.
+
+
+MonoIR-RS
+31
+C.2
+IR-Aware Caption Generation
+The caption-rewriting prompt is included as a compact card to make the super-
+vision recipe auditable without expanding the main text.
+You are annotating an infrared-style remote-sensing dataset. 
+You are given: (1) an RGB remote-sensing image,
+(2) its generated infrared-style counterpart, and 
+(3) the original scene-level caption.
+The infrared image is generated from RGB rather than captured by a physical thermal sensor. 
+Therefore, describe visible infrared-style appearance and grayscale intensity patterns, but do not 
+make strong physical claims about actual temperature, heat sources, or thermal emission.
+Preserve the scene semantics from the original caption. Explicitly describe infrared-style visual 
+cues, such as grayscale intensity, bright/dark intensity responses, low-texture regions, structural 
+outlines, and contrast. 
+Do not invent objects not implied by the original caption. Output valid JSON only.
+IR-aware captions Prompt
+Fig. 4: Prompt card for IR-aware caption generation.
+C.3
+CLIP Fine-Tuning Hyperparameters
+All IR-CLIP backbones are fine-tuned with a frozen text encoder, AdamW,
+weight decay 0.1, gradient clipping 1.0, fp16 mixed precision, and a linear-
+warmup (20 steps) plus cosine-decay schedule. The input resolution follows each
+backbone’s native CLIP processor (2242). Per-backbone settings are listed in
+Table 18; OpenAI ViT-L/14 additionally uses a stage-2 resume (6 epochs, lr
+5 × 10−7) from its stage-1 checkpoint.
+Table 18: IR-CLIP fine-tuning hyperparameters. Batch sizes are the preferred values;
+the training queue automatically backs off under out-of-memory conditions.
+Backbone
+Epochs
+Batch
+LR
+Text enc.
+OpenAI CLIP ViT-B/32
+2
+768
+2 × 10−6
+frozen
+OpenAI CLIP ViT-L/14
+2 (+6)
+256 (128)
+1 × 10−6 (5 × 10−7)
+frozen
+OpenCLIP ViT-B/32
+2
+1024
+2 × 10−6
+frozen
+GeoRSCLIP ViT-B/32
+2
+1024
+2 × 10−6
+frozen
+RemoteCLIP ViT-B/32
+2
+1024
+2 × 10−6
+frozen
+The CLIP configuration keeps the text side fixed and concentrates adaptation
+on the image side and projection parameters. This design makes the comparison
+across backbones easier to interpret because the language space is not re-learned
+
+
+32
+J. Han et al.
+for each model. The extra stage-2 resume for OpenAI CLIP ViT-L/14 is reported
+separately because it is the only CLIP run with an extended schedule.
+C.4
+VLM LoRA Fine-Tuning Hyperparameters
+All six IR-VLM backbones use frozen base language models and vision towers
+with LoRA adapters. Shared LoRA and optimizer settings are fixed across runs,
+while effective batch sizes and target modules differ by backbone, as summarized
+in Table 19.
+Table 19: IR-VLM LoRA fine-tuning settings. Effective batch is per-device batch ×
+gradient accumulation; all runs share r=32, α=64, dropout 0.05, lr 2 × 10−4, and one
+epoch.
+Backbone
+Eff. batch
+Max len
+LoRA target modules
+Qwen2.5-VL-7B
+1 × 8
+processor default
+q,k,v,o,gate,up,down proj
+InstructBLIP-FLAN-T5-XL
+2 × 8
+128
+q, v
+LLaVA-1.5-7B
+4 × 4
+1024
+attention/MLP proj (LLaVA default)
+LLaVA-1.6-Vicuna-7B
+4 × 4
+1024
+attention/MLP proj (LLaVA default)
+GeoChat-7B
+4 × 4
+1024
+attention/MLP proj (LLaVA default)
+H2RSVLM-VHM-7B
+4 × 4
+1024
+attention/MLP proj (LLaVA default)
+This parameter-efficient setup isolates adapter and projector adaptation while
+keeping the six-backbone comparison controlled.
+C.5
+DiffV2IR Generation Settings
+Infrared images are synthesized with DiffV2IR using the after_phase_2 check-
+point, a k-diffusion Euler-ancestral sampler, 20 steps, and 512 long-side resolu-
+tion aligned to multiples of 64. Generation uses three-way classifier-free guidance
+with text scale 7.5, image and segmentation scales 1.5, seed 1234, and an Otsu-
+threshold segmentation map as the second condition. Outputs are saved as JPEG
+(quality 95) for all five sources and for the AVIID visible test images used in the
+realism study.
+C.6
+Realism-Metric Computation
+FID uses torchvision Inception-v3 (IMAGENET1K_V1) without the classifier head,
+yielding 2048-dimensional pooled features. Images are converted to grayscale,
+replicated to three channels, resized to 2992, and normalized with ImageNet
+statistics; FID is computed over exactly 804 aligned AVIID triplets (RGB /
+real-IR / synthetic-IR). Histogram distances use 256 normalized intensity bins
+over [0, 255] before computing the KL, JS, χ2, and intersection quantities of
+Appendix A.3.
+
+
+MonoIR-RS
+33
+D
+Extended Discussion
+What the benchmark is designed to test. MonoIR-RS is intended to evalu-
+ate whether existing vision-language backbones can be redirected toward infrared
+remote-sensing evidence under a controlled data boundary. The benchmark is
+therefore not a general claim that synthetic imagery can replace real thermal
+sensors. Its narrower purpose is to isolate the language-alignment problem cre-
+ated by the infrared modality: images lose visible color cues, captions must stop
+referring to unsupported RGB appearance, and models must ground their re-
+sponses in grayscale structure, intensity contrast, object-background separation,
+and scene layout. This scope explains why the paper evaluates both retrieval
+models and generative VLMs. CLIP tests whether infrared images and IR-aware
+captions can be aligned in a shared embedding space, while VLMs test whether
+instruction-following models can describe and reason about the same evidence
+without reverting to color-centric language.
+Why IR-aware supervision matters. The central difficulty in infrared remote-
+sensing vision-language learning is not merely a visual domain shift. It is also a
+supervision shift. Captions written for visible-band images often describe color,
+illumination, and surface appearance that are absent or unreliable in infrared
+imagery. If such captions are reused without rewriting, the image encoder is
+asked to align grayscale intensity structure with language grounded in RGB ev-
+idence. The supervision ablation in the main paper supports this interpretation:
+replacing original captions with IR-aware captions raises development retrieval
+mean recall from 30.2% to 43.0% averaged across the five CLIP backbones. This
+gain indicates that the text side must describe the evidence actually visible to
+the model, such as intensity layout, object-background contrast, texture, and
+scene geometry, rather than treating infrared imagery as desaturated RGB.
+How to interpret the retrieval scores. The absolute CLIP retrieval num-
+bers remain modest even after fine-tuning, with the best model reaching 19.2%
+mean recall on the filtered 9,720-image test split. This should be read as evidence
+that the task is difficult, not as failure of the adaptation recipe. Remote-sensing
+scenes often contain repeated layouts, visually similar land-cover patterns, and
+weak object-level discriminators, and the infrared modality removes many color
+shortcuts used by RGB-pretrained models. The important comparison is there-
+fore against each backbone’s own zero-shot behavior under the same candidate
+pool. All five CLIP backbones improve after IR-aware adaptation, with gains
+from +3.5 to +12.8 mean-recall points. The result shows that infrared-text align-
+ment is learnable, while also leaving substantial headroom for future real-sensor
+data, larger-scale supervision, and stronger hard-negative training.
+Why CLIP and VLM are evaluated separately. CLIP and VLM fine-
+tuning answer different questions. CLIP retrieval measures whether infrared
+images and IR-aware captions occupy a shared embedding space, so its main
+evidence is bidirectional recall on the filtered 9,720-image test split. VLM adap-
+tation measures whether a generative model follows infrared instructions without
+
+
+34
+J. Han et al.
+reverting to visible-color language or unsupported thermal claims. This requires
+lexical behavior diagnostics rather than a single retrieval score. For captioning,
+the lexical IR-cue diagnostic reaches 100% across all six backbones and RGB-
+color leakage falls to zero in the zero-shot comparison, but longer explanatory
+prompts still produce more overclaiming. This is why the paper reports task-
+separated diagnostics: frequent infrared wording, low color leakage, and semantic
+correctness are related but not identical properties.
+Why synthetic infrared remains useful. The image pool is synthesized be-
+cause large-scale paired infrared remote-sensing image-text data are not avail-
+able at the scale required for CLIP and VLM adaptation. This choice introduces
+a clear boundary: the generated images should be viewed as an infrared-style
+training and evaluation surface, not as radiometrically calibrated sensor mea-
+surements. However, the synthetic modality is not equivalent to simple grayscale
+conversion. On AVIID, DiffV2IR-based synthesis is closer to real infrared than
+RGB-to-gray under FID and grayscale-histogram distances, and the selected
+IR-CLIP checkpoint also improves auxiliary paired retrieval with real-infrared
+queries. These checks do not prove full sensor realism, but they indicate a non-
+trivial infrared-style alignment signal beyond simple grayscale conversion under
+the reported proxy metrics.
+Why RGB–IR dual-modal learning is not the main target here. The
+construction pipeline starts from visible remote-sensing images, but the model-
+facing task deliberately exposes the infrared image and IR-aware text. This
+choice separates the paper from RGB–IR matching or fusion benchmarks. A
+dual-modal objective may improve paired cross-modal retrieval, but it can also
+let models depend on visible-domain semantics that are not present at infer-
+ence time when only infrared imagery is provided. The ablation in the main
+paper reflects this trade-off: joint RGB–IR diagnostic training obtains a simi-
+lar IR-aware development score, yet the selected recipe prioritizes infrared-text
+alignment because it matches the intended model input. This does not imply
+that RGB–IR learning is unimportant; rather, it is a different problem with a
+different deployment assumption.
+What the VLM diagnostics do and do not prove. The VLM diagnostics
+are intentionally conservative lexical checks. They verify whether generated an-
+swers mention infrared evidence, avoid visible-color leakage, avoid unsupported
+physical claims, and sometimes repeat a source class token. These measurements
+are useful because the dataset does not contain human-verified dense semantic
+labels for every image. They should not be interpreted as full object recogni-
+tion accuracy or expert-level scene understanding. For example, a high IR-cue
+rate means the model uses infrared-style evidence language, while a low RGB-
+color rate means it avoids one common failure mode. The next step is to add
+human-verified answers or external semantic labels so that lexical behavior can
+be connected to correctness.
+Limitations and future directions. The main limitations follow directly
+from the data construction. First, the infrared images are generated from visible
+
+
+MonoIR-RS
+35
+sources, so the benchmark cannot replace real sensor-captured infrared evalua-
+tion. Second, IR-aware captions and instruction answers are produced by strong
+foundation models and filtered automatically, which makes the supervision scal-
+able but not equivalent to expert annotation. Third, most CLIP and VLM num-
+bers are single-run measurements, except for the OpenAI CLIP ViT-B/32 seed
+check. Future work should add real infrared sensor data, radiometric metadata
+where available, human-verified instruction answers, larger multi-seed studies,
+stronger hard-negative retrieval, and semantic evaluation beyond lexical proxy
+metrics.
+
+
+36
+J. Han et al.
+E
+Qualitative Case Gallery and Failure Cases
+The qualitative analysis follows an extended-appendix case-table style: each ex-
+ample records the task setting, infrared image, prompt or query, model output,
+and diagnostic label. This layout makes the examples auditable rather than
+purely illustrative.
+CLIP retrieval cases. For CLIP, the cases cover successful and partial retrieval,
+semantic near misses, and hard visual neighbors in repetitive infrared layouts.
+Successful examples align distinctive global geometry with IR-aware captions de-
+scribing scene structure, including circular fields, runways, dense building blocks,
+road grids, water boundaries, and industrial tanks. Near misses arise when classes
+share similar infrared geometry, such as industrial areas versus dense residential
+blocks, river boundaries versus dark road corridors, or rail stations versus other
+linear transportation scenes. Because infrared imagery removes color cues and
+many discriminative objects occupy small regions, these examples reveal both
+learned alignment and residual candidate-pool ambiguity.
+Table 20: Qualitative CLIP retrieval display cases. Each row restores the case-table
+view used for manual inspection: the held-out query image, the target caption, the
+retrieved evidence, and the diagnostic reading are shown together. We include eight
+representative cases to cover correct retrieval, partial retrieval, semantic near misses,
+and hard visual neighbors.
+Case
+Query image
+Target caption
+Retrieved evidence
+Diagnostic
+Correct top-1
+Circular farmlands appear as
+bright rounded regions against
+a darker, low-texture
+background.
+Rank 1 retrieves the paired
+circular-farmland caption; lower
+ranks contain related circular
+storage or industrial layouts.
+Correct match at
+rank 1; global
+circular geometry
+is aligned.
+Correct in top-5
+A bright island boundary
+contrasts with darker
+surrounding water and
+textured vegetation.
+Rank 1 is a wetland with dark
+water boundaries; rank 2 is the
+paired island caption.
+Correct match
+appears after a
+visually close
+water-boundary
+neighbor.
+Semantic near
+miss
+An airport-like grid of runways
+and bright building regions
+appears against darker
+surroundings.
+Top retrieved captions describe
+airport layouts with runways,
+taxiways, and strong grayscale
+contrast.
+Airport semantics
+are retrieved, but
+the exact pair falls
+outside top-10.
+Hard visual
+neighbor
+Parking-like bright compact
+objects are arranged over a
+darker paved surface with
+regular boundaries.
+Top evidence mixes dense
+built-up pavement, parking-lot
+captions, and industrial-yard
+layouts.
+Repeated paved
+layouts create close
+competitors.
+Baseball-field
+match
+A baseball field is visible as a
+broad rounded infield and
+darker surrounding outfield.
+Retrieved evidence describes a
+baseball diamond and adjacent
+low-texture field boundaries.
+Sports-field
+geometry gives a
+stable retrieval cue.
+Oil-tank match
+A circular storage tank
+appears as a bright rounded
+structure beside linear road
+patterns.
+Top captions emphasize circular
+tanks, industrial surfaces, and
+adjacent access roads.
+Circular industrial
+objects are visually
+distinctive.
+Rail-station
+neighbor
+Parallel rail tracks and
+station-like roof structures
+form a dense transportation
+layout.
+Retrieved evidence mixes
+train-station, bridge, and dense
+transport-infrastructure captions.
+Linear
+infrastructure
+creates plausible
+near neighbors.
+Reservoir
+boundary
+A dark water body is bounded
+by a bright shoreline and
+smooth surrounding terrain.
+Top evidence favors reservoir or
+lake captions with strong
+water-land contrast.
+Water-boundary
+contrast supports
+alignment.
+
+
+MonoIR-RS
+37
+VLM generation cases. For VLMs, examples are grouped by prompt type
+because captioning, classification, object listing, evidence QA, cue explanation,
+hard-scene discrimination, hard-negative contrast, and color-leakage checking
+stress different behaviors. A useful response should identify the remote-sensing
+scene, ground the answer in visible infrared structures, and avoid importing
+unsupported visible-color descriptions. The successful cases typically mention
+grayscale contrast, bright-dark boundaries, compact object arrangements, lin-
+ear transportation structures, or water-land separation as evidence. The more
+difficult cases test whether the model can distinguish visually similar layouts,
+such as airports versus roads, rail stations versus other dense infrastructure,
+bridges versus linear banks, or reservoirs versus dark background regions. These
+examples therefore complement the quantitative diagnostics by showing whether
+the generated answers are concise, visually grounded, and consistent with the
+intended modality.
+Table 21: Qualitative VLM generation display cases. Each row shows the held-out
+image, the evaluation prompt, the generated answer, and the manual diagnostic label
+used when preparing the case gallery. We include eight prompt types to show concise
+captioning, classification, object listing, evidence-grounded QA, cue explanation, hard-
+scene discrimination, hard-negative contrast, and color-leakage checking.
+Task
+Image
+Prompt
+Generated answer
+Diagnostic
+Captioning
+Describe this infrared
+image in one sentence.
+A baseball field shows a bright
+infield, darker outfield, and
+low-texture surroundings.
+Concise scene
+grounding.
+Scene
+classification
+Classify the scene and give
+one visual reason.
+Industrial area; circular tank
+structure visible in grayscale.
+Class plus visual
+reason.
+Infrared-cue
+explanation
+Explain the infrared visual
+cues.
+High-contrast outlines and
+grayscale intensity variation reveal
+parked cars against darker
+pavement.
+Uses intensity cues.
+Hard-negative
+contrast
+Give a wrong label and
+explain why.
+Airport; dense buildings and
+railway tracks are visible, while
+runways or terminals are absent.
+Rejects confusing
+label.
+Object presence
+List the main visible
+objects or land-cover
+elements.
+Tennis courts, paved surfaces,
+nearby buildings, and dark
+boundary regions are visible.
+Object list
+grounded in
+structure.
+Visual-evidence
+QA
+What visible infrared
+evidence supports the scene
+interpretation?
+The bright bridge deck, dark water
+channel, and repeated linear
+supports indicate a bridge scene.
+Uses local visual
+evidence.
+Hard scene
+discrimination
+Choose the most likely
+scene class and explain why
+it is not a confusing
+alternative.
+Airport; the long runway-like strip
+and open surrounding area are
+more consistent than a road.
+Distinguishes
+similar linear
+scenes.
+Color-leakage
+check
+Describe the image without
+using visible-color terms.
+A dark reservoir occupies the
+center, bordered by bright shoreline
+and smoother surrounding terrain.
+Avoids RGB-color
+wording.
