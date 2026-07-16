@@ -1,0 +1,320 @@
+Title: ShapKO: Shapley-Adaptive Modality Knockout for Robust Multimodal Learning
+
+URL Source: https://arxiv.org/pdf/2607.09884v1
+
+Published Time: Tue, 14 Jul 2026 00:21:41 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# ShapKO: Shapley-Adaptive Modality Knockout for Robust Multimodal Learning 
+
+Nusrat Binta Nizam 1,2,3, Fengbei Liu 1,3, Sunwoo Kwak 1,2,3, Minh Nguyen 1,2,3,Ruining Deng 3, and Mert R. Sabuncu 1,2,3 
+
+> 1
+
+Cornell University, New York, NY, USA  
+
+> 2
+
+Cornell Tech, New York, NY, USA  
+
+> 3
+
+Weill Cornell Medicine, New York, NY, USA 
+
+{nn284,fl453,sk3355,bn244,msabuncu}@cornell.edu, rud4004@med.cornell.edu 
+
+Abstract. Multimodal medical models often degrade when inputs are missing, a common scenario in real-world clinical workflows. Separately, even when all modalities are present, modality dominance is observed during training, where optimization over-relies on a highly predictive modality and undertrains complementary sources, resulting in poor ro-bustness under partial availability. While training-time modality knock-out improves missing-modality robustness, existing approaches use static masking rates that cannot adapt to evolving modality utility during training. We introduce ShapKO (Shapley-Adaptive Modality Knockout), a dynamic training strategy that learns modality-specific knockout prob-abilities based on validation utility. ShapKO periodically evaluates per-formance across modality subsets, estimates modality importance via Shapley values, and updates masking probabilities to suppress domi-nant modalities more frequently. This adaptive process promotes com-plementary representations, while requiring no architectural modifica-tions. We evaluate ShapKO on three datasets covering multitask clinical classification, survival prediction, and cancer detection. ShapKO consis-tently improves performance under modality absence and yields inter-pretable trajectories of learned masking behavior. Code is available at: 
+
+https://github.com/sumona00/ShapKO .
+
+Keywords: Robust Multimodal learning · missing modalities · Shapley value · Knockout 
+
+## 1 Introduction 
+
+Multimodal learning aims to improve clinical decision support by combining com-plementary evidence from heterogeneous sources such as imaging, physiological signals, laboratory measurements, and structured clinical variables. In practice, modalities are often missing or corrupted due to cost and triage, conditional or-dering, acquisition failures, and site-specific protocols [25]. Consequently, models trained under the assumption that all modalities are present at inference can de-grade substantially under realistic missingness [14]. arXiv:2607.09884v1 [cs.CV] 10 Jul 2026 2 NB. Nizam et al. 
+
+A key contributor is modality dominance : when one modality is consistently most predictive during training, optimization over-relies on it while undertrain-ing weaker but complementary modalities, leading to substantial performance degradation when the dominant modality is unavailable [6,27]. Addressing this imbalance requires maintaining performance across diverse modality-availability patterns without training separate subset-specific models [9]. Existing robust-ness strategies, including modality masking, knockout, and gradient balancing, attempt to mitigate this issue by simulating missingness or reweighting modality contributions during training [15,25,16,13]. However, these approaches typically rely on static heuristics or local training signals and do not explicitly optimize performance across the combinatorial space of modality subsets. As a result, they cannot adapt to evolving modality utility dynamics and may over-regularize weaker modalities or insufficiently suppress dominant ones. Missing modalities are common in clinical data and can substantially de-grade multimodal performance, motivating methods that operate under arbi-trary availability patterns [25]. In medical imaging, prior work includes any-subset fusion in a shared latent space for inference from partial modality sets [5] and generative/shared-latent formulations that support prediction and modal-ity completion [2,24]. Common baselines impute missing inputs or train subset-specific models, but imputation can introduce distribution shift and subset mod-els scale poorly with modality count [3]. A widely used, architecture-agnostic alternative is training-time modality masking/knockout [15,14,10], yet static masking rates can exacerbate modality dominance and related collapse phenom-ena linked to optimization effects such as gradient conflict [6]. Beyond mask-ing, modality-balancing approaches (e.g., OGM-GE gradient modulation) and configuration-aware models (e.g., task-conditional experts) improve robustness across modality subsets [17,16,4,8]. We propose ShapKO, which learns per-modality knockout probabilities from a validation utility evaluated on modality subsets. While standard signals such as validation loss or accuracy on the all-modality input provide a single-configuration view that can be dominated by the strongest modality, our goal is robustness across the many availability patterns encountered at deployment [28,7]. We therefore estimate each modality’s average marginal contribution across sub-sets using Shapley values, a principled coalition-based attribution that accounts for redundancy and complementarity between modalities [22]. ShapKO periodi-cally evaluates utilities over subsets, estimates modality importance, and updates knockout probabilities with a stable knockout-strong-more rule that masks more influential modalities more often, reducing modality dominance and improving robustness under missingness. Our contributions are as follows: 
+
+– We propose ShapKO, a utility-driven, architecture-agnostic modality knock-out method that adapts per-modality knockout probabilities during train-ing based on Shapley-estimated marginal contributions. To our knowledge, ShapKO is the first method that integrates Shapley-values into training for optimization. ShapKO for Robust Multimodal Learning 3KO Rate Update              
+
+> Subset Evaluation on Validation set
+> Utility: ν(S)
+> Calculate Shapely Values
+> Modality Importance: 𝜑
+> Update Knockout Probabilities
+> Adjust 𝑟 based on 𝜑
+> Every K
+> Epochs
+> Multimodal Inputs
+> Apply Knockout Mask
+> Update Knockout Mask
+> Chest X -ray
+> EHR
+> Clinical Notes
+> Masked Inputs
+> [-1-1 …. -1] [0.2 0.4 …. 0.9] [0.1 0.7 …. 0.6]
+> Training
+> Masked Inputs
+> [-1-1 …. -1] [0.1 0.5 …. 0.3] [0.6 0.2 …. 0.8]
+> n = 1
+> 𝜑
+> 𝑟
+> n = K
+> Phase 1
+> Phase 2
+
+Fig. 1. Overview of ShapKO (architecture-agnostic). ShapKO trains with sampled modality masks by replacing knocked-out modalities (or embeddings) with fixed placeholders before fusion. Every K epochs, it evaluates validation utility over modality subsets, estimates Shapley-based modality importance, and updates per-modality knockout probabilities with a stable drop-strong-more rule. The procedure is architecture-agnostic and applies across tasks. 
+
+– We evaluate ShapKO in three settings - multitask clinical classification, multimodal prostate cancer detection, and survival prediction - showing im-proved robustness compared to standard training, fixed-rate knockout (Fixed KO) [15], and gradient based modulation (OGM-GE) [17], providing inter-pretable knockout-rate trajectories over training. 
+
+## 2 Methodology 
+
+Problem setup. Let M = {1, . . . , d } be the full modality index set and O ⊆ M 
+
+the modalities available in the dataset. Given a training sample (xi, y i), each observed modality m ∈ O i ⊆ O is encoded by a modality-specific encoder gm
+
+into an embedding eim = gm(xim) ∈ R, giving ei = {eim}m∈O i . ShapKO aims to learn a predictor fθ that is robust under arbitrary modality availability during inference. To achieve this, ShapKO introduces additional synthetic knockout during training: a random subset Ai ⊆ O i of present modalities is further masked independently of (xi, y i).Modalities in M \ O i are structurally missing due to heterogeneous clinical acquisition. and modalities in Oi \ A i are synthetically absent due to training-time knockout. Both missingness are handled by replacing the corresponding embeddings with different fixed placeholders ˜em, where the choice of ˜em are given in Sec. 3. 
+
+2.1 Utility Estimation and Knockout Rate Update 
+
+Utility function. We treat modalities in M as players in a cooperative game [22]. For any subset S ⊆ O , we define a scalar utility v(S) by evaluating the current 4 NB. Nizam et al. 
+
+model on the validation set using only modalities in S, with all m / ∈ S replaced by 
+
+˜em. Let J(S) denote the task-specific evaluation metric. We define v(S) = J(S)
+
+for higher-is-better metrics (e.g., AUC, Accuracy, C-index) and v(S) = −J(S)
+
+for lower-is-better metrics (e.g., validation loss), so that larger v(S) always in-dicates better performance regardless of metric direction. The Shapley value of modality m is: 
+
+ϕm = X
+
+> S⊆O\{ m}
+
+|S|! ( |O| − | S| − 1)! 
+
+|O| !
+
+
+
+v(S ∪ { m}) − v(S)
+
+
+
+, (1) where ϕm is the weighted average marginal gain from adding m across all coali-tions [22], capturing both its individual contribution and interactions with other modalities. A larger ϕm indicates that modality m is more dominant. We instan-tiate J(·) per dataset in Sec. 3. 
+
+Shapley-Adaptive Knockout Rates. We convert Shapley values to weights on the probability simplex by shifting to non-negative values and normalizing: 
+
+wm = ϕm − ϕmin 
+
+P 
+
+> m′∈O
+
+ϕm′ − ϕmin 
+
+, ϕmin = min  
+
+> m∈O
+
+ϕm, (2) so that wm ≥ 0 and P 
+
+> m∈O
+
+wm = 1 . Let ¯w = 1 /|O| be the uniform weight. Per-modality knockout probabilities are then updated as: 
+
+rm = clip 
+
+
+
+r
+
+ wm
+
+¯w
+
+δ
+
+, r min , r max 
+
+
+
+,
+
+(1 − r)d = 0 .5 ⇒ r = 1 − 0.51/d ,
+
+(3) where δ ≥ 0 controls sensitivity (lower for higher structural missingness). r is the base knockout rate initialized to random based on number of modalities. 
+
+[rmin , r max ] bounds the rates for stability. Modalities with wm > ¯w (above-average importance) receive a higher knockout rate than the base r, directly implementing the drop-strong-more policy. 
+
+2.2 Training Description 
+
+ShapKO alternates between two phases: optimizing fθ under the current knock-out distribution ( Phase 1 ), and updating the knockout rates based on Shapley-estimated modality importance ( Phase 2 ). In Phase 1 , for each modality m ∈ O i we sample zm ∼ Bernoulli(1 − rm)
+
+(with P 
+
+> m
+
+zm ≥ 1 enforced) and form the knocked-out embedding ˆem,
+
+ˆem =
+
+(
+
+zm eim + (1 − zm) ˜ em, m ∈ O i,
+
+˜em, m ∈ M \ O i, (4) Loss function L is computed as: 
+
+L(ˆ eim, y i) = 1
+
+|O| 
+
+> |O i|
+
+X
+
+> m=1
+
+L fθ (ˆ eim), y i , (5) ShapKO for Robust Multimodal Learning 5
+
+Table 1. Hyperparameters and placeholder values used across tasks. Epochs Learning rate Weight decay Optimizer K d rmin rmax δ                                 
+
+> Struct. placeholder Synth. placeholder Prostate MRI 100 3e-4 1e-4 AdamW 15 30.02 0.30 0.5 00Survival Prediction 300 2e-4 5e-5 AdamW 20 40.02 0.60 0.5 0−1
+> Multitask Classif. 100 1e-4 1e-5 AdamW 10 30.02 0.35 1.0 [MISS] [KO]
+
+In Phase 2 , triggered every K epochs after warm-up, the current fθ evaluates 
+
+v(S) over all subsets in validation split, estimates ϕm (Eqs. (1)), and updates 
+
+rm (Eqs. (2)–(3)), with θ fixed. 
+
+## 3 Experimental Design 
+
+3.1 Dataset and Implementation details 
+
+Dataset organization. We evaluate on three multimodal benchmarks covering complementary clinical tasks. FlexCare integrates structured EHR variables, chest imaging, and clinical text (MIMIC-IV/CXR/NOTE) for multi-task clini-cal classification [26]. For time-to-event modeling, we use the MMD benchmark combining radiology, pathology, genomics, and demographics for survival pre-diction [1]. For imaging robustness, we use prostate MRI datasets with T2w, DWI, ADC modalities for binary clinically significant prostate cancer detec-tion [18]. 
+
+Implmentation details. For Prostate MRI datasets, we use U-Net style 3D CNNs as modality encoder gm. Embeddings are concatenated and fed to a shal-low fusion MLP for binary prediction, trained with binary cross-entropy loss [11]. For J(·) we use AUC as metric. We use a fixed zero placeholder ˜em for both structural and synethic missingness. For MMD, we follow previous work [1] and use the same modality-specific encoders for pathology, radiology, genomics, and demographics. We use C-index for J(·) due to standard metric for survival pre-diction. We adopt a fixed zero placeholder for structural missingness and -1 placeholder for synthetic missingness. We optimize the model using the Cox partial-likelihood loss as formulated in [1,19]. For FlexCare, we follow their set-ting and adopt the tri-modal Transformer architecture over EHR time-series, chest X-ray (CXR) images, and clinical notes [26]. We select averaged multi-task AUC as J(·). We use a learned [MISS] token embedding for structural missingness and a separate [KO] token embedding for synthetic missingness, with attention masking to prevent information leakage under partial availabil-ity [20]. Note we drop the Mixture of Experts (MoE) component in the original FlexCare implementation for fair comparison with other baselines. We train this model with a task-specific supervised loss (binary cross-entropy for most tasks and cross-entropy for multi-class tasks such as length-of-stay) [11]. 6 NB. Nizam et al. 
+
+Table 2. AUC (%, mean ±std over 5 folds) for binary classification under different modality combinations. Best method per row is bolded. 
+
+Modality subset Baseline OGM-GE Fixed KO ShapKO 
+
+T2w 0.656 ±0.127 0.636 ± 0.031 0.685 ±0.048 0.663 ±0.067 ADC 0.732 ±0.084 0.726 ± 0.065 0.738 ±0.095 0.739 ±0.143 
+
+DWI 0.773 ±0.157 0.787 ± 0.041 0.818 ±0.055 0.842 ±0.055 
+
+T2w+ADC 0.747 ±0.082 0.724 ± 0.067 0.765 ±0.070 0.775 ±0.113 
+
+T2w+DWI 0.777 ±0.150 0.787 ± 0.040 0.824 ±0.045 0.855 ±0.036 
+
+ADC+DWI 0.831 ±0.025 0.819 ± 0.018 0.839 ±0.040 0.878 ±0.038 
+
+T2w+ADC+DWI 0.831 ±0.026 0.818 ± 0.017 0.840 ±0.038 0.887 ±0.029 
+
+Hyperparameters. Table 1 provides the hyperparameters and placeholder val-ues for different tasks. All hyperparameters were set empirically and refined by cross-validation on the training folds, selecting values that yielded stable learning dynamics and the best validation performance. 
+
+## 4 Results and Discussions D   
+
+> G
+> P
+> R
+> P+R+D+G
+> 0.50
+> 0.60
+> 0.70
+> 0.80
+> C-Index
+> Single + All
+> D+G
+> P+D
+> P+G
+> P+R
+> R+D
+> R+G
+> 0.66
+> 0.72
+> 0.78
+> 0.84
+> Two-modality
+> P+R+D
+> P+D+G
+> P+R+G
+> R+D+G
+> 0.66
+> 0.72
+> 0.78
+> 0.84
+> Three-modality
+> Baseline OGM-GE Fixed KO ShapKO
+
+Fig. 2. C-index performance across modality subsets under different strategies (across 15 cross-validation folds). Grouped bar plots compare Baseline, OGM-GE, Fixed KO, and ShapKO for single-modality + full-modality, two-modality, and three-modality input subsets. Vertical gray ranges indicate the variability ( ± standard deviation) around each estimate. D = Demographics, G = Genomics, P = Pathology, R = Radi-ology. Combinations denote modality fusion, e.g., P+R = Pathology + Radiology, and P+R+D+G = all four modalities. 
+
+Across all benchmarks, modality knockout improves robustness to missing inputs by reducing train–test mismatch and mitigating modality dominance. In particular, ShapKO consistently yields the strongest performance under partial modality availability, indicating that utility-driven knockout can better calibrate reliance on modalities as training progresses. ShapKO for Robust Multimodal Learning 7
+
+Prostate Cancer Detection. Table 2 summarizes binary classification AUC under all modality combinations of T2w, ADC, and DWI. Fixed KO increases AUC over the baseline and OGM-GE for several subsets, while ShapKO achieves the best performance for most combinations. In particular, ShapKO achieves the highest AUC for all the combinations except T2w. These results indicate that ShapKO strengthens performance when all modalities are available and yields consistent gains when deployed inputs are incomplete, a frequent scenario in prostate MRI due to missing or corrupted sequences. 
+
+Survival Prediction. Figure 2 compares C-index values across all modal-ity subsets (D,G,P,R). Fixed KO improves over the baseline in many missing-modality settings, and OGM-GE provides less consistent gains. ShapKO achieves performance that is consistently comparable to or better than Fixed KO across most modality subsets. While the absolute improvements in C-index are mod-est, ShapKO avoids degradation in any configuration and provides more stable performance when prediction relies on less informative modality combinations. Importantly, ShapKO maintains baseline level performance in the full-modality setting while improving robustness under partial-modality evaluation, indicating that this training approach does not compromise overall survival modeling capac-ity. Figure 3 shows non-uniform ShapKO knockout-rate trajectories (mean ±std), indicating adaptation to modality utility. The knockout-rate trajectories provide a simple diagnostic of modality utility drift over training, revealing non-uniform knockout behavior across modalities. 
+
+Multitask Classification. Figure 4 reports AUC for six clinical prediction tasks under modality subsets of EHR (E), chest X-ray (C), and clinical notes (N). Both Fixed KO and ShapKO improve over the baseline and OGM-GE in missing-modality settings, showing that training with modality knockout yields models that generalize better to partial inputs. ShapKO is consistently strongest across subsets, with especially clear gains in single-modality inference (E-only, C-only, or N-only), where robustness depends on how well each unimodal encoder is trained despite multimodal optimization. These results are consistent with ShapKO mitigating modality dominance by adaptively increasing knockout on influential modalities over training, encouraging better use of complementary signals when other modalities are absent. 
+
+## 5 Limitations and Future Work 
+
+As future work, the validation-time overhead of ShapKO could be reduced by replacing exhaustive subset evaluation (including task-specific metrics) with ap-proximate Shapley estimation, e.g., subset sampling, permutation-based Monte Carlo, or surrogate explainers such as KernelSHAP [23,12], while preserving ac-curate modality-importance tracking. ShapKO also depends on design choices such as placeholder values, the subset used for utility estimation, and hyper-parameters, which may affect stability and require tuning across datasets. Fi-8 NB. Nizam et al. 
+
+Fig. 3. ShapKO rates over training (warm up epoch, K =20). Mean (solid line) and standard deviation (shaded band) of the learned adaptive knockout rate for each modal-ity across 15 cross-validation folds, plotted at the KO update epochs. Lower KO in-dicates the modality is retained more often, while higher KO indicates more frequent knockout. E+C+N E C N E+C E+N C+N                          
+
+> 0.60
+> 0.75
+> 0.90
+> AUC
+> In hospital mortality
+> E+C+N ECNE+C E+N C+N
+> 0.60
+> 0.75
+> 0.90
+> Decompensation
+> E+C+N ECNE+C E+N C+N
+> 0.50
+> 0.60
+> 0.70
+> 0.80
+> Phenotyping
+> E+C+N ECNE+C E+N C+N
+> 0.50
+> 0.60
+> 0.70
+> 0.80
+> AUC
+> Length of stay
+> E+C+N ECNE+C E+N C+N
+> 0.56
+> 0.64
+> 0.72
+> Readmission
+> E+C+N ECNE+C E+N C+N
+> 0.54
+> 0.60
+> 0.66
+> 0.72
+> Diagnosis
+
+Baseline OGM-GE Fixed KO ShapKO 
+
+Fig. 4. Impact of modality knockout on MIMIC-IV multitask classification. Grouped bar plots report AUC for six clinical prediction tasks (In-hospital mortality, Decom-pensation, Phenotyping, Length of stay, Readmission, and Diagnosis) under different input modality subsets. Modality shorthand: E = EHR, C = chest X-ray, N = clinical notes (e.g., E+C+N uses all modalities). We compare Baseline training, OGM-GE, Fixed KO, and ShapKO across all subsets, showing consistent gains for ShapKO, par-ticularly under missing-modality settings. 
+
+nally, ShapKO optimizes average subset utility and may not explicitly priori-tize worst-case or clinically prevalent missingness patterns; future work could incorporate distribution or risk-aware update rules and learn more expressive missing/knockout embeddings [21]. ShapKO for Robust Multimodal Learning 9
+
+## 6 Conclusion 
+
+We presented ShapKO, a Shapley-guided modality knockout strategy that dy-namically adjusts knockout rates to reduce modality dominance and improve robustness to missing inputs. Across multitask classification, survival prediction, and prostate cancer detection, ShapKO consistently improved performance un-der partial-modality settings and often matched or exceeded full-modality base-lines. These results highlight the value of utility-driven, training-time modality knockout for reliable multimodal learning in real-world clinical deployments. Moreover, ShapKO yields interpretable knockout-rate trajectories that provide a direct diagnostic of evolving modality utility and reliance during training. 
+
+## References 
+
+1. Cui, C., Liu, H., Liu, Q., Deng, R., Asad, Z., Wang, Y., Zhao, S., Yang, H., Land-man, B.A., Huo, Y.: Survival prediction of brain cancer with incomplete radiology, pathology, genomic, and demographic data. In: International Conference on Medi-cal Image Computing and Computer-Assisted Intervention. pp. 626–635. Springer (2022) 2. Dorent, R., Joutard, S., Modat, M., Ourselin, S., Vercauteren, T.: Hetero-modal variational encoder-decoder for joint modality completion and segmentation. In: International Conference on Medical Image Computing and Computer-Assisted Intervention. pp. 74–82. Springer (2019) 3. Enders, C.K., Baraldi, A.N.: Missing data handling methods. The Wiley handbook of psychometric testing: A multidisciplinary reference on survey, scale and test development pp. 139–185 (2018) 4. Guo, Z., Jin, T., Chen, J., Zhao, Z.: Classifier-guided gradient modulation for en-hanced multimodal learning. Advances in Neural Information Processing Systems 
+
+37 , 133328–133344 (2024) 5. Havaei, M., Guizard, N., Chapados, N., Bengio, Y.: Hemis: Hetero-modal im-age segmentation. In: International conference on medical image computing and computer-assisted intervention. pp. 469–477. Springer (2016) 6. Javaloy, A., Meghdadi, M., Valera, I.: Mitigating modality collapse in multimodal vaes via impartial optimization. In: International Conference on Machine Learning. pp. 9938–9964. PMLR (2022) 7. Kontras, K., Chatzichristos, C., Blaschko, M., De Vos, M.: Improving multimodal learning with multi-loss gradient modulation. arXiv preprint arXiv:2405.07930 (2024) 8. Li, H., Li, X., Hu, P., Lei, Y., Li, C., Zhou, Y.: Boosting multi-modal model performance with adaptive gradient modulation. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 22214–22224 (2023) 9. Li, S., Du, C., Zhao, Y., Huang, Y., Zhao, H.: What makes for robust multi-modal models in the face of missing modalities? arXiv preprint arXiv:2310.06383 (2023) 10. Liu, G.H., Siravuru, A., Prabhakar, S., Veloso, M., Kantor, G.: Learning end-to-end multimodal sensor policies for autonomous navigation. In: Conference on robot learning. pp. 249–261. PMLR (2017) 11. Mannor, S., Peleg, D., Rubinstein, R.: The cross entropy method for classification. In: Proceedings of the 22nd international conference on Machine learning. pp. 561– 568 (2005) 10 NB. Nizam et al. 12. Mitchell, R., Cooper, J., Frank, E., Holmes, G.: Sampling permutations for shapley value estimation. Journal of Machine Learning Research 23 (43), 1–46 (2022) 13. Mohta, A., Chou, F.C., Becker, B.C., Vallespi-Gonzalez, C., Djuric, N.: Investi-gating the effect of sensor modalities in multi-sensor detection-prediction models. arXiv preprint arXiv:2101.03279 (2021) 14. Neverova, N., Wolf, C., Taylor, G., Nebout, F.: Moddrop: adaptive multi-modal gesture recognition. IEEE Transactions on Pattern Analysis and Machine Intelli-gence 38 (8), 1692–1706 (2015) 15. Nguyen, M., Karaman, B.K., Kim, H., Wang, A.Q., Liu, F., Sabuncu, M.R.: Knock-out: A simple way to handle missing inputs. Transactions on machine learning research 2025 , 4468 (2025) 16. Novosad, P., Carano, R.A., Krishnan, A.P.: A task-conditional mixture-of-experts model for missing modality segmentation. In: International Conference on Medical Image Computing and Computer-Assisted Intervention. pp. 34–43. Springer (2024) 17. Peng, X., Wei, Y., Deng, A., Wang, D., Hu, D.: Balanced multimodal learning via on-the-fly gradient modulation. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 8238–8247 (2022) 18. Saha, A., Bosma, J.S., Twilt, J.J., Van Ginneken, B., Bjartell, A., Padhani, A.R., Bonekamp, D., Villeirs, G., Salomon, G., Giannarini, G., et al.: Artificial intelli-gence and radiologists in prostate cancer detection on mri (pi-cai): an international, paired, non-inferiority, confirmatory study. The Lancet Oncology 25 (7), 879–887 (2024) 19. Sasieni, P.: Maximum weighted partial likelihood estimators for the cox model. Journal of the American Statistical Association 88 (421), 144–152 (1993) 20. Shi, J., Yu, L., Cheng, Q., Yang, X., Cheng, K.T., Yan, Z.: Mftrans: Modality-masked fusion transformer for incomplete multi-modality brain tumor segmenta-tion. IEEE journal of biomedical and health informatics 28 (1), 379–390 (2023) 21. Uddin, M.S., Ahmed, A., Aktarujjaman, M., Moniruzzaman, M., Ahmed, M., Mridha, M., Hossen, M.J.: A hybrid reinforcement learning and knowledge graph framework for financial risk optimization in healthcare systems. Scientific Reports 
+
+15 (1), 29057 (2025) 22. Winter, E.: The shapley value. Handbook of game theory with economic applica-tions 3, 2025–2054 (2002) 23. Witter, R.T., Liu, Y., Musco, C.: Regression-adjusted monte carlo estimators for shapley values and probabilistic values. arXiv preprint arXiv:2506.11849 (2025) 24. Wu, M., Goodman, N.: Multimodal generative models for scalable weakly-supervised learning. Advances in neural information processing systems 31 (2018) 25. Wu, R., Wang, H., Chen, H.T., Carneiro, G.: Deep multimodal learning with miss-ing modality: A survey. arXiv preprint arXiv:2409.07825 (2024) 26. Xu, M., Zhu, Z., Li, Y., Zheng, S., Zhao, Y., He, K., Zhao, Y.: Flexcare: Leveraging cross-task synergy for flexible multimodal healthcare prediction. In: Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining. pp. 3610–3620 (2024) 27. Yang, Y., Wan, F., Jiang, Q.Y., Xu, Y.: Facilitating multimodal classification via dynamically learning modality gap. Advances in Neural Information Processing Systems 37 , 62108–62122 (2024) 28. Zhang, X., Yoon, J., Bansal, M., Yao, H.: Multimodal representation learning by alternating unimodal adaptation. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 27456–27466 (2024)

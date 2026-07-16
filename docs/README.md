@@ -6,128 +6,98 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-15
-- 运行时间：2026-07-15 21:20:08 UTC
+- 最新运行日期：2026-07-16
+- 运行时间：2026-07-16 21:16:58 UTC
 - 运行状态：成功
-- 本次总论文数：36
-- 精读区：24
+- 本次总论文数：26
+- 精读区：14
 - 速读区：12
 
 ### 今日简报（AI）
-今日精读24篇论文，重点推荐满分论文《3D-DefectBench》评估3D生成缺陷和《SAMPLe》优化VLM提示学习。最值得关注的方向包括：3D生成质量评价的标准化流程与基于SAM的提示学习优化方法。普通读者建议优先精读上述两篇10分论文，快速把握当前3D视觉与多模态推理的评估瓶颈及优化方向。
-- 详情：[/202607/15/README](/202607/15/README)
+今日共处理26篇论文，精读14篇，重点关注心脏MRI稀疏数据重建与轻量级视觉-语言-动作模型。最值得关注的两篇高分论文：基于双向交叉注意力点云变换器的四腔心脏重建，以及高精度多任务操作的轻量级VLA模型。建议后续关注多模态神经影像的图编码与结构化提示推理，提升模型鲁棒性与校准能力。
+- 详情：[/202607/16/README](/202607/16/README)
 
 ### 精读区论文标签
-1. [3D-DefectBench: A Controlled Factorial Study of Vision-Language Model Evaluation Pipelines for Fine-Grained 3D Generation Defects](/202607/15/2607.10826v1-3d-defectbench-a-controlled-factorial-study-of-vision-language-model-evaluation-pipelines-for-fine-grained-3d-generation-defects)  
-   标签：评分：10.0/10、query:vl
-   evidence：用于3D缺陷检测的VLM评估基准
-2. [SAMPLe: SAM-based Optimizer for Prompt Learning in VLMs](/202607/15/2607.05727v1-sample-sam-based-optimizer-for-prompt-learning-in-vlms)  
+1. [Bi-PT: Bidirectional Cross-Attention Point Transformers for Four-Chamber Heart Reconstruction from Sparse Cardiac MRI Data](/202607/16/2607.06923v1-bi-pt-bidirectional-cross-attention-point-transformers-for-four-chamber-heart-reconstruction-from-sparse-cardiac-mri-data)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：医学图像分割与转换器模型
+2. [FabriVLA: A Lightweight Vision-Language-Action Model for Precise Multi-Task Manipulation](/202607/16/2607.08575v1-fabrivla-a-lightweight-vision-language-action-model-for-precise-multi-task-manipulation)  
    标签：评分：9.0/10、query:vl
-   evidence：提出VLM提示学习的SAMPLe优化器
-3. [When Structured Sparse Autoencoders Learn Consistent Concepts Across Modalities](/202607/15/2607.08605v1-when-structured-sparse-autoencoders-learn-consistent-concepts-across-modalities)  
+   evidence：轻量级VLA模型使用InternVL3.5骨干网络
+3. [MedRealMM: A Real-World Multimodal Benchmark for Chinese Online Medical Consultation](/202607/16/2607.09142v2-medrealmm-a-real-world-multimodal-benchmark-for-chinese-online-medical-consultation)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：用于中文在线医疗咨询的真实世界多模态基准
+4. [ShapKO: Shapley-Adaptive Modality Knockout for Robust Multimodal Learning](/202607/16/2607.09884v1-shapko-shapley-adaptive-modality-knockout-for-robust-multimodal-learning)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：动态训练提升鲁棒多模态医学学习
+5. [Multimodal Routing for Interpretable, Robust, and Auditable Clinical Prediction](/202607/16/2607.09982v1-multimodal-routing-for-interpretable-robust-and-auditable-clinical-prediction)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：用于临床预测的多模态路由，结合胸部X光和临床笔记
+6. [SynthDocBench: Controlled Benchmark for Long-Context Visual Document Understanding](/202607/16/2607.10400v1-synthdocbench-controlled-benchmark-for-long-context-visual-document-understanding)  
    标签：评分：9.0/10、query:vl
-   evidence：用于VLM概念一致性的结构化稀疏自编码器
-4. [MedRealMM: A Real-World Multimodal Benchmark for Chinese Online Medical Consultation](/202607/15/2607.09142v1-medrealmm-a-real-world-multimodal-benchmark-for-chinese-online-medical-consultation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：医学咨询的多模态基准，包含真实图像
-5. [LongMedBench: Benchmarking Medical Agents for Long-Horizon Clinical Decision-Making](/202607/15/2607.09322v2-longmedbench-benchmarking-medical-agents-for-long-horizon-clinical-decision-making)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：医学智能体基准
-6. [Decoupling Language Guidance from Backbones for Text-Guided Medical Segmentation](/202607/15/2607.09481v1-decoupling-language-guidance-from-backbones-for-text-guided-medical-segmentation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：可迁移骨干适配器的文本引导医学图像分割
-7. [Evolution of Accuracy and Visual-Cognitive Errors in a Decade of Vision-Language AI Models](/202607/15/2607.09654v1-evolution-of-accuracy-and-visual-cognitive-errors-in-a-decade-of-vision-language-ai-models)  
+   evidence：使用视觉语言模型的合成长上下文视觉文档理解基准
+7. [Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models](/202607/16/2607.10640v1-spectral-heat-flow-for-conservative-token-condensation-in-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：过去十年VLM准确性和错误分析的演变
-8. [BiLoG-Net: A Bi-Context Location-Guided Network for Breast Mass Segmentation and Malignancy Classification in Mammography](/202607/15/2607.10188v1-bilog-net-a-bi-context-location-guided-network-for-breast-mass-segmentation-and-malignancy-classification-in-mammography)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：乳腺肿块分割与恶性分类的新型双上下文位置引导网络
-9. [SynthDocBench: Controlled Benchmark for Long-Context Visual Document Understanding](/202607/15/2607.10400v1-synthdocbench-controlled-benchmark-for-long-context-visual-document-understanding)  
+   evidence：无需训练的视觉语言模型令牌压缩
+8. [Mixture of Cognitive Experts in Large Vision-Language Models](/202607/16/2607.10796v1-mixture-of-cognitive-experts-in-large-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：用于VLM文档理解的合成基准
-10. [Towards Autonomous and Auditable Medical Imaging Model Development](/202607/15/2607.10522v1-towards-autonomous-and-auditable-medical-imaging-model-development)  
+   evidence：直接研究大型视觉语言模型
+9. [FAIR GraphRAG: A Retrieval-Augmented Generation Approach for Semantic Data Analysis](/202607/16/2607.11464v1-fair-graphrag-a-retrieval-augmented-generation-approach-for-semantic-data-analysis)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：用于医学影像的自主多智能体框架
-11. [Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models](/202607/15/2607.10640v1-spectral-heat-flow-for-conservative-token-condensation-in-vision-language-models)  
+   evidence：面向医学语义数据分析的FAIR图RAG
+10. [Medical Image Segmentation based on Deep Active Contour and Mean Curvature Loss Function](/202607/16/2607.12586v1-medical-image-segmentation-based-on-deep-active-contour-and-mean-curvature-loss-function)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：基于深度活动轮廓和平均曲率损失的医学图像分割
+11. [CoRe: A Comprehensive Framework for Cross-Image Comparative Reasoning in Vision-Language Models](/202607/16/2607.12786v1-core-a-comprehensive-framework-for-cross-image-comparative-reasoning-in-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：视觉语言模型的token压缩方法
-12. [Mixture of Cognitive Experts in Large Vision-Language Models](/202607/15/2607.10796v1-mixture-of-cognitive-experts-in-large-vision-language-models)  
+   evidence：视觉语言模型跨图像比较基准
+12. [SARFA: Segment Anything with Radiomic Feature Alignment](/202607/16/2607.13323v1-sarfa-segment-anything-with-radiomic-feature-alignment)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：基于SAM和放射组学特征对齐的医学图像分割
+13. [Attention-Free and Lightweight Token Reduction for Efficient Vision-Language Models](/202607/16/2607.13500v1-attention-free-and-lightweight-token-reduction-for-efficient-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：在大型视觉语言模型中引入认知专家混合以增强推理能力
-13. [Learning Anatomy-Grounded CT Vision-Language Representations with Organ-Hierarchical Report Knowledge](/202607/15/2607.10953v1-learning-anatomy-grounded-ct-vision-language-representations-with-organ-hierarchical-report-knowledge)  
+   evidence：用于视觉语言模型的免注意力令牌缩减
+14. [Fine-Grained Vision-Language Pretraining with Organ-Conditioned Pattern Tokens for CT Understanding](/202607/16/2607.13892v1-fine-grained-vision-language-pretraining-with-organ-conditioned-pattern-tokens-for-ct-understanding)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：基于器官层次的CT视觉语言预训练
-14. [LaGuadia: Language-Guided Adaptive Distillation from Pathology Foundation Models](/202607/15/2607.11257v1-laguadia-language-guided-adaptive-distillation-from-pathology-foundation-models)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：使用VLM的语言引导病理基础模型蒸馏
-15. [A Unified Framework for Comprehensive Cardiac CT Segmentation and Phenotyping: Human-in-the-Loop Data Annotation, Vision Foundation Model Development, Multicenter Evaluation and Clinical Validation](/202607/15/2607.11287v1-a-unified-framework-for-comprehensive-cardiac-ct-segmentation-and-phenotyping-human-in-the-loop-data-annotation-vision-foundation-model-development-multicenter-evaluation-and-clinical-validation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：使用自监督基础模型的心脏CT分割统一框架
-16. [See like a Robot: Robot-Centric Pointmaps for Vision-Language-Action Models](/202607/15/2607.11498v1-see-like-a-robot-robot-centric-pointmaps-for-vision-language-action-models)  
-   标签：评分：9.0/10、query:vl
-   evidence：用于视觉-语言-行动模型的机器人中心点图
-17. [Auditing Data Leakage in Whole-Slide Image Multimodal Benchmarks](/202607/15/2607.12278v1-auditing-data-leakage-in-whole-slide-image-multimodal-benchmarks)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：审计医学视觉语言模型基准中的数据泄露
-18. [MQAdapter: Multi-Modal Quantum Adapter for Coarse-to-Fine VLM Fine-tuning](/202607/15/2607.12418v1-mqadapter-multi-modal-quantum-adapter-for-coarse-to-fine-vlm-fine-tuning)  
-   标签：评分：9.0/10、query:vl
-   evidence：视觉语言大模型微调方法
-19. [Decouple and Reason: Anatomically Guided Two-Stage Voxel-Level Grounding of Free-Text Findings in 3D Chest CT](/202607/15/2607.12602v1-decouple-and-reason-anatomically-guided-two-stage-voxel-level-grounding-of-free-text-findings-in-3d-chest-ct)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：胸部CT中自由文本发现的体素级定位
-20. [CoRe: A Comprehensive Framework for Cross-Image Comparative Reasoning in Vision-Language Models](/202607/15/2607.12786v1-core-a-comprehensive-framework-for-cross-image-comparative-reasoning-in-vision-language-models)  
-   标签：评分：9.0/10、query:vl
-   evidence：视觉语言模型基准和框架
-21. [Visual Access Boundaries in Vision-Language Model Reasoning](/202607/15/2607.12815v1-visual-access-boundaries-in-vision-language-model-reasoning)  
-   标签：评分：9.0/10、query:vl
-   evidence：分析VLM推理中的视觉访问边界
-22. [A Multi-Agent System for Autonomous, Fine-Tuning-Free Clinical Symptom Detection: Development and Validation Study](/202607/15/2607.12886v1-a-multi-agent-system-for-autonomous-fine-tuning-free-clinical-symptom-detection-development-and-validation-study)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：用于临床体征检测的多代理系统
-23. [UniMedSeg: Unified In-Context Learning for Multi-Paradigm 2D/3D Medical Image Segmentation](/202607/15/2607.12896v1-unimedseg-unified-in-context-learning-for-multi-paradigm-2d3d-medical-image-segmentation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：基于Transformer和上下文学习的医学图像分割
-24. [Open-KNEAD: Knowledge-grounded Nutrition Estimation via Agentic Decomposition](/202607/15/2607.12911v1-open-knead-knowledge-grounded-nutrition-estimation-via-agentic-decomposition)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：从餐食图像进行智能体分解的健康营养估计
+   evidence：器官条件化模式令牌对齐用于CT视觉语言预训练
 
 ### 速读区论文标签
-1. [MSA-DCNN: A Data-Efficient Multi-Scale Deformable CNN for Medical Image Classification](/202607/15/2607.06083v1-msa-dcnn-a-data-efficient-multi-scale-deformable-cnn-for-medical-image-classification)  
+1. [Latent graph encoding of multimodal neuroimaging features with generative AI architectures](/202607/16/2607.07027v1-latent-graph-encoding-of-multimodal-neuroimaging-features-with-generative-ai-architectures)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：医学图像分类的创新可变形注意力机制
-2. [Structured-Condensed Prompt Tuning in Vision-Language Models for Fine-grained Image Recognition](/202607/15/2607.06185v1-structured-condensed-prompt-tuning-in-vision-language-models-for-fine-grained-image-recognition)  
+   evidence：用于神经影像的多模态生成式框架
+2. [TRACE-Seg3D: Counterfactual Context Auditing For Robust 3D Glioma Segmentation Under Institutional Shift](/202607/16/2607.07038v1-trace-seg3d-counterfactual-context-auditing-for-robust-3d-glioma-segmentation-under-institutional-shift)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：用于稳健三维胶质瘤分割的反事实审计框架
+3. [When Prompts Ignore Structure: Graph-Based Attribute Reasoning for Calibrated VLMs](/202607/16/2607.07395v1-when-prompts-ignore-structure-graph-based-attribute-reasoning-for-calibrated-vlms)  
    标签：评分：8.0/10、query:vl
-   evidence：结构化压缩提示调优用于VLM细粒度识别
-3. [Analysis-by-Proxy: Localization Signals in VLMs Operating as Condition Encoders](/202607/15/2607.06445v1-analysis-by-proxy-localization-signals-in-vlms-operating-as-condition-encoders)  
+   evidence：基于图的属性推理用于校准视觉语言模型
+4. [Infinity-Parser2 Technical Report](/202607/16/2607.07836v2-infinity-parser2-technical-report)  
    标签：评分：8.0/10、query:vl
-   evidence：VLM在图像编辑中的定位研究
-4. [MonoIR-RS: Infrared Remote Sensing Vision-Language Learning with CLIP and VLM Adaptation](/202607/15/2607.06552v1-monoir-rs-infrared-remote-sensing-vision-language-learning-with-clip-and-vlm-adaptation)  
-   标签：评分：8.0/10、query:vl
-   evidence：红外遥感中的视觉语言模型适配
-5. [Scene Graph Thinking: Reinforcing Structured Visual Reasoning for Multimodal Large Language Models](/202607/15/2607.05716v1-scene-graph-thinking-reinforcing-structured-visual-reasoning-for-multimodal-large-language-models)  
+   evidence：用于文档解析的大型多模态模型
+5. [Towards Accurate and Fast Clinical Body Composition: A Resource-Efficient Hierarchical Segmentation Framework for Multi-Source CT](/202607/16/2607.07177v1-towards-accurate-and-fast-clinical-body-composition-a-resource-efficient-hierarchical-segmentation-framework-for-multi-source-ct)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：提出用于多源CT身体成分分析的分层分割框架
+6. [Comparative Study of Domain-adapted VLMs for General Document Visual Question Answering](/202607/16/2607.07179v1-comparative-study-of-domain-adapted-vlms-for-general-document-visual-question-answering)  
    标签：评分：7.0/10、query:vl
-   evidence：多模态大模型的场景图推理
-6. [Scene Graph Thinking: Reinforcing Structured Visual Reasoning for Multimodal Large Language Models](/202607/15/2607.05716v2-scene-graph-thinking-reinforcing-structured-visual-reasoning-for-multimodal-large-language-models)  
-   标签：评分：7.0/10、query:vl
-   evidence：用于多模态大语言模型结构化视觉推理的场景图
-7. [Scene Graph Thinking: Reinforcing Structured Visual Reasoning for Multimodal Large Language Models](/202607/15/2607.05716v3-scene-graph-thinking-reinforcing-structured-visual-reasoning-for-multimodal-large-language-models)  
-   标签：评分：7.0/10、query:vl
-   evidence：MLLM的场景图推理
-8. [Segmentation before Answering: Pixel Grounding for MLLM Visual Reasoning](/202607/15/2607.05798v1-segmentation-before-answering-pixel-grounding-for-mllm-visual-reasoning)  
-   标签：评分：7.0/10、query:vl
-   evidence：先分割后回答的MLLM视觉推理方法
-9. [OBBSeg: Irregular Lesion Segmentation under Oriented Bounding Box Annotations](/202607/15/2607.06007v1-obbseg-irregular-lesion-segmentation-under-oriented-bounding-box-annotations)  
-   标签：评分：6.0/10、query:vlmmed
-   evidence：面向边界框监督的不规则病变分割
-10. [Uncertainty-Aware Cross-Modal Remote Sensing Image-Text Retrieval via Evidential Learning](/202607/15/2607.06032v1-uncertainty-aware-cross-modal-remote-sensing-image-text-retrieval-via-evidential-learning)  
+   evidence：VLM在文档VQA中的比较研究
+7. [MMAgent-R$^2$: Learning to Rerank and Reject for Agentic mRAG](/202607/16/2607.07383v1-mmagent-r2-learning-to-rerank-and-reject-for-agentic-mrag)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：用于视觉问答的智能体多模态RAG
+8. [Aligning Clinical Needs and AI Capabilities: A Survey on LLMs for Medical Reasoning](/202607/16/2607.07761v1-aligning-clinical-needs-and-ai-capabilities-a-survey-on-llms-for-medical-reasoning)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：医学推理中LLM的综述，连接临床需求与AI能力
+9. [InfraQR: Edge-Placed QR-Inspired Structured Patch Attacks on Infrared Vision-Language Models](/202607/16/2607.07288v1-infraqr-edge-placed-qr-inspired-structured-patch-attacks-on-infrared-vision-language-models)  
    标签：评分：6.0/10、query:vl
-   evidence：使用视觉语言模型方法进行跨模态遥感图像-文本检索
-11. [InfraQR: Edge-Placed QR-Inspired Structured Patch Attacks on Infrared Vision-Language Models](/202607/15/2607.07288v1-infraqr-edge-placed-qr-inspired-structured-patch-attacks-on-infrared-vision-language-models)  
+   evidence：红外视觉语言模型的结构化补丁攻击
+10. [Infinity-Parser2 Technical Report](/202607/16/2607.07836v1-infinity-parser2-technical-report)  
    标签：评分：6.0/10、query:vl
-   evidence：红外VLM的对抗攻击
-12. [Interpretable Uncertainty for Adaptive Retrieval and Reasoning in Question Answering](/202607/15/2607.07380v1-interpretable-uncertainty-for-adaptive-retrieval-and-reasoning-in-question-answering)  
-   标签：评分：6.0/10、query:vlmmed
-   evidence：利用LLM内部不确定性进行自适应RAG
+   evidence：大规模多模态文档解析模型
+11. [LEEVLA: Seeing What Matters in Latent Environment Evolution for Vision-Language-Action](/202607/16/2607.08182v1-leevla-seeing-what-matters-in-latent-environment-evolution-for-vision-language-action)  
+   标签：评分：6.0/10、query:vl
+   evidence：具有动态优先级的视觉-语言-行动模型
+12. [FabriVLA: A Lightweight Vision-Language-Action Model for Precise Multi-Task Manipulation](/202607/16/2607.08575v2-fabrivla-a-lightweight-vision-language-action-model-for-precise-multi-task-manipulation)  
+   标签：评分：6.0/10、query:vl
+   evidence：轻量级视觉语言动作模型
 
 
 <div class="dpr-home-promo-card">

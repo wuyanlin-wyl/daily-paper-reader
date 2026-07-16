@@ -1,0 +1,1068 @@
+Title: Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models
+
+URL Source: https://arxiv.org/pdf/2607.10640v1
+
+Published Time: Tue, 14 Jul 2026 01:42:28 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+Zhaoyang Li * 1 Yanjun Li * 1 Wangkai Li 1 Yujia Chen 1 Tianzhu Zhang 1
+
+## Abstract 
+
+Vision-Language Models (VLMs) are costly at inference time because they must process long se-quences of visual tokens. Existing token pruning methods often degrade under high compression by blindly discarding information, breaking spa-tial structure or collapsing diversity. We propose SpecFlow, a training-free framework that shifts the paradigm from destructive pruning to con-servative condensation, strictly enforcing spatial coverage and statistical conservation to ensure stability. Treating visual tokens as nodes in a 
+
+kNN graph, SpecFlow (i) computes a stable im-portance field via spectral heat flow to preserve structural coherence, (ii) allocates budgets via adaptive spatial partitioning to guarantee cover-age, and (iii) aggregates discarded information into coreset sinks to maintain statistical conserva-tion. The method is plug-and-play, requires no fine-tuning, and is compatible with FlashAtten-tion. Experiments confirm that our SpecFlow out-performs SOTA methods across tasks, VLM archi-tectures, and pruning ratios. Notably, LLaVA-1.5 with SpecFlow retains 95.6% of original perfor-mance despite pruning 88.9% of visual tokens, offering an exceptional efficiency-accuracy bal-ance. Code is available at https://github. com/Lzy-dot/SpecFlow .
+
+## 1. Introduction 
+
+Recent Vision-language models (VLMs) (Li et al., 2025a; Team et al., 2023; Liu et al., 2024c; Chen et al., 2024c) have shown remarkable progress in multimodal understanding, delivering strong results on visual question answering (Guo 
+
+> 1
+
+School of Information Science and Technology / National Key Laboratory of Deep Space Exploration, University of Science and Technology of China. Correspondence to: Tianzhu Zhang 
+
+<tzzhang@ustc.edu.cn >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). [CLS] [CLS]   
+
+> (a) Pruning based on [CLS] attention
+> ignores object structure
+> (b) Our SpecFlow Preserves structure by
+> selecting best tokens per region
+> Region 1 Region 2 Region 3
+> Attention Weight
+> Probability Density
+> Energy Weight
+> Probability Density
+> Reserved tokens Reserved tokens
+
+Figure 1. Global Top-K pruning vs. our proposed SpecFlow. 
+
+(a) Global Top-K pruning based on [CLS] attention can yield fragmented selections due to spiky attention distributions, often cre-ating spatial holes within objects. (b) SpecFlow diffuses attention-derived energy on a kNN token graph and applies coverage-aware regional budgeting, yielding region-coherent retained tokens under high compression. 
+
+et al., 2023; Zhao et al., 2024; Huynh et al., 2025; Kuang et al., 2025), image captioning (Ghandi et al., 2023; Chen et al., 2024a), and video understanding (Lin et al., 2024; Maaz et al., 2024; Wang et al., 2024b).Despite this progress, efficient deployment remains challenging due to the large number of visual tokens produced by modern vision en-coders. For example, LLaVA-1.5 (Liu et al., 2024a) typ-ically encodes a 336 × 336 image into 576 patch tokens, which are then processed by the language model during the prefill stage, often resulting in substantially higher latency than text-only inference. A natural approach to accelerate inference is to reduce the number of visual tokens. Existing token pruning meth-ods (Chen et al., 2024b; Yang et al., 2025; Zhang et al., 2024b; Zou et al., 2025) commonly perform token pruning via Top-K selection using attention-derived scores. While effective in reducing computation, such point-wise ranking can be brittle under high compression because it disregards two properties of visual token sets: spatial coherence (to-kens corresponding to a region tend to form contiguous structures) and contextual dependency (background and surrounding regions can be essential for reasoning). Em-pirically, these limitations manifest as two recurring failure modes. First, attention scores can be highly concentrated, so Top-K selection often yields spatially fragmented to-ken subsets, creating “holes” within objects and disrupting 1arXiv:2607.10640v1 [cs.CV] 12 Jul 2026 Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+coherent visual evidence (Figure 1 (a)). Second, saliency-driven pruning tends to over-preserve foreground regions while aggressively removing contextual background, which can impair tasks that rely on spatial relations and scene-level semantics. These observations suggest that token pruning should not be treated solely as independent, discrete selection. Instead, an effective pruning rule should respect the collective structure of visual tokens: importance should vary smoothly across coherent regions, while allocation should maintain coverage to avoid systematic blind spots. Motivated by this, we refor-mulate visual token pruning as an importance propagation problem on a token graph (Figure 1 (b)). We propose SpecFlow, a training-free framework for ef-ficient VLM inference that performs structure-preserving token pruning via spectral heat diffusion (Coifman & Lafon, 2006). SpecFlow constructs a graph over visual tokens and computes a stable importance field by propagating initial saliency through spectral heat flow, which naturally smooths spiky attention into region-consistent importance. To pre-vent spatial collapse under high compression, SpecFlow further allocates per-region budgets using adaptive quadtree partitioning, enforcing explicit spatial coverage. Finally, rather than discarding information, SpecFlow conservatively aggregates pruned tokens into coreset “sinks”, preserving summary statistics and diversity among the retained rep-resentations. SpecFlow is plug-and-play, requires no fine-tuning, and is compatible with efficient attention implemen-tations such as FlashAttention (Dao et al., 2022; Dao, 2023). In summary, our contributions to the community include: 1. We characterize two common failure modes of attention-score-based visual token pruning for VLMs: spatial fragmentation and loss of contextual evidence, especially under high compression. 2. We introduce spectral heat flow on a kNN token graph as a training-free importance propagation mechanism, producing a stable and region-coherent importance field for pruning. 3. We propose coverage-aware pruning via adaptive quadtree partitioning with energy-proportional budget allocation, and a conservative condensation step that aggregates removed tokens into a single coreset sink (with an additional diversity-preserving anchor token). 
+
+## 2. Related Work 
+
+2.1. Vision-Language Models 
+
+Recent progress in large language models has spurred vision-language models (VLMs) that transfer strong language capa-bilities to multimodal understanding and generation. Many recent VLMs (Liu et al., 2024a; Bai et al., 2023; Li et al., 2025b;c; Liu et al., 2024c; Lin et al., 2024; Liu et al., 2024b) improve accuracy by increasing the visual token budget through higher image resolution or multiple frames. How-ever, the resulting visual sequences grow rapidly in length and introduce substantial computational overhead. For ex-ample, LLaVA-1.5 (Liu et al., 2024a) encodes a 336 × 336 
+
+image into 576 tokens, and LLaVA-NeXT (Liu et al., 2024b) scales to 2,880 tokens at 672 × 672 . Video models such as VideoLLaVA (Lin et al., 2024) and VideoPoet (Kondratyuk et al., 2023) further require thousands of tokens to represent multiple frames. Moreover, simply increasing the token budget does not fully eliminate visual deficiencies and hal-lucinations, while further amplifying inference cost. These challenges motivate token-efficient visual representations and sparsification methods that substantially reduce compu-tation while maintaining comparable performance. 
+
+2.2. Visual Token Compression for VLMs 
+
+Visual token compression is crucial for scaling VLMs to high-resolution images and long videos under limited com-pute and context. Prior work mainly follows two routes. The first is pre-LLM compression, which reduces visual tokens before they enter the decoder. For example, LLaMA-VID (Li et al., 2024) adopts a compact frame representa-tion, and VisionZip (Yang et al., 2025) selects dominant tokens using vision-encoder attention and can merge the re-maining tokens. The second is decoder-stage sparsification, which prunes visual tokens during LLM inference based on their diminishing utility in deeper layers. In this category, FastV (Chen et al., 2024b) prunes low-importance visual tokens after an early layer using attention-based ranking in a plug-and-play manner, while SparseVLM (Zhang et al., 2024b) further introduces training-free, text-guided pruning with adaptive per-layer sparsity. Despite their effective-ness, training-free pruning often relies on spiky attention scores and some methods are not compatible with FlashAt-tention (Dao et al., 2022; Dao, 2023). Our SpecFlow instead diffuses saliency to produce region-consistent importance and adopts a FlashAttention-compatible pruning design. 
+
+## 3. Preliminary and Motivation 
+
+3.1. Preliminary VLM inference and computation complexity. We con-sider a VLM Mθ composed of a vision encoder fvis , a vision–language projection module g, and an autoregressive decoder flm with L Transformer layers. Given an image I
+
+and a text prompt X = ( x1, . . . , x T ), the vision encoder produces patch features V = fvis (I) ∈ RN ×dv , which are mapped to language-aligned visual tokens Z = g(V ) ∈
+
+RN ×d. The decoder processes the concatenated sequence 
+
+[Z; E(X)] during prefill and then generates outputs autore-2Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+gressively. The total decoder input length is n = N + T ,where T = nsys + nq denotes the number of text tokens including the system prompt and the user query. Since Trans-former self-attention in prefill scales quadratically (Vaswani et al., 2017) with the sequence length, the dominant cost is 
+
+Cprefill = O L · n2 · d , (1) where d is the hidden dimension. In typical VLM settings, 
+
+N ≫ T , so computation is largely dominated by visual tokens, making the reduction of N essential for improving VLM inference efficiency. 
+
+Graph diffusion for token importance. Let G = ( V, E)
+
+be a graph over N tokens and let W ∈ RN ×N be a non-negative row-stochastic matrix. Given an initial importance signal e(0) ∈ RN , a standard way to incorporate neighbor-hood consistency is the following diffusion update: 
+
+e(t+1) = (1 − α)e(0) + αW ⊤e(t), (2) where α ∈ (0 , 1) controls the propagation strength. This process is closely related to personalized PageRank and yields a smoothed importance estimate (Page et al., 1999; Jeh & Widom, 2003). 
+
+Proposition 3.1 (Restart diffusion as Dirichlet-regularized smoothing) . Assume the transition matrix W is obtained by row-normalizing a symmetric affinity matrix S ∈ RN ×N ,i.e., W = D−1S where S = S⊤ ≥ 0 and D = diag( S1 ).Then the diffusion in Eq. (2) converges to a unique fixed point e⋆ satisfying 
+
+(I − αW ⊤)e⋆ = (1 − α)e(0) . (3) 
+
+Moreover, e⋆ is equivalently characterized as the unique minimizer of a convex objective that balances fidelity to the seed and graph smoothness: 
+
+e⋆ = arg min 
+
+> e∈RN
+
+12 D−1e − D−1e(0) 2
+
+> D
+
++ α
+
+2(1 − α) (D−1e)⊤(D − S)( D−1e).
+
+(4) 
+
+where ∥u∥2 
+
+> D
+
+= u⊤Du and (D − S) is the (combinatorial) graph Laplacian. 
+
+Proof and additional discussion are deferred to Ap-pendix A.1. Eq. (4) shows that diffusion is not a heuris-tic (Zhu et al., 2003; Zhou et al., 2003): it is the solution of a convex problem trading off seed fidelity and Dirichlet energy on the token graph. 
+
+Token graph and transition matrix. Given token em-beddings Z = [ z1, . . . , z N ]⊤ ∈ RN ×d, define a k-nearest-neighbor ( kNN) graph under cosine similarity by assigning to each node i a neighbor set Nk(i). A sparse random-walk (transition) matrix (Von Luxburg, 2007) W ∈ RN ×N is obtained by softmax normalization over outgoing edges, 
+
+Wij =
+
+
+
+> exp
+
+ τ sim( zi,z j )
+
+  
+
+> P
+> j′∈N k(i)exp
+
+ τ sim( zi,z j′ )
+
+ , j ∈ N k(i),
+
+0, otherwise ,
+
+(5) where sim( zi, z j ) = z⊤    
+
+> izj
+> ∥zi∥2∥zj∥2
+
+and τ > 0 is a tempera-ture. By construction, W is nonnegative and row-stochastic (W 1 = 1), and thus admits the standard interpretation of one-step transition probabilities on the token graph. This matrix serves as the propagation operator in Eq. (2). 1
+
+3.2. Why Diffuse on a Feature-Similarity Graph Rather Than Raw Attention 
+
+Although attention maps provide a convenient training-free saliency cue, we do not use raw patch ↔patch self-attention as the structural graph for diffusion. The reason is that in CLIP-style ViTs, raw self-attention is often not a reliable semantic affinity: it can connect tokens across inconsistent regions and does not preserve region coherence, as discussed in SCLIP (Wang et al., 2024a). Moreover, SC-CLIP (Bai et al., 2025) shows that anomaly tokens can emerge in deep layers and absorb attention mass from normal tokens, weak-ening spatial awareness and inducing feature homogeniza-tion. Therefore, using raw attention as a diffusion operator would propagate these artifacts, causing energy leakage to unrelated regions and reducing region-level discriminability under high compression. Accordingly, instead of diffusing on raw patch-to-patch attention links, we construct a kNN graph from token feature similarity and perform diffusion on this similarity-induced graph to preserve region coherence. 
+
+## 4. Method 
+
+Building on the above analysis, we propose SpecFlow, an efficient visual token pruning framework designed for high-performance vision-language modeling. SpecFlow lever-ages HeatFlow and adaptive quadtree allocation to better preserve the holistic contextual information and structural coherence of images. To avoid information loss, pruned to-kens are compressed into compact coreset-style sink tokens to ensure statistical conservation. 
+
+4.1. HeatFlow: CLS-seeded energy diffusion 
+
+We instantiate the diffusion in Eq. (2) on the kNN graph in Eq. (5) to obtain a structure-aware token energy used for pruning. Algorithm 1 summarizes the overall procedure. We initialize the token energy from the attention distribution          
+
+> 1We use a symmetrized kNN edge set (i.e., include (i, j )if
+> j∈ N k(i)or i∈ N k(j)), which makes the underlying affinity symmetric under cosine similarity, while keeping the graph sparse.
+
+3Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+Algorithm 1 CLS-seeded heat flow on a kNN token graph 
+
+input self-attention A, token embeddings Z
+
+output diffused energy E 
+
+> 1:
+
+for b = 1 to B do  
+
+> 2:
+
+Seed from CLS attention. Select heads H and set 
+
+si ← 1
+
+> |H|
+
+P 
+
+> h∈H
+
+Ab,h, 0,i for i = 1 , . . . , N  
+
+> 3:
+
+s ← s/ (1⊤s + ε) 
+
+> 4:
+
+Construct token transition matrix. Form the row-stochastic matrix W from {zb,i }Ni=1 by Eq. (5)  
+
+> 5:
+
+e ← s 
+
+> 6:
+
+for t = 1 to Tdiff do  
+
+> 7:
+
+e ← (1 − α)s + αW ⊤e 
+
+> 8:
+
+e ← e/ (1⊤e + ε) 
+
+> 9:
+
+end for  
+
+> 10:
+
+Eb ← e 
+
+> 11:
+
+end for  
+
+> 12:
+
+return E
+
+of the visual [CLS] token. In transformer-based vision en-coders, [CLS] serves as a global aggregation token (Doso-vitskiy, 2020; Radford et al., 2021) whose representation is optimized to summarize image-level semantics. There-fore, the outgoing attention weights from [CLS] provide a lightweight, training-free cue of which visual tokens con-tribute most to the global representation. Compared to local heuristics or post-hoc gradients, this signal is readily avail-able during the forward pass and is naturally aligned with the model’s internal routing of information. Formally, let 
+
+A ∈ R(N +1) ×(N +1) be the self-attention matrix at a cho-sen layer/head, where index 0 corresponds to [CLS] and indices 1, . . . , N correspond to visual tokens. We define the initial energy as 
+
+e(0)  
+
+> i
+
+= A0,i , i = 1 , . . . , N, (6) optionally aggregating multiple heads to reduce head-specific noise. This initialization highlights globally rel-evant regions while remaining computationally negligible, making it a suitable seed for the subsequent graph diffusion in Eq. (2) . Starting from e(0) , we run a small number of iterations of Eq. (2) to obtain e(T ), and use it as the final energy e⋆ after normalization. Since W is k-sparse, the update costs O(N k ) per iteration. We ℓ1-normalize e after each iteration only for numerical stability, since W is row-stochastic and e(0) is normalized, the diffusion preserves mass in exact arithmetic (Appendix A.1). 
+
+4.2. Quadtree token pruning with energy allocation 
+
+Given the diffused token energy e⋆ ∈ RN from Sec. 4.1, we select a compact subset of visual tokens under a budget 
+
+K while preserving spatial coverage. Since tokens are ar-ranged on an H × W grid, we first reshape the energy into a 2D map E ∈ RH×W and then perform adaptive quadtree partitioning (Samet, 1984). Intuitively, we split regions with 
+
+Algorithm 2 Quadtree token pruning with energy allocation 
+
+input grid tokens Z (size H×W ), diffused energy e⋆, bud-get K
+
+output selected tokens ˜Z 
+
+> 1:
+
+for b = 1 to B do  
+
+> 2:
+
+E ← Reshape( e⋆b , H, W ) 
+
+> 3:
+
+Quadtree splitting. Starting from (0 , H, 0, W ), re-cursively split a crop c into four quadrants when-ever split( c) holds (Eq. (8) ); denote the resulting leaf crops by C 
+
+> 4:
+
+Energy-guided allocation. For each leaf crop c ∈ C ,compute its energy mass S(c) from E as in Eq. (9) and initialize an integer token quota qc by Eq. (13) ;adjust {qc} to satisfy P 
+
+> c∈C
+
+qc = K 
+
+> 5:
+
+Token selection. S ← S 
+
+> c∈C
+
+TopK( E[c], q c) and 
+
+˜Zb ← Zb[S] 
+
+> 6:
+
+optionally: append sink tokens (mean and residual) from Zb[ ¯S] (Sec. 4.3)  
+
+> 7:
+
+end for  
+
+> 8:
+
+return ˜Z
+
+high energy variation into finer crops and keep low-variation regions coarse, enabling multi-scale selection. Algorithm 2 summarizes the overall pruning and allocation procedure. 
+
+Energy map. Let E = Reshape( e⋆, H, W ) denote the energy map aligned with the token grid. For any rectangular crop c = ( r0, r 1, t 0, t 1), we use E[c] to denote the set of energies inside c and |c| = ( r1 − r0)( t1 − t0) its area. 
+
+Quadtree splitting. Starting from the full region croot =(0 , H, 0, W ), we recursively split a crop into four quadrants if it is (i) sufficiently large and (ii) non-uniform in energy. Concretely, we compute the crop mean and standard devia-tion 
+
+μ(c) = 1
+
+|c|
+
+X
+
+> (r,t )∈c
+
+Er,t ,σ(c) = 
+
+vuut 1
+
+|c|
+
+X
+
+> (r,t )∈c
+
+ Er,t − μ(c)2.
+
+(7) and apply the split criterion 
+
+split( c) =  h(c) ≥ 2m ∧  w(c) ≥ 2m ∧  σ(c) > δ ,
+
+(8) where h(c) = r1 − r0 and w(c) = t1 − t0 are the crop height/width, m is the minimum crop size, and δ controls the sensitivity to energy variation. If split( c) is true, we partition c at midpoints rm = ⌊(r0 + r1)/2⌋ and tm =
+
+⌊(t0 + t1)/2⌋ to obtain four children crops; otherwise c
+
+becomes a leaf. We denote the set of all leaf crops by C,which forms a disjoint cover of the grid. 4Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+Energy-guided budget allocation. Token budget is dis-tributed across leaf crops in proportion to their energy mass. For each c ∈ C , define 
+
+M (c) = X
+
+> (r,t )∈c
+
+Er,t , (9) and let |c| denote the number of tokens in crop c. A frac-tional quota is given by 
+
+ˆqc = K · M (c)
+
+P 
+
+> c′∈C
+
+M (c′) . (10) This proportional rule admits an optimization interpretation: 
+
+Proposition 4.1 (Energy-proportional allocation as propor-tional fairness) . Assume M (c) > 0 for all c ∈ C . The fractional quota {ˆqc}c∈C defined by 
+
+ˆqc = K · M (c)
+
+P 
+
+> c′∈C
+
+M (c′) (11) 
+
+is the unique optimizer of the concave program (Kelly et al., 1998) 
+
+max 
+
+> {qc>0}
+
+X
+
+> c∈C
+
+M (c) log qc s.t. X
+
+> c∈C
+
+qc = K. (12) We provide the proof and integer rounding details in Ap-pendix A.2. An initial integer allocation is obtained by flooring and clipping to the feasible range, 
+
+qc ← min  |c|, ⌊ˆqc⌋, (13) which allows qc = 0 when the budget is smaller than the number of crops. Since flooring and clipping imply P 
+
+> c∈C
+
+qc ≤ K, the remaining budget K − P 
+
+> c
+
+qc is dis-tributed to crops in descending order of S(c) among those with qc < |c|, without exceeding |c|, until P 
+
+> c∈C
+
+qc = K.Overall, the procedure enforces the global budget while maintaining 0 ≤ qc ≤ | c|.
+
+Token selection within each crop. Within each crop c,the qc highest-energy tokens are retained: 
+
+S = [
+
+> c∈C
+
+TopK  E[c], q c
+
+, |S| = K. (14) The pruned token sequence is then ˜Z = Z[S], where indices in S follow the original token order. 
+
+Discussion. The quadtree split enforces spatial adaptivity: salient regions (high-variation energy) are represented at a finer granularity, while background regions remain coarse. Coupled with energy-proportional allocation, this yields an efficient subset that preserves both semantic relevance (via 
+
+E) and coverage (via the multi-scale partition). 
+
+4.3. Sink tokens for preserving pruned information 
+
+Quadtree pruning keeps a budgeted subset of tokens S but discards the complement ¯S. While tokens in ¯S are assigned lower energy, they may still contain complementary con-text (e.g., background cues or fine-grained attributes). To mitigate information loss with negligible overhead, we com-press the discarded set into a small number of additional 
+
+sink tokens and feed them together with the selected to-kens to the decoder. Let Z ∈ RN ×d denote the token fea-tures, ˜Z = Z[S] the selected tokens, and Zp = Z[ ¯S] the pruned tokens. We summarize Zp using two coreset-style sinks (Feldman & Langberg, 2011): 
+
+umean = 1
+
+| ¯S| 
+
+X 
+
+> i∈¯S
+
+Zi, ures = Zarg max i∈ ¯S ∥Zi−umean ∥2 .
+
+(15) The mean sink captures the overall context of discarded to-kens, while the residual sink promotes diversity by retaining a representative token that is poorly explained by the mean. We append the sink tokens to the selected tokens to form the final visual token sequence 
+
+Z′ = [ ˜Z; umean ; ures ], (16) which is passed to the language model. 
+
+4.4. Computational Complexity 
+
+We express inference cost in FLOPs and concentrate on visual tokens, as the text prompt is usually much shorter than the visual sequence (i.e., T ≪ N ). Let N denote the number of visual tokens produced by the encoder and K
+
+the number kept after pruning. Denote the hidden size by h
+
+and the FFN intermediate size by d. Coefficients a, b, c are implementation-dependent constants. 
+
+Prefill FLOPs. During prefill, the per-layer FLOPs as a function of the attended visual length n can be modeled as 
+
+Ψpre (n) := a h n 2 + n (bh 2 + chd ), (17) where the first term corresponds to attention and the latter terms capture per-token projections and the FFN. Pruning replaces n = N with n = K, hence the relative prefill saving is 
+
+∆pre := 1 − Ψpre (K)Ψpre (N ) = 1 − ahK 2+K(bh 2+chd )   
+
+> ahN 2+N(bh 2+chd )
+
+. (18) Let K = (1 − R)N . When attention dominates (typical for large N ), the n2 term governs and the reduction simplifies to 
+
+∆pre ≈ 1 −   KN
+
+2 = 1 − (1 − R)2 = 2 R − R2. (19) highlighting that prefill gains are superlinear in the pruning ratio R under this regime. 5Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+Table 1. Comparison of pruning methods on image-understanding benchmarks. We report the accuracy and average performance at varying pruning ratios. The best performance is marked in red .
+
+Methods GQA MMB MMB CN MME POPE SQA VQA V2 VQA Text VizWiz Average 
+
+Upper Bound, 576 Tokens 61.9 64.7 58.1 1862 85.9 69.5 78.4 58.2 50.0 100% LLaVA-1.5 (Liu et al., 2024a) 7B Retain 192 Tokens (↓ 66 .7%) 
+
+ToMe (Bolya et al., 2022) (ICLR23) 54.3 60.5 - 1563 72.4 65.2 68.0 52.1 - 88.5% FastV (Chen et al., 2024b) (ECCV24) 52.7 61.2 57.0 1612 64.8 67.3 67.1 52.5 50.8 90.5% LLaVA-PruMerge (Shang et al., 2025) (ICCV25) 54.3 59.6 52.9 1632 71.3 67.9 70.6 54.3 50.1 91.4% PDrop (Xing et al., 2024) (CVPR25) 57.1 63.2 56.8 1766 82.3 68.8 75.1 56.1 51.1 96.7% HiRED (Arif et al., 2025) (AAAI25) 58.7 62.8 54.7 1737 82.8 68.4 74.9 47.4 50.1 94.6% VisionZip (Yang et al., 2025) (CVPR25) 59.3 64.5 57.3 1767 86.4 68.9 76.8 57.3 51.6 98.1% SparseVLM (Zhang et al., 2024b) (ICML25) 57.6 62.5 53.7 1721 83.6 69.1 75.6 56.1 50.5 96.1% DART (Wen et al., 2025) (EMNLP25) 58.9 63.6 57.0 1856 82.8 69.8 76.7 57.4 51.1 98.5% HoloV (Zou et al., 2025) (NeurIPS25) 58.6 64.6 56.9 1793 85.6 69.1 76.1 55.8 51.4 98.2% SpecFlow (Ours) 58.3 65.8 56.1 1827 85.8 69.7 76.4 57.9 50.5 98.7% 
+
+LLaVA-1.5 (Liu et al., 2024a) 7B Retain 128 Tokens (↓ 77 .8%) 
+
+ToMe (Bolya et al., 2022) (ICLR23) 52.4 53.3 - 1343 62.8 59.6 63.0 49.1 - 80.4% FastV (Chen et al., 2024b) (ECCV24) 49.6 56.1 56.4 1490 59.6 60.2 61.8 50.6 51.3 85.4% LLaVA-PruMerge (Shang et al., 2025) (ICCV25) 53.3 58.1 51.7 1554 67.2 67.1 68.8 54.3 50.3 89.4% PDrop (Xing et al., 2024) (CVPR25) 56.0 61.1 56.6 1644 82.3 68.3 72.9 55.1 51.0 94.9% HiRED (Arif et al., 2025) (AAAI25) 57.2 61.5 53.6 1710 79.8 68.1 73.4 46.1 51.3 93.1% VisionZip (Yang et al., 2025) (CVPR25) 57.6 63.4 56.7 1768 84.7 68.8 75.6 56.8 52.0 97.2% SparseVLM (Zhang et al., 2024b) (ICML25) 56.0 60.0 51.1 1696 80.5 67.1 73.8 54.9 51.4 93.8% DART (Wen et al., 2025) (EMNLP25) 57.9 63.2 57.0 1845 80.1 69.1 75.9 56.4 51.7 97.5% HoloV (Zou et al., 2025) (NeurIPS25) 57.4 62.8 55.0 1768 83.2 69.1 74.8 55.7 52.3 96.8% SpecFlow (Ours) 57.6 64.3 55.9 1794 84.9 69.9 75.3 56.8 51.1 97.8% 
+
+LLaVA-1.5 (Liu et al., 2024a) 7B Retain 64 Tokens (↓ 88 .9%) 
+
+ToMe (Bolya et al., 2022) (ICLR23) 48.6 43.7 - 1138 52.5 50.0 57.1 45.3 - 70.1% FastV (Chen et al., 2024b) (ECCV24) 46.1 48.0 52.7 1256 48.0 51.1 55.0 47.8 50.8 76.7% LLaVA-PruMerge (Shang et al., 2025) (ICCV25) 51.9 55.3 49.1 1549 65.3 68.1 67.4 54.0 50.1 87.7% PDrop (Xing et al., 2024) (CVPR25) 41.9 33.3 50.5 1092 55.9 68.6 69.2 45.9 50.7 77.5% HiRED (Arif et al., 2025) (AAAI25) 54.6 60.2 51.4 1599 73.6 68.2 69.7 44.2 50.2 89.4% VisionZip (Yang et al., 2025) (CVPR25) 55.1 60.1 55.4 1690 77.0 69.0 72.4 55.5 52.9 94.5% SparseVLM (Zhang et al., 2024b) (ICML25) 52.7 56.2 46.1 1505 75.1 62.2 68.2 51.8 50.1 87.3% DART (Wen et al., 2025) (EMNLP25) 55.9 60.6 53.2 1765 73.9 69.8 72.4 54.4 51.6 93.9% HoloV (Zou et al., 2025) (NeurIPS25) 55.1 61.3 53.7 1728 80.3 69.5 72.2 54.2 53.1 94.9% SpecFlow (Ours) 55.3 63.7 54.3 1713 80.5 69.7 73.7 54.9 52.4 95.6% 
+
+Decode FLOPs. With KV caching, each decoding step scales approximately linearly with the context length: 
+
+Ψdec (n) := bh 2 + n (bh + chd ). (20) Replacing N by K gives 
+
+∆dec := 1 − Ψdec (K)Ψdec (N ) = 1 − bh 2+K(bh +chd )  
+
+> bh 2+N(bh +chd )
+
+≈ R. (21) since the constant term bh 2 does not shrink with pruning. 
+
+Cost of pruning. Pruning is performed once per input; in particular, the kNN graph is computed only once before decoder-layer processing. The overhead comprises kNN graph construction (worst-case O(N 2h) FLOPs), sparse dif-fusion O(Tdiff N k ), and quadtree splitting/TopK selection near-linear in N (i.e., ˜O(N ), or O(DN ) with depth D). As these costs are not incurred per decoder layer, they are amor-tized by the per-layer savings from reducing the attended length from N to K, especially during prefill. A more detailed quantitative breakdown of the pruning overhead, end-to-end latency, and memory footprint, together with concrete numerical instantiations of the FLOPs formulas above, is provided in Appendix C. 
+
+## 5. Experiments 
+
+5.1. Experimental Setup Benchmarks. We validate our approach on a diverse suite of established benchmarks for visual understanding. For image understanding task, we consider ten datasets, includ-ing GQA (Hudson & Manning, 2019), MMBench (MMB) and MMB-CN (Liu et al., 2024d), MME (Fu et al., 2023), POPE (Li et al., 2023), VizWiz (Bigham et al., 2010), Sci-enceQA (SQA) (Lu et al., 2022), VQA v2 (VQA V2 ) (Goyal et al., 2017) and TextVQA (VQA Text ) (Singh et al., 2019). For video understanding task, we additionally evaluate on MSVD-QA and MSRVTT-QA (Xu et al., 2017). We fol-low the official evaluation protocols and default settings for each benchmark. Further benchmark details are provided in Appendix B.1. 
+
+5.2. Main Results Image Understanding Tasks. Table 1 summarizes the main results on nine image-understanding benchmarks un-der different token budgets. Overall, SpecFlow consis-6Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+tently achieves a strong accuracy–efficiency trade-off across datasets and compression regimes. At a 66.7% token com-pression ratio, SpecFlow attains the best average relative performance (98.7%), incurring only a 1.3% drop from the uncompressed full-token baseline (100%), while outper-forming recent pruning baselines such as VisionZip, Sparse-VLM, and HoloV, and remaining competitive on individual benchmarks. Notably, on MMBench and SQA, SpecFlow even surpasses the unpruned baseline. As the token budget becomes more stringent, SpecFlow degrades gracefully and continues to deliver the best averages at 77.8% and 88.9% token compression ratios (97.8% and 95.6%, respectively). 
+
+Results on LLaVA-NeXT. For a more thorough evalu-ation, we further benchmark SpecFlow on LLaVA-NeXT across the same suite of datasets and compare against cur-rent state-of-the-art training-free pruning methods. Since LLaVA-NeXT adopts a revised image encoding pipeline, the number of visual tokens varies across inputs. To ensure a consistent evaluation protocol, we fix the token budget at 320 (pruned from up to 2880 raw tokens). As reported in Ta-ble 2, SpecFlow delivers the strongest overall performance, while retaining 95.8% of the unpruned baseline performance with an 88.9% reduction in visual tokens. 
+
+Video Understanding Tasks. We evaluate our method on two widely used video question-answering benchmarks. Following the protocol in (Chen et al., 2024b; Zhang et al., 2024b), we report results on the first 1,000 samples of each benchmark and use the Video-ChatGPT (Maaz et al., 2024) score as the primary metric. In Table 3, we treat Video-LLaVA with 2,048 video tokens as the unpruned upper bound, normalized to an average accuracy of 100.0% and a score difference of +0.00. For a fair comparison, all prun-ing methods retain 455 visual tokens (77.8% pruning ra-tio). Under this setting, SpecFlow preserves performance close to the unpruned baseline and consistently outperforms FastV, SparseVLM, and HoloV. These results indicate that SpecFlow remains effective for video inputs with temporal dynamics, producing accurate answers while substantially reducing token usage. 
+
+Results on Qwen2.5-VL. To assess architectural general-ity beyond the LLaVA family, we further evaluate SpecFlow on Qwen2.5-VL-7B, which differs from LLaVA in both the visual stack and the multimodal projector. As reported in Table 4, SpecFlow consistently outperforms HoloV across all three pruning ratios, with the margin growing under more aggressive compression (e.g., 89.4% vs. 87.3% relative ac-curacy at 88.9% pruning). This indicates that the proposed mechanism, which combines graph diffusion with adaptive regional allocation and sink-based context preservation, gen-eralizes well to different MLLM architectures and is not tied to a specific CLIP-style encoder or projector design.    
+
+> Figure 2. Ablation study on diffusion operators. Our KNN graph (built from token feature similarity) outperforms raw self-attention (Token attn) and [CLS] -initialized attention propagation ( [CLS]
+> attn).
+> Figure 3. Ablation on pruning strategies. Our Quadtree outper-forms Top-K (direct selection of top-K tokens) and Uni Crop (uniformly partitioned crops), validating adaptive spatial pruning.
+
+5.3. Ablation Studies Ablation on Diffusion Operator. We validate the design choice of constructing a KNN graph based on token feature similarity by comparing it against two variants: raw visual token self-attention ( Token attn ) and [CLS] -initialized at-tention propagation ( [CLS] attn ). As illustrated in Figure 3, our KNN graph-based diffusion consistently outperforms both baselines. Specifically, it achieves 55.3% on GQA and 54.9% on TextVQA, surpassing the Token attn baseline by 5.7% and 4.6%, respectively. These results verify that feature-similarity kNN graphs provide a robust structural basis for diffusion, effectively preserving region coherence while mitigating the noise and artifacts inherent in raw at-tention maps. 
+
+Ablation on Adaptive Spatial Pruning Strategies. To assess the effectiveness of our adaptive quadtree-based prun-ing, we compare it against two non-adaptive strategies: 
+
+Top-K , which selects high-energy tokens without spatial constraints; and Uni Crop , which employs rigid uniform partitioning. As shown in the results, our quadtree ap-proach yields superior performance, reaching 55.3% on GQA and 54.9% on TextVQA. Critically, our method ad-7Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+Table 2. Comparison of pruning methods on Video QA benchmarks. We report the accuracy and average performance at 88.9% pruning ratios. The best performance is marked in red .
+
+Methods GQA MMB MMB CN MME POPE SQA VQA V2 VQA Text VizWiz Average 
+
+Upper Bound, 2880 Tokens 64.2 67.4 60.6 1851 86.5 70.1 81.8 64.9 57.6 100% LLaVA-NeXT (Liu et al., 2024b) 7B Retain 320 Tokens (↓ 88 .9%) 
+
+FastV (Chen et al., 2024b) (ECCV24) 55.9 61.6 51.9 1661 71.7 62.8 71.9 55.7 53.1 88.0% LLaVA-PruMerge (Shang et al., 2025) (ICCV25) 53.6 61.3 55.3 1534 60.8 66.4 69.7 50.6 54.0 85.6% PDrop (Xing et al., 2024) (CVPR25) 56.4 63.4 56.2 1663 77.6 67.5 73.5 54.4 54.1 90.9% FasterVLM (Zhang et al., 2024a) (ICCV25) 56.9 61.6 53.5 1701 83.6 66.5 74.0 56.5 52.6 91.1% HiRED (Arif et al., 2025) (AAAI25) 59.3 64.2 55.9 1690 83.3 66.7 75.7 58.8 54.2 93.3% SparseVLM (Zhang et al., 2024b) (ICML25) 56.1 60.6 54.5 1533 82.4 66.1 71.5 58.4 52.0 89.7% DART (Wen et al., 2025) (EMNLP25) 61.7 65.3 58.2 1710 84.1 68.4 79.1 58.7 56.1 93.9% HoloV (Zou et al., 2025) (NeurIPS25) 61.7 65.3 57.5 1738 83.9 68.9 79.5 58.7 55.3 95.6% SpecFlow (Ours) 62.5 66.7 56.8 1707 85.0 68.6 80.1 59.5 54.2 95.8% Quadtree splitting Reserved tokens      
+
+> case 1 case 2 case 3
+> (a)
+> Original image Prune = 66.7% Prune = 77.8% Prune = 88.9%
+> SpecFlow  HoloV  FastV
+> (b)
+
+Figure 4. Qualitative visualization of token selection and adaptive splitting. (a) Visualization of our energy-based quadtree splitting, showing the induced partitions and the final retained-token layouts across representative cases (b) Comparison of retained visual tokens at different pruning ratios for SpecFlow versus FastV and HoloV. 
+
+Table 3. Video QA Evaluations of different methods with 455 visual tokens retained. 
+
+Methods MSVD-QA MSRVT-QA Average 
+
+Acc. Score Acc. Score Acc. Score Video-LLaVA 7B 70.8 3.93 57.5 3.55 64.2 3.74 FastV (ECCV24) 68.2 3.75 54.1 3.42 61.2 3.59 SparseVLM (ICML25) 69.4 3.89 54.8 3.42 62.1 3.66 HoloV (NeurIPS25) 69.3 3.90 56.2 3.50 62.8 3.70 SpecFlow (Ours) 70.3 3.94 56.5 3.50 63.4 3.72 
+
+dresses the limitations of the baselines: while Top-K often results in spatial fragmentation and Uni Crop inefficiently al-locates budget to low-importance backgrounds, our quadtree method adaptively refines granularity based on energy varia-tion. This mechanism creates finer partitions in semantically salient regions to preserve detail, and coarser ones in uni-form backgrounds to reduce redundancy. This design strikes an optimal balance between semantic preservation and spa-tial coverage, translating into significant performance gains. 
+
+5.4. Discussion 
+
+SpecFlow’s advantage stems from coupling a structure-aware importance signal with spatially balanced to-ken retention. We perform energy diffusion on the token graph so that semantically similar tokens can 
+
+Table 4. SpecFlow Generalization on Qwen2.5-VL. 
+
+Methods MME POPE SQA VQA Text Avg. 
+
+Upper Bound 2304 86.1 84.7 84.8 100.0% Qwen2.5-VL-7B Retain 192 Tokens ( ↓66.7%) 
+
+HoloV (NeurIPS25) 2066 85.0 79.1 77.3 93.2% SpecFlow (Ours) 2102 85.2 80.0 79.2 94.5% 
+
+Qwen2.5-VL-7B Retain 128 Tokens ( ↓77.8%) 
+
+HoloV (NeurIPS25) 2029 81.5 79.1 69.2 89.4% SpecFlow (Ours) 2051 83.7 79.9 73.8 91.9% 
+
+Qwen2.5-VL-7B Retain 64 Tokens ( ↓88.9%) 
+
+HoloV (NeurIPS25) 1998 80.7 79.5 63.6 87.3% SpecFlow (Ours) 2015 81.1 79.7 69.4 89.4% 
+
+Figure 5. Cumulative mass (sorted) over visual token proportion for different im-portance measures. 
+
+propagate importance to each other, which mitigates the frag-mentation of coherent objects under aggressive pruning and prevents a small set of peak tokens from dominating the budget. Meanwhile, the dif-fused energy remains suffi-ciently discriminative, avoid-ing the overly smooth behavior that text-vision attention can exhibit (Zhang et al., 2025; Zou et al., 2025), and thus bet-ter separates salient from non-salient tokens, as evidenced 8Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+by the cumulative mass distribution in Figure 5. Building on this importance signal, we further introduce an energy-based quadtree splitting strategy that adaptively partitions the image into regions of varying visual complexity and as-signs a per-region token quota. As illustrated in Figure 4(a), this regional budgeting preserves object integrity while in-creasing spatial coverage, producing retained-token layouts that capture key structures across the scene instead of col-lapsing the budget onto a small area. Consequently, under extreme pruning ratios, SpecFlow maintains substantially better subject completeness than existing methods, as shown in Figure 4(b). 
+
+## 6. Conclusion 
+
+We presented SpecFlow, a training-free framework for effi-cient VLM inference that replaces destructive token pruning with conservative token condensation. SpecFlow computes a stable importance field via spectral heat diffusion on a 
+
+kNN token graph, enforces spatial coverage through adap-tive quadtree budgeting, and summarizes removed tokens with lightweight sink tokens to preserve context and di-versity. Experiments on multiple image and video bench-marks show that SpecFlow achieves substantial visual to-ken reduction with minimal accuracy loss, outperforming strong training-free baselines and remaining compatible with FlashAttention. 
+
+## Acknowledgments 
+
+This work was supported by the Open Fund of National Key Laboratory of Deep Space Exploration (NKDSEL2025008). 
+
+## Impact Statement 
+
+This paper presents SpecFlow, a training-free framework for efficient inference in vision-language models (VLMs) via conservative token condensation. By selecting a smaller set of region-coherent visual tokens and aggregating pruned information into lightweight sink tokens, SpecFlow can re-duce the computational and memory cost of VLM inference, especially in the prefill stage. These efficiency gains may lower latency and monetary cost per query and reduce en-ergy consumption, potentially enabling broader access to real-time and on-device VLM applications such as assistive interfaces, interactive education, and robotics. However, improved efficiency can also lower the barrier to deploying VLMs at scale. When combined with power-ful generative or retrieval systems, faster VLM inference could facilitate high-volume uses that raise ethical concerns, including privacy-invasive monitoring, large-scale content analysis, or the amplification of misleading or harmful mul-timodal content. While SpecFlow does not introduce new model capabilities or new training data by itself, it can in-crease throughput and thus the scale at which downstream systems are used. We therefore recommend that deploy-ments preserve and strengthen existing safety measures, including content filtering, rate limiting, logging/auditing, and compliance with applicable privacy and data-protection regulations. A further risk is that aggressive token budgets may degrade performance on some inputs (e.g., small objects, dense text, or rare visual concepts), which could be harmful in high-stakes settings. We recommend validating token budgets on the target domain, monitoring failure cases, and providing fallbacks (e.g., less compression, full-token inference, or hu-man oversight) when uncertainty is high. Finally, SpecFlow inherits limitations and potential biases of the underlying VLMs and evaluation datasets; practitioners should consider domain-specific bias and robustness testing before deploy-ment. 
+
+## References 
+
+Arif, K. H. I., Yoon, J., Nikolopoulos, D. S., Vandieren-donck, H., John, D., and Ji, B. Hired: Attention-guided token dropping for efficient inference of high-resolution vision-language models. In Proceedings of the AAAI Con-ference on Artificial Intelligence , volume 39, pp. 1773– 1781, 2025. Bai, J., Bai, S., Yang, S., Wang, S., Tan, S., Wang, P., Lin, J., Zhou, C., and Zhou, J. Qwen-vl: A frontier large vision-language model with versatile abilities. arXiv preprint arXiv:2308.12966 , 2023. Bai, S., Liu, Y., Han, Y., Zhang, H., Tang, Y., Zhou, J., and Lu, J. Self-calibrated clip for training-free open-vocabulary segmentation. IEEE Transactions on Image Processing , 2025. Bigham, J. P., Jayant, C., Ji, H., Little, G., Miller, A., Miller, R. C., Miller, R., Tatarowicz, A., White, B., White, S., et al. Vizwiz: nearly real-time answers to visual questions. In Proceedings of the 23nd annual ACM symposium on User interface software and technology , pp. 333–342, 2010. Bolya, D., Fu, C.-Y., Dai, X., Zhang, P., Feichtenhofer, C., and Hoffman, J. Token merging: Your vit but faster. arXiv preprint arXiv:2210.09461 , 2022. Boyd, S. and Vandenberghe, L. Convex optimization . Cam-bridge university press, 2004. Chen, L., Li, J., Dong, X., Zhang, P., He, C., Wang, J., Zhao, F., and Lin, D. Sharegpt4v: Improving large multi-modal models with better captions. In European Conference on Computer Vision , pp. 370–387. Springer, 2024a. 9Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+Chen, L., Zhao, H., Liu, T., Bai, S., Lin, J., Zhou, C., and Chang, B. An image is worth 1/2 tokens after layer 2: Plug-and-play inference acceleration for large vision-language models. In European Conference on Computer Vision , pp. 19–35. Springer, 2024b. Chen, Z., Wu, J., Wang, W., Su, W., Chen, G., Xing, S., Zhong, M., Zhang, Q., Zhu, X., Lu, L., et al. Internvl: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 24185–24198, 2024c. Coifman, R. R. and Lafon, S. Diffusion maps. Applied and computational harmonic analysis , 21(1):5–30, 2006. Dao, T. Flashattention-2: Faster attention with bet-ter parallelism and work partitioning. arXiv preprint arXiv:2307.08691 , 2023. Dao, T., Fu, D., Ermon, S., Rudra, A., and R ´e, C. Flashat-tention: Fast and memory-efficient exact attention with io-awareness. Advances in neural information processing systems , 35:16344–16359, 2022. Dosovitskiy, A. An image is worth 16x16 words: Trans-formers for image recognition at scale. arXiv preprint arXiv:2010.11929 , 2020. Feldman, D. and Langberg, M. A unified framework for approximating and clustering data. In Proceedings of the forty-third annual ACM Symposium on Theory of Computing , pp. 569–578, 2011. Fu, C., Chen, P., Shen, Y., Qin, Y., Zhang, M., Lin, X., Yang, J., Zheng, X., Li, K., Sun, X., et al. MME: A comprehen-sive evaluation benchmark for multimodal large language models. arXiv:2306.13394 , 2023. Ghandi, T., Pourreza, H., and Mahyar, H. Deep learning approaches on image captioning: A review. ACM Com-puting Surveys , 56(3):1–39, 2023. Goyal, Y., Khot, T., Summers-Stay, D., Batra, D., and Parikh, D. Making the v in vqa matter: Elevating the role of image understanding in visual question answer-ing. In Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 6904–6913, 2017. Guo, J., Li, J., Li, D., Tiong, A. M. H., Li, B., Tao, D., and Hoi, S. From images to textual prompts: Zero-shot visual question answering with frozen large language models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 10867–10877, 2023. Horn, R. A. and Johnson, C. R. Matrix analysis . Cambridge university press, 2012. Hudson, D. A. and Manning, C. D. Gqa: A new dataset for real-world visual reasoning and compositional question answering. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 6700– 6709, 2019. Huynh, N. D., Bouadjenek, M. R., Aryal, S., Razzak, I., and Hacid, H. Visual question answering: from early developments to recent advances–a survey. arXiv preprint arXiv:2501.03939 , 2025. Jeh, G. and Widom, J. Scaling personalized web search. In Proceedings of the 12th international conference on World Wide Web , pp. 271–279, 2003. Kelly, F. P., Maulloo, A. K., and Tan, D. K. H. Rate con-trol for communication networks: shadow prices, propor-tional fairness and stability. Journal of the Operational Research society , 49(3):237–252, 1998. Kondratyuk, D., Yu, L., Gu, X., Lezama, J., Huang, J., Schindler, G., Hornung, R., Birodkar, V., Yan, J., Chiu, M.-C., et al. Videopoet: A large language model for zero-shot video generation. arXiv preprint arXiv:2312.14125 ,2023. Kreyszig, E. Introductory functional analysis with applica-tions . John Wiley & Sons, 1991. Kuang, J., Shen, Y., Xie, J., Luo, H., Xu, Z., Li, R., Li, Y., Cheng, X., Lin, X., and Han, Y. Natural language understanding and inference with mllm in visual question answering: A survey. ACM Computing Surveys , 57(8): 1–36, 2025. Li, Y., Du, Y., Zhou, K., Wang, J., Zhao, W. X., and Wen, J.-R. Evaluating object hallucination in large vision-language models. arXiv:2305.10355 , 2023. Li, Y., Wang, C., and Jia, J. Llama-vid: An image is worth 2 tokens in large language models. In European Conference on Computer Vision , pp. 323–340. Springer, 2024. Li, Y., Zhang, Y., Wang, C., Zhong, Z., Chen, Y., Chu, R., Liu, S., and Jia, J. Mini-gemini: Mining the potential of multi-modality vision language models. IEEE Trans-actions on Pattern Analysis and Machine Intelligence ,2025a. Li, Z., Qian, D., Su, K., Diao, Q., Xia, X., Liu, C., Yang, W., Zhang, T., and Yuan, Z. Bindweave: Subject-consistent video generation via cross-modal integration. arXiv preprint arXiv:2510.00438 , 2025b. Li, Z., Wang, Y., Xiong, G., Li, W., Pan, Y., and Zhang, T. Generalized few-shot point cloud segmentation via llm-assisted hyper-relation matching. In Proceedings of the IEEE/CVF international conference on computer vision ,pp. 23063–23073, 2025c. 10 Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+Lin, B., Ye, Y., Zhu, B., Cui, J., Ning, M., Jin, P., and Yuan, L. Video-llava: Learning united visual representation by alignment before projection. In Proceedings of the 2024 conference on empirical methods in natural language processing , pp. 5971–5984, 2024. Liu, H., Li, C., Li, Y., and Lee, Y. J. Improved baselines with visual instruction tuning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 26296–26306, 2024a. Liu, H., Li, C., Li, Y., Li, B., Zhang, Y., Shen, S., and Lee, Y. J. Llavanext: Improved reasoning, ocr, and world knowledge, 2024b. Liu, H., Li, C., Wu, Q., and Lee, Y. J. Visual instruction tun-ing. Advances in neural information processing systems ,36, 2024c. Liu, Y., Duan, H., Zhang, Y., Li, B., Zhang, S., Zhao, W., Yuan, Y., Wang, J., He, C., Liu, Z., et al. Mmbench: Is your multi-modal model an all-around player? In 
+
+European conference on computer vision , pp. 216–233. Springer, 2024d. Lu, P., Mishra, S., Xia, T., Qiu, L., Chang, K.-W., Zhu, S.-C., Tafjord, O., Clark, P., and Kalyan, A. Learn to explain: Multimodal reasoning via thought chains for science question answering. Advances in Neural Infor-mation Processing Systems , 35:2507–2521, 2022. Maaz, M., Rasheed, H., Khan, S., and Khan, F. Video-chatgpt: Towards detailed video understanding via large vision and language models. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pp. 12585–12602, 2024. Page, L., Brin, S., Motwani, R., and Winograd, T. The pagerank citation ranking: Bringing order to the web. Technical report, Stanford infolab, 1999. Radford, A., Kim, J. W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al. Learning transferable visual models from natural language supervision. In International conference on machine learning , pp. 8748–8763. PmLR, 2021. Samet, H. The quadtree and related hierarchical data struc-tures. ACM Computing Surveys (CSUR) , 16(2):187–260, 1984. Shang, Y., Cai, M., Xu, B., Lee, Y. J., and Yan, Y. Llava-prumerge: Adaptive token reduction for efficient large multimodal models. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 22857– 22867, 2025. Singh, A., Natarajan, V., Shah, M., Jiang, Y., Chen, X., Batra, D., Parikh, D., and Rohrbach, M. Towards vqa models that can read. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pp. 8317–8326, 2019. Team, G., Anil, R., Borgeaud, S., Alayrac, J.-B., Yu, J., Sori-cut, R., Schalkwyk, J., Dai, A. M., Hauth, A., Millican, K., et al. Gemini: a family of highly capable multimodal models. arXiv preprint arXiv:2312.11805 , 2023. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., and Polosukhin, I. Atten-tion is all you need. Advances in Neural Information Processing Systems , 30, 2017. Von Luxburg, U. A tutorial on spectral clustering. Statistics and computing , 17(4):395–416, 2007. Wang, F., Mei, J., and Yuille, A. Sclip: Rethinking self-attention for dense vision-language inference. In Eu-ropean Conference on Computer Vision , pp. 315–332. Springer, 2024a. Wang, Y., Li, K., Li, X., Yu, J., He, Y., Chen, G., Pei, B., Zheng, R., Wang, Z., Shi, Y., et al. Internvideo2: Scaling foundation models for multimodal video understanding. In European Conference on Computer Vision , pp. 396– 416. Springer, 2024b. Wen, Z., Gao, Y., Wang, S., Zhang, J., Zhang, Q., Li, W., He, C., and Zhang, L. Stop looking for important tokens in multimodal language models: Duplication matters more. 
+
+arXiv preprint arXiv:2502.11494 , 2025. Xing, L., Huang, Q., Dong, X., Lu, J., Zhang, P., Zang, Y., Cao, Y., He, C., Wang, J., Wu, F., et al. Pyramid-drop: Accelerating your large vision-language models via pyramid visual redundancy reduction. arXiv preprint arXiv:2410.17247 , 2024. Xu, D., Zhao, Z., Xiao, J., Wu, F., Zhang, H., He, X., and Zhuang, Y. Video question answering via gradually refined attention over appearance and motion. In Proceed-ings of the ACM international conference on Multimedia ,pp. 1645–1653, 2017. Yang, S., Chen, Y., Tian, Z., Wang, C., Li, J., Yu, B., and Jia, J. Visionzip: Longer is better but not necessary in vision language models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 19792–19802, 2025. Zhang, Q., Cheng, A., Lu, M., Zhuo, Z., Wang, M., Cao, J., Guo, S., She, Q., and Zhang, S. [cls] attention is all you need for training-free visual token pruning: Make vlm inference faster. arXiv e-prints , pp. arXiv–2412, 2024a. 11 Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+Zhang, Q., Cheng, A., Lu, M., Zhang, R., Zhuo, Z., Cao, J., Guo, S., She, Q., and Zhang, S. Beyond text-visual atten-tion: Exploiting visual cues for effective token pruning in vlms. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 20857–20867, 2025. Zhang, Y., Fan, C.-K., Ma, J., Zheng, W., Huang, T., Cheng, K., Gudovskiy, D., Okuno, T., Nakata, Y., Keutzer, K., et al. Sparsevlm: Visual token sparsification for effi-cient vision-language model inference. arXiv preprint arXiv:2410.04417 , 2024b. Zhao, H. H., Zhou, P., Gao, D., Bai, Z., and Shou, M. Z. Lova3: Learning to visual question answering, asking and assessment. Advances in Neural Information Processing Systems , 37:115146–115175, 2024. Zhou, D., Bousquet, O., Lal, T., Weston, J., and Sch¨ olkopf, B. Learning with local and global consistency. Advances in Neural Information Processing Systems , 16, 2003. Zhu, X., Ghahramani, Z., and Lafferty, J. D. Semi-supervised learning using gaussian fields and harmonic functions. In Proceedings of the 20th International con-ference on Machine learning (ICML-03) , pp. 912–919, 2003. Zou, X., Lu, D., Wang, Y., Yan, Y., Lyu, Y., Zheng, X., Zhang, L., and Hu, X. Don’t just chase” highlighted tokens” in mllms: Revisiting visual holistic context reten-tion. arXiv preprint arXiv:2510.02912 , 2025. 12 Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+## A. Additional Theoretical Details 
+
+A.1. HeatFlow Diffusion: Fixed Point, Mass Preservation, and Dirichlet View 
+
+This appendix provides proofs and auxiliary lemmas for Proposition 3.1. Throughout, W ∈ RN ×N is the nonnegative row-stochastic transition matrix in Eq. (5) (i.e., W 1 = 1), and α ∈ (0 , 1) is the diffusion strength in Eq. (2). 
+
+A.1 Contraction and unique fixed point (no symmetry required). Define the restart-diffusion operator 
+
+T (e) ≜ (1 − α)e(0) + αW ⊤e. (22) 
+
+Lemma A.1 (Contraction and unique fixed point of Eq. (2) ). Assume W ≥ 0 and W 1 = 1 with α ∈ (0 , 1) . Then T in Eq. (22) is an α-contraction under the ℓ1 norm: 
+
+∥T (e) − T (e′)∥1 ≤ α∥e − e′∥1, ∀e, e ′ ∈ RN . (23) 
+
+Consequently, Eq. (2) admits a unique fixed point e⋆ satisfying 
+
+(I − αW ⊤)e⋆ = (1 − α)e(0) , (24) 
+
+and the iterates converge linearly: ∥e(t) − e⋆∥1 ≤ αt∥e(0) − e⋆∥1.Proof. For any matrix M , ∥M x ∥1 ≤ ∥ M ∥1∥x∥1 where ∥M ∥1 = max j
+
+P 
+
+> i
+
+|Mij | (Horn & Johnson, 2012). Since W ≥ 0
+
+and each row of W sums to 1, we have 
+
+∥W ⊤∥1 = max 
+
+> j
+
+X
+
+> i
+
+(W ⊤)ij = max 
+
+> j
+
+X
+
+> i
+
+Wji = max 
+
+> j
+
+ X 
+
+> i
+
+Wji 
+
+
+
+= 1 .
+
+Therefore, 
+
+∥T (e) − T (e′)∥1 = α∥W ⊤(e − e′)∥1 ≤ α∥W ⊤∥1∥e − e′∥1 = α∥e − e′∥1,
+
+proving Eq. (23) . By Banach’s fixed-point theorem (Kreyszig, 1991), T has a unique fixed point e⋆. The fixed-point equation T (e⋆) = e⋆ is equivalent to Eq. (24). The linear convergence bound follows directly from contraction. 
+
+A.2 Mass preservation (justifies optional renormalization). Lemma A.2 (Mass preservation under restart diffusion) . Assume W ≥ 0 and W 1 = 1. If 1⊤e(0) = 1 and e(0) ≥ 0, then for all t ≥ 0,
+
+1⊤e(t) = 1 , e(t) ≥ 0. (25) 
+
+Proof. Nonnegativity follows by induction since e(t+1) = (1 − α)e(0) + αW ⊤e(t) is a nonnegative combination of nonnegative vectors (as W ⊤ ≥ 0). For mass, use 1⊤W ⊤ = ( W 1)⊤ = 1⊤:
+
+1⊤e(t+1) = (1 − α)1⊤e(0) + α1⊤W ⊤e(t) = (1 − α) · 1 + α1⊤e(t).
+
+If 1⊤e(t) = 1 , then 1⊤e(t+1) = 1 . Since it holds at t = 0 , it holds for all t.
+
+A.3 Dirichlet view under symmetrized affinity (proof of Prop. 3.1). Proposition 3.1 additionally assumes that W is obtained by row-normalizing a symmetric affinity matrix. Concretely, define S ∈ RN ×N and D = diag( S1 ) such that 
+
+S = S⊤ ≥ 0, Dii > 0, W = D−1S. (26) This holds, for instance, when we use a symmetrized KNN edge set and set Sij = exp( τ sim( zi, z j )) on edges and 0
+
+otherwise. 
+
+Lemma A.3 (Dirichlet energy identity) . If S = S⊤ ≥ 0 and D = diag( S1 ), then for any f ∈ RN ,
+
+f ⊤(D − S)f = 12
+
+> N
+
+X
+
+> i=1
+> N
+
+X
+
+> j=1
+
+Sij (fi − fj )2. (27) 13 Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+Proof. Expand the RHS: 
+
+X
+
+> i,j
+
+Sij (fi − fj )2 = X
+
+> i,j
+
+Sij (f 2 
+
+> i
+
++ f 2 
+
+> j
+
+− 2fifj ) = 2 X
+
+> i
+
+ X 
+
+> j
+
+Sij 
+
+
+
+f 2 
+
+> i
+
+− 2 X
+
+> i,j
+
+Sij fifj .
+
+Since P 
+
+> j
+
+Sij = Dii and P 
+
+> i,j
+
+Sij fifj = f ⊤Sf , the RHS equals 2f ⊤Df − 2f ⊤Sf = 2 f ⊤(D − S)f . Divide by 2 to obtain Eq. (27). 
+
+Proof of Proposition 3.1. We first show that the fixed point exists and is unique. Under Eq. (26) , W is row-stochastic, so Lemma A.1 applies and guarantees a unique fixed point e⋆ solving (I − αW ⊤)e⋆ = (1 − α)e(0) .Next, define the objective in Proposition 3.1: 
+
+J (e) = 12 D−1e − D−1e(0) 2 
+
+> D
+
++ α
+
+2(1 − α) (D−1e)⊤(D − S)( D−1e),
+
+where ∥u∥2 
+
+> D
+
+= u⊤Du . Let f = D−1e and f0 = D−1e(0) . Then J (e) can be rewritten as a function of f :
+
+J (e) ≡ eJ (f ) = 12 ∥f − f0∥2 
+
+> D
+
++ α
+
+2(1 − α) f ⊤(D − S)f. (28) Since D ≻ 0 (diagonal with positive entries) and (D − S) ⪰ 0 (graph Laplacian), eJ is strictly convex and thus admits a unique minimizer (Boyd & Vandenberghe, 2004). Compute the gradient w.r.t. f :
+
+∇f eJ (f ) = D(f − f0) + α
+
+1 − α (D − S)f. 
+
+Setting ∇f eJ (f ) = 0 and multiplying by (1 − α) yields 
+
+(1 − α)D(f − f0) + α(D − S)f = 0 ⇐⇒ (D − αS)f = (1 − α)Df 0.
+
+Substituting f = D−1e and f0 = D−1e(0) gives 
+
+(D − αS)D−1e = (1 − α)e(0) ⇐⇒ (I − αSD−1)e = (1 − α)e(0) .
+
+Finally, since W ⊤ = ( D−1S)⊤ = SD−1, we obtain 
+
+(I − αW ⊤)e = (1 − α)e(0) ,
+
+which matches the fixed-point equation. By uniqueness of the minimizer, the optimizer of J (e) is exactly e⋆.
+
+A.2. Quota Allocation and Integer Rounding for Quadtree Pruning 
+
+This appendix provides proof for Proposition 4.1 and a feasibility guarantee for the integer rounding procedure described in Sec. 4.2. Recall that C denotes the set of quadtree leaf crops, M (c) = P 
+
+> (r,t )∈c
+
+Er,t is the energy mass, and the fractional quota is 
+
+ˆqc = K · M (c)
+
+P 
+
+> c′∈C
+
+M (c′) . (29) 
+
+Proof of Proposition 4.1. Consider the concave optimization problem in Eq. (12) (Kelly et al., 1998): 
+
+max 
+
+> {qc>0}
+
+X
+
+> c∈C
+
+M (c) log qc s.t. X
+
+> c∈C
+
+qc = K. 
+
+The Lagrangian is L(q, λ ) = P 
+
+> c
+
+M (c) log qc − λ  P  
+
+> c
+
+qc − K. Stationarity gives ∂L/∂q c = M (c)/q c − λ = 0 , hence 
+
+qc = M (c)/λ for all c. Imposing P 
+
+> c
+
+qc = K yields λ =   
+
+> P
+> cM(c)
+> K
+
+, and thus qc = K · M (c)P   
+
+> c′M(c′)
+
+≡ ˆqc. Since the objective is strictly concave over qc > 0, the optimizer is unique. 14 Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+Feasible integer rounding with capacity constraints. In Sec. 4.2, we form the initial integer quotas by flooring and clipping: q(0)  
+
+> c
+
+← min  |c|, ⌊ˆqc⌋ (Eq. (13) ), and then distribute the remaining budget to crops with available capacity until P 
+
+> c
+
+qc = K.
+
+Lemma A.4 (Feasibility of the floor+clip+fill rounding procedure) . Assume 0 < K ≤ N and P 
+
+> c∈C
+
+|c| = N (i.e., C is a disjoint cover of the H × W grid). Let q(0)  
+
+> c
+
+= min  |c|, ⌊ˆqc⌋, and let R = K − P 
+
+> c∈C
+
+q(0)  
+
+> c
+
+≥ 0. Consider any procedure that performs R unit increments, each time choosing a crop c with qc < |c| and setting qc ← qc + 1 . Then the resulting integer quotas satisfy X
+
+> c∈C
+
+qc = K, 0 ≤ qc ≤ | c| ∀ c ∈ C . (30) 
+
+In particular, the “descending M (c)” filling strategy in Sec. 4.2 is feasible. Proof. By construction, 0 ≤ q(0)  
+
+> c
+
+≤ | c| and P 
+
+> c
+
+q(0)  
+
+> c
+
+≤ P 
+
+> c
+
+ˆqc = K, hence R ≥ 0. The total remaining capacity after the initial step is X
+
+> c
+
+(|c| − q(0)  
+
+> c
+
+) ≥ X
+
+> c
+
+|c| − X
+
+> c
+
+q(0)  
+
+> c
+
+= N − X
+
+> c
+
+q(0)  
+
+> c
+
+≥ K − X
+
+> c
+
+q(0)  
+
+> c
+
+= R, 
+
+where we used K ≤ N . Therefore, there exists sufficient capacity to perform R unit increments without violating 
+
+qc ≤ | c|. Each increment increases P 
+
+> c
+
+qc by 1 while maintaining qc ≤ | c| by choice of c. After exactly R increments, 
+
+P 
+
+> c
+
+qc = P 
+
+> c
+
+q(0)  
+
+> c
+
++ R = K.
+
+A.3. Properties of Sink Tokens (Mean + Residual) 
+
+This appendix provides basic properties of the sink construction in Eq. (15) . Let ¯S denote the pruned index set, and assume 
+
+| ¯S| > 0. (If | ¯S| = 0 , sink tokens are omitted.) 
+
+Lemma A.5 (Mean sink is the optimal 1-mean (least-squares prototype)) . The mean sink umean = 1 
+
+> |¯S|
+
+P  
+
+> i∈¯S
+
+Xi is the unique minimizer of 
+
+min 
+
+> u∈Rd
+
+X 
+
+> i∈¯S
+
+∥Xi − u∥22. (31) 
+
+Proof. Expand the objective: P 
+
+> i
+
+∥Xi − u∥22 = P
+
+> i
+
+(∥Xi∥22 − 2u⊤Xi + ∥u∥22). Differentiating w.r.t. u gives ∇u =
+
+−2 P 
+
+> i
+
+Xi + 2 | ¯S| u. Setting ∇u = 0 yields u = 1 
+
+> |¯S|
+
+P 
+
+> i
+
+Xi = umean . Strict convexity in u implies uniqueness. 
+
+Lemma A.6 (Residual sink as a radius certificate) . Let ures = Xi⋆ where i⋆ = arg max i∈ ¯S ∥Xi − umean ∥2, and define the residual radius r ≜ ∥ures − umean ∥2. Then for all i ∈ ¯S, ∥Xi − umean ∥2 ≤ r. Moreover, for any vector v ∈ Rd,
+
+max  
+
+> i∈¯S
+
+v⊤(Xi − umean ) ≤ ∥ v∥2 r. (32) 
+
+Proof. The first claim follows directly from the definition of i⋆. For the second, Cauchy–Schwarz yields |v⊤(Xi −umean )| ≤ ∥v∥2 ∥Xi − umean ∥2 ≤ ∥ v∥2 r, and taking the maximum over i completes the proof. 
+
+## B. Detailed Experiment Settings 
+
+B.1. Benchmarks 
+
+We evaluated our method on several widely used benchmarks for visual understanding. For image understanding, we considered nine datasets: GQA (Hudson & Manning, 2019); MMBench (MMB)(Liu et al., 2024d) and its Chinese split MMB-CN (Liu et al., 2024d); MME (Fu et al., 2023); POPE (Li et al., 2023); VizWiz (Bigham et al., 2010); SQA (ScienceQA) (Lu et al., 2022); VQA v2 (VQAV2) (Goyal et al., 2017); and TextVQA (VQAText) (Singh et al., 2019). 
+
+GQA (Hudson & Manning, 2019) GQA is a compositional visual question answering benchmark built around three core elements: images, structured scene annotations (scene graphs), and questions. Beyond the raw images, the dataset provides object-level information such as locations and attributes. Its questions are designed to probe not only visual recognition but also relational and compositional reasoning over the depicted scene. 15 Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+MMBench (Liu et al., 2024d). MMBench is a multi-dimensional benchmark for evaluating multimodal models. It adopts a three-level ability taxonomy. The first level, L-1, measures two high-level capabilities, perception and reasoning. The second level, L-2, refines these into six sub-abilities. The third level, L-3, provides the most detailed view by specifying 20 fine-grained ability dimensions, enabling a comprehensive analysis of model behavior. 
+
+MME (Fu et al., 2023). MME serves as a broad benchmark for measuring multimodal model capabilities from multiple perspectives. It consists of 14 subtasks that separately test different aspects of perception and reasoning. The evaluation is formulated with instruction and answer pairs, using concise instructions to reduce potential leakage and improve consistency, which supports a more reliable and fair comparison across models. 
+
+POPE (Li et al., 2023). POPE is designed to quantify object hallucination in vision language models. It evaluates whether a model incorrectly claims that an object exists in an image by asking targeted yes or no questions about object presence. Performance is summarized with Accuracy, Recall, Precision, and F1 under three sampling protocols, which together offer a reliable view of hallucination tendencies and object grounded behavior. 
+
+ScienceQA (Lu et al., 2022). ScienceQA is a broad science question answering benchmark covering disciplines such as natural science, language-related subjects, and social science. It organizes questions with a hierarchical label system that includes topics, categories, and skills, totaling 26 topics, 127 categories, and 379 skills. This structure supports diverse problem types and enables evaluation of multimodal comprehension, multi-step reasoning, and interpretability. 
+
+VQA-V2 (Goyal et al., 2017). VQA-v2 is a large-scale visual question answering benchmark that tests visual understanding using open-ended questions about natural images. It contains 265,016 images covering diverse everyday scenes and objects. For each question, the dataset provides 10 human-annotated reference answers, which supports robust scoring and reduces sensitivity to individual annotator variation. 
+
+TextVQA (Singh et al., 2019). TextVQA targets settings where answering a question requires reading text that appears inside the image. The task evaluates whether a model can combine visual understanding with text recognition and use the extracted words to support reasoning. Questions therefore depend on both scene content and embedded textual cues, rather than purely visual signals. 
+
+MSVD-QA (Xu et al., 2017). MSVD-QA is a video question answering benchmark built from the Microsoft Research Video Description (MSVD) dataset. It contains 1,970 short video clips and about 50.5K associated question-answer pairs. The questions cover diverse aspects of the video content and are commonly used to evaluate video QA, and in some settings also video captioning related capabilities. Question types are grouped into five classes, namely what, who, how, when, and where. 
+
+MSRVTT-QA (Xu et al., 2017). MSRVTT-QA is a large-scale video QA benchmark comprising 10K videos and roughly 243K question-answer pairs. The dataset emphasizes reasoning over dynamic content, so accurate answers often depend on capturing both appearance information and temporal evolution across frames. As in MSVD-QA, questions are organized into five types, including what, who, how, when, and where, which supports fine-grained evaluation by question category. 
+
+B.2. Implementation Details 
+
+All of our experiments are conducted on Nvidia A6000 GPU. The implementation was carried out in Python 3.10, utilizing PyTorch 2.1.2, and CUDA 12.1. All baseline settings follow the original paper. For our method, we set the number of diffusion steps for energy propagation to 2. In the quadtree partitioning process, we configure the minimum height and width of each crop (denoted as m in Eq. 8) to 4, which defines the finest granularity of spatial division. 
+
+## C. Detailed Computational Complexity Analysis 
+
+In this appendix, we provide a detailed empirical analysis of the computational cost of SpecFlow, complementing the formal treatment in Sec. 4.4. We report (i) end-to-end wall-clock latency, prefill time, and GPU memory, (ii) a fine-grained breakdown of the pruning-stage overhead, and (iii) a FLOPs comparison under aggressive pruning. 
+
+C.1. End-to-End Wall-Clock Profiling 
+
+We measure practical efficiency on the NVIDIA RTX A6000 GPU using LLaVA-1.5-7B. We report prefill time, end-to-end latency, and peak GPU memory. Two pruning ratios are considered: a moderate setting (192 retained tokens, 66 .7% pruning) 16 Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+and an aggressive setting (64 retained tokens, 88 .9% pruning). Results are summarized in Table 5.                                          
+
+> Table 5. End-to-end efficiency of SpecFlow versus baselines on LLaVA-1.5-7B.
+> Method Tokens Prune % Prefill (ms) Latency (s) Mem. (GB)
+> Vanilla 576 0.0 86.6 0.397 19.2 FastV 192 66.7 42.0 0.284 16.2 HoloV 192 66.7 22.0 0.248 15.8
+> SpecFlow (Ours) 192 66.7 24.5 0.259 15.9 FastV 64 88.9 29.0 0.249 15.8 HoloV 64 88.9 14.0 0.221 14.8
+> SpecFlow (Ours) 64 88.9 15.5 0.229 14.8
+
+Two observations follow. First, SpecFlow achieves substantially faster inference than the unpruned baseline: at 88 .9% 
+
+pruning, end-to-end latency drops from 0.397 s to 0.229 s (a 1.73 × speedup) and GPU memory drops from 19 .2 GB to 
+
+14 .8 GB. Second, under the same token budget, SpecFlow introduces only a modest additional overhead relative to the strongest pruning baseline HoloV ( +2 .5 ms prefill at 192 tokens and +1 .5 ms at 64 tokens), while consistently delivering higher accuracy than HoloV under our reported settings. 
+
+C.2. Breakdown of the Pruning-Stage Overhead 
+
+To attribute the runtime cost of SpecFlow to its individual components, we further measure the wall-clock time of each stage: 
+
+kNN graph construction, spectral heat diffusion, and the combined quadtree partitioning, Top-K selection, and sink-token construction. Results are reported in Table 6.                 
+
+> Table 6. Wall-clock breakdown of the SpecFlow pruning module on RTX A6000 with LLaVA-1.5-7B. The total pruning overhead is small relative to the end-to-end latency.
+> Setting kNN Graph Diffusion Quadtree+TopK+Sink Total Latency
+> 192 tokens 1.1 ms 0.6 ms 0.9 ms 2.6 ms 0.259 s 64 tokens 1.1 ms 0.6 ms 1.2 ms 2.9 ms 0.229 s
+
+In both settings, the total pruning overhead is at most 2.9 ms, which corresponds to roughly 1% of the end-to-end latency (0.229 –0.259 s). The kNN graph and diffusion costs are essentially constant across pruning ratios, while the quadtree/Top-
+
+K/sink stage scales mildly with the chosen budget. This confirms that the pruning module is not the runtime bottleneck: the dominant cost still resides in the downstream LLM execution, particularly the decoding stage. 
+
+C.3. FLOPs Comparison Under Aggressive Pruning 
+
+To complement wall-clock measurements with a hardware-agnostic metric, we report total inference FLOPs at the 64 -token setting in Table 7. The unpruned LLaVA-1.5-7B requires 8.12 T FLOPs, while SpecFlow reduces this to 1.26 T FLOPs (−84 .5% ). SpecFlow also consumes fewer FLOPs than FastV at the same token budget ( 1.26 T vs. 1.64 T), even after accounting for the additional graph-diffusion and sink-construction operations introduced by our method.      
+
+> Table 7. Total inference FLOPs at the 64-token setting on LLaVA-1.5-7B.
+> Method FLOPs
+> LLaVA-1.5-7B (vanilla) 8.12 T FastV (64 tokens) 1.64 T
+> SpecFlow (64 tokens) 1.26 T
+
+C.4. Discussion 
+
+Combining the three measurements above, we draw the following conclusions: • Substantial inference speedup. At 88 .9% pruning, SpecFlow reduces end-to-end latency from 0.397 s to 0.229 s and 17 Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models 
+
+peak GPU memory from 19 .2 GB to 14 .8 GB, while retaining 95 .6% of the unpruned model’s accuracy. • Negligible pruning overhead. The combined cost of kNN graph construction, spectral diffusion, and quadtree/sink-token construction stays within 2.6–2.9 ms, i.e., about 1% of the total end-to-end latency. The added structural modules in SpecFlow are therefore not the runtime bottleneck. • Favorable FLOPs. Despite introducing graph-based propagation and sink summarization, SpecFlow requires fewer total FLOPs than FastV at the same 64 -token budget ( 1.26 T vs. 1.64 T), and only 15 .5% of the FLOPs of the unpruned model. Overall, these measurements indicate that SpecFlow is competitive with the strongest pruning baseline (HoloV) in runtime while achieving better accuracy, and it remains efficient in terms of latency, memory, and FLOPs. The added structural mechanisms do not become a practical inference bottleneck. 
+
+## D. Visualization of Attention and Energy Distribution 
+
+To further motivate our design of energy diffusion (HeatFlow), we visualize the distribution and spatial consistency of both raw [CLS] attention scores and our diffused energy scores. This visualization directly addresses the limitations of attention-based pruning highlighted earlier. As shown in Figure 6 (left), raw [CLS] attention yields a spiky distribution that concentrates on a small set of high-value tokens and leaves most tokens with negligible weights. This spiky pattern aligns with the brittle point-wise ranking of existing methods, which risks spatial fragmentation and contextual loss during token pruning. In contrast, Figure 6 (right) shows that HeatFlow transforms this distribution. The density curve spreads across a broader range of values (zoom in for better visualization), and the spatial overlay extends high-energy signals to coherent semantic regions instead of isolated points. This smoothing effect encodes the spatial coherence and contextual dependency of visual tokens, which are ignored by naive attention-based pruning. It ensures our importance scores support robust and structure-preserving token selection. 
+
+## E. Limitations and Future Work 
+
+While SpecFlow achieves strong accuracy and efficiency trade-offs across multiple benchmarks and token budgets, several limitations remain. First, our current evaluation emphasizes accuracy under fixed token budgets and provides FLOPs-based analysis, end-to-end wall-clock measurements (latency, throughput, and peak memory) can depend on hardware, batch size, FlashAttention settings, and the overhead of preprocessing (kNN graph construction, diffusion, and quadtree selection). A thorough systems study that profiles these costs across resolutions and long-video regimes is an important next step. Second, SpecFlow relies on access to intermediate representations (visual token embeddings and attention from the vision encoder), this requirement may limit applicability to black-box VLM APIs or architectures that do not expose reliable CLS attention. Future work could explore more robust or model-agnostic seeding signals (e.g., multi-layer/ multi-head aggregation rules, text-guided cues, or lightweight learned selectors) and adaptive hyperparameters (e.g., diffusion strength/steps, kNN sparsity, and quadtree thresholds) that generalize across backbones without tuning. Third, our coverage-aware pruning currently assumes a 2D token grid and uses a spatial quadtree. For video inputs, temporal structure is not explicitly modeled, and extending the method to spatiotemporal partitioning or 3D diffusion could further improve stability on dynamic scenes. Finally, the proposed mean + residual sink tokens provide a very compact summary of pruned content, which may be insufficient for inputs requiring fine-grained evidence (e.g., small objects, dense text/OCR, counting, or rare attributes). Exploring adaptive numbers of sink tokens, stronger coreset constructions, or task-aware condensation could better preserve rare but critical cues under extreme compression. We also plan to standardize token-budget accounting (including any appended sinks) and expand analyses of failure cases to clarify when conservative condensation may still break down. 18 Spectral Heat Flow for Conservative Token Condensation in Vision-Language Models Distribution Statistics of [CLS] Attention Scores and [CLS] Attention Overlay Distribution Statistics of Energy Scores and Energy Overlay 
+
+Figure 6. Visualization of raw [CLS] attention and HeatFlow-diffused energy. Left: Raw attention exhibits a spiky distribution. Right: Diffused energy is smoothed and covers coherent semantic regions. 
+
+19
