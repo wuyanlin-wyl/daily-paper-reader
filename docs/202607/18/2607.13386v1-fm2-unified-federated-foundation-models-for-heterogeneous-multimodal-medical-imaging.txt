@@ -1,0 +1,949 @@
+Title: FM^2: Unified Federated Foundation Models for Heterogeneous Multimodal Medical Imaging
+
+URL Source: https://arxiv.org/pdf/2607.13386v1
+
+Published Time: Thu, 16 Jul 2026 00:27:27 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# FM 2: Unified Federated Foundation Models for Heterogeneous Multimodal Medical Imaging 
+
+## Shengchao Chen ∗
+
+School of Artificial Intelligence, Shenzhen University Shenzhen, China Australian AI Institute, University of Technology Sydney Sydney, Australia 
+
+## Ting Shu †
+
+School of Artificial Intelligence, Shenzhen University Shenzhen, China 
+
+## Abstract 
+
+Building foundation models for medical imaging requires pooling data across institutions, yet privacy regulations prohibit centralized aggregation. Existing Federated Foundation Models either fine-tune natural-image models with poor medical-domain transfer, or train from scratch within a single modality, lacking the flexibility to unify tasks. We identify an under-explored challenge, Imaging Modality Heterogeneity , where clients operate under two structural regimes: 
+
+Overlapped (shared modalities with heterogeneous label distribu-tions) and Non-overlapped (fully disjoint modalities per client). We propose FM 2, a unified framework that trains the core backbone from scratch to preserve medical domain fidelity while optionally incorporating biomedical pretrained encoders for vision-language alignment. FM 2 equips each client with dual Mixture-of-Experts modules (a Class-wise MoE for personalized category knowledge and a Domain-wise MoE for shared cross-modality representa-tions), coupled with a Heterogeneous Modality Alignment (HMA) regularizer that explicitly aligns modality-specific expert parame-ters, admitting provable O( 1/√𝑇 ) convergence and generalization guarantees. FM 2 further incorporates Caption-Enhanced Learning (CEL) , where locally retained GPT-4o-generated captions serve as a textual semantic bridge enabling representation transfer across clients with disjoint modalities, and demonstrates extensibility to 
+
+Federated Medical VQA . Experiments on our MIMH benchmark (classification and CEL) and real-world medical VQA datasets con-firm consistent superiority over state-of-the-art federated baselines and strong out-of-modality generalization across all three tasks. 
+
+## CCS Concepts 
+
+• Computing methodologies → Computer vision ; Machine learning .
+
+## Keywords 
+
+Federated Learning, Medical Imaging, Data Heterogeneity, Founda-tion Models, Mixture-of-Experts, Medical VQA 
+
+## 1 Introduction 
+
+Foundation Models (FMs) have demonstrated remarkable cross-domain generalization by training large-scale architectures that in-tegrate multiple domain-specific sub-models [ 58 ]. In medical imag-ing, building such FMs requires pooling numerous datasets from  
+
+> ∗Work done during a project-based visiting appointment at Shenzhen University. Email:
+> shengchao.chen.uts@gmail.com .
+> †Corresponding author. Email: tingshu@szu.edu.cn .
+
+diverse institutions. However, strict privacy regulations such as GDPR [ 48 ] and HIPAA [ 14 ] prohibit the centralized aggregation of sensitive clinical data, creating a fundamental tension between model capability and data governance. Federated Foundation Mod-els (FFMs) [ 59 ] resolve this tension by enabling collaborative train-ing across institutions without exposing raw data, making them a natural paradigm for privacy-preserving medical AI. Recent FFMs for medical imaging predominantly fine-tune pre-trained natural-image models, including ViT [ 16 ], CLIP [ 41 ], and SAM [ 28 ], on medical downstream tasks. Liu et al. [ 36 ] fine-tuned SAM for federated medical image segmentation; Wu et al. [ 51 ]adapted CLIP for federated classification. Despite their convenience, these methods inherit a critical limitation: empirical evidence [ 26 ]shows that natural-image representations transfer poorly to the medical domain, where subtle inter-class variations, acquisition noise, and precise anatomical context demand domain-native knowl-edge that pretrained features cannot provide. An alternative line of work trains FFMs from scratch on curated medical data [ 34 , 47 ], acquiring richer domain-specific represen-tations, echoing evidence from other modalities that federating the from-scratch training of a foundation model can match cen-tralized counterparts while neutralizing per-domain bias [ 8]. Yet these efforts target single imaging modalities and single tasks. Real-world clinical AI demands a unified framework that simultaneously handles classification, caption-supervised representation learning, and visual question answering across heterogeneous modalities, under both Overlapped configurations (clients share modalities but with non-IID label distributions) and Non-overlapped configura-tions (each client holds a completely disjoint modality). Existing federated frameworks address at most a subset of these require-ments. The compounding of classical data heterogeneity (non-IID labels) with Imaging Modality Heterogeneity , where feature distributions, noise characteristics, and semantic granularity dif-fer fundamentally across clients, makes standard personalized FL methods, designed for label skew alone, insufficient for this setting. This paper proposes FM 2 (Federated Medical Multimodal foun-dation model), a framework that trains from scratch under Imaging Modality Heterogeneity and extends them to multimodal medical understanding. The core of FM 2 is a dual Mixture-of-Experts (MoE) architecture: a Class-wise MoE retains personalized per-category knowledge locally, while a Domain-wise MoE captures shared cross-modality representations that are globally aggregated. A Heteroge-neous Modality Alignment regularizer constrains the domain-wise experts toward global consensus, for which we prove a convergence arXiv:2607.13386v1 [cs.CV] 15 Jul 2026 MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil Shengchao Chen and Ting Shu 
+
+rate of O( 1/√𝑇 ) and an explicit generalization bound. Beyond clas-sification, FM 2 supports two multimodal extensions: (i) Caption-Enhanced Learning (CEL) , where GPT-4o-generated captions (re-tained locally for privacy) provide federated vision-language con-trastive supervision, serving as a shared semantic bridge that en-riches representations even across clients with disjoint visual modal-ities; and (ii) Federated Medical VQA , demonstrating FM 2’s extensi-bility to natural-language querying of medical images across insti-tutions. Our contributions are summarized as follows: 
+
+• We formalize Imaging Modality Heterogeneity under both Overlapped and Non-overlapped modality regimes, and pro-pose FM 2, the first unified multi-task federated framework addressing both settings simultaneously. 
+
+• We design dual MoE modules with a Heterogeneous Modal-ity Alignment regularizer targeting modality-specific expert drift, and prove O( 1/√𝑇 ) convergence and an explicit gen-eralization bound (Theorem 1–Proposition 2). 
+
+• We introduce Caption-Enhanced Learning (CEL) , where lo-cally retained GPT-4o captions provide a shared textual bridge: language descriptions share a common vocabulary across modalities, enabling representation transfer even when clients hold entirely disjoint visual domains. 
+
+• We construct the MIMH benchmark (five modalities, four configurations) for federated Classification and Caption En-hanced Learning , and additionally evaluate on real-world medical VQA datasets for Federated Medical VQA , confirm-ing consistent superiority across all three tasks with strong out-of-modality generalization. 
+
+## 2 Related Work 
+
+Heterogeneous Federated Learning. FL trains models collabo-ratively across decentralized clients without exposing raw data [ 39 ]. Statistical heterogeneity (non-IID distributions) is a central chal-lenge: naive aggregation causes client drift and degraded conver-gence. Personalized FL (PFL) addresses this through several families of techniques. Regularization-based methods [ 21 , 30 ] add proxi-mal penalties to keep local models close to the global reference while permitting per-client drift; Ditto [ 30 ] exemplifies this by solving a personalized objective with a global proximal term, and FFTS [ 10 ] extends the idea to foundation models by regularizing both client and server side to align knowledge across statistically heterogeneous datasets. Partial-sharing methods split the network into a globally aggregated backbone and a local task-specific head: FedBN [ 32 ] keeps batch normalization layers local to absorb feature shift, FedRep [ 15 ] retains only the classifier locally, and prompt- or adapter-based approaches [ 9, 11 ] share only lightweight parameters while keeping the backbone on-device. Adaptive aggregation [57] weights client contributions by similarity, and meta-learning meth-ods such as Per-FedAvg [ 17 ] learn a shared initialization that en-ables rapid per-client fine-tuning. Despite their diversity, all of these approaches assume a homogeneous feature space and optimize for a single task, making them unsuitable when clients differ fundamen-tally in imaging modality. Mixture-of-experts approaches have also been explored in FL [ 38 , 52 ], yet none disentangle class-level from modality-level heterogeneity simultaneously; centralized missing-modality strategies [ 53 ] are further inapplicable since FL prohibits raw cross-site feature aggregation. 
+
+FL for Medical Images. Federated learning has been applied to privacy-preserving medical image classification [ 12 , 18 , 43 , 49 ]and, more recently, to vision-language tasks including medical VQA [ 29 , 33 ]. For classification, methods such as FedFMS [ 36 ] and FedTCA [ 13 ] are typically task-specific and backbone-dependent, requiring re-engineering for each setting and assuming a single shared imaging modality. For vision-language understanding, Fed-DAT [ 7 ], PromptFL [ 20 ], and F 3OCUS [ 45 ] adapt pretrained VLMs to federated settings via dual adapters, prompt tuning, and client-layer meta-learning, but remain confined to single-modality client sce-narios. No existing method jointly supports classification and VQA under a protocol that handles cross-modality structure. FM 2 fills this gap by disentangling class-level personalization from modality-level consensus via dual MoE modules, enabling unified multi-task training across heterogeneous imaging modalities without task-specific re-engineering. 
+
+## 3 Methodology 3.1 Overview 
+
+Fig. 1 illustrates the FM 2 framework. Each client first trains a local visual encoder F (·) = {F 𝑏 , Fℎ } on its own data. The backbone F𝑏 
+
+then serves as a frozen Observer V that performs Top-𝐾 Sampling to extract representative subsets D1, . . . , D𝑁 per class, forming a sam-pled dataset D𝑠 = Ð𝑁 𝑖 =1 D𝑖 . Two MoE modules, namely Class-wise MoE M𝑐 and Domain-wise MoE M𝑑 , are trained on D𝑠 following 
+
+V. After local updates, V and M𝑑 are uploaded for global aggre-gation; M𝑐 remains local for personalization. V is frozen during stage-2 MoE training but uploaded at round end so the server can aggregate and redistribute a refined backbone for the next round’s stage-1 initialization. For multimodal extension, an optional text en-coder T processes expert-generated captions, and a VQA head Hvqa 
+
+enables question answering, both sharing the same MoE-enhanced visual backbone. 
+
+## 3.2 Dual Mixture-of-Experts for Heterogeneity 
+
+Observer and Top-𝐾 Sampling. In the first training stage, each client trains its local model F with labeled images. The trained backbone, designated as the Observer V = F𝑏 , computes a repre-sentativeness score 𝑆 = Sigmoid (V ( 𝑿 𝑧 )) for each class 𝑧 . Top-𝐾 
+
+Sampling selects the 𝐾 highest-scoring samples per class, forming subsets D1, . . . , D𝑁 (sensitivity analysis of 𝐾 in Appendix B). This observer-guided selection addresses local label drift by ensuring that only the most informative samples enter the second stage. 
+
+Class-wise MoE (CMoE). To handle label heterogeneity, the CMoE 
+
+M𝑐 allocates 𝑁 𝑐 experts (one per local class, 𝑁 𝑐 = 𝑁 ), each special-izing in class-specific feature transformations: 
+
+ˆ𝑿 =
+
+> 𝑁 𝑐
+
+∑︁ 
+
+> n=1
+
+𝑊 n · 𝐸 n (𝑿 mid ), where 𝐸 (𝑿 mid ) = ReLU (MLP (𝑿 mid )) ,
+
+(1) FM 2: Unified Federated Foundation Models for Heterogeneous Multimodal Medical Imaging MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil Local Model Observer  
+
+> Top -k
+> Sampling
+> Local
+> Class #1
+> Local
+> Class #N
+> Ksamples
+> Observer
+> Personalized Class -wise
+> MoE
+> Domain -wise MoE
+
+🔥 ❄
+
+❄ 🔥 
+
+🔥       
+
+> Sampled
+> Dataset Train
+> ……
+> Domain -wise MoE
+> (Client #1)
+> Domain -wise MoE
+> (Client #N)
+> ……
+> Observer (Client #1)
+> Observer (Client #N)
+> ……
+> Global Observer
+> Global Domain -wise
+> MoE
+
+Client Server 
+
+> Representation
+
+𝒟 𝑠 
+
+ℳ𝑐 
+
+ℳ𝑑    
+
+> Expert 2 Expert 𝑁 𝑒 Expert 1
+
+Gating Network 
+
+> ……
+> ……
+
+Architecture of Class/Domain -wise MoE Local Inference 
+
+> Results
+> Observer
+> Samples
+> Domain -wise
+> MoE
+> Class -wise
+> MoE
+
+𝛾 d 𝛾 𝑐 
+
+> Results
+
+[𝒟 1, 𝒟 2, … 𝒟 𝑁 ]
+
+𝒟 1
+
+𝒟 𝑁 Aggregate 
+
+> Aggregate
+
+Client 1 Data 
+
+Client 2 Data 
+
+Client N Data 
+
+> ……
+
+🔥 Learnable 
+
+❄ Frozen                    
+
+> Upload
+> Broadcast
+> what imaging modality
+> is used to acquire this
+> picture?
+> Language Questions
+> This medical image
+> describes axxx
+> Diagnostic Captions
+> Isnormal palmar
+> creases present?
+> Language Questions
+> This medical image
+> describes axxx
+> Diagnostic Captions
+> How is hyperplasia
+> without atypia
+> characterized?
+> Language Questions
+> This medical image
+> describes axxx
+> Diagnostic Captions
+> ……
+
+Multimodal 
+
+Extension 
+
+Figure 1: FM 2 (single-client view). Observer extracts representative samples for training dual MoE modules. Domain-wise MoE is globally aggregated; Class-wise MoE remains local. Text inputs (diagnostic captions for CEL; questions for VQA) are processed by a local text encoder and fused with MoE-enhanced visual features, enabling all downstream tasks within a single protocol. 
+
+where 𝑿 mid and ˆ𝑿 denote latent and output representations, 𝐸 n is the n-th expert network, and 𝑊 n is the gating weight. By decompos-ing the representation space into class-specific subspaces, CMoE transforms the classification problem into learning multiple poten-tial class-specific knowledge bases, each tailored to the client’s local label distribution. The CMoE remains on each client and is never uploaded, preserving personalization. 
+
+Domain-wise MoE (DMoE). To handle modality heterogeneity, the DMoE M𝑑 allocates 𝑁 𝑑 experts (one per imaging modality), each capturing modality-specific feature transformations. Its ar-chitecture mirrors CMoE but with experts indexed by imaging domain rather than class. Expert indices are pre-assigned via a shared global modality vocabulary declared at federation setup, reflecting the practical assumption that each clinical site knows its imaging modality (e.g., a radiology department knows it operates CT scanners); extension to unknown-modality scenarios via online feature clustering is discussed in Appendix C. The DMoE is globally aggregated, enabling cross-client knowledge transfer of domain representations. For inference, the final prediction combines both MoE modules: 
+
+𝑦 = 𝛾 𝑑 · M 𝑑 (V ( 𝑿 )) + 𝛾 𝑐 · M 𝑐 (V ( 𝑿 )) , (2) where 𝛾 𝑑 , 𝛾 𝑐 ∈ [ 0, 1] with 𝛾 𝑑 + 𝛾 𝑐 = 1 balance domain consensus and personalized expertise. 
+
+## 3.3 Heterogeneous Modality Alignment 
+
+Aggregating domain-wise experts across clients with fundamentally different imaging modalities risks introducing consensus bias. We mitigate this through a regularization that explicitly constrains the local DMoE parameters M𝑖 𝑑 toward the global aggregate ˆM𝑑 :
+
+min  
+
+> {𝜃 1,...,𝜃 𝑍 }
+> 𝑍
+
+∑︁ 
+
+> 𝑖 =1
+
+𝑛 𝑖 
+
+𝑛 
+
+L𝑖 (𝜃 𝑖 ; D𝑖 , D𝑖 𝑠 ) + 𝜆 ∥M 𝑖 𝑑 − ˆM𝑑 ∥2 ,
+
+s.t. ˆM𝑑 = arg min 
+
+> M𝑑
+
+𝐺 (M 1 
+
+> 𝑑
+
+, . . . , M𝑍 𝑑 ),
+
+where L𝑖 (𝜃 𝑖 ; D𝑖 , D𝑖 𝑠 ) = −
+
+> 𝐶
+
+∑︁ 
+
+> 𝑐 =1
+
+𝑦 𝑐 log ( ˆ𝑦 𝑖 (𝑥 )) , 𝜃 𝑖 = {V 𝑖 , M𝑖 𝑑 , M𝑖 𝑐 }.
+
+(3) Here 𝜆 > 0 controls the alignment strength, 𝑛 𝑖 /𝑛 weights clients by data volume, and ˆM𝑑 is obtained via FedAvg. The proximal term 𝜆 ∥M 𝑖 𝑑 − ˆM𝑑 ∥2 serves two purposes: it prevents local domain experts from drifting too far from the global consensus while still allowing modality-specific adaptation. Unlike FedProx [ 31 ] and Ditto [ 30 ], which apply a global proximal penalty to the entire model, HMA constrains only the DMoE parameters, exploiting the dual-MoE structure to selectively align modality-specific representations while leaving CMoE fully free for per-client personalization. We establish formal convergence guarantees for this in Sec. 3.5. 
+
+## 3.4 Multimodal Extensions 
+
+The dual MoE architecture provides a modality-aware visual back-bone that naturally supports richer output modalities beyond clas-sification. We introduce two extensions that operate on the same MoE-enhanced features without modifying the core framework. MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil Shengchao Chen and Ting Shu 
+
+Caption-Enhanced Learning (CEL). Medical images encode rich diagnostic information that class labels alone cannot capture, such as lesion morphology, tissue texture, and spatial relationships. This limitation is particularly acute in the Non-overlapped setting (MIMH-SA), where clients hold entirely disjoint imaging modalities: visual feature distributions share no common structure across clients, yet their textual descriptions share a common diagnostic vocabulary regardless of modality. CEL exploits this asymmetry by aligning local visual features with LLM-generated captions through a fed-erated contrastive objective, so that language serves as a shared semantic bridge enabling cross-client representation transfer even when visual domains are completely disjoint. To inject this knowl-edge, we generate diagnostic captions for each image in the MIMH dataset using GPT-4o [ 40 ] via a ReAct-based [ 56 ] agent pipeline (full prompts and quality-filtering criteria in Appendix D) in a zero-shot setting (e.g., “Fundus image showing microaneurysms and hard exudates in the macular region, consistent with moderate non-proliferative diabetic retinopathy” ). A lightweight text encoder T
+
+(PubMedBERT [ 19 ]) extracts caption embeddings 𝒕 = T ( caption ),which are aligned with the visual features 𝒗 = V ( 𝑿 ) through the federated contrastive objective: 
+
+LCEL = − 1
+
+𝐵 
+
+> 𝐵
+
+∑︁ 
+
+> 𝑗 =1
+
+log exp (sim (𝒗 𝑗 , 𝒕 𝑗 )/ 𝜏 )
+
+Í𝐵 𝑘 =1 exp (sim (𝒗 𝑗 , 𝒕 𝑘 )/ 𝜏 ) , (4) where sim (· , ·) denotes cosine similarity, 𝜏 is a temperature pa-rameter, and 𝐵 is the batch size. The total local objective becomes 
+
+L𝑖 +𝛼 · L CEL , where 𝛼 balances classification and contrastive losses. Crucially, LCEL enriches the Observer’s representations with fine-grained semantic structure without requiring caption data to leave the client , preserving privacy. The text encoder parameters remain local; only the visual backbone and DMoE are aggregated. 
+
+Federated Medical VQA. To demonstrate FM 2’s capacity for mul-timodal reasoning, we extend it to Visual Question Answering on medical images. Given an image 𝑿 and a natural-language question 
+
+𝑞 , we extract visual features 𝒗 = M𝑑 (V ( 𝑿 )) ⊕ M 𝑐 (V ( 𝑿 )) (where 
+
+⊕ denotes concatenation weighted by 𝛾 𝑑 , 𝛾 𝑐 ) and question features 
+
+𝒒 = T𝑞 (𝑞 ) via a question encoder T𝑞 . A lightweight answer module 
+
+Hvqa fuses both: 
+
+𝑎 = Hvqa (𝒗 ⊙ 𝒒 ), (5) where ⊙ denotes element-wise gating. The VQA loss LVQA (bi-nary cross-entropy over candidate answers) is added to the local objective. The DMoE’s domain-specific experts naturally handle modality-dependent questions (e.g., questions about retinal lay-ers vs. tissue staining), while the CMoE provides category-aware visual reasoning. The question encoder and answer head are lo-cally trained; the shared visual backbone benefits from federated aggregation across all tasks. 
+
+## 3.5 Theoretical Analysis 
+
+We provide convergence and generalization guarantees for the FM 2
+
+optimization defined in Eq. (3) . For clarity, we write the global objective as 𝐹 (𝜃 ) = Í𝑍 𝑖 =1 𝑛 𝑖 
+
+> 𝑛
+
+L𝑖 (𝜃 𝑖 ) + 𝜆 ∥M 𝑖 𝑑 − ˆM𝑑 ∥2 , where each client’s alignment penalty is included inside the per-client term. 
+
+Assumption 1. Each local loss L𝑖 (𝜃 ) is 𝐿 -smooth: ∥∇L 𝑖 (𝜃 ) − ∇L 𝑖 (𝜃 ′)∥ ≤ 𝐿 ∥𝜃 − 𝜃 ′ ∥ for all 𝜃, 𝜃 ′. As the alignment penalty is quadratic with curvature 2𝜆 , 𝐹 is (𝐿 +2𝜆 )-smooth; we absorb this into 
+
+𝐿 for brevity. 
+
+Assumption 2. The stochastic gradient 𝑔 𝑖 at client 𝑖 is unbiased, 
+
+E[𝑔 𝑖 ] = ∇L 𝑖 (𝜃 ), satisfies E∥𝑔 𝑖 − ∇L 𝑖 (𝜃 )∥ 2 ≤ 𝜎 2, and its noise is independent across clients. 
+
+Assumption 3. The modality heterogeneity is bounded: 
+
+> 1
+> 𝑍
+
+Í𝑍 𝑖 =1 ∥∇L 𝑖 (𝜃 ) − ∇ 𝐹 (𝜃 )∥ 2 ≤ 𝛿 2.
+
+Theorem 1 (Convergence of FM 2). Under Assumptions 1–3, with learning rate 𝜂 ≤ min {1/( 4𝐿 ), 1/( 2𝜆 )} and alignment parame-ter 𝜆 > 0, after 𝑇 communication rounds of FM 2, the averaged squared gradient norm satisfies: 
+
+1
+
+𝑇  
+
+> 𝑇 −1
+
+∑︁ 
+
+> 𝑡 =0
+
+E∥∇ 𝐹 (𝜃 𝑡 )∥ 2 ≤ 2(𝐹 (𝜃 0) − 𝐹 ∗)
+
+𝜂𝑇 
+
+| {z }
+
+> init. gap
+
++ 4𝐿𝜂𝜎 2
+
+𝑍 
+
+| {z }
+
+> stoch. noise
+
++ 4𝐿𝜂𝛿 2
+
+|{z} 
+
+> heterogeneity
+
++ 2𝜆𝐿 ΔM
+
+𝑇 
+
+| {z }
+
+> align. drift
+
+,
+
+(6) 
+
+where 𝐹 ∗ = inf 𝜃 𝐹 (𝜃 ) and ΔM = max 𝑖 ∥M 𝑖, 0 
+
+> 𝑑
+
+− ˆM0 
+
+> 𝑑
+
+∥2 is the initial modality divergence. 
+
+Proof. By the 𝐿 -smoothness of L𝑖 (Assumption 1), the global objective 𝐹 satisfies: 
+
+𝐹 (𝜃 𝑡 +1) ≤ 𝐹 (𝜃 𝑡 ) + ⟨∇ 𝐹 (𝜃 𝑡 ), 𝜃 𝑡 +1 − 𝜃 𝑡 ⟩ + 𝐿 
+
+2 ∥𝜃 𝑡 +1 − 𝜃 𝑡 ∥2. (7) Substituting the update 𝜃 𝑡 +1 = 𝜃 𝑡 − 𝜂 ¯𝑔 𝑡 , where ¯𝑔 𝑡 = Í𝑍 𝑖 =1 𝑝 𝑖 
+
+𝑔 𝑡 𝑖 +
+
+2𝜆 (M 𝑖,𝑡 𝑑 − ˆM𝑡 𝑑 ) with 𝑝 𝑖 = 𝑛 𝑖 /𝑛 is the aggregated gradient including the alignment term, we obtain: 
+
+𝐹 (𝜃 𝑡 +1) ≤ 𝐹 (𝜃 𝑡 ) − 𝜂 ⟨∇ 𝐹 (𝜃 𝑡 ), ¯𝑔 𝑡 ⟩ + 𝐿𝜂 2
+
+2 ∥ ¯𝑔 𝑡 ∥2. (8) Taking expectation and decomposing E∥ ¯𝑔 𝑡 ∥2, we bound the vari-ance term using Assumption 2: E∥ ¯𝑔 𝑡 − ∇ 𝐹 (𝜃 𝑡 )∥ 2 ≤ 𝜎 2/𝑍 + 𝛿 2 +
+
+4𝜆 2Δ𝑡  
+
+> M
+
+, where Δ𝑡  
+
+> M
+
+= 1
+
+> 𝑍
+
+Í𝑖 ∥M 𝑖,𝑡 𝑑 − ˆM𝑡 𝑑 ∥2.To control Δ𝑡  
+
+> M
+
+, observe that the gradient of the alignment penalty with respect to M𝑖 𝑑 is 2𝜆 (M 𝑖,𝑡 𝑑 − ˆM𝑡 𝑑 ). After the local gradient step, 
+
+M𝑖,𝑡 +1 
+
+> 𝑑
+
+= M𝑖,𝑡 𝑑 − 2𝜆𝜂 (M 𝑖,𝑡 𝑑 − ˆM𝑡 𝑑 ) − 𝜂 ∇M𝑖 𝑑 L𝑡 𝑖 . Since the server ag-gregate satisfies ˆM𝑡 +1 
+
+> 𝑑
+
+= 1
+
+> 𝑍
+
+Í𝑖 M𝑖,𝑡 +1 
+
+> 𝑑
+
+, the residual M𝑖,𝑡 +1 
+
+> 𝑑
+
+− ˆM𝑡 +1 
+
+> 𝑑
+
+=
+
+(1 − 2𝜆𝜂 )(M 𝑖,𝑡 𝑑 − ˆM𝑡 𝑑 ) − 𝜂 (∇ M𝑖 𝑑 L𝑡 𝑖 − ∇L 𝑡 ). Taking norms, aver-aging, and applying Young’s inequality with 𝛽 = 2𝜆𝜂 /( 1 − 2𝜆𝜂 )
+
+yields Δ𝑡 +1 
+
+> M
+
+≤ ( 1 − 2𝜆𝜂 )Δ𝑡  
+
+> M
+
++ 𝜂  
+
+> 2𝜆
+
+𝛿 2, where 2𝜆𝜂 ≤ 1 holds because 
+
+𝜂 ≤ 1/( 2𝜆 ). Telescoping gives 1
+
+> 𝑇
+
+Í𝑇 −1  
+
+> 𝑡 =0
+
+Δ𝑡  
+
+> M
+
+≤ ΔM 
+
+> 2𝜆𝜂𝑇
+
++ 𝛿 2 
+
+> 4𝜆 2
+
+; the sec-ond term enters the bound as O( 𝐿𝜂𝛿 2) and is absorbed into the heterogeneity term, while the first, scaled by the 4𝜆 2 coefficient and the 𝐿𝜂 prefactor of the variance, contributes 2𝜆𝐿 ΔM /𝑇 .Combining, using 𝜂 ≤ 1/( 4𝐿 ), and telescoping over 𝑇 rounds: 
+
+1
+
+𝑇  
+
+> 𝑇 −1
+
+∑︁  
+
+> 𝑡 =0
+
+E∥∇ 𝐹 (𝜃 𝑡 )∥ 2 ≤ 2(𝐹 (𝜃 0) − 𝐹 ∗)
+
+𝜂𝑇 + 4𝐿𝜂𝜎 2
+
+𝑍 + 4𝐿𝜂𝛿 2 + 2𝜆𝐿 ΔM
+
+𝑇 .
+
+(9) Setting 𝜂 = O( 1/√𝑇 ) yields the overall convergence rate O( 1/√𝑇 ).
+
+□FM 2: Unified Federated Foundation Models for Heterogeneous Multimodal Medical Imaging MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil 
+
+The bound shows that 𝜎 2/𝑍 diminishes with more clients; 𝛿 2
+
+captures modality heterogeneity reduced by dual MoE disentan-glement; and 2𝜆𝐿 ΔM /𝑇 vanishes at O( 1/𝑇 ), confirming HMA pro-gressively eliminates modality drift. 
+
+Proposition 2 (Generalization with Dual MoE). Let ℎ =
+
+𝛾 𝑑 · M 𝑑 ◦ V + 𝛾 𝑐 · M 𝑐 ◦ V be the FM 2 predictor, with 𝛾 𝑑 , 𝛾 𝑐 ≥ 0 and 
+
+𝛾 𝑑 + 𝛾 𝑐 = 1 as in Eq. (2) . For any joint distribution 𝑃 over images and labels with modality indicator 𝑚 (𝑿 ) and any loss ℓ ∈ [ 0, 1] convex in its first argument, the expected risk admits the decomposition: 
+
+𝑅 (ℎ) ≤ 𝛾 𝑑 · 𝑅 ∗ 
+
+> 𝑑
+
++ 𝛾 𝑐 · 𝑅 ∗ 
+
+> 𝑐
+
++ 2√︁ 2𝛾 𝑑 𝛾 𝑐 𝑑 JS (𝑃 𝑑 ∥𝑃 𝑐 ) + 𝜖 V , (10) 
+
+where 𝑅 ∗ 
+
+> 𝑑
+
+and 𝑅 ∗ 
+
+> 𝑐
+
+are the Bayes-optimal risks of the domain-wise and class-wise experts respectively, 𝑑 JS (·∥·) denotes the Jensen–Shannon divergence between the domain and class expert output distributions, and 𝜖 V is the Observer’s approximation error. 
+
+Proof. Write ℎ(𝑿 ) = 𝛾 𝑑 𝑓 𝑑 (𝑿 ) + 𝛾 𝑐 𝑓 𝑐 (𝑿 ) where 𝑓 𝑑 = M𝑑 ◦ V 
+
+and 𝑓 𝑐 = M𝑐 ◦ V . For any convex loss ℓ, Jensen’s inequality gives: 
+
+E[ℓ (ℎ(𝑿 ), 𝑦 )] ≤ 𝛾 𝑑 E[ℓ (𝑓 𝑑 (𝑿 ), 𝑦 )] + 𝛾 𝑐 E[ℓ (𝑓 𝑐 (𝑿 ), 𝑦 )] . (11) Each expert risk decomposes as E[ℓ (𝑓 𝑑 , 𝑦 )] = 𝑅 ∗ 
+
+> 𝑑
+
++ E[ℓ (𝑓 𝑑 , 𝑦 ) − 
+
+ℓ (𝑓 ∗ 
+
+> 𝑑
+
+, 𝑦 )] , where 𝑓 ∗ 
+
+> 𝑑
+
+is the Bayes-optimal domain expert. For a bounded loss ℓ ∈ [ 0, 1], the excess risk satisfies |E[ℓ (𝑓 𝑑 , 𝑦 )]− 𝑅 ∗ 
+
+> 𝑑
+
+| ≤ 𝑑 TV (𝑃 𝑓 𝑑 , 𝑃 𝑓 ∗ 
+
+> 𝑑
+
+),where 𝑃 𝑓 denotes the joint law of (𝑓 (𝑿 ), 𝑦 ) and 𝑑 TV the total vari-ation distance. Since both experts share the Observer V, their outputs couple through 𝑃 𝑑 (DMoE routing) and 𝑃 𝑐 (CMoE routing). Applying Pinsker’s inequality to the Jensen–Shannon midpoint 𝑀 =
+
+(𝑃 𝑑 + 𝑃 𝑐 )/ 2 gives 𝑑 JS (𝑃 𝑑 ∥𝑃 𝑐 ) ≥ 12 𝑑 TV (𝑃 𝑑 , 𝑃 𝑐 )2, hence 𝑑 TV (𝑃 𝑑 , 𝑃 𝑐 ) ≤ √︁ 
+
+2 𝑑 JS (𝑃 𝑑 ∥𝑃 𝑐 ). The cross-term in the convex combination carries a factor 2√𝛾 𝑑 𝛾 𝑐 (by Cauchy–Schwarz on the weighted excess risks), giving 2√︁ 2𝛾 𝑑 𝛾 𝑐 𝑑 JS (𝑃 𝑑 ∥𝑃 𝑐 ). Finally, the Observer’s finite capacity in-troduces an approximation error 𝜖 V = inf V′ E∥V ( 𝑿 ) − V ′ (𝑿 )∥ 2,which is architecture-dependent and decreases with model capac-ity. □
+
+Proposition 2 yields three insights: (1) small 𝑅 ∗ 
+
+> 𝑑
+
+, 𝑅 ∗ 
+
+> 𝑐
+
+justify the dual MoE design; (2) HMA keeps 𝑑 JS small by encouraging com-plementary rather than conflicting specialization; and (3) the CEL objective (Eq. (4) ) directly reduces 𝜖 V by aligning visual features with caption embeddings, forcing the Observer beyond classifica-tion supervision toward finer-grained diagnostic representations. 
+
+## 4 Experiments 4.1 Federated Medical Image Classification 
+
+Datasets. We construct the large-scale Medical Imaging Modality 
+
+Heterogeneity ( MIMH ) benchmark from five public MedMNIST datasets [ 55 ]: RetinaMNIST (Fundus Camera, 1,600 images), Blood-MNIST (Blood Cell Microscope, 17,092 images), TissueMNIST (Kid-ney Cortex Microscope, 236,386 images), PathMNIST (Colon Pathol-ogy, 107,180 images), and DermaMNIST (Dermatoscope, 10,015 images), all at 224 × 224 resolution, loaded from the native MedM-NIST+ release and not the 28 × 28 thumbnails commonly asso-ciated with MedMNIST. We create four dataset configurations (Fig. 2 ): MIMH-5/4/3-Domain : 10 clients with overlapping modal-ities, using Dirichlet (𝜑, p) [50 ] to control non-IID severity ( 𝜑 ∈{0.1, 0.3, 100 }); MIMH-SA (Stand-Alone): 5 clients, each holding data from a single unique modality with zero overlap, representing the hardest setting. (4-Domain) (5-Domain) (3 -Domain) (SA)        
+
+> 37 Classes
+> 372,273 Image
+> 10 Clients
+> 22 Classes
+> 125,872 Images
+> 10 Clients
+> 29 Classes
+> 135,887 Images
+> 10 Client s
+> 37 Classes
+> 372,273 Image
+> 5Disjoint Clients
+
+Figure 2: MIMH with four configs: MIMH-5/4/3-Domain (over-lapping modalities) and MIMH-SA (non-overlapping). Baselines and Implementation. We compare FM 2 against 6 advanced FL methods: FedAvg [ 39 ], FedProx [ 31 ], PerFedAvg [ 17 ], FedBN [ 32 ], FedProto [ 46 ], and FedRep [ 15 ]. All methods use ResNet-4 [ 22 ] with SGD [ 44 ] (lr = 5 × 10 −3), 100 communication rounds, and 1 local epoch. FM 2’s two-stage protocol (50 Observer + 50 MoE rounds, 1 epoch each) matches all baselines’ total budget; see Appen-dix A for a full computational breakdown. We set 𝛾 𝑑 = 𝛾 𝑐 = 0.5 and 
+
+𝜆 = 0.1. FM 2 is instantiated at three scales: FM 2-Tiny/Medium/Large (2×/4×/8× MLP layers per expert). Results are averaged over five runs with standard deviations reported. All experiments on MIMH datasets are conducted on an NVIDIA A5500. 
+
+Main Results. Table 1 reports classification accuracy on MIMH-5/4/3-Domain. FM 2 consistently outperforms all baselines across most settings. The performance improves as expert capacity in-creases (Tiny → Medium → Large), confirming that scaling the lightweight MoE modules is an effective strategy. 
+
+Out-of-Modality Generalization. We evaluate two general-ization aspects on MIMH-SA (Table 2): E1 , can modalities benefit from each other when clients hold completely disjoint modalities? 
+
+E2 , can FM 2 generalize to unseen modalities? For E2, we intro-duce three held-out MedMNIST datasets: PneumoniaMNIST [ 27 ](Chest X-Ray, 5,856), OCTMNIST [ 27 ] (Retinal OCT, 109,309), and OrganAMNIST [ 54 ] (Abdominal CT, 58,830), fine-tuning with only 5% of data. Results show: (1) baselines collapse on E1 due to inabil-ity to capture cross-modality invariances, while FM 2 significantly outperforms even local-only training; (2) on E2, FM 2 transfers ef-fectively to all three unseen modalities, demonstrating genuine foundation model capabilities. 
+
+## 4.2 Caption-Enhanced Learning 
+
+Dataset and Setup. To evaluate the multimodal extension in Sec. 3.4, we augment every image in the MIMH benchmark with a concise diagnostic caption generated by GPT-4o [ 40 ] following MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil Shengchao Chen and Ting Shu 
+
+Table 1: Federated classification accuracy on MIMH-5/4/3-Domain. We vary the client join ratio 𝑟 = {30% , 50% , 100% } to simulate different participation levels. Blue : best, Peach : second-best. Dataset Method 𝜑 = 0.1 (Hard ) 𝜑 = 0.3 (Moderate ) 𝜑 = 100 (Easy )
+
+𝑟 = 30% 𝑟 = 50% 𝑟 = 100% 𝑟 = 30% 𝑟 = 50% 𝑟 = 100% 𝑟 = 30% 𝑟 = 50% 𝑟 = 100% 
+
+5-Domain FedAvg 18 .67 (± 0.30 ) 29 .68 (± 0.21 ) 23 .05 (± 0.47 ) 33 .06 (± 1.40 ) 39 .29 (± 0.20 ) 36 .43 (± 0.22 ) 27 .78 (± 0.29 ) 34 .47 (± 0.62 ) 31 .90 (± 0.92 )
+
+FedProx 47 .94 (± 0.23 ) 34 .99 (± 0.60 ) 38 .70 (± 0.12 ) 33 .61 (± 0.21 ) 36 .26 (± 0.05 ) 39 .53 (± 0.34 ) 31 .25 (± 0.34 ) 35 .70 (± 0.07 ) 31 .61 (± 0.79 )
+
+PerFedAvg 29 .42 (± 0.50 ) 39 .75 (± 0.51 ) 50 .91 (± 0.23 ) 44 .18 (± 0.29 ) 38 .52 (± 0.27 ) 43 .06 (± 0.52 ) 29 .51 (± 0.41 ) 51 .61 (± 0.39 ) 44 .71 (± 0.54 )
+
+FedBN 25 .95 (± 0.41 ) 33 .79 (± 0.81 ) 42 .72 (± 0.41 ) 29 .93 (± 0.47 ) 39 .33 (± 0.04 ) 39 .59 (± 0.06 ) 24 .79 (± 0.35 ) 37 .91 (± 0.28 ) 35 .01 (± 0.76 )
+
+FedProto 42 .49 (± 0.72 ) 57 .51 (± 0.26 ) 70 .84 (± 1.17 ) 39 .50 (± 0.13 ) 45 .09 (± 0.86 ) 56 .89 (± 0.49 ) 52 .78 (± 0.77 ) 68 .42 (± 0.17 ) 85 .00 (± 1.71 )
+
+FedRep 66 .97 (± 0.34 ) 73 .47 (± 0.29 ) 74 .72 (± 0.56 ) 60 .32 (± 1.28 ) 65 .63 (± 0.32 ) 60 .28 (± 0.61 ) 52 .87 (± 0.99 ) 64 .48 (± 0.47 ) 62 .01 (± 1.01 )
+
+FM 2-Tiny 74 .05 (± 0.74 ) 79 .21 (± 0.50 ) 83 .79 (± 0.45 ) 63 .03 (± 0.85 ) 69 .76 (± 0.26 ) 63 .73 (± 0.91 ) 60 .80 (± 0.14 ) 73 .36 (± 0.39 ) 87 .11 (± 0.58 )
+
+FM 2-Medium 74 .83 (± 0.53 ) 82 .14 (± 0.85 ) 85 .66 (± 0.29 ) 66 .96 (± 0.70 ) 68 .05 (± 0.61 ) 69 .51 (± 0.70 ) 62 .94 (± 0.12 ) 74 .27 (± 0.80 ) 89 .68 (± 0.93 )
+
+FM 2-Large 76 .05 (± 0.84 ) 83 .74 (± 0.92 ) 86 .68 (± 0.75 ) 67 .53 (± 0.93 ) 69 .79 (± 0.62 ) 70 .49 (± 0.99 ) 63 .29 (± 0.22 ) 76 .73 (± 0.41 ) 90 .39 (± 0.64 )
+
+4-Domain FedAvg 29 .79 (± 0.21 ) 34 .05 (± 0.02 ) 43 .81 (± 0.78 ) 42 .01 (± 0.30 ) 49 .81 (± 0.77 ) 51 .50 (± 1.26 ) 27 .59 (± 0.11 ) 25 .07 (± 0.78 ) 30 .80 (± 1.11 )
+
+FedProx 28 .78 (± 0.13 ) 46 .12 (± 0.41 ) 40 .33 (± 0.16 ) 41 .20 (± 0.45 ) 47 .75 (± 0.88 ) 52 .06 (± 0.65 ) 27 .41 (± 0.24 ) 33 .01 (± 0.26 ) 30 .06 (± 0.31 )
+
+PerFedAvg 41 .19 (± 0.12 ) 42 .59 (± 0.30 ) 45 .71 (± 0.10 ) 56 .56 (± 0.12 ) 53 .84 (± 0.79 ) 58 .64 (± 0.22 ) 34 .00 (± 0.31 ) 33 .31 (± 0.17 ) 37 .78 (± 0.88 )
+
+FedBN 36 .36 (± 0.09 ) 47 .32 (± 0.44 ) 48 .65 (± 0.09 ) 40 .38 (± 0.12 ) 53 .40 (± 0.31 ) 55 .77 (± 1.23 ) 21 .22 (± 0.31 ) 29 .55 (± 0.59 ) 32 .95 (± 0.47 )
+
+FedProto 61 .07 (± 0.11 ) 76 .11 (± 0.12 ) 88 .14 (± 0.46 ) 60 .01 (± 0.05 ) 69 .21 (± 0.77 ) 77 .38 (± 0.26 ) 64 .21 (± 0.09 ) 73 .04 (± 0.78 ) 92 .71 (± 0.56 )
+
+FedRep 67 .81 (± 0.02 ) 79 .40 (± 1.00 ) 81 .28 (± 0.31 ) 64 .37 (± 0.14 ) 75 .07 (± 0.31 ) 79 .02 (± 0.21 ) 79 .31 (± 0.27 ) 80 .81 (± 0.24 ) 84 .92 (± 0.69 )
+
+FM 2-Tiny 66 .16 (± 0.46 ) 76 .68 (± 0.59 ) 87 .84 (± 0.39 ) 69 .01 (± 0.22 ) 79 .74 (± 0.48 ) 82 .66 (± 0.91 ) 79 .11 (± 0.63 ) 80 .34 (± 0.33 ) 95 .36 (± 0.15 )
+
+FM 2-Medium 69 .55 (± 0.48 ) 79 .56 (± 0.62 ) 91 .05 (± 0.35 ) 70 .88 (± 0.45 ) 81 .99 (± 0.74 ) 83 .41 (± 0.80 ) 82 .26 (± 0.16 ) 85 .37 (± 0.34 ) 95 .63 (± 0.64 )
+
+FM 2-Large 70 .85 (± 0.42 ) 82 .56 (± 0.58 ) 93 .12 (± 0.41 ) 72 .74 (± 0.56 ) 85 .83 (± 0.69 ) 86 .37 (± 0.34 ) 83 .73 (± 0.41 ) 86 .55 (± 0.26 ) 96 .00 (± 0.50 )
+
+3-Domain FedAvg 35 .16 (± 0.76 ) 47 .14 (± 0.24 ) 52 .58 (± 0.40 ) 49 .50 (± 0.10 ) 52 .62 (± 0.33 ) 54 .18 (± 0.28 ) 42 .82 (± 0.10 ) 51 .63 (± 0.16 ) 49 .32 (± 0.31 )
+
+FedProx 42 .40 (± 0.11 ) 46 .96 (± 0.21 ) 52 .70 (± 0.06 ) 52 .39 (± 0.30 ) 51 .50 (± 0.55 ) 57 .91 (± 0.18 ) 37 .03 (± 0.44 ) 44 .37 (± 0.62 ) 52 .18 (± 0.53 )
+
+PerFedAvg 40 .43 (± 0.13 ) 51 .56 (± 0.25 ) 58 .40 (± 0.26 ) 57 .81 (± 0.62 ) 55 .72 (± 0.40 ) 59 .15 (± 0.08 ) 49 .86 (± 0.22 ) 52 .10 (± 0.10 ) 59 .11 (± 0.03 )
+
+FedBN 44 .15 (± 0.04 ) 53 .72 (± 0.22 ) 59 .65 (± 0.36 ) 44 .13 (± 0.26 ) 57 .64 (± 0.36 ) 57 .98 (± 0.38 ) 40 .85 (± 0.14 ) 50 .25 (± 0.77 ) 51 .59 (± 0.36 )
+
+FedProto 61 .43 (± 0.20 ) 80 .29 (± 0.21 ) 81 .55 (± 0.98 ) 68 .24 (± 0.55 ) 72 .43 (± 0.16 ) 80 .78 (± 1.08 ) 68 .43 (± 1.43 ) 80 .20 (± 1.06 ) 82 .01 (± 0.99 )
+
+FedRep 77 .89 (± 0.30 ) 76 .91 (± 0.45 ) 78 .96 (± 0.76 ) 63 .73 (± 0.18 ) 77 .83 (± 0.53 ) 83 .14 (± 0.24 ) 71 .24 (± 0.20 ) 70 .57 (± 0.11 ) 75 .62 (± 0.32 )
+
+FM 2-Tiny 76 .93 (± 0.35 ) 83 .03 (± 0.57 ) 89 .43 (± 0.54 ) 77 .83 (± 0.40 ) 83 .41 (± 0.25 ) 85 .12 (± 0.88 ) 73 .24 (± 0.62 ) 83 .23 (± 0.51 ) 81 .65 (± 0.35 )
+
+FM 2-Medium 78 .72 (± 0.45 ) 86 .03 (± 0.38 ) 90 .03 (± 0.17 ) 78 .87 (± 0.34 ) 83 .98 (± 0.72 ) 87 .99 (± 0.99 ) 74 .53 (± 0.60 ) 84 .58 (± 0.29 ) 86 .18 (± 0.51 )
+
+FM 2-Large 79 .56 (± 0.42 ) 87 .18 (± 0.16 ) 90 .19 (± 0.29 ) 80 .28 (± 0.48 ) 84 .40 (± 0.95 ) 89 .44 (± 0.40 ) 74 .68 (± 0.36 ) 84 .63 (± 0.23 ) 87 .69 (± 0.30 )
+
+Table 2: Classification accuracy on MIMH-SA. Due to limited clients, we fixed the join ratio 𝑟 = 100% . Blue : the best. ‘-E’ denotes the ensemble among personalized models. Method MIMH-SA Method MIMH-SA (Cross-Modalities Adaption) 
+
+Pneumonia (2-Class) OCT (4-Class) Organ (11-Class) FedAvg 11 .40 (± 0.35 ) FedAvg 86 .13 (± 0.22 ) 69 .94 (± 0.14 ) 64 .94 (± 0.27 )
+
+FedProx 11 .23 (± 0.12 ) FedProx 87 .22 (± 0.32 ) 73 .53 (± 0.12 ) 68 .93 (± 0.20 )
+
+PerFedAvg 20 .90 (± 0.37 ) PerFedAvg-E 87 .90 (± 0.12 ) 77 .98 (± 0.40 ) 71 .31 (± 0.10 )
+
+FedBN 13 .00 (± 0.29 ) FedBN-E 83 .00 (± 0.10 ) 71 .05 (± 0.19 ) 68 .99 (± 0.04 )
+
+FedProto 59 .66 (± 0.37 ) FedProto-E 90 .97 (± 0.33 ) 80 .81 (± 0.54 ) 78 .42 (± 0.15 )
+
+FedRep 30 .45 (± 0.19 ) FedRep-E 89 .46 (± 0.70 ) 74 .57 (± 0.61 ) 74 .89 (± 0.19 )
+
+Local 69 .52 (± 0.36 ) / / / /
+
+FM 2-Tiny 73 .66 (± 0.56 ) FM 2-Tiny-E 96 .10 (± 0.43 ) 90 .49 (± 0.08 ) 87 .99 (± 0.75 )
+
+FM 2-Medium 75 .79 (± 0.36 ) FM 2-Medium-E 96 .67 (± 0.14 ) 92 .01 (± 0.36 ) 89 .85 (± 0.64 )
+
+FM 2-Large 76 .11 (± 0.29 ) FM 2-Large-E 98 .06 (± 0.30 ) 93 .21 (± 0.51 ) 91 .00 (± 0.39 )
+
+the ReAct-based pipeline in Appendix D (e.g., “A retinal fundus image showing mild drusen deposits consistent with early AMD” ). The visual backbone is upgraded to CLIP ViT-B/16 [ 41 ], pretrained on natural image–text pairs, while caption embeddings are extracted by PubMedBERT [ 19 ] and fused with image features through a two-head cross-attention layer (dim =256). The FM 2 dual MoE modules then operate on the fused representation, and an auxiliary InfoNCE contrastive loss aligns image and caption embeddings locally before aggregation. Training follows the protocol in Sec. 4.1, except that we use AdamW [ 37 ] (lr = 10 −4), 50 communication rounds, and fix 
+
+𝑟 =100% . For cross-modality adaptation, we reuse the three held-out datasets from Sec. 4.1 with 5% fine-tuning data. 
+
+Table 3: Classification accuracy with Caption-Enhanced Learning (CEL). Blue : best, Peach : second-best. Method MIMH-5-Domain MIMH-SA Cross-Mod. 
+
+𝜑 =0.1 𝜑 =100 Avg 
+
+> Image-only
+
+FedAvg [39] 62 .38 (± 0.42 ) 70 .58 (± 0.33 ) 38 .47 (± 0.28 ) 68 .32 
+
+FedProx [31] 64 .15 (± 0.31 ) 71 .23 (± 0.25 ) 39 .21 (± 0.35 ) 69 .15 
+
+PerFedAvg [17] 67 .41 (± 0.55 ) 74 .82 (± 0.41 ) 44 .68 (± 0.52 ) 73 .47 
+
+FedBN [32] 65 .82 (± 0.37 ) 72 .48 (± 0.38 ) 41 .53 (± 0.30 ) 70 .41 
+
+FedProto [46] 80 .92 (± 0.58 ) 90 .45 (± 0.44 ) 72 .63 (± 0.41 ) 82 .07 
+
+FedRep [15] 81 .74 (± 0.46 ) 84 .82 (± 0.52 ) 54 .85 (± 0.33 ) 76 .93 
+
+FedPer [2] 78 .53 (± 0.40 ) 82 .37 (± 0.36 ) 51 .27 (± 0.44 ) 74 .82 
+
+FM 2-Tiny 85 .47 (± 0.43 ) 91 .85 (± 0.30 ) 80 .31 (± 0.50 ) 87 .62 
+
+FM 2-Medium 87 .30 (± 0.39 ) 93 .17 (± 0.28 ) 82 .14 (± 0.47 ) 89 .25 
+
+FM 2-Large 88 .62 (± 0.35 ) 94 .21 (± 0.24 ) 83 .59 (± 0.42 ) 90 .48 
+
+> + CEL
+
+FedAvg 66 .85 (± 0.50 ) 73 .35 (± 0.38 ) 45 .82 (± 0.44 ) 74 .58 
+
+FedProx 68 .42 (± 0.44 ) 74 .08 (± 0.32 ) 46 .95 (± 0.40 ) 75 .33 
+
+PerFedAvg 71 .58 (± 0.52 ) 77 .45 (± 0.39 ) 51 .93 (± 0.48 ) 78 .84 
+
+FedBN 70 .17 (± 0.46 ) 75 .21 (± 0.41 ) 48 .65 (± 0.43 ) 76 .25 
+
+FedProto 84 .17 (± 0.53 ) 92 .10 (± 0.37 ) 78 .50 (± 0.55 ) 86 .43 
+
+FedRep 85 .03 (± 0.48 ) 87 .25 (± 0.45 ) 61 .42 (± 0.49 ) 81 .07 
+
+FedPer 82 .36 (± 0.45 ) 85 .14 (± 0.40 ) 57 .83 (± 0.47 ) 80 .15 
+
+FM 2-Tiny 89 .16 (± 0.45 ) 93 .71 (± 0.27 ) 85 .20 (± 0.51 ) 92 .15 
+
+FM 2-Medium 91 .43 (± 0.41 ) 95 .08 (± 0.22 ) 87 .25 (± 0.48 ) 93 .81 
+
+FM 2-Large 92 .58 (± 0.33 ) 95 .92 (± 0.19 ) 88 .73 (± 0.40 ) 95 .04 
+
+Results. Table 3 compares ten image-only FL baselines with seven caption-enhanced variants. Several observations stand out. First, appending captions yields consistent improvements for every FM 2: Unified Federated Foundation Models for Heterogeneous Multimodal Medical Imaging MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil 
+
+FL method: even the weakest baseline FedAvg gains +4.47% on the Hard setting and +7.35% on MIMH-SA, confirming that lan-guage grounding provides complementary information regardless of the aggregation strategy. Second, the improvement is most pro-nounced on MIMH-SA and cross-modality transfer, where visual domains are completely disjoint and captions serve as a shared semantic bridge; FM 2-Large+CEL reaches 95.04% cross-modality average, a +4.56% margin over its image-only counterpart. Third, the Tiny →Medium →Large scaling pattern is preserved under CEL (85.20 →87.25 →88.73 on MIMH-SA), indicating that MoE capacity scaling and caption supervision contribute orthogonally to perfor-mance. Among all image-only methods, FM 2-Large already sur-passes the best non-FM 2 baseline (FedProto) by a large margin, and the addition of CEL further widens this gap. 
+
+## 4.3 Visual Question Answering 
+
+Datasets and Setup. Following the federated medical VQA setup of OmniFM [ 35 ], we construct three settings using SLAKE [ 33 ], VQA-RAD [ 29 ], and VQA-Med 2019/2020/2021 [ 4, 5]. Task 1 uses SLAKE with modality-based IID/non-IID splits across three clients under varying LLaVA fine-tuning strategies. Task 2 constructs eight modality-specific clients to test cross-domain DMoE spe-cialization. Task 3 treats each dataset as an independent mixed-modality client (five total) under different PEFT regimes. All tasks use LLaVA-1.5 with CLIP ViT-B/32 augmented by our dual MoE modules and LLaMA-3.2-3B fine-tuned via LoRA [ 25 ] ( 𝑟 =8, 𝛼 =32 ). FedDAT, PromptFL, and F 3OCUS are re-implemented on the identi-cal LLaVA-1.5 backbone with the same LoRA configuration, with only their respective federated adaptation strategies applied, ensur-ing backbone-level parity across all methods. 
+
+Table 4: VQA accuracy on Task 1 (SLAKE) under IID/non-IID settings. F-C/F-L: connector/LLM-only tuning; F-CL/F-2stage: joint/sequential tuning. Blue : best, Peach : second-best. Method F-C F-L F-CL F-2stage 
+
+IID Non-IID IID Non-IID IID Non-IID IID Non-IID FedAvg [39] 0.783 0.775 0.806 0.802 0.823 0.827 0.811 0.814 FedProx [31] 0.734 0.750 0.800 0.780 0.816 0.796 0.773 0.785 FedAdam [42] 0.741 0.735 0.783 0.771 0.777 0.774 0.782 0.777 FedAvgM [24] 0.754 0.747 0.789 0.786 0.784 0.768 0.793 0.794 FedYogi [42] 0.745 0.736 0.782 0.769 0.783 0.774 0.785 0.782 FedDyn [1] 0.795 0.783 0.812 0.800 0.820 0.827 0.809 0.816 FedPer [2] 0.799 0.790 0.809 0.814 0.827 0.833 0.818 0.824 
+
+FM 2 (Ours) 0.811 0.805 0.818 0.828 0.838 0.844 0.829 0.837 Results. FM 2 consistently outperforms all baselines across all three tasks and tuning strategies (Tables 4–6). On Task 1, gains are largest under F-CL (0.844 vs. 0.833 for the best baseline in Non-IID), validating that HMA effectively mitigates distribution discrepancies during VQA training. On Task 2, FM 2 achieves the highest average accuracy of 79.60, confirming DMoE’s cross-domain specialization. On Task 3, FM 2 maintains consistent advantages across all PEFT regimes and outperforms specialized federated VLM methods Fed-DAT [7], PromptFL [20], and F 3OCUS [45] by clear margins. 
+
+Table 5: VQA accuracy on Task 2 (complete modality het-erogeneity, 8 clients). C1: CT, C2: Ultrasound, C3: OCT, C4: Fundus, C5: Microscopy, C6: Histopath., C7: Dermatoscopy, C8: X-ray. Blue : best, Peach : second-best. Method Task-Specific Performance Avg. 
+
+C1 C2 C3 C4 C5 C6 C7 C8 FedAvg [39] 88.67 72.59 70.86 85.93 71.09 89.45 66.62 76.48 77.71 FedProx [31] 88.92 73.05 71.03 86.10 71.40 89.20 66.81 76.32 77.85 FedAdam [42] 89.10 74.22 71.58 85.70 71.85 89.80 67.20 76.90 78.17 FedDyn [1] 88.75 73.90 71.92 86.35 71.55 90.02 67.45 76.70 78.08 FedPer [2] 89.43 74.10 72.21 85.95 72.30 89.90 67.82 77.52 78.40 
+
+FM 2 (Ours) 90.28 75.71 73.05 87.42 73.35 90.48 68.43 78.18 79.60 Table 6: VQA accuracy on Task 3 (mixed-modality heterogene-ity, 5 dataset-level clients). VM2019/2020/2021 is VQA-Med. VR: VQA-RAD. Blue : best, Peach : second-best. Method SLAKE VM2019 VM2020 VM2021 VR Average Full Tuning                                                                                                                                                                                                                                                     
+
+> ⊲FedAvg 77.45 67.25 15.06 22.00 41.52 44.66
+> ⊲FedProx 77.47 67.00 14.87 22.12 41.00 44.33
+> ⊲FedAdam 77.00 67.89 15.12 22.44 42.42 44.77
+> ⊲FedDyn 78.24 69.00 16.21 21.65 42.02 45.02
+> ⊲FedPer 79.23 69.20 16.77 22.54 43.43 46.03
+> ▶FM 2(Ours) 82.58 70.42 18.45 22.65 43.62 47.54 Adapter [23]
+> ⊲FedAvg 72.82 64.45 11.56 21.00 38.35 41.64
+> ⊲FedProx 73.10 64.70 11.72 21.18 38.60 41.86
+> ⊲FedAdam 73.05 65.12 12.08 21.47 39.12 42.17
+> ⊲FedDyn 74.02 65.88 12.41 21.39 39.05 42.55
+> ⊲FedPer 75.10 66.30 12.95 21.76 39.70 43.16
+> ▶FM 2(Ours) 78.15 67.72 14.08 22.12 40.42 44.50 LayerNorm [3]
+> ⊲FedAvg 69.53 62.22 10.59 22.00 36.89 40.24
+> ⊲FedProx 69.80 62.40 10.75 22.12 37.05 40.42
+> ⊲FedAdam 70.02 62.95 11.08 22.35 37.48 40.78
+> ⊲FedDyn 70.55 63.40 11.32 22.28 37.60 41.03
+> ⊲FedPer 71.22 63.88 11.70 22.55 38.10 41.49
+> ▶FM 2(Ours) 73.42 64.88 12.55 22.85 38.82 42.50 LoRA [25]
+> ⊲FedAvg 57.73 60.18 4.59 15.00 31.16 33.73
+> ⊲FedProx 58.10 60.05 4.80 15.21 31.45 33.92
+> ⊲FedAdam 58.02 60.72 5.10 15.48 31.90 34.24
+> ⊲FedDyn 58.30 60.70 5.05 15.10 31.60 34.15
+> ⊲FedPer 60.20 61.55 5.80 15.70 32.40 35.13
+> ▶FM 2(Ours) 62.72 62.35 6.65 15.88 32.32 35.98 Bias [6]
+> ⊲FedAvg 68.25 55.61 11.17 17.00 35.47 37.50
+> ⊲FedProx 68.60 55.40 11.35 17.12 35.60 37.61
+> ⊲FedAdam 68.10 56.05 11.70 17.35 36.10 37.86
+> ⊲FedDyn 68.70 56.00 11.45 17.05 35.70 37.78
+> ⊲FedPer 70.10 56.88 12.00 17.00 36.00 38.40
+> ▶FM 2(Ours) 71.52 57.42 12.55 17.85 36.48 39.16
+> FedDAT [7] 72.79 63.58 12.46 23.00 38.91 42.15 PromptFL [20] 65.63 57.56 4.78 15.00 40.26 36.65 F3OCUS [45] 74.69 63.82 12.84 24.00 42.30 43.53
+> FM 2(Ours) 79.45 68.52 15.33 23.75 42.65 45.94
+
+## 4.4 Framework Analysis 
+
+We analyze FM 2 from six complementary angles: (i) component ab-lation (Fig. 3a), (ii) hyperparameter sensitivity (Fig. 3b), (iii) caption quality and coverage (Fig. 3c–d), (iv) communication cost (Table 7), 
+
+(v) convergence behavior, and (vi) learned feature structure (Fig. 4). MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil Shengchao Chen and Ting Shu w/o 
+
+> CMoE
+> w/o
+> HMA
+> Only
+> CMoE
+> 0.0
+> 2.5
+> 5.0
+> 7.5
+> 10.0
+> 12.5
+> Drop (%)  7.8
+> 4.3
+> 10.4
+> 3.4
+> 2.1
+> 5.1 5.5
+> 3.9
+> 7.5
+
+(a) Component Ablation            
+
+> Cls
+> VQA
+> CEL
+> =0.3 =(.7,.3) =(.3,.7)
+> Cls
+> VQA
+> CEL
+> 0.96% 1.69% 1.88%
+> 0.83% 1.54% 1.90%
+> 1.27% 1.80% 2.31%
+> (default: c=d=0.5, =0.1)
+
+(b) Hyperparam. Sensitivity    
+
+> No Cap. Template LLM Expert
+> 80
+> 82
+> 84
+> 86
+> 88
+> 90
+> Acc. (%)
+> 82.1
+> 84.5
+> 87.2 87.9
+
+(c) Caption Quality      
+
+> 0% 20% 40% 60% 80% 100%
+> Coverage
+> 82
+> 84
+> 86
+> 88
+> Acc. (%)
+> 82.1
+> 83.7
+> 85.0
+> 85.8
+> 86.6
+> 87.2
+> +1.6%
+
+(d) Caption Coverage 
+
+Figure 3: Ablation and analysis across all three tasks. (a) Component ablation. (b) Hyperparameter sensitivity across different 
+
+(𝛾 𝑐 , 𝛾 𝑑 , 𝜆 ) configurations. (c) Impact of caption quality on CEL. (d) Effect of partial caption availability on CEL. 
+
+Unless noted, ablation and sensitivity results span three tasks: clas-sification (MIMH-5-Domain, 𝜑 =0.1, FM 2-Tiny), VQA (Task 1, F-CL, Non-IID), and CEL (MIMH-SA, FM 2+CEL), to verify that findings generalize across objectives. 
+
+Component Ablation. We progressively disable FM 2’s core components (Fig. 3a). Among single-component removals, disabling CMoE costs 3.4–7.8% and disabling HMA costs 2.1–4.3%. The most harmful variant, Only CMoE , removes both DMoE and HMA and drops 5.1–10.4%, showing that personalization alone is insufficient without global domain consensus. Since w/o-HMA and Only-CMoE differ only in DMoE, removing DMoE alone still costs 5.4 and 1.8 points on MIMH-5-Domain and MIMH-SA, so DMoE contributes beyond a personalized CMoE plus the federated backbone. The importance ordering (Only CMoE > w/o CMoE > w/o HMA) is consistent across all three tasks, confirming architectural robustness independent of downstream objective. 
+
+Hyperparameter Sensitivity. Fig. 3(b) examines the effect of varying 𝛾 𝑐 , 𝛾 𝑑 , and 𝜆 away from the default setting ( 𝛾 𝑐 =0.5, 𝛾 𝑑 =0.5,
+
+𝜆 =0.1). Across all three tasks, no non-default configuration de-grades performance by more than 2.31%, indicating that FM 2 is not sensitive to precise hyperparameter tuning and that the default configuration generalizes reliably across diverse settings and tasks. 
+
+Table 7: Communication and computation cost per round (MIMH-5-Domain, 𝜑 =0.1, 𝑟 =100% , 10 clients). Method Comm. Params (K) Comm./Rd (MB) Time/Rd (s) Acc. 
+
+FedAvg [39] 520 41.6 8.2 23.05 FedProx [31] 520 41.6 9.5 38.70 FedProto [46] 1.3 0.1 7.8 70.84 FedRep [15] 450 36.0 9.1 74.72 FM 2-Tiny 718 57.4 12.5 83.79 FM 2-Medium 824 65.9 14.8 85.66 FM 2-Large 1035 82.8 18.3 86.68 
+
+Caption Quality and Coverage. Fig. 3(c–d) examines CEL ro-bustness on MIMH-SA. LLM-generated captions (87.25%) nearly match expert annotations (87.89%) while far exceeding templates (84.53%), confirming API generation as a cost-effective substitute for manual labeling. Even at 20% coverage, CEL yields +1.57% over the image-only baseline, with monotonically increasing but diminish-ing returns, showing that CEL is beneficial even under the uneven caption availability typical of real federated deployments. 0 20 40 60 80 100       
+
+> Communication Round
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> 90
+> Test Accuracy (%)
+> (a) Cls (MIMH-5-Dom, =0.1)
+> FedAvg
+> FedProx
+> FedProto
+> FedRep
+> FM 2-Tiny
+> 010 20 30 40 50
+> Communication Round
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> VQA Accuracy (%)
+> (b) VQA (Task 1, F-CL, Non-IID)
+> FedAvg
+> FedProx
+> FedPer
+> FM 2
+> Clusters by
+> modality
+> (c) t-SNE (MIMH-SA): w/o HMA
+> Fundus
+> Blood
+> Tissue
+> Pathology
+> Derma
+> Clusters by
+> class
+> (d) t-SNE (MIMH-SA): w/ HMA (FM 2)
+> Fundus
+> Blood
+> Tissue
+> Pathology
+> Derma
+
+Figure 4: Convergence and feature analysis. (a) Classifica-tion convergence on MIMH-5-Domain ( 𝜑 =0.1, 𝑟 =100% ); shaded bands show ±1 std over 5 runs. (b) VQA convergence on Task 1 (F-CL, Non-IID, 50 rounds). (c) t-SNE on MIMH-SA without HMA: features cluster by modality. (d) With HMA (FM 2): fea-tures cluster by semantic class across modalities. Communication Cost. Table 7 reports per-round communica-tion and wall-clock overhead. Because the CMoE module is entirely local (never communicated), the additional communication of FM 2-Tiny over FedAvg is 38% in parameter count (718K vs. 520K), a modest price for a 60.75 percentage-point accuracy gain. FedProto achieves the lowest communication (prototype-only exchange) but plateaus at 70.84%. FM 2-Large uses 2× FedAvg’s bandwidth yet reaches 86.68%, representing a fundamentally different accuracy-communication trade-off. 
+
+Convergence and Feature Analysis. Figure 4 reports conver-gence and feature structure. On classification (Fig. 4a), FM 2-Tiny reaches 80% by round 40, a level no baseline achieves at round 100; FM 2: Unified Federated Foundation Models for Heterogeneous Multimodal Medical Imaging MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil 
+
+FedAvg stagnates below 25% while FedProto and FedRep plateau near 70–75%. On VQA (Fig. 4b), FM 2 converges fastest to 84.4%, above FedPer (83.3%) with tighter variance. t-SNE on MIMH-SA (Fig. 4c–d) shows that without HMA features cluster by modality; with HMA they reorganize by semantic class, with all five modalities interleaving within each cluster, validating HMA’s design objective and the out-of-modality generalization in Tables 1 and 3. 
+
+## 5 Conclusion 
+
+In this paper, we proposed FM 2, a federated multimodal foundation model framework that addresses the under-explored challenge of Imaging Modality Heterogeneity in medical imaging. Through dual Mixture-of-Experts modules and Heterogeneous Modality Align-ment with provable convergence guarantees, FM 2 disentangles personalized class knowledge from shared domain representations. Extensions to Caption-Enhanced Learning and Federated Medical VQA demonstrate FM 2’s versatility as a multimodal foundation model. Extensive experiments on the MIMH benchmark (for classi-fication and CEL) and real-world medical VQA datasets confirm con-sistent superiority over state-of-the-art baselines, fast convergence, strong out-of-modality generalization, and practical robustness to caption availability and hyperparameter choices. 
+
+## Acknowledgments 
+
+This work was supported by the Guangdong Basic and Applied Basic Research Foundation (No. 2024A1515510031). This work is also supported by the Intelligent Computing Center of Shenzhen University. 
+
+## References 
+
+[1] Durmus Alp Emre Acar, Yue Zhao, Ramon Matas Navarro, Matthew Mattina, Paul N Whatmough, and Venkatesh Saligrama. 2021. Federated learning based on dynamic regularization. arXiv preprint arXiv:2111.04263 (2021). [2] Manoj Ghuhan Arivazhagan, Vinay Aggarwal, Aaditya Kumar Singh, and Sunav Choudhary. 2019. Federated learning with personalization layers. arXiv preprint arXiv:1912.00818 (2019). [3] Samyadeep Basu, Shell Hu, Daniela Massiceti, and Soheil Feizi. 2024. Strong baselines for parameter-efficient few-shot fine-tuning. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 38. 11024–11031. [4] Asma Ben Abacha, Sadid A Hasan, Vivek V Datla, Dina Demner-Fushman, and Henning Müller. 2019. Vqa-med: Overview of the medical visual question an-swering task at imageclef 2019. In Proceedings of CLEF (Conference and Labs of the Evaluation Forum) 2019 Working Notes . 9-12 September 2019. [5] Asma Ben Abacha, Mourad Sarrouti, Dina Demner-Fushman, Sadid A Hasan, and Henning Müller. 2021. Overview of the vqa-med task at imageclef 2021: Visual question answering and generation in the medical domain. In Proceedings of the CLEF 2021 Conference and Labs of the Evaluation Forum-working notes . 21-24 September 2021. [6] Han Cai, Chuang Gan, Ligeng Zhu, and Song Han. 2020. Tinytl: Reduce memory, not parameters for efficient on-device learning. Advances in Neural Information Processing Systems 33 (2020), 11285–11297. [7] Haokun Chen, Yao Zhang, Denis Krompass, Jindong Gu, and Volker Tresp. 2024. Feddat: An approach for foundation model finetuning in multi-modal hetero-geneous federated learning. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 38. 11285–11293. [8] Shengchao Chen, Guodong Long, Michael Blumenstein, and Jing Jiang. 2026. FeDaL: Federated Dataset Learning for General Time Series Foundation Models. In The Fourteenth International Conference on Learning Representations .[9] Shengchao Chen, Guodong Long, Jing Jiang, and Chengqi Zhang. 2024. Per-sonalized adapter for large meteorology model on devices: Towards weather foundation models. Advances in Neural Information Processing Systems 37 (2024), 84897–84943. [10] Shengchao Chen, Guodong Long, Jing Jiang, and Chengqi Zhang. 2025. Federated foundation models on heterogeneous time series. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. 15839–15847. [11] Shengchao Chen, Guodong Long, Tao Shen, and Jing Jiang. 2023. Prompt feder-ated learning for weather forecasting: Toward foundation models on meteoro-logical data. arXiv preprint arXiv:2301.09152 (2023). [12] Shengchao Chen, Sufen Ren, Guanjun Wang, Mengxing Huang, and Chenyang Xue. 2023. Interpretable CNN-multilevel attention transformer for rapid recog-nition of pneumonia from chest X-ray images. IEEE Journal of Biomedical and Health Informatics 28, 2 (2023), 753–764. [13] Shengchao Chen and Ting Shu. 2025. Restyled, Tuning, and Alignment: Taming VLMs for Federated Non-IID Medical Image Analysis. In International Conference on Medical Image Computing and Computer-Assisted Intervention . Springer, 530– 540. [14] I Glenn Cohen and Michelle M Mello. 2018. HIPAA and protecting health infor-mation in the 21st century. Jama 320, 3 (2018), 231–232. [15] Liam Collins, Hamed Hassani, Aryan Mokhtari, and Sanjay Shakkottai. 2021. Exploiting shared representations for personalized federated learning. In Inter-national conference on machine learning . PMLR, 2089–2099. [16] Alexey Dosovitskiy. 2020. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929 (2020). [17] Alireza Fallah, Aryan Mokhtari, and Asuman Ozdaglar. 2020. Personalized feder-ated learning: A meta-learning approach. arXiv preprint arXiv:2002.07948 (2020). [18] Lulu Feng and Shengchao Chen. 2026. Visual and textual spaces both matter: Taming CLIP for non-IID federated medical image classification. Knowledge-Based Systems 338 (2026), 115524. [19] Yu Gu, Robert Tinn, Hao Cheng, Michael Lucas, Naoto Usuyama, Xiaodong Liu, Tristan Naumann, Jianfeng Gao, and Hoifung Poon. 2021. Domain-specific language model pretraining for biomedical natural language processing. ACM Transactions on Computing for Healthcare 3, 1 (2021), 1–23. [20] Tao Guo, Song Guo, Junxiao Wang, Xueyang Tang, and Wenchao Xu. 2023. Promptfl: Let federated participants cooperatively learn prompts instead of models–federated learning in age of foundation model. IEEE Transactions on Mobile Computing 23, 5 (2023), 5179–5194. [21] Filip Hanzely, Slavomír Hanzely, Samuel Horváth, and Peter Richtárik. 2020. Lower bounds and optimal algorithms for personalized federated learning. Ad-vances in Neural Information Processing Systems 33 (2020), 2304–2315. [22] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. 2016. Deep residual learning for image recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition . 770–778. [23] Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin De Laroussilhe, Andrea Gesmundo, Mona Attariyan, and Sylvain Gelly. 2019. Parameter-efficient transfer learning for NLP. In International conference on machine learning . PMLR, 2790–2799. [24] Tzu-Ming Harry Hsu, Hang Qi, and Matthew Brown. 2019. Measuring the effects of non-identical data distribution for federated visual classification. arXiv preprint arXiv:1909.06335 (2019). [25] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. 2021. Lora: Low-rank adaptation of large language models. arXiv preprint arXiv:2106.09685 (2021). [26] Joana Palés Huix, Adithya Raju Ganeshan, Johan Fredin Haslum, Magnus Söder-berg, Christos Matsoukas, and Kevin Smith. 2024. Are Natural Domain Foun-dation Models Useful for Medical Image Classification?. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision . 7634–7643. [27] Daniel S Kermany, Michael Goldbaum, Wenjia Cai, Carolina CS Valentim, Huiying Liang, Sally L Baxter, Alex McKeown, Ge Yang, Xiaokang Wu, Fangbing Yan, et al . 2018. Identifying medical diagnoses and treatable diseases by image-based deep learning. cell 172, 5 (2018), 1122–1131. [28] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer Whitehead, Alexander C Berg, Wan-Yen Lo, et al .2023. Segment anything. In Proceedings of the IEEE/CVF International Conference on Computer Vision . 4015–4026. [29] Jason J Lau, Soumya Gayen, Asma Ben Abacha, and Dina Demner-Fushman. 2018. A dataset of clinically generated visual questions and answers about radiology images. Scientific data 5, 1 (2018), 1–10. [30] Tian Li, Shengyuan Hu, Ahmad Beirami, and Virginia Smith. 2021. Ditto: Fair and robust federated learning through personalization. In International conference on machine learning . PMLR, 6357–6368. [31] Tian Li, Anit Kumar Sahu, Manzil Zaheer, Maziar Sanjabi, Ameet Talwalkar, and Virginia Smith. 2020. Federated optimization in heterogeneous networks. 
+
+Proceedings of Machine learning and systems 2 (2020), 429–450. [32] Xiaoxiao Li, Meirui Jiang, Xiaofei Zhang, Michael Kamp, and Qi Dou. 2021. Fedbn: Federated learning on non-iid features via local batch normalization. 
+
+arXiv preprint arXiv:2102.07623 (2021). [33] Bo Liu, Li-Ming Zhan, Li Xu, Lin Ma, Yan Yang, and Xiao-Ming Wu. 2021. Slake: A semantically-labeled knowledge-enhanced dataset for medical visual question answering. In 2021 IEEE 18th international symposium on biomedical imaging (ISBI) . IEEE, 1650–1654. [34] Chang Liu, Yong Luo, Yongchao Xu, and Bo Du. 2024. Foundation models matter: federated learning for multi-center tuberculosis diagnosis via adaptive regularization and model-contrastive learning. World Wide Web 27, 3 (2024), MM ’26, November 10–14, 2026, Rio de Janeiro, Brazil Shengchao Chen and Ting Shu 
+
+1–17. [35] Meilin Liu, Jiaying Wang, and Jing Shan. 2026. OmniFM: Toward Modality-Robust and Task-Agnostic Federated Learning for Heterogeneous Medical Imaging. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition .21099–21109. [36] Yuxi Liu, Guibo Luo, and Yuesheng Zhu. 2024. FedFMS: Exploring Federated Foundation Models for Medical Image Segmentation. In International Conference on Medical Image Computing and Computer-Assisted Intervention . Springer, 283– 293. [37] Ilya Loshchilov and Frank Hutter. 2019. Decoupled weight decay regularization. In International Conference on Learning Representations .[38] Othmane Marfoq, Giovanni Neglia, Aurélien Bellet, Laetitia Kameni, and Richard Vidal. 2021. Federated Multi-Task Learning under a Mixture of Distributions. In 
+
+Advances in Neural Information Processing Systems , Vol. 34. 15434–15447. [39] Brendan McMahan, Eider Moore, Daniel Ramage, Seth Hampson, and Blaise Aguera y Arcas. 2017. Communication-efficient learning of deep net-works from decentralized data. In Artificial intelligence and statistics . PMLR, 1273–1282. [40] OpenAI. 2024. GPT-4o. https://openai.com/index/hello-gpt-4o/. [41] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al . 2021. Learning transferable visual models from natural language supervision. In International conference on machine learning . PMLR, 8748–8763. [42] Sashank Reddi, Zachary Charles, Manzil Zaheer, Zachary Garrett, Keith Rush, Jakub Konečn` y, Sanjiv Kumar, and H Brendan McMahan. 2020. Adaptive feder-ated optimization. arXiv preprint arXiv:2003.00295 (2020). [43] Sufen Ren, Yule Hu, Shengchao Chen, and Guanjun Wang. 2024. Federated distillation for medical image classification: Towards trustworthy computer-aided diagnosis. arXiv preprint arXiv:2407.02261 (2024). [44] Herbert Robbins and Sutton Monro. 1951. A stochastic approximation method. 
+
+The annals of mathematical statistics (1951), 400–407. [45] Pramit Saha, Felix Wagner, Divyanshu Mishra, Can Peng, Anshul Thakur, David A Clifton, Konstantinos Kamnitsas, and J Alison Noble. 2025. Fˆ 3OCUS-Federated Finetuning of Vision-Language Foundation Models with Optimal Client Layer Updating Strategy via Multi-objective Meta-Heuristics. In Proceedings of the Computer Vision and Pattern Recognition Conference . 20006–20017. [46] Yue Tan, Guodong Long, Lu Liu, Tianyi Zhou, Qinghua Lu, Jing Jiang, and Chengqi Zhang. 2022. Fedproto: Federated prototype learning across hetero-geneous clients. In Proceedings of the AAAI Conference on Artificial Intelligence ,Vol. 36. 8432–8440. [47] Malte Tölle, Philipp Garthe, Clemens Scherer, Jan Moritz Seliger, Andreas Leha, Nina Krüger, Stefan Simm, Simon Martin, Sebastian Eble, Halvar Kelm, et al .2024. Federated Foundation Model for Cardiac CT Imaging. arXiv preprint arXiv:2407.07557 (2024). [48] Paul Voigt and Axel Von dem Bussche. 2017. The eu general data protection reg-ulation (gdpr). A Practical Guide, 1st Ed., Cham: Springer International Publishing 
+
+10, 3152676 (2017), 10–5555. [49] Jiahao Wang, Hong Peng, Shengchao Chen, and Sufen Ren. 2024. Ensemble learning for retinal disease recognition under limited resources. Medical & Biological Engineering & Computing 62, 9 (2024), 2839–2852. [50] Xinghao Wu, Xuefeng Liu, Jianwei Niu, Guogang Zhu, and Shaojie Tang. 2023. Bold but cautious: Unlocking the potential of personalized federated learning through cautiously aggressive collaboration. In Proceedings of the IEEE/CVF inter-national conference on computer vision . 19375–19384. [51] Yihang Wu, Christian Desrosiers, and Ahmad Chaddad. 2024. FACMIC: Federated Adaptative CLIP Model for Medical Image Classification. In International Confer-ence on Medical Image Computing and Computer-Assisted Intervention . Springer, 531–541. [52] Luyuan Xie, Tianyu Luan, Wenyuan Cai, Guochen Yan, Zhaoyu Chen, Nan Xi, Yuejian Fang, Qingni Shen, Zhonghai Wu, and Junsong Yuan. 2025. dFLMoE: Decentralized Federated Learning via Mixture of Experts for Medical Data Anal-ysis. In Proceedings of the Computer Vision and Pattern Recognition Conference .10203–10213. [53] Peng Xu, Xiatian Zhu, and David A Clifton. 2023. Multimodal learning with transformers: A survey. IEEE Transactions on Pattern Analysis and Machine Intelligence 45, 10 (2023), 12113–12132. [54] Xuanang Xu, Fugen Zhou, Bo Liu, Dongshan Fu, and Xiangzhi Bai. 2019. Efficient multiple organ localization in CT image using 3D region proposal network. IEEE transactions on medical imaging 38, 8 (2019), 1885–1898. [55] Jiancheng Yang, Rui Shi, Donglai Wei, Zequan Liu, Lin Zhao, Bilian Ke, Hanspeter Pfister, and Bingbing Ni. 2023. Medmnist v2-a large-scale lightweight benchmark for 2d and 3d biomedical image classification. Scientific Data 10, 1 (2023), 41. [56] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Ilit Shafran, Karthik Narasimhan, and Yuan Cao. 2023. ReAct: Synergizing Reasoning and Acting in Language Models. In International Conference on Learning Representations .[57] Michael Zhang, Karan Sapra, Sanja Fidler, Serena Yeung, and Jose M Alvarez. 2020. Personalized federated learning with first order model optimization. arXiv preprint arXiv:2012.08565 (2020). [58] Shaoting Zhang and Dimitris Metaxas. 2024. On the challenges and perspectives of foundation models for medical image analysis. Medical image analysis 91 (2024), 102996. [59] Weiming Zhuang, Chen Chen, and Lingjuan Lyu. 2023. When foundation model meets federated learning: Motivations, challenges, and future directions. arXiv preprint arXiv:2306.15546 (2023).
