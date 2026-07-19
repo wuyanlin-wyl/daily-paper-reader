@@ -6,77 +6,80 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-18
-- 运行时间：2026-07-18 21:24:01 UTC
+- 最新运行日期：2026-07-19
+- 运行时间：2026-07-19 21:17:32 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
+- 本次总论文数：20
+- 精读区：8
 - 速读区：12
 
 ### 今日简报（AI）
-今日日报收录19篇论文，精读7篇，速读12篇，重点推荐两篇高分工作。最值得关注方向：异构视觉语言模型的高效层间组合（MOSAIC）与测试时提示自适应增强鲁棒性。建议读者优先关注如何在不牺牲性能的前提下提升VLM的运行效率与抗干扰能力。
-- 详情：[/202607/18/README](/202607/18/README)
+今日精读8篇，速读12篇，重点关注9.0分高价值的认知专家混合视觉语言模型与自主进化临床系统。两大核心方向：大型视觉语言模型的认知专家混合架构（《Mixture of Cognitive Experts》）、医学智能体从辅助走向自主的进化路径（《Self-Evolving Clinical Systems》）。建议优先通读这两篇精读论文，并浏览《Generalize LMMs to Versatile Visual Modalities》等高分速读文章，把握多模态与通用智能前沿。
+- 详情：[/202607/19/README](/202607/19/README)
 
 ### 精读区论文标签
-1. [MOSAIC: Adaptive Inter-layer Composition for Efficient Heterogeneous Vision-Language Models](/202607/18/2607.09029v1-mosaic-adaptive-inter-layer-composition-for-efficient-heterogeneous-vision-language-models)  
+1. [Mixture of Cognitive Experts in Large Vision-Language Models](/202607/19/2607.10796v1-mixture-of-cognitive-experts-in-large-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：硬件感知搜索的高效异构VLM架构
-2. [Robustifying Vision-Language Models via Test-Time Prompt Adaptation](/202607/18/2607.09450v1-robustifying-vision-language-models-via-test-time-prompt-adaptation)  
+   evidence：大型视觉语言模型中的认知专家混合
+2. [The Path to Self-Evolving Clinical Systems: Scaling Medical Agents from Assistance to Autonomy](/202607/19/2607.11175v1-the-path-to-self-evolving-clinical-systems-scaling-medical-agents-from-assistance-to-autonomy)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：使用视觉语言模型进行临床任务的医学智能体
+3. [Visual Access Boundaries in Vision-Language Model Reasoning](/202607/19/2607.12815v1-visual-access-boundaries-in-vision-language-model-reasoning)  
    标签：评分：9.0/10、query:vl
-   evidence：通过测试时提示适应增强视觉语言模型的鲁棒性
-3. [MC-RAG System: A Structure-Driven RAG System for Multi-Constraint Queries](/202607/18/2607.10151v1-mc-rag-system-a-structure-driven-rag-system-for-multi-constraint-queries)  
+   evidence：VLM推理中的视觉访问边界
+4. [AspectCLIP: Optimizing CLIP Representation Space via Aspect-Guided Consistency Regularization](/202607/19/2607.13805v1-aspectclip-optimizing-clip-representation-space-via-aspect-guided-consistency-regularization)  
+   标签：评分：9.0/10、query:vl
+   evidence：优化CLIP表示空间以改进视觉语言模型
+5. [AspectCLIP: Optimizing CLIP Representation Space via Aspect-Guided Consistency Regularization](/202607/19/2607.13805v2-aspectclip-optimizing-clip-representation-space-via-aspect-guided-consistency-regularization)  
+   标签：评分：9.0/10、query:vl
+   evidence：优化CLIP表示空间以改进视觉语言模型
+6. [Beyond scalar losses: calibrating segmentation models via gradient vector field surgery](/202607/19/2607.14338v1-beyond-scalar-losses-calibrating-segmentation-models-via-gradient-vector-field-surgery)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：面向多约束查询的RAG系统，支持医学应用
-4. [Toward Efficient Weakly Supervised Semantic Segmentation Using Only Low-Magnification Histopathological Images](/202607/18/2607.10783v1-toward-efficient-weakly-supervised-semantic-segmentation-using-only-low-magnification-histopathological-images)  
+   evidence：新颖的梯度向量场手术方法校准医学图像分割模型
+7. [Reflex: Real-Time VLA Control through Streaming Inference](/202607/19/2607.14695v1-reflex-real-time-vla-control-through-streaming-inference)  
+   标签：评分：9.0/10、query:vl
+   evidence：视觉-语言-动作模型的实时流式推理
+8. [Beyond the Leaderboard: Design Lessons for Trustworthy Multimodal VQA](/202607/19/2607.15241v1-beyond-the-leaderboard-design-lessons-for-trustworthy-multimodal-vqa)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：弱监督组织病理图像语义分割
-5. [FM$^2$: Unified Federated Foundation Models for Heterogeneous Multimodal Medical Imaging](/202607/18/2607.13386v1-fm2-unified-federated-foundation-models-for-heterogeneous-multimodal-medical-imaging)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：面向异构医学影像的联邦多模态基础模型
-6. [TS-Mask VLA: 2D Temporal-Spatial Masking for Vision-Language-Action Model with Effective Bridging](/202607/18/2607.09818v1-ts-mask-vla-2d-temporal-spatial-masking-for-vision-language-action-model-with-effective-bridging)  
-   标签：评分：8.0/10、query:vl
-   evidence：机器人操作的视觉语言动作模型
-7. [ABot-N1: Toward a General Visual Language Navigation Foundation Model](/202607/18/2607.10383v2-abot-n1-toward-a-general-visual-language-navigation-foundation-model)  
-   标签：评分：8.0/10、query:vl
-   evidence：视觉语言导航基础模型
+   evidence：医疗内窥镜多模态VQA
 
 ### 速读区论文标签
-1. [Evolution of Accuracy and Visual-Cognitive Errors in a Decade of Vision-Language AI Models](/202607/18/2607.09654v1-evolution-of-accuracy-and-visual-cognitive-errors-in-a-decade-of-vision-language-ai-models)  
+1. [Generalize LMMs to Versatile Visual Modalities via Fabricated Modality Synthesis](/202607/19/2607.10308v1-generalize-lmms-to-versatile-visual-modalities-via-fabricated-modality-synthesis)  
    标签：评分：8.0/10、query:vl
-   evidence：十年视觉语言模型的演进与基准测试
-2. [BiLoG-Net: A Bi-Context Location-Guided Network for Breast Mass Segmentation and Malignancy Classification in Mammography](/202607/18/2607.10188v2-bilog-net-a-bi-context-location-guided-network-for-breast-mass-segmentation-and-malignancy-classification-in-mammography)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：使用双上下文注意力的创新乳腺肿块分割
-3. [SynthDocBench: Controlled Benchmark for Long-Context Visual Document Understanding](/202607/18/2607.10400v1-synthdocbench-controlled-benchmark-for-long-context-visual-document-understanding)  
+   evidence：提出VVM-Tuning通过模态合成泛化LMM至新视觉模态
+2. [ABot-N1: Toward a General Visual Language Navigation Foundation Model](/202607/19/2607.10383v1-abot-n1-toward-a-general-visual-language-navigation-foundation-model)  
    标签：评分：8.0/10、query:vl
-   evidence：视觉语言模型文档理解的受控合成基准
-4. [TVT-PAPD: Pathology-Aware Prototype Distillation for Self-Supervised Whole Slide Image Classification](/202607/18/2607.10406v1-tvt-papd-pathology-aware-prototype-distillation-for-self-supervised-whole-slide-image-classification)  
+   evidence：通用视觉语言导航基础模型
+3. [SynthDocBench: Controlled Benchmark for Long-Context Visual Document Understanding](/202607/19/2607.10400v1-synthdocbench-controlled-benchmark-for-long-context-visual-document-understanding)  
+   标签：评分：8.0/10、query:vl
+   evidence：用于VLM文档理解的合成基准
+4. [GRASP: GRanularity-Aware Search Policy for Agentic RAG](/202607/19/2607.10463v1-grasp-granularity-aware-search-policy-for-agentic-rag)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：病理感知原型蒸馏的自监督全切片图像分类
-5. [MultiView-Bench: A Diagnostic Benchmark for World-Centric Multi-View Integration in VLMs](/202607/18/2607.08970v1-multiview-bench-a-diagnostic-benchmark-for-world-centric-multi-view-integration-in-vlms)  
+   evidence：自适应检索协调的代理RAG框架
+5. [Task Planning for Mobile Manipulation in Retail Stores using Foundation Models with Iterative Re-planning](/202607/19/2607.09962v1-task-planning-for-mobile-manipulation-in-retail-stores-using-foundation-models-with-iterative-re-planning)  
    标签：评分：7.0/10、query:vl
-   evidence：视觉语言模型多视图集成基准
-6. [Optimal Transport-based Semantic Alignment for LLM-based Audio-Visual Speech Recognition](/202607/18/2607.09001v1-optimal-transport-based-semantic-alignment-for-llm-based-audio-visual-speech-recognition)  
+   evidence：使用VLM和LLM进行零售补货任务规划
+6. [TextGaze: Prompting Gaze Target Estimation with Textual Scene Cues](/202607/19/2607.10130v1-textgaze-prompting-gaze-target-estimation-with-textual-scene-cues)  
    标签：评分：7.0/10、query:vl
-   evidence：基于LLM的视听语音识别语义对齐
-7. [COBS: Cumulant Order Block Sparse Attention](/202607/18/2607.09052v1-cobs-cumulant-order-block-sparse-attention)  
+   evidence：利用大型视觉语言模型进行注视目标估计的统一跨模态架构
+7. [ABot-AgentOS: A General Robotic Agent OS with Lifelong Multi-modal Memory](/202607/19/2607.10350v2-abot-agentos-a-general-robotic-agent-os-with-lifelong-multi-modal-memory)  
    标签：评分：7.0/10、query:vl
-   evidence：块稀疏注意力方法，适用于大语言模型和多模态模型
-8. [SigLIP-HD by Fine-to-Coarse Supervision](/202607/18/2607.09488v1-siglip-hd-by-fine-to-coarse-supervision)  
-   标签：评分：7.0/10、query:vl
-   evidence：细到粗监督提升视觉语言模型的视觉感知
-9. [Test-Time Scaling for Small VLMs on Multilingual Visual MCQ](/202607/18/2607.09438v1-test-time-scaling-for-small-vlms-on-multilingual-visual-mcq)  
-   标签：评分：6.0/10、query:vl
-   evidence：多语言视觉多选题上VLM测试时扩展
-10. [CLIR-Bench: Benchmarking Multimodal Question Answering over Irregular Clinical Time Series](/202607/18/2607.09880v1-clir-bench-benchmarking-multimodal-question-answering-over-irregular-clinical-time-series)  
+   evidence：基于VLM的机器人代理操作系统，具有多模态记忆
+8. [Trust Before Fusion: QIMG-7 and Source-Aware Resolution for Polluted Multimodal RAG](/202607/19/2607.10798v1-trust-before-fusion-qimg-7-and-source-aware-resolution-for-polluted-multimodal-rag)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：多模态RAG污染基准
+9. [Geometry-aware Gaussian Prior and Axial Attention for Cervical Cytology Image Classification](/202607/19/2607.10278v1-geometry-aware-gaussian-prior-and-axial-attention-for-cervical-cytology-image-classification)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：临床时间序列的多模态问答基准
-11. [ABot-N1: Toward a General Visual Language Navigation Foundation Model](/202607/18/2607.10383v1-abot-n1-toward-a-general-visual-language-navigation-foundation-model)  
+   evidence：轴向注意力用于医学图像分类
+10. [ABot-N1: Toward a General Visual Language Navigation Foundation Model](/202607/19/2607.10383v2-abot-n1-toward-a-general-visual-language-navigation-foundation-model)  
    标签：评分：6.0/10、query:vl
-   evidence：视觉语言导航基础模型，符合视觉语言大模型主题
-12. [HyperBank: A Differentiable Bank of Classical Priors for Few-Shot Spheroid Microscopy Segmentation](/202607/18/2607.10684v1-hyperbank-a-differentiable-bank-of-classical-priors-for-few-shot-spheroid-microscopy-segmentation)  
+   evidence：使用慢快架构的视觉语言导航基础模型
+11. [TVT-PAPD: Pathology-Aware Prototype Distillation for Self-Supervised Whole Slide Image Classification](/202607/19/2607.10406v1-tvt-papd-pathology-aware-prototype-distillation-for-self-supervised-whole-slide-image-classification)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：使用经典算子的创新性少样本医学图像分割
+   evidence：使用视觉Transformer和病理感知原型蒸馏的医学图像分类
+12. [Agents Don't Just Agree, They Remember: Benchmarking Persistent Sycophancy in Stateful Personal Agents](/202607/19/2607.10526v1-agents-dont-just-agree-they-remember-benchmarking-persistent-sycophancy-in-stateful-personal-agents)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：有状态代理的持续性谄媚基准
 
 
 <div class="dpr-home-promo-card">
