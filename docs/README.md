@@ -6,92 +6,82 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-22
-- 运行时间：2026-07-22 21:30:20 UTC
+- 最新运行日期：2026-07-23
+- 运行时间：2026-07-23 21:18:27 UTC
 - 运行状态：成功
-- 本次总论文数：24
-- 精读区：12
+- 本次总论文数：20
+- 精读区：8
 - 速读区：12
 
 ### 今日简报（AI）
-今日共分析24篇论文，精读12篇，重点推荐视觉语言模型推理边界与多模态医学图像语义学习。最值得关注的方向是视觉语言模型的空间认知边界及对比学习中假阴性缓解。建议优先精读《Visual Access Boundaries》与《Multimodal Semantic-Aware Contrastive Learning》两篇，把握当前VLM推理瓶颈与医疗3D图像学习创新。
-- 详情：[/202607/22/README](/202607/22/README)
+今日共监测20篇论文，精读8篇、速读12篇，重点聚焦病理影像、OCT理解及母婴健康诊断等方向。
+最值得关注的是病理全玻片图像评测基准PathAgentBench（10/10）和多模态大模型理解OCT的研究（9/10），两者均针对医学影像与视觉语言模型的交叉能力。
+建议优先精读这两篇高分论文，系统理解当前模型在病理和眼科影像上的表现边界与潜在价值。
+- 详情：[/202607/23/README](/202607/23/README)
 
 ### 精读区论文标签
-1. [Visual Access Boundaries in Vision-Language Model Reasoning](/202607/22/2607.12815v1-visual-access-boundaries-in-vision-language-model-reasoning)  
-   标签：评分：9.0/10、query:vl
-   evidence：分析VLM推理中的CoT干预
-2. [Multimodal Semantic-Aware Contrastive Learning For False Negative Mitigation in 3D Medical Imaging](/202607/22/2607.14995v1-multimodal-semantic-aware-contrastive-learning-for-false-negative-mitigation-in-3d-medical-imaging)  
+1. [PathAgentBench: Benchmarking Evidence-Seeking Vision-Language Models on Whole-Slide Pathology Image](/202607/23/2607.19261v1-pathagentbench-benchmarking-evidence-seeking-vision-language-models-on-whole-slide-pathology-image)  
+   标签：评分：10.0/10、query:vl
+   evidence：全切片病理VLM基准
+2. [Can Multimodal Large Language Models Understand OCT?](/202607/23/2607.16609v1-can-multimodal-large-language-models-understand-oct)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：三维医学影像的多模态对比学习
-3. [IoUPD: IoU-Aware Privileged Distillation for Visual Grounding with Multimodal Large Language Models](/202607/22/2607.15732v1-ioupd-iou-aware-privileged-distillation-for-visual-grounding-with-multimodal-large-language-models)  
-   标签：评分：9.0/10、query:vl
-   evidence：多模态大语言模型视觉定位的IoU感知特权蒸馏
-4. [Can Multimodal Large Language Models Understand OCT?](/202607/22/2607.16609v1-can-multimodal-large-language-models-understand-oct)  
-   标签：评分：9.0/10、query:vl
-   evidence：用于评估多模态大语言模型在OCT医学图像理解的基准
-5. [Look Clearly Before Answering: Mitigating Hallucinations in LVLMs via Saliency-Driven Perceptual Realignment](/202607/22/2607.16841v1-look-clearly-before-answering-mitigating-hallucinations-in-lvlms-via-saliency-driven-perceptual-realignment)  
-   标签：评分：9.0/10、query:vl
-   evidence：通过显著性驱动注意力缓解LVLM幻觉
-6. [SkyVLaM: Multimodal Large Language Model for UAV Video Understanding in Remote Sensing](/202607/22/2607.17386v1-skyvlam-multimodal-large-language-model-for-uav-video-understanding-in-remote-sensing)  
-   标签：评分：9.0/10、query:vl
-   evidence：用于无人机视频理解的多模态大语言模型
-7. [Stochastic Meta-Unlearning: Bridging Language Backbone and Multimodal Unlearning](/202607/22/2607.18615v1-stochastic-meta-unlearning-bridging-language-backbone-and-multimodal-unlearning)  
-   标签：评分：9.0/10、query:vl
-   evidence：视觉语言模型去学习框架
-8. [In-Context Learning for Wound Classification with Small Multimodal Language Models](/202607/22/2607.18819v1-in-context-learning-for-wound-classification-with-small-multimodal-language-models)  
+   evidence：用于OCT医学图像理解的多模态大模型基准
+3. [Memory-Supported Synergistic Adaptation for Training-Free Test-Time Medical Image Segmentation](/202607/23/2607.17693v1-memory-supported-synergistic-adaptation-for-training-free-test-time-medical-image-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：使用小型多模态语言模型进行伤口分类的上下文学习
-9. [HPD-Parsing: Hierarchical Parallel Document Parsing](/202607/22/2607.18839v1-hpd-parsing-hierarchical-parallel-document-parsing)  
-   标签：评分：9.0/10、query:vl
-   evidence：提出基于视觉语言模型的分层并行解码文档解析方法
-10. [Dual Adversarial Fine-tuning for Enhancing Robustness of Large Vision Language Model](/202607/22/2607.18958v1-dual-adversarial-fine-tuning-for-enhancing-robustness-of-large-vision-language-model)  
-   标签：评分：9.0/10、query:vl
-   evidence：增强大型视觉语言模型的鲁棒性
-11. [DobicVLM: Aligning Chest X-Ray Report Generation with Clinically-Grounded Programmatic Rewards via Group Relative Policy Optimization](/202607/22/2607.18988v1-dobicvlm-aligning-chest-x-ray-report-generation-with-clinically-grounded-programmatic-rewards-via-group-relative-policy-optimization)  
+   evidence：使用VLM的无训练测试时自适应医学图像分割
+4. [PC-Seg: Progressive Cross-View Consistency for 3D OCT Segmentation from Sparse 2D Annotations](/202607/23/2607.17718v2-pc-seg-progressive-cross-view-consistency-for-3d-oct-segmentation-from-sparse-2d-annotations)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：用于胸部X光报告生成的视觉语言模型，带有临床奖励
-12. [PathAgentBench: Benchmarking Evidence-Seeking Vision-Language Models on Whole-Slide Pathology Image](/202607/22/2607.19261v1-pathagentbench-benchmarking-evidence-seeking-vision-language-models-on-whole-slide-pathology-image)  
+   evidence：面向3D OCT分割的渐进式跨视图一致性
+5. [Stochastic Meta-Unlearning: Bridging Language Backbone and Multimodal Unlearning](/202607/23/2607.18615v1-stochastic-meta-unlearning-bridging-language-backbone-and-multimodal-unlearning)  
    标签：评分：9.0/10、query:vl
-   evidence：用于全切片病理图像的VLM基准
+   evidence：面向视觉语言模型的随机元遗忘
+6. [MissingBench-Verified: Probing Vision-Language Models' Inability to Detect Missing Object Parts](/202607/23/2607.18673v1-missingbench-verified-probing-vision-language-models-inability-to-detect-missing-object-parts)  
+   标签：评分：9.0/10、query:vl
+   evidence：视觉语言模型缺失部分检测基准
+7. [Pathologist Attention-Aligned Report Generation for Prostate Histopathology](/202607/23/2607.19624v1-pathologist-attention-aligned-report-generation-for-prostate-histopathology)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：利用病理学家注意力进行前列腺组织病理学多模态报告生成
+8. [Trace: A Taxonomy-Guided Environment for Multidomain Visual Reasoning](/202607/23/2607.19790v1-trace-a-taxonomy-guided-environment-for-multidomain-visual-reasoning)  
+   标签：评分：9.0/10、query:vl
+   evidence：为VLM设计的分类引导的视觉推理基准
 
 ### 速读区论文标签
-1. [DM-KG: A Novel Method for Boosting Spatial Cognition of Vision-Language Models in Street View Imagery](/202607/22/2607.12319v1-dm-kg-a-novel-method-for-boosting-spatial-cognition-of-vision-language-models-in-street-view-imagery)  
-   标签：评分：8.0/10、query:vl
-   evidence：通过知识图谱增强视觉语言模型的空间认知
-2. [CoRe: A Comprehensive Framework for Cross-Image Comparative Reasoning in Vision-Language Models](/202607/22/2607.12786v1-core-a-comprehensive-framework-for-cross-image-comparative-reasoning-in-vision-language-models)  
-   标签：评分：8.0/10、query:vl
-   evidence：用于VLM跨图像比较推理的基准
-3. [Improving Medical Image Generative Models with Fréchet Distance Loss](/202607/22/2607.13300v1-improving-medical-image-generative-models-with-frchet-distance-loss)  
+1. [MamaBench: Benchmarking LLM Robustness in Maternal and Child Health Diagnosis through Counterfactual Clinical Perturbation](/202607/23/2607.14385v1-mamabench-benchmarking-llm-robustness-in-maternal-and-child-health-diagnosis-through-counterfactual-clinical-perturbation)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：使用Fréchet距离损失改进医学图像生成模型以提升分割效果
-4. [Attention-Free and Lightweight Token Reduction for Efficient Vision-Language Models](/202607/22/2607.13500v1-attention-free-and-lightweight-token-reduction-for-efficient-vision-language-models)  
+   evidence：基于EA-RAG检索的母婴健康反事实基准
+2. [$K$-NeAS: Scalable Multi-Material CT Reconstruction Using Neural SDFs](/202607/23/2607.14415v1-k-neas-scalable-multi-material-ct-reconstruction-using-neural-sdfs)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：使用神经SDF的多材料CT重建实现清晰的組織分割
+3. [U-shaped Multi-granularity Learning for Vision-Language Models](/202607/23/2607.14966v1-u-shaped-multi-granularity-learning-for-vision-language-models)  
    标签：评分：8.0/10、query:vl
-   evidence：无注意力机制的视觉语言模型令牌压缩
-5. [Gaussian Mixture Modeling for Event-Aware Visual Allocation in Long Video Understanding](/202607/22/2607.12557v1-gaussian-mixture-modeling-for-event-aware-visual-allocation-in-long-video-understanding)  
+   evidence：VLM的U形多粒度提示学习
+4. [Reasoning-Guided Part-Level Visual Grounding via Reinforcement Learning](/202607/23/2607.15374v1-reasoning-guided-part-level-visual-grounding-via-reinforcement-learning)  
+   标签：评分：8.0/10、query:vl
+   evidence：多模态大模型用于部件级视觉定位
+5. [Attention-Free and Lightweight Token Reduction for Efficient Vision-Language Models](/202607/23/2607.13500v1-attention-free-and-lightweight-token-reduction-for-efficient-vision-language-models)  
    标签：评分：7.0/10、query:vl
-   evidence：大型视觉语言模型用于长视频理解
-6. [Instance-Enriched Semantic Maps for Visual Language Navigation](/202607/22/2607.12630v1-instance-enriched-semantic-maps-for-visual-language-navigation)  
+   evidence：针对视觉语言模型的无注意力令牌缩减
+6. [SD-MAR: Multi-image Analytical Reasoning via Synthetic Data and Reinforcement Learning](/202607/23/2607.14333v1-sd-mar-multi-image-analytical-reasoning-via-synthetic-data-and-reinforcement-learning)  
    标签：评分：7.0/10、query:vl
-   evidence：实例增强语义地图用于视觉语言导航
-7. [VisCo: Leveraging Large Language Models as Intrinsic Encoders for Visual Token Compression](/202607/22/2607.12756v1-visco-leveraging-large-language-models-as-intrinsic-encoders-for-visual-token-compression)  
+   evidence：训练和评估VLM进行多图像分析推理
+7. [Seeing the End at Step Zero: Accelerating Diffusion MLLMs via MLP Sparsity-Aware Truncation](/202607/23/2607.14557v1-seeing-the-end-at-step-zero-accelerating-diffusion-mllms-via-mlp-sparsity-aware-truncation)  
    标签：评分：7.0/10、query:vl
-   evidence：视觉语言模型令牌压缩方法
-8. [Visual Access Boundaries in Vision-Language Model Reasoning](/202607/22/2607.12815v2-visual-access-boundaries-in-vision-language-model-reasoning)  
+   evidence：基于稀疏性感知截断加速扩散多模态大模型
+8. [Attention-Guided Saliency Maps for Interpreting Visualization Literacy in VLMs](/202607/23/2607.16105v1-attention-guided-saliency-maps-for-interpreting-visualization-literacy-in-vlms)  
    标签：评分：7.0/10、query:vl
-   evidence：研究VLM推理中的视觉访问边界与CoT
-9. [UMSS: Towards Unsupervised Multi-modal Semantic Segmentation](/202607/22/2607.12372v1-umss-towards-unsupervised-multi-modal-semantic-segmentation)  
-   标签：评分：6.0/10、query:vlmmed
-   evidence：无监督多模态语义分割
-10. [Breaking Déjà Vu: Independent Auditing of Visual Place Recognition through Vision-Language Reasoning](/202607/22/2607.12818v2-breaking-dj-vu-independent-auditing-of-visual-place-recognition-through-vision-language-reasoning)  
+   evidence：用于解释VLM可视化素养的显著性图
+9. [S-squared-VLA: Decoupling Semantic and Spatial Streams in Vision-Language-Action Models for Autonomous Driving](/202607/23/2607.13926v1-s-squared-vla-decoupling-semantic-and-spatial-streams-in-vision-language-action-models-for-autonomous-driving)  
    标签：评分：6.0/10、query:vl
-   evidence：视觉语言推理用于位置识别
-11. [AspectCLIP: Optimizing CLIP Representation Space via Aspect-Guided Consistency Regularization](/202607/22/2607.13805v2-aspectclip-optimizing-clip-representation-space-via-aspect-guided-consistency-regularization)  
+   evidence：自动驾驶视觉语言动作模型，解耦语义和空间流
+10. [SceneBind: Binding What and Where Across Vision, Audio and Language](/202607/23/2607.15265v1-scenebind-binding-what-and-where-across-vision-audio-and-language)  
    标签：评分：6.0/10、query:vl
-   evidence：CLIP表示优化
-12. [Screening Is Effective for Visual Recognition](/202607/22/2607.13983v1-screening-is-effective-for-visual-recognition)  
+   evidence：全模态视觉语言表示
+11. [Partial Information Decomposition as a Multi-Contrast 3D MRI Selection Strategy for Resource-Constrained Deep Neural Network Training in Brain Tumor Segmentation](/202607/23/2607.15396v1-partial-information-decomposition-as-a-multi-contrast-3d-mri-selection-strategy-for-resource-constrained-deep-neural-network-training-in-brain-tumor-segmentation)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：ViT筛选机制以排除无关块
+   evidence：用于脑肿瘤分割中MRI序列选择的信息分解方法
+12. [IoUPD: IoU-Aware Privileged Distillation for Visual Grounding with Multimodal Large Language Models](/202607/23/2607.15732v1-ioupd-iou-aware-privileged-distillation-for-visual-grounding-with-multimodal-large-language-models)  
+   标签：评分：6.0/10、query:vl
+   evidence：面向MLLM的IoU感知特权蒸馏用于视觉接地
 
 
 <div class="dpr-home-promo-card">
