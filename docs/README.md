@@ -6,101 +6,97 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-24
-- 运行时间：2026-07-24 21:39:59 UTC
+- 最新运行日期：2026-07-25
+- 运行时间：2026-07-25 20:35:24 UTC
 - 运行状态：成功
-- 本次总论文数：27
-- 精读区：15
+- 本次总论文数：25
+- 精读区：13
 - 速读区：12
 
 ### 今日简报（AI）
-今日精读2篇高分论文，聚焦医疗专用智能体与视觉-语言模型跨模态遗忘。重点关注《Cura 1T》专业医疗智能体模型和跨模态遗忘技术，两者均获9.0分高评价。普通读者可关注视觉-语言模型的多粒度学习与医学图像偏差处理，以及跨场景物体导航的分层记忆方法。
-- 详情：[/202607/24/README](/202607/24/README)
+今日推荐数据共25篇，精读13篇、速读12篇，重点关注视觉语言模型（VLM）的跨模态遗忘与任务专用视觉路径搜索两项9分高价值研究。  
+最值得精读的两篇论文分别解决了VLM中的遗忘泛化问题和模型剪枝效率问题，前者提出“单模态遗忘一切”增强跨模态遗忘，后者利用进化剪枝为给定任务自动搜索高效视觉通路。  
+建议普通读者优先关注视觉语言模型的样本遗忘与动态剪枝技术，这些方向能显著提升模型在多模态任务中的鲁棒性和部署效率。
+- 详情：[/202607/25/README](/202607/25/README)
 
 ### 精读区论文标签
-1. [Cura 1T: Specialized Model for Agentic Healthcare](/202607/24/2607.15314v1-cura-1t-specialized-model-for-agentic-healthcare)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：处理文本和图像的医疗专用大语言模型，具有智能体能力
-2. [One Modality to Forget Them All: Enhancing Cross-Modal Unlearning in Vision-Language Models](/202607/24/2607.16442v1-one-modality-to-forget-them-all-enhancing-cross-modal-unlearning-in-vision-language-models)  
+1. [One Modality to Forget Them All: Enhancing Cross-Modal Unlearning in Vision-Language Models](/202607/25/2607.16442v1-one-modality-to-forget-them-all-enhancing-cross-modal-unlearning-in-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：VLM跨模态遗忘
-3. [Look Clearly Before Answering: Mitigating Hallucinations in LVLMs via Saliency-Driven Perceptual Realignment](/202607/24/2607.16841v1-look-clearly-before-answering-mitigating-hallucinations-in-lvlms-via-saliency-driven-perceptual-realignment)  
+   evidence：视觉语言模型跨模态遗忘研究
+2. [Searching for Task-Specific Vision Paths: Evolutionary Block Pruning Across Vision-Language Models](/202607/25/2607.17052v1-searching-for-task-specific-vision-paths-evolutionary-block-pruning-across-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：LVLM幻觉缓解方法
-4. [Searching for Task-Specific Vision Paths: Evolutionary Block Pruning Across Vision-Language Models](/202607/24/2607.17052v1-searching-for-task-specific-vision-paths-evolutionary-block-pruning-across-vision-language-models)  
+   evidence：视觉语言模型模块剪枝
+3. [Induce to Empower: Improving Lightweight Baselines via Foundation Model Induction for Generalized Polyp Segmentation](/202607/25/2607.17208v1-induce-to-empower-improving-lightweight-baselines-via-foundation-model-induction-for-generalized-polyp-segmentation)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：使用SAM和DINOv2等基础模型改进息肉分割
+4. [PRiSM: Prototype Regularization for Few-Shot VLMs](/202607/25/2607.17820v1-prism-prototype-regularization-for-few-shot-vlms)  
    标签：评分：9.0/10、query:vl
-   evidence：视觉语言模型中视觉路径的进化剪枝
-5. [Understanding From Human Perspective: A Multi-agent System for Interactive Egocentric Medical Image Segmentation](/202607/24/2607.17341v1-understanding-from-human-perspective-a-multi-agent-system-for-interactive-egocentric-medical-image-segmentation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：多智能体系统用于交互式医学图像分割
-6. [Retrieval-Augmented Interpretable Learning: Towards Task-Specific Zero-Shot Models in Healthcare](/202607/24/2607.17508v1-retrieval-augmented-interpretable-learning-towards-task-specific-zero-shot-models-in-healthcare)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：面向医疗的检索增强学习
-7. [MissingBench-Verified: Probing Vision-Language Models' Inability to Detect Missing Object Parts](/202607/24/2607.18673v2-missingbench-verified-probing-vision-language-models-inability-to-detect-missing-object-parts)  
+   evidence：面向少样本VLM的现实基准
+5. [ST-Veto: Spatio-Temporal Token Veto for Diffusion MLLMs via Taylor Prediction and Visual Grounding](/202607/25/2607.17884v1-st-veto-spatio-temporal-token-veto-for-diffusion-mllms-via-taylor-prediction-and-visual-grounding)  
    标签：评分：9.0/10、query:vl
-   evidence：评估VLM检测缺失对象部分的基准
-8. [Advancing Multimodal Fusion on Heterogeneous Medical Data with Hybrid Geometry Attention](/202607/24/2607.19086v1-advancing-multimodal-fusion-on-heterogeneous-medical-data-with-hybrid-geometry-attention)  
+   evidence：提出扩散多模态大模型的免训练令牌否决方法
+6. [PathReportEval: A Systematic Benchmark for Pathology Report Generation](/202607/25/2607.18448v1-pathreporteval-a-systematic-benchmark-for-pathology-report-generation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：异质医学数据上的多模态融合学习，使用混合几何注意力
-9. [PathAgentBench: Benchmarking Evidence-Seeking Vision-Language Models on Whole-Slide Pathology Image](/202607/24/2607.19261v1-pathagentbench-benchmarking-evidence-seeking-vision-language-models-on-whole-slide-pathology-image)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：针对全切片病理图像的视觉语言模型基准
-10. [LAVIFT: Latent-Action-Guided Vision Fine-Tuning for Surgical Interaction Recognition](/202607/24/2607.19889v1-lavift-latent-action-guided-vision-fine-tuning-for-surgical-interaction-recognition)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：视觉语言模型微调用于手术交互识别
-11. [Test-Time Training for Modality Order Consistency in Vision-Language Models](/202607/24/2607.20351v1-test-time-training-for-modality-order-consistency-in-vision-language-models)  
+   evidence：病理报告生成基准，视觉语言医学应用
+7. [MissingBench-Verified: Probing Vision-Language Models' Inability to Detect Missing Object Parts](/202607/25/2607.18673v1-missingbench-verified-probing-vision-language-models-inability-to-detect-missing-object-parts)  
    标签：评分：9.0/10、query:vl
-   evidence：VLM模态顺序一致性的测试时训练
-12. [Enhancing Explainable Cardiac Diagnosis with Guide-Grounded Multimodal LLMs](/202607/24/2607.20814v1-enhancing-explainable-cardiac-diagnosis-with-guide-grounded-multimodal-llms)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：多模态LLM用于心脏诊断
-13. [Sparse Concept Channels in Frozen 3D CT Vision Encoders](/202607/24/2607.20993v1-sparse-concept-channels-in-frozen-3d-ct-vision-encoders)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：在冷冻3D CT视觉语言模型中探测概念通道
-14. [Do Pathology Vision-Language Models Truly See Pathology?](/202607/24/2607.21065v1-do-pathology-vision-language-models-truly-see-pathology)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：病理视觉语言模型的视觉证据评估
-15. [CRAG-MM-Diagnostics: Enabling Stage-Wise Analysis of Knowledge-Intensive VQA](/202607/24/2607.21155v1-crag-mm-diagnostics-enabling-stage-wise-analysis-of-knowledge-intensive-vqa)  
+   evidence：评估VLM检测缺失物体部分的基准
+8. [Attributes Should Come from Images, Not Class Names: Distribution-Conditioned Attribute Selection for Vision-Language Models](/202607/25/2607.18695v1-attributes-should-come-from-images-not-class-names-distribution-conditioned-attribute-selection-for-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：面向知识密集型VQA的VLM诊断基准
+   evidence：视觉语言模型的分布条件属性选择
+9. [Dual Adversarial Fine-tuning for Enhancing Robustness of Large Vision Language Model](/202607/25/2607.18958v1-dual-adversarial-fine-tuning-for-enhancing-robustness-of-large-vision-language-model)  
+   标签：评分：9.0/10、query:vl
+   evidence：增强大型视觉语言模型的鲁棒性
+10. [One Model, Many Graphs: Learning over Attributed Graphs across Heterogeneous Modalities with Vision-Language Models](/202607/25/2607.19128v1-one-model-many-graphs-learning-over-attributed-graphs-across-heterogeneous-modalities-with-vision-language-models)  
+   标签：评分：9.0/10、query:vl
+   evidence：视觉语言模型用于异构图
+11. [Bayesian uncertainty estimation improves clinical decision making in medical AI agents](/202607/25/2607.20582v1-bayesian-uncertainty-estimation-improves-clinical-decision-making-in-medical-ai-agents)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：医疗AI代理的不确定性估计
+12. [MVEI & EmObserver: Empowering MLLM-Oriented Visual Emotional Intelligence via Emotion Statement Judgement](/202607/25/2607.21061v1-mvei--emobserver-empowering-mllm-oriented-visual-emotional-intelligence-via-emotion-statement-judgement)  
+   标签：评分：9.0/10、query:vl
+   evidence：多模态大模型视觉情感智能
+13. [Toward Generalizable Cognitive Impairment Detection with Speech-Based Multimodal Large Language Models](/202607/25/2607.21496v1-toward-generalizable-cognitive-impairment-detection-with-speech-based-multimodal-large-language-models)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：基于语音的多模态大模型用于认知障碍检测
 
 ### 速读区论文标签
-1. [VTM-Nav: Hierarchical Visual-Topological Memory for Cross-Episode Object-Goal Navigation](/202607/24/2607.14514v1-vtm-nav-hierarchical-visual-topological-memory-for-cross-episode-object-goal-navigation)  
+1. [IoUPD: IoU-Aware Privileged Distillation for Visual Grounding with Multimodal Large Language Models](/202607/25/2607.15732v1-ioupd-iou-aware-privileged-distillation-for-visual-grounding-with-multimodal-large-language-models)  
    标签：评分：8.0/10、query:vl
-   evidence：基于分层视觉拓扑记忆的免训练视觉语言导航
-2. [U-shaped Multi-granularity Learning for Vision-Language Models](/202607/24/2607.14966v1-u-shaped-multi-granularity-learning-for-vision-language-models)  
+   evidence：用于视觉定位的多模态大语言模型
+2. [Modularized Dynamic-Granularity Video LLM for Multi-Event Long Video Understanding](/202607/25/2607.15778v1-modularized-dynamic-granularity-video-llm-for-multi-event-long-video-understanding)  
    标签：评分：8.0/10、query:vl
-   evidence：视觉语言模型的U形多粒度提示学习
-3. [Demographically-Conditioned Synthetic Medical Images for Bias Mitigation and Bias Detection in Disease Classifiers](/202607/24/2607.14984v1-demographically-conditioned-synthetic-medical-images-for-bias-mitigation-and-bias-detection-in-disease-classifiers)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：Stable Diffusion生成的合成医学图像用于偏差缓解
-4. [AutoSynthesis: An agentic system for automated meta-analysis](/202607/24/2607.15247v1-autosynthesis-an-agentic-system-for-automated-meta-analysis)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：医学自动元分析的多智能体系统
-5. [SceneBind: Binding What and Where Across Vision, Audio and Language](/202607/24/2607.15265v1-scenebind-binding-what-and-where-across-vision-audio-and-language)  
+   evidence：提出MoD-VLLM，一个用于多事件长视频理解的视频语言大模型框架。
+3. [Von Mises-Fisher Mixture Model with Dynamic Shrinkage for Realistic Test-Time Transduction](/202607/25/2607.15851v1-von-mises-fisher-mixture-model-with-dynamic-shrinkage-for-realistic-test-time-transduction)  
+   标签：评分：8.0/10、query:vl
+   evidence：通过动态收缩的测试时转导增强VLM性能
+4. [Attention-Guided Saliency Maps for Interpreting Visualization Literacy in VLMs](/202607/25/2607.16105v1-attention-guided-saliency-maps-for-interpreting-visualization-literacy-in-vlms)  
+   标签：评分：8.0/10、query:vl
+   evidence：通过注意力显著性图解释VLM
+5. [Efficient Frame Selection for Long Videos at Test Time with Attention-Based MLLM Selectors](/202607/25/2607.15689v1-efficient-frame-selection-for-long-videos-at-test-time-with-attention-based-mllm-selectors)  
    标签：评分：7.0/10、query:vl
-   evidence：全面模态视觉语言模型用于场景绑定
-6. [Large Language Models as Unified Multimodal Learners for Clinical Prediction](/202607/24/2607.15380v1-large-language-models-as-unified-multimodal-learners-for-clinical-prediction)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：使用多模态大模型进行临床预测
-7. [qZACH-ViT: Quantization-Aware Intrinsic Explanations with Recursive Attribution-Stabilized Optimization](/202607/24/2607.15421v1-qzach-vit-quantization-aware-intrinsic-explanations-with-recursive-attribution-stabilized-optimization)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：量化感知的ViT用于医学图像分类，具备可解释性
-8. [IoUPD: IoU-Aware Privileged Distillation for Visual Grounding with Multimodal Large Language Models](/202607/24/2607.15732v1-ioupd-iou-aware-privileged-distillation-for-visual-grounding-with-multimodal-large-language-models)  
+   evidence：基于注意力的MLLM帧选择方法
+6. [How Do VLMs Fail? Vision-Operation Misalignment in Compositional VQA](/202607/25/2607.16094v1-how-do-vlms-fail-vision-operation-misalignment-in-compositional-vqa)  
    标签：评分：7.0/10、query:vl
-   evidence：多模态大语言模型的视觉定位
-9. [Seeing the End at Step Zero: Accelerating Diffusion MLLMs via MLP Sparsity-Aware Truncation](/202607/24/2607.14557v1-seeing-the-end-at-step-zero-accelerating-diffusion-mllms-via-mlp-sparsity-aware-truncation)  
-   标签：评分：6.0/10、query:vl
-   evidence：加速扩散多模态大模型
-10. [SoftNav: Injecting 3D Scene Tokens into VLMs for Embodied Navigation](/202607/24/2607.14586v1-softnav-injecting-3d-scene-tokens-into-vlms-for-embodied-navigation)  
-   标签：评分：6.0/10、query:vl
-   evidence：向视觉语言模型注入3D场景token用于具身导航
-11. [BrainPilot: Automating Brain Discovery with Agentic Research](/202607/24/2607.15079v2-brainpilot-automating-brain-discovery-with-agentic-research)  
+   evidence：VLM在组合VQA中的失败分析
+7. [Vision-Language-Motion Maps: An Open-Vocabulary, Uncertainty-Aware, Queryable Motion Attribute for 3D Scene Maps](/202607/25/2607.16173v1-vision-language-motion-maps-an-open-vocabulary-uncertainty-aware-queryable-motion-attribute-for-3d-scene-maps)  
+   标签：评分：7.0/10、query:vl
+   evidence：VLM应用于3D场景运动属性
+8. [HTT-Net: Hierarchical Text-guided Transition Modeling for Surgical Video Phase Recognition](/202607/25/2607.16787v1-htt-net-hierarchical-text-guided-transition-modeling-for-surgical-video-phase-recognition)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：文本引导的手术视频阶段识别
+9. [DPNeXt: A Lightweight Multi-Scale Feature Fusion Framework for Efficient ViT-Based Multi-Task Dense Prediction](/202607/25/2607.16012v1-dpnext-a-lightweight-multi-scale-feature-fusion-framework-for-efficient-vit-based-multi-task-dense-prediction)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：AI智能体用于脑科学研究，可迁移至医学分析
-12. [MM-IssueLoc: A Controlled Benchmark for Evaluating Visual Evidence in Multimodal Repository-Level Issue Localization](/202607/24/2607.15205v1-mm-issueloc-a-controlled-benchmark-for-evaluating-visual-evidence-in-multimodal-repository-level-issue-localization)  
+   evidence：基于ViT的多任务密集预测方法，可迁移至医学分割
+10. [Think, Plan, Paint: Layout-Aware Reasoning for Controllable Image Generation in Unified Models](/202607/25/2607.16409v1-think-plan-paint-layout-aware-reasoning-for-controllable-image-generation-in-unified-models)  
    标签：评分：6.0/10、query:vl
-   evidence：包含视觉证据的多模态定位基准
+   evidence：统一MLLM用于布局感知可控图像生成
+11. [Real-World Evaluation of an AI Agent Drafting Translational Impact Summaries](/202607/25/2607.16989v1-real-world-evaluation-of-an-ai-agent-drafting-translational-impact-summaries)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：用于起草医学影响摘要的AI智能体
+12. [LenGuard-GPC: Length Guarding with Guided-Prompt Consistency for Spatial Reasoning Reinforce Learning](/202607/25/2607.17243v1-lenguard-gpc-length-guarding-with-guided-prompt-consistency-for-spatial-reasoning-reinforce-learning)  
+   标签：评分：6.0/10、query:vl
+   evidence：视觉语言模型用于空间推理
 
 
 <div class="dpr-home-promo-card">

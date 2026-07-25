@@ -1,0 +1,415 @@
+Title: Efficient Frame Selection for Long Videos at Test Time with Attention-Based MLLM Selectors
+
+URL Source: https://arxiv.org/pdf/2607.15689v1
+
+Published Time: Mon, 20 Jul 2026 00:32:49 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# Efficient Frame Selection for Long Videos at Test Time with Attention-Based MLLM Selectors 
+
+Yilin Wang 1* Xiangxi Zheng 2* Dongxing Mao 3 Linjie Li 4 Zhengyuan Yang 4
+
+Ping Yu 2 Rui Yan 5 Yuan Yao 2 Alex Jinpeng Wang 3
+
+> 1
+
+ZJU 2NJU 3CSU 4Microsoft 5NJUST 
+
+Abstract 
+
+Understanding long videos with multimodal large language models (MLLMs) requires se-lecting a compact set of frames from thou-sands of candidates, yet identifying the right frames seemingly requires understanding the video first. We resolve this circular depen-dency with a simple observation: cross-modal attention at validation-selected extraction lay-ers in MLLMs already provides query-relevant frame evidence without requiring autoregres-sive generation. We exploit this property to build DAFS (Dynamic Attention-based Budget-aware Frame Selection), a training-free frame selector. A lightweight MLLM selector, even with only 2B parameters, can extract frame-level evidence by converting selected-layer at-tention into relevance scores through query-conditioned aggregation. This enables cross-frame comparison without autoregressive de-coding. To handle the selector’s own context constraint, we formulate the joint allocation of candidate pool size and per-frame token budget as a discrete optimization problem solved by dynamic programming. Under a 32-frame bud-get, our selector improves over uniform sam-pling by up to 6.4 points on Video-MME and outperforms prior training-based selectors un-der matched frame budgets, while generalizing across selector and answerer backbones, and across tasks, without retraining. 
+
+1 Introduction 
+
+Multimodal large language models (MLLMs) have recently achieved impressive progress in video un-derstanding (Bai et al., 2025; Wang et al., 2025). However, this capability comes with a practical bot-tleneck: long videos contain far more frames than current models can process (Wang et al., 2024b; Shen et al., 2024). Encoding every frame quickly exceeds the limited context and visual-token bud-gets of current architectures, making dense video  
+
+> *
+
+Equal contribution. 8 16 32 64 
+
+> Number of Frames
+> 55%
+> 60%
+> 65%
+> 70%
+> Overall Accuracy
+> Evaluation on Video-MME (w/o subtitles)
+> Ours-Qwen3-VL
+> Ours-InternVL3.5
+> Uniform Sampling
+> AKS
+> CLIP-base TopK
+> MSJoE (32/64 only)
+> K-Frames (32/64 only)
+
+Figure 1: Performance–efficiency overview. Our selector improves long-video understanding while keeping the selec-tion stage lightweight, illustrating the accuracy–cost trade-off targeted by this work. 
+
+processing computationally infeasible. Therefore, long video understanding largely reduces to a prob-lem: selecting a small set of informative frames that retrieves query-relevant visual evidence .Existing approaches navigate a trade-off be-tween semantic depth and computational cost (Fig-ure 2). Uniform sampling (Wang et al., 2024a; Bai et al., 2025; Lin et al., 2024; Maaz et al., 2024) is cheap but content-blind: it treats all temporal re-gions as equally important and often misses sparse, decisive events in long videos. CLIP-based meth-ods (Tang et al., 2025; Zhang et al., 2025; Liu et al., 2025) score frames by query–frame similarity, but do so independently, without cross-frame context or strong query conditioning. More generally, this setting is not standard image-text retrieval. Rather than retrieving visually similar frames in isolation, it requires selecting a compact set of complemen-tary evidence frames that best supports long-video QA under a fixed answerer budget. MLLM-based selectors (Yao et al., 2025b; Xu et al., 2025) of-fer deeper semantic reasoning. However, feeding multiple frames into an MLLM produces a large number of visual tokens, which are constrained by the model’s limited context window and thus re-strict the number of frames that can be processed 1arXiv:2607.15689v1 [cs.CV] 17 Jul 2026 Ours 
+
+CLIP -based Frame Selection 
+
+Query Text 
+
+Frames   
+
+> Text
+> Encoder
+> Image
+> Encoder Distribution score
+> Weak Cross -frame
+> Low Query Condition
+
+MLLM -based Autoregressive Selection 
+
+Query Text 
+
+Frames 
+
+MLLM  <frame_5>, 
+
+<frame_9>, 
+
+…
+
+Single Forward Pass  Training -free  Query -conditioned Relevance 
+
+Query Text 
+
+Frames          
+
+> Selected Layer
+> Small MLLM …
+> Cross -modal
+> Attention Map Distribution score
+> Top -K
+> selected
+> frames
+> Requires Additional Training Single Forward Pass Strong Query Condition
+> Query -aware
+> Scoring
+> AR Generation Cost Figure 2: Comparison of text-guided frame selection paradigms for long video understanding. CLIP-based methods score frames independently with weak query conditioning . MLLM-based autoregressive selectors achieve strong query conditioning but require additional training . Our method extracts cross-modal attention from a small MLLM in a single forward pass for
+> training-free, query-conditioned selection.
+
+jointly. In addition, the autoregressive inference paradigm introduces non-trivial latency, further in-creasing computational cost and limiting scalability to long video sequences. We observe that MLLMs already expose a use-ful retrieval signal before answer generation. At validation-selected extraction layers, cross-modal attention concentrates on a small set of query-relevant visual tokens and preserves frame-level evidence (Figure 4). Rather than asking an MLLM to autoregressively select frames, we introduce DAFS (Dynamic Attention-based Budget-aware Frame Selection), which reuses this attention as a lightweight evidence score: text-to-vision attention is converted to frame-level scores through query-conditioned aggregation, enabling even a small se-lector to rank frames for a stronger answerer with-out autoregressive decoding. The selector, however, is constrained by a finite context window, limiting both the number of can-didate frames and the visual-token budget it can process. We formulate this selector-side allocation as a budgeted discrete optimization problem that jointly determines (i) the candidate frame pool size and (ii) the per-frame visual token allocation un-der a fixed context constraint, solved efficiently via dynamic programming; the final answerer still receives the selected frames in original resolution. In summary, our contributions are threefold: (1) a lightweight sparse frame selection framework featuring a small MLLM selector with cross-modal attention for query-guided frame comparison in long videos; (2) a budgeted dynamic programming 
+
+formulation that jointly optimizes the candidate frame pool size and per-frame visual token alloca-tion under context constraints; and (3) extensive ex-periments showing that our approach consistently outperforms uniform sampling, heuristic keyframe extraction, CLIP-based, and MLLM-based selec-tion while remaining computationally efficient (Fig-ure 1). 
+
+2 Related Work 
+
+2.1 MLLMs for Long-form Video 
+
+Recent MLLMs have enabled cross-modal video reasoning (Bai et al., 2025; Lin et al., 2024). For long-form inputs, prior work mainly improves ar-chitectures, training pipelines, visual encoders, and temporal modeling, including video-specialized MLLMs (Li et al., 2025; Jin et al., 2024; Cheng et al., 2024), multi-scale visual modeling (Li et al., 2024; Xu et al., 2024), and long-context or tempo-rally compressed designs (Chen et al., 2024; Shu et al., 2025; Fei et al., 2024; Shen et al., 2024; Cheng et al., 2025; Team et al., 2025). Our work is orthogonal to these efforts: we focus on test-time input construction for existing MLLMs. 
+
+2.2 CLIP-based Frame Selection 
+
+CLIP-based frame selection uses pretrained vision-language encoders (e.g., CLIP/SigLIP) to score query–frame similarity, often with diversity or cov-erage heuristics. BOLT (Liu et al., 2025) uses in-verse transform sampling, AKS (Tang et al., 2025) 2balances prompt relevance and coverage under a to-ken budget, and Q-Frame (Zhang et al., 2025) ranks frames into multiple compute tiers. These methods are efficient but per-frame and similarity-driven, which underuse cross-frame temporal context. 
+
+2.3 MLLM-based Frame Selection 
+
+MLLM-based selectors can use richer query-video semantics but often incur training or inference over-head. FFS (Buch et al., 2025) trains selectors with downstream losses; Frame-Voyager (Yu et al., 2024) ranks candidates by task contribution; and ViaRL (Xu et al., 2025), ReFoCUS (Lee et al., 2025), and SeViLA (Yu et al., 2023) use reinforce-ment or self-learning. GenS (Yao et al., 2025a) and Chain-of-Frames (Ghazanfari et al., 2025) rely on keyframe supervision, while A.I.R. (Zou et al., 2025), GIFT (Ma et al., 2026), and MSJoE (Tan et al., 2026) use iterative reasoning, global frame utility, or coupled sampler optimization. In con-trast, we use attention from an off-the-shelf small MLLM as a lightweight selector signal while keep-ing the answerer fixed. 
+
+3 Method 
+
+As shown in Figure 3, we propose a lightweight and budget-aware framework for retrieving query-relevant frames from long videos under a strict visual token budget. Our approach is motivated by an empirical observation: cross-modal attention in MLLMs tends to concentrate on query-relevant vi-sual regions. We exploit this signal as a lightweight proxy for frame relevance, enabling efficient selec-tion without processing the entire video with the backbone MLLM. However, long videos typically contain far more visual tokens than the selector’s input window can hold. To ensure scalability, we introduce budget-aware frame sampling and spatial token compression to build a compact candidate representation under a controlled visual-token bud-get. Finally, we formulate a dynamic programming strategy that learns an optimal duration-aware al-location policy, balancing temporal coverage and spatial detail under a fixed token budget. 
+
+Pipeline Overview. Our pipeline operates in four steps. First, we build a candidate pool by extracting frames at a base rate of 1 FPS (adaptively increased for short videos) and uniformly subsample F (d)
+
+frames by video duration d. Second, we compress each sampled frame into P (d) visual tokens so the total strictly fits the global budget B. Third, the                                             
+
+> Table 1: Layer-wise grounding evidence of the Qwen3.5-2B selector per scoring depth (metrics defined in text; higher is better).
+> Layer Video -MME Charades-STA NExT-GQA Cov@32 Attn Hit@32 Cov@32 Attn
+> L3 63.6 0.682 0.352 0.853 0.252 0.234 L7 66.7 0.742 0.426 0.923 0.291 0.274 L11 67.2 0.768 0.447 0.933 0.311 0.289
+> L15 67.4 0.771 0.443 0.943 0.303 0.279 L19 66.9 0.745 0.413 0.900 0.278 0.264 L23 66.3 0.733 0.395 0.847 0.260 0.250
+
+selector computes a query-conditioned relevance score for each candidate using text-to-vision atten-tion over semantically important query tokens. Fi-nally, we rank candidates by these scores, select the top-K frames for the answerer budget ( K ≤ F (d)), and feed them to the backbone MLLM. 
+
+3.1 Attention Pattern Analysis 
+
+To motivate our selector, we analyze the layer-wise cross-modal attention behavior of InternVL3.5-2B (Wang et al., 2025). We summarize text-to-vision attention into frame-level relevance by ag-gregating attention weights over the visual tokens belonging to each frame (details in Sec. 3.2), en-suring a consistent notion of relevance between analysis and selection. Concretely, we extract text-to-vision attention from a validation-selected layer 
+
+ℓ⋆ and obtain per-frame relevance scores via this aggregation. Figure 4 shows the corresponding layer-wise statistics. We find that the most effective backbone-specific layers tend to concentrate attention on a small set of query-relevant visual tokens. This pattern resembles evidence retrieval and occurs be-fore deeper cross-modal fusion. The NExT-GQA oracle-recall sweep in Figure 4 ( left ) shows that depth 12 preserves the strongest temporal evidence signal for InternVL3.5-2B, which we adopt as its extraction layer. The right plot measures cosine similarity between the frame-level attention-score distributions of adjacent layers. Together, these views indicate whether a layer is both useful for selecting answer-relevant frames and distinct from neighboring layers in its attention pattern. We ob-serve that validation-selected layers provide the most informative relevance cues, while the simi-larity curve follows a decrease-then-increase trend, suggesting progressive cross-modal fusion in later layers, which obscures frame-level visual details. To quantify this, Table 1 sweeps the frame-scoring depth of the Qwen3.5-2B selector on 3Dynamic 
+
+> pooling
+
+What is the pattern on the baby‘s pink swimsuit? 
+
+A.  Cherry  B.  Striped  C.  Butterfly  D.  Floral       
+
+> Attention
+> aggregation
+> text tokens
+> image tokens
+> key text tokens
+> Visual
+> encoder projector
+> Small  MLLM Selector
+> (selected layer) Figure 3: Overview of DAFS. Candidate frames are compressed via dynamic pooling and scored by a small MLLM using validation-selected cross-modal attention. The top-Kquery-relevant frames are then fed to the backbone model for prediction.
+
+Charades-STA and NExT-GQA. Over the top-32 scored frames, Hit@32 is the fraction of queries hitting a ground-truth frame, Cov@32 the covered fraction of the ground-truth segment, and Attn the attention mass on ground-truth frames (higher is better). Intermediate layers (L11–L15) score high-est on all three and also reach the best Video-MME accuracy, showing that mid-depth cross-modal at-tention carries the strongest frame-level localiza-tion signal before deeper fusion. Our selector reuses this signal and scores frames directly from selected-layer attention, without any training. We fix the extraction layer ℓ⋆ using this Charades-STA/NExT-GQA sweep. Both benchmarks are dis-joint from our evaluation sets (Video-MME, LVB, MLVU), so no evaluation data leaks into layer se-lection (Sec. 4.1). 
+
+3.2 Query-aware Frame Scoring Using Selected-layer Attention 
+
+We estimate frame relevance in a query-aware 
+
+manner by converting selected-layer text-to-vision attention into frame-level scores, emphasizing in-formative query content during aggregation. For brevity, we write F = F (d) and P = P (d) for a video of duration d.
+
+Selected-layer Attention Scores. We extract at-tention weights from a validation-selected layer 
+
+ℓ⋆. This attention matrix represents the correla-tion from T text tokens to all visual tokens across the sampled frames. For multi-head attention, we average attention over heads and normalize each text-token distribution over visual tokens. Let A(ℓ⋆) ∈ RT ×(F ·P ) denote the resulting text-to-vision attention matrix after mapping model-specific visual-token indices to their corresponding frames. We compute the raw per-token relevance score for each frame by summing the attention over all visual tokens within that frame: 
+
+St,j =
+
+> P
+
+X
+
+> p=1
+
+A(ℓ⋆)
+
+> t, (j,p )
+
+, t ∈ [1 , T ], j ∈ [1 , F ], (1) where (j, p ) indexes the p-th visual token in the 
+
+j-th frame. 
+
+Important-token Aggregation. To focus the evaluation on the core intent of the prompt, we define an important-token set Timp containing the most semantically salient tokens. We then apply max pooling over the attention scores St,j asso-ciated with these important tokens to obtain the unnormalized frame saliency ϕj :
+
+ϕj = max 
+
+> t∈T imp
+
+St,j , ϕ ∈ RF . (2) We specifically choose max pooling to capture the strongest relevance signal from any single key query token to the frame. The composition of Timp 
+
+is task-dependent: for multiple-choice tasks it in-cludes the answer-option tokens; for open-ended QA we use an LLM to extract entity-centric tokens from the question. This important-token aggrega-tion substantially reduces positional attention bias: frequent non-informative tokens such as “the” of-ten contribute noisy attention mass weakly tied to visual evidence, over-emphasizing particular tem-poral positions. By scoring frames only through query-critical tokens, high-scoring frames depend more on semantic evidence than on generic atten-tion mass. The selector uses this attention signal in a single forward pass without autoregressive decod-ing or model updates. We then rank the F frames by ϕj and select the top-K frames as key frames for the backbone MLLM. 
+
+3.3 Budget-Aware Frame Sampling and Token Compression 
+
+To operate under a strict context budget, we intro-duce two synergistic mechanisms: sparse temporal 48 10 12 14 16 18        
+
+> Selector depth
+> 0.28
+> 0.30
+> 0.32
+> 0.34
+> 0.36
+> Oracle recall
+> 0.287
+> 0.311
+> 0.282
+> 0.361
+> 0.275
+> 0.355
+> 0.284
+> 0.349 812 16 20 24 28
+> Layer Index
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Similarity Figure 4: Layer-wise attention behavior. Left: temporal-evidence recall on NExT-GQA when using each selector depth as the frame-scoring layer; depth 12 gives the strongest recall. Right: cosine similarity between the frame-level attention-score distributions of each layer and the next layer, showing how the attention pattern changes with depth.
+
+sampling and spatial token compression. The pa-rameters for both are jointly determined by the video duration d to satisfy a predefined visual to-ken budget B (i.e., the maximum context window minus the text token length). 
+
+Candidate Frame Pool. For a given video of du-ration d, we initially extract candidate frames at a base rate of 1 FPS. For short videos, we pro-portionally increase this rate to guarantee a com-prehensive pool of at least F (d) frames. Rather than processing the entire pool, we sparsely sample 
+
+F (d) frames uniformly across time. The number of sampled frames F (d) generally increases with d
+
+to maintain adequate temporal coverage for longer videos, but must be balanced against the per-frame visual token allocation. 
+
+Token Compression. To fit F (d) frames into the global budget B, each sampled frame is com-pressed to P visual tokens after it is encoded by the vision encoder and projected into the LLM token space. We apply a non-overlapping s × s aver-age pooling operation to the per-frame token grid produced by the vision encoder and projector, ob-taining a reduced set of P visual tokens per frame. For efficient allocation, we select P from a discrete set of perfect squares: 
+
+P = {16 , 25 , 36 , 49 , 64 , 100 , 144 }. (3) 
+
+3.4 Dynamic Programming for Policy Calibration 
+
+Because the selector operates under a hard visual token budget B, allocating the optimal number of frames F (d) and per-frame tokens P (d) is a critical trade-off. We formulate this allocation as a discrete sequence optimization problem. 
+
+Monotonic Sequence Formulation. We dis-cretize video durations into a set of ordered bins 
+
+d1 < d 2 < · · · < d N . Intuitively, as video du-ration increases, the required number of sampled frames should not decrease (to maintain temporal coverage), and consequently, the number of tokens allocated per frame should not increase (to satisfy the budget). We enforce these as monotonicity constraints. Our objective is to find a sequence of configurations {(Fi, P i)}Ni=1 that maximizes the sum of QA accuracy on a calibration development set, where Acc i is computed by running the fixed answerer on frames selected from duration bin i:
+
+max 
+
+> {(Fi,P i)}
+> N
+
+X
+
+> i=1
+
+Acc i(Fi, P i) (4) subject to the constraints for all i:
+
+Fi · Pi ≤ B, (5) 
+
+Fi ≤ Fi+1 , (6) 
+
+Pi ≥ Pi+1 . (7) The three constraints enforce the context bud-get, non-decreasing temporal resolution, and non-increasing spatial resolution, respectively. Because the valid choices for (Fi+1 , P i+1 ) de-pend on the state at step i, the problem exhibits optimal substructure and overlapping subproblems, so we solve for the optimal global policy with Dy-namic Programming (DP) rather than exhaustive search. 
+
+Using the Calibrated Policy. During inference, an unseen video of duration d is mapped to its bin i and the optimal (Fi, P i) is retrieved from the DP lookup table in O(1) time. We then decode 
+
+Fi candidate frames, compress them to Pi tokens, compute the frame saliency ˜ϕ, and select the top-K
+
+frames. 5Notably, the Pi token compression is used only by the selector; the selected top-K frames are fed to the backbone MLLM in their original uncom-pressed form, avoiding any degradation of the an-swerer input while keeping selector computation within the context limit. 
+
+4 Experiments 
+
+4.1 Setup Benchmarks. We evaluate on three long-video benchmarks: Video-MME (Fu et al., 2025) without subtitle assistance, MLVU (Zhou et al., 2025) with 3-minute to 2-hour videos, and LongVideoBench (LVB) (Wu et al., 2024) for long-range reason-ing over tens of minutes to hours. For open-ended VideoQA in Sec. 4.3, we use MMBench-Video (Fang et al., 2024), which contains ∼600 YouTube videos and ∼2,000 QA pairs judged by GPT-4 (Achiam et al., 2023). 
+
+Implementation Details. We decouple frame se-lection and answering: a lightweight Selector 
+
+scores query-frame relevance from selected-layer cross-modal attention, while a fixed Qwen2.5-VL-7B Answerer generates outputs from the selected frames. Table 2 applies the same scoring pipeline to InternVL3.5 (Wang et al., 2025), Qwen2.5-VL (Bai et al., 2025), Qwen3-VL (Qwen Team, 2025), and Qwen3.5 (Qwen Team, 2026) selectors; the se-lected extraction layer for each selector is reported in the tables. We compare with representative selec-tion strategies, including uniform sampling, Top-K
+
+SigLIP2 (Tschannen et al., 2025) image-text scor-ing, BOLT (Liu et al., 2025), AKS (Tang et al., 2025), and Q-Frame (Zhang et al., 2025). Con-trolled frame-selection comparisons use the same global frame budget (e.g., 32 frames), original as-pect ratio, preprocessing, and sampling rules. All evaluations are conducted with lmms-eval (Li* et al., 2024) on NVIDIA A100 GPUs. 
+
+Validation Protocol. Our selector is training-free: it performs only inference-time calibration and never updates any model weights. No selector pa-rameter is tuned on the evaluation benchmarks; calibration only fixes two inference-time operat-ing points, the extraction layer ℓ⋆ and the DP frame-count/token-compression allocation. The extraction layer ℓ⋆ is selected by the layer-wise temporal-grounding sweep on Charades-STA and NExT-GQA (Table 1 and Table 7), which have no overlap with Video-MME, LVB, or MLVU; the re-sulting layers are frozen for all evaluations. For the DP allocation, we use a separate held-out set of 1,000 out-of-domain videos from CG-Bench, NExT-QA, LongVideo-Reason, and LLaVA-Video (also disjoint from the evaluation benchmarks): we set the selector visual-token budget to B=32 ,000 
+
+and choose (F (d), P (d)) under F (d) · P (d) ≤ B
+
+using held-out QA accuracy averaged over K ∈{16 , 32 , 64 }.
+
+4.2 General Video Benchmarks Quantitative Analysis. Table 2 first evaluates frame selection under a fixed answerer, with con-trolled conclusions drawn only from rows sharing the same Qwen2.5-VL-7B answerer and matched frame budget. In this setting, attention-based MLLM selectors improve over CLIP/SigLIP scor-ing and prior heuristic selectors across all three benchmarks. With the representative InternVL3.5 selector, DAFS reaches 66.2 on Video-MME, 60.3 on LongVideoBench, and 70.5 on MLVU, outper-forming BOLT and Top-K CLIP scoring on Video-MME and MLVU. Replacing only the se-lector backbone further improves performance: Qwen3-VL-2B reaches 67.5 on Video-MME, while Qwen3.5-2B obtains the best LongVideoBench and MLVU scores ( 63.1 and 74.1 ). These results show that the pipeline is not tied to one selector: stronger lightweight selectors can be substituted while keep-ing the answerer unchanged. 
+
+Qualitative Analysis. Figure 5 visualizes the se-lected frames and corresponding answers for a rep-resentative example. Compared with uniform sam-pling, our method focuses on frames that are more semantically aligned with the query, capturing both the target event and its surrounding temporal con-text. This leads to more faithful evidence for the answer and, in turn, more accurate predictions. Query:  “What is the theme of the video that the male protagonist made after finishing his workout?”           
+
+> Options :A. Work out. B. Daily life .C. Science popularization. D. Game .
+> Our Method (Selected Key frames )
+> Uniform Sampling (Comparison)
+> Figure 5: A Video-MME qualitative case where our selected frames provide more query-relevant evidence than uniform sampling.
+
+Inference Cost. Table 3 reports the full per-query wall-clock cost on Video-MME (Short), decom-6Table 2: Main comparison of long-video frame selection methods. Context rows are for reference; controlled rows share the same Qwen2.5-VL-7B answerer and a 32-frame budget. ‡ denotes our reproduction. Parentheses denote selected attention layers; “–” means no decoupled selector or N/A. Video-MME is w/o subtitles; red superscripts show gains over uniform. 
+
+Method Input Selector Video-MME LVB MLVU Closed-source MLLMs (uniform sampling; reported from original papers )GPT-4V (OpenAI, 2023) – – 59.9 – –GPT-4o (Hurst et al., 2024) – – 71.9 66.7 –Gemini-1.5-Pro (Team et al., 2024) – – 75.0 64.0 –Gemini-2.5-Pro (Comanici et al., 2025) 32 fr. – 77.2 64.2 –
+
+Open-source MLLMs (uniform sampling or native video input )LongVILA (Chen et al., 2024) 128 fr. – 49.2 – –Video-XL (Shu et al., 2025) 128 fr. – 55.5 – 64.9 LLaVA-OneVision (Li et al., 2024) – – 58.2 56.3 64.7 LongVU (Shen et al., 2024) 1 FPS – 60.9 – 65.4 Keye-VL-1.5 (Team et al., 2025) 64 fr. – 73.0 66.0 –
+
+Qwen2.5-VL-7B based frame-selection methods (32 selected frames )Uniform 32 fr. – 61.1 57.6 62.6 Top-K CLIP Scoring 32 fr. CLIP-ViT-B/32 62.0 60.1 66.6 Top-K SigLIP2 Scoring 32 fr. SigLIP2-2B 57.0 60.4 63.5 Top-K Qwen3 Embedding 32 fr. Qwen3-VL-Emb-2B 63.3 62.0 73.3 BOLT (Liu et al., 2025) ‡ 32 fr. – 64.1 58.6 66.3 Q-Frame (Zhang et al., 2025) ‡ 32 fr. CLIP-ViT-B/32 63.9 62.0 67.3 AKS (Tang et al., 2025) ‡ 32 fr. CLIP-ViT-B/32 62.8 58.8 69.1 K-Frames (Yao et al., 2025b) 32 fr. Qwen2.5-VL-3B 62.1 60.5 65.9 A.I.R. (Zou et al., 2025) 21 fr. – 65.0 61.4 67.5 GIFT (Ma et al., 2026) 32 fr. – 64.4 61.3 68.2 MSJoE (Tan et al., 2026) 32 fr. – 64.3 60.1 69.3 
+
+DAFS-InternVL3.5 32 fr. InternVL3.5-2B (L12) 66.2 ↑5.1 60.3 ↑2.7 70.5 ↑7.9 
+
+DAFS-Qwen2.5-VL 32 fr. Qwen2.5-VL-3B (L23) 66.0 ↑4.9 60.5 ↑2.9 71.2 ↑8.6 
+
+DAFS-Qwen3-VL 32 fr. Qwen3-VL-2B (L14) 67.5 ↑6.4 62.1 ↑4.5 74.0 ↑11.4 
+
+DAFS-Qwen3.5 32 fr. Qwen3.5-2B (L15) 67.4 ↑6.3 63.1 ↑5.5 74.1 ↑11.5 
+
+posed into candidate-frame decoding, selection, and answerer generation, with the answerer and frame budget fixed so that differences reflect the selection stage. Our selection step is far cheaper than the training-based ViaRL selector ( 0.47 s vs. 
+
+8.00 s) and more memory-efficient; even includ-ing decoding, our end-to-end latency ( 6.81 s) stays well below ViaRL ( 12 .49 s) while reaching the best accuracy ( 77.8 ), showing that the accuracy gains do not come at the price of inference cost. 
+
+Table 3: End-to-end wall-clock cost. Per-query latency (s) on Video-MME (Short) with a fixed Qwen2.5-VL-7B answerer and 128 →32 selection on a single A100.                                
+
+> Method Decode Select Answer Total Mem Acc
+> Uniform (32) –0.00 1.44 1.44 –72.6 CLIP-ViT-B/32 –0.02 1.44 –0.5 74.0 ViaRL (Qwen2.5-VL-3B) 3.05 8.00 1.44 12.49 7.4 69.7
+> DAFS (InternVL3.5-2B) 4.90 0.47 1.44 6.81 3.5 77.8
+
+Temporal Grounding. We further evaluate tem-poral grounding on MLVU Needle-QA (N-QA), where each answer depends on a short, localized evidence segment hidden in a long video, directly testing whether the selector retrieves temporally precise evidence rather than merely covering the video uniformly. 
+
+Table 4: Temporal grounding on MLVU. All rows use Qwen2.5-VL-7B; ViaRL/K-frames use a Qwen2.5-VL-3B selector. Superscripts show gains over uniform.                                     
+
+> Method Selector 8F 16F 32F M-Avg N-QA M-Avg N-QA M-Avg N-QA
+> Uniform –57.5 66.7 61.0 74.5 62.6 74.9 ViaRL Qwen2.5-VL-3B 58.2 73.5 61.1 76.1 ––K-frames Qwen2.5-VL-3B 60.4 77.5 ––65.9 79.4
+> DAFS InternVL3.5-2B 67.4 ↑9.9 81.1 ↑14.4 70.1 ↑9.1 81.3 ↑6.8 70.5 ↑7.9 82.5 ↑7.6
+
+Table 4 uses the same Qwen2.5-VL-7B answerer and matched frame budgets. Across 8, 16, and 32 frames, our method achieves the best M-Avg and N-QA performance, consistently outperform-ing uniform sampling and prior training-based se-lectors. The gains are largest under tighter budgets; at 8 frames, we improve over uniform sampling by 
+
++9.9 on M-Avg and +14.4 on N-QA. 
+
+4.3 Generalization 
+
+We test whether the selector transfers beyond the fixed-answerer setting in Table 2, covering both new answerers and new task formats. 
+
+Generalization to other models. Table 5 keeps the selector fixed and plugs the selected frames into frozen LLaVA-Video (Zhang et al., 2024), InternVL3.5-8B (Wang et al., 2025), and Qwen2.5-VL (Bai et al., 2025) answerers. Under a strict 7Table 5: Cross-model generalization. The same selector is plugged into different answerers. Red superscripts show gains over uniform under a 32-frame budget.                                                               
+
+> Answerer Method V-MME LVB MLVU M-Avg N-QA
+> uniform 64.0 62.9 68.6 80.0 InternVL3.5 8B +selector 67.0 ↑3.0 65.8 ↑2.9 71.3 ↑2.7 82.0 ↑2.0
+> uniform 62.1 57.4 65.8 80.8 LLaVA-Video 7B +selector 65.2 ↑3.1 60.1 ↑2.7 68.5 ↑2.7 85.1 ↑4.3
+> uniform 69.1 62.0 68.9 82.5 LLaVA-Video 72B +selector 71.4 ↑2.3 66.6 ↑4.6 73.6 ↑4.7 85.6 ↑3.1
+> uniform 68.0 61.2 66.0 73.8 Qwen2.5-VL 72B +selector 71.5 ↑3.5 65.7 ↑4.5 72.8 ↑6.8 86.2 ↑12.4 Overall Short Medium Long
+> 60
+> 70
+> 80
+> Video-MME Acc.
+> 67.3
+> 77.2
+> 64.9
+> 59.9
+> 68.9
+> 78.1
+> 68.7
+> 60.0
+> 70.0
+> 80.1
+> 68.1
+> 61.8
+> GPT-4o CLIP Ours
+
+Figure 6: Tool-use generalization. Video-MME accuracy under the preview → retrieve → answer workflow with GPT-4o. 
+
+32-frame budget, the same selector consistently im-proves each answerer, with gains up to +3.5 points on Video-MME, +4.6 on LVB, +6.8 on MLVU M-Avg, and +12.4 on MLVU N-QA, so the selected frames transfer beyond a particular answering back-bone. 
+
+Generalization to other tasks. On MMBench-Video, we follow the official open-ended protocol with a GPT-4o-based judge. Table 6 shows that our selector achieves the best Overall score ( 1.710 ), with consistent gains on most reasoning and per-ception categories over uniform and CLIP-based selection. 
+
+Table 6: MMBench-Video results. Best results are in bold .                        
+
+> Method Perception Reasoning Overall CP FP-S FP-C HL LR AR RR CSR TR
+> Uniform 1.743 1.582 1.446 1.194 1.274 1.733 1.689 1.568 1.442 1.562 CLIP 1.772 1.721 1.498 1.226 1.540 1.808 1.682 1.543 1.475 1.657
+> DAFS 1.852 1.796 1.465 1.161 1.611 1.745 1.818 1.679 1.512 1.710
+
+Finally, in a fixed preview → retrieve → answer 
+
+workflow (Figure 6), GPT-4o inspects 16 preview frames to form a query context, then uses the re-trieval module to select 16 evidence frames for answering. Replacing CLIP retrieval with our se-lector improves Video-MME accuracy from 68 .9% 
+
+to 70.0% , compared with 67 .3% for GPT-4o alone, so attention-based selection also serves as an exter-
+
+Table 7: InternVL selector scale/layer ablation. Qwen2.5-VL-7B is fixed. The adopted setting is highlighted.                                                    
+
+> Base selector Total Layers Layer ( ℓ⋆)Video-MME Short Medium Long Average
+> None (Uniform) --72.6 59.0 51.8 61.1 L10 76.0 60.4 52.1 62.9
+> L12 77.8 65.2 55.7 66.2 InternVL3.5-2B 28 L14 76.2 63.4 54.2 64.6 L12 73.0 61.9 51.9 62.2
+> L14 76.4 65.6 55.3 65.8 InternVL3.5-4B 32 L16 76.4 66.3 52.7 65.2 L12 73.8 61.2 52.3 62.4
+> L14 76.8 65.3 55.8 66.0 InternVL3.5-8B 32 L16 77.9 64.4 55.4 65.9
+
+Table 8: DP allocation ablation. Best results are in bold ;second-best results are underlined. 
+
+Strategy #Frames #Tokens Video-MME Short Medium Long Average 
+
+Static 64 144 76.9 63.0 53.0 64.3 192 100 76.4 64.2 53.3 64.7 384 64 76.4 65.2 55.3 65.7 1024 25 73.4 62.6 55.6 63.9 
+
+DAFS Dynamic 77.8 65.2 55.7 66.2 
+
+nal evidence-retrieval tool for a stronger model. 
+
+4.4 Ablation Study Impact of Selector Size and Extraction Layer. 
+
+Table 7 studies InternVL3.5 selector scale and ex-traction layer. The best layer shifts with selector scale, and larger selectors bring little gain after layer calibration, showing that the selected atten-tion layer is the main factor. In the important-token ablation, mean pooling over Timp lowers Video-MME from 66.2 to 65.9, supporting max pooling for sparse evidence tokens. 
+
+Effect of Dynamic Programming Allocation. 
+
+We fix the selector and answerer and replace the duration-aware configuration (F (d), P (d)) with static frame/token allocations. Table 8 shows the temporal/spatial trade-off: sparse high-token sampling helps short videos, dense low-token sampling favors long videos, and DP balances coverage with token detail to achieve the best ( 66.2% ). 
+
+5 Conclusion 
+
+We present DAFS, a training-free frame selector that scores query-relevant frames from selected-layer cross-modal attention of a small MLLM. With budget-aware DP allocation, it improves reasoning across benchmarks, answerers, and tasks, and after calibration transfers to stronger answerers. 8References 
+
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, and 1 others. 2023. Gpt-4 techni-cal report. arXiv preprint arXiv:2303.08774 .Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wen-bin Ge, Sibo Song, Kai Dang, Peng Wang, Shi-jie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, and 8 oth-ers. 2025. Qwen2.5-vl technical report. Preprint ,arXiv:2502.13923. Shyamal Buch, Arsha Nagrani, Anurag Arnab, and Cordelia Schmid. 2025. Flexible frame selection for efficient video reasoning. In Proceedings of the Computer Vision and Pattern Recognition Confer-ence , pages 29071–29082. Yukang Chen, Fuzhao Xue, Dacheng Li, Qinghao Hu, Ligeng Zhu, Xiuyu Li, Yunhao Fang, Hao-tian Tang, Shang Yang, Zhijian Liu, and 1 oth-ers. 2024. Longvila: Scaling long-context visual language models for long videos. arXiv preprint arXiv:2408.10188 .Chuanqi Cheng, Jian Guan, Wei Wu, and Rui Yan. 2025. Scaling video-language models to 10k frames via hierarchical differential distillation. arXiv preprint arXiv:2504.02438 .Zesen Cheng, Sicong Leng, Hang Zhang, Yifei Xin, Xin Li, Guanzheng Chen, Yongxin Zhu, Wenqi Zhang, Ziyang Luo, Deli Zhao, and 1 others. 2024. Videol-lama 2: Advancing spatial-temporal modeling and audio understanding in video-llms. arXiv preprint arXiv:2406.07476 .Gheorghe Comanici, Eric Bieber, Mike Schaekermann, Ice Pasupat, Noveen Sachdeva, Inderjit Dhillon, Mar-cel Blistein, Ori Ram, Dan Zhang, Evan Rosen, and 1 others. 2025. Gemini 2.5: Pushing the frontier with advanced reasoning, multimodality, long context, and next generation agentic capabilities. arXiv preprint arXiv:2507.06261 .Xinyu Fang, Kangrui Mao, Haodong Duan, Xiangyu Zhao, Yining Li, Dahua Lin, and Kai Chen. 2024. Mmbench-video: A long-form multi-shot benchmark for holistic video understanding. arXiv preprint arXiv:2406.14515 .Jiajun Fei, Dian Li, Zhidong Deng, Zekun Wang, Gang Liu, and Hui Wang. 2024. Video-ccam: Enhanc-ing video-language understanding with causal cross-attention masks for short and long videos. arXiv preprint arXiv:2408.14023 .Chaoyou Fu, Yuhan Dai, Yongdong Luo, Lei Li, Shuhuai Ren, Renrui Zhang, Zihan Wang, Chenyu Zhou, Yunhang Shen, Mengdan Zhang, and 1 oth-ers. 2025. Video-mme: The first-ever comprehensive evaluation benchmark of multi-modal llms in video analysis. In Proceedings of the IEEE/CVF confer-ence on computer vision and pattern recognition ,pages 24108–24118. Sara Ghazanfari, Francesco Croce, Nicolas Flammarion, Prashanth Krishnamurthy, Farshad Khorrami, and Siddharth Garg. 2025. Chain-of-frames: Advancing video understanding in multimodal llms via frame-aware reasoning. arXiv preprint arXiv:2506.00318 .Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, AJ Ostrow, Akila Welihinda, Alan Hayes, Alec Radford, and 1 others. 2024. Gpt-4o system card. arXiv preprint arXiv:2410.21276 .Peng Jin, Ryuichi Takanobu, Wancai Zhang, Xiaochun Cao, and Li Yuan. 2024. Chat-univi: Unified visual representation empowers large language models with image and video understanding. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13700–13710. Hosu Lee, Junho Kim, Hyunjun Kim, and Yong Man Ro. 2025. Refocus: Reinforcement-guided frame optimization for contextual understanding. Preprint ,arXiv:2506.01274. Bo Li*, Peiyuan Zhang*, Kaichen Zhang*, Fanyi Pu*, Xinrun Du, Yuhao Dong, Haotian Liu, Yuanhan Zhang, Ge Zhang, Chunyuan Li, and Ziwei Liu. 2024. Lmms-eval: Accelerating the development of large multimodal models. Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Peiyuan Zhang, Yanwei Li, Ziwei Liu, and 1 others. 2024. Llava-onevision: Easy visual task transfer. arXiv preprint arXiv:2408.03326 .KunChang Li, Yinan He, Yi Wang, Yizhuo Li, Wen-hai Wang, Ping Luo, Yali Wang, Limin Wang, and Yu Qiao. 2025. Videochat: Chat-centric video un-derstanding. Science China Information Sciences ,68(10):200102. Bin Lin, Yang Ye, Bin Zhu, Jiaxi Cui, Munan Ning, Peng Jin, and Li Yuan. 2024. Video-llava: Learning united visual representation by alignment before pro-jection. In Proceedings of the 2024 conference on empirical methods in natural language processing ,pages 5971–5984. Shuming Liu, Chen Zhao, Tianqi Xu, and Bernard Ghanem. 2025. Bolt: Boost large vision-language model without training for long-form video under-standing. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 3318–3327. Junpeng Ma, Sashuai Zhou, Guanghao Li, Xin Gao, Yue Cao, Hengyu Zeng, Yuxiang Yan, Zhibin Wang, Jun Song, Bo Zheng, Shanghang Zhang, and Jian Pu. 2026. GIFT: Global irreplaceability frame tar-geting for efficient video understanding. Preprint ,arXiv:2603.25072. 
+
+9Muhammad Maaz, Hanoona Rasheed, Salman Khan, and Fahad Khan. 2024. Video-chatgpt: Towards detailed video understanding via large vision and language models. In Proceedings of the 62nd An-nual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 12585– 12602. OpenAI. 2023. Gpt-4v(ision) system card. Qwen Team. 2025. Qwen3-vl technical report. Preprint ,arXiv:2511.21631. Qwen Team. 2026. Qwen3.5: Towards native multi-modal agents. Xiaoqian Shen, Yunyang Xiong, Changsheng Zhao, Lemeng Wu, Jun Chen, Chenchen Zhu, Zechun Liu, Fanyi Xiao, Balakrishnan Varadarajan, Florian Bor-des, and 1 others. 2024. Longvu: Spatiotemporal adaptive compression for long video-language under-standing. arXiv preprint arXiv:2410.17434 .Yan Shu, Zheng Liu, Peitian Zhang, Minghao Qin, Junjie Zhou, Zhengyang Liang, Tiejun Huang, and Bo Zhao. 2025. Video-xl: Extra-long vision lan-guage model for hour-scale video understanding. In 
+
+Proceedings of the Computer Vision and Pattern Recognition Conference , pages 26160–26169. Wenhui Tan, Xiaoyi Yu, Jiaze Li, Yijing Chen, Jianzhong Ju, Zhenbo Luo, Ruihua Song, and Jian Luan. 2026. MSJoE: Jointly evolving MLLM and sampler for efficient long-form video understanding. 
+
+Preprint , arXiv:2602.22932. Xi Tang, Jihao Qiu, Lingxi Xie, Yunjie Tian, Jianbin Jiao, and Qixiang Ye. 2025. Adaptive keyframe sam-pling for long video understanding. In Proceedings of the Computer Vision and Pattern Recognition Con-ference , pages 29118–29128. Gemini Team, Petko Georgiev, Ving Ian Lei, Ryan Burnell, Libin Bai, Anmol Gulati, Garrett Tanzer, Damien Vincent, Zhufeng Pan, Shibo Wang, and 1 others. 2024. Gemini 1.5: Unlocking multimodal understanding across millions of tokens of context. 
+
+arXiv preprint arXiv:2403.05530 .Kwai Keye Team, Biao Yang, Bin Wen, Changyi Liu, Chenglong Chu, Chengru Song, Chongling Rao, Chuan Yi, Da Li, Dunju Zang, and 1 others. 2025. Kwai keye-vl technical report. arXiv preprint arXiv:2507.01949 .Michael Tschannen, Alexey Gritsenko, Xiao Wang, Muhammad Ferjad Naeem, Ibrahim Alabdulmohsin, Nikhil Parthasarathy, Talfan Evans, Lucas Beyer, Ye Xia, Basil Mustafa, and 1 others. 2025. Siglip 2: Multilingual vision-language encoders with im-proved semantic understanding, localization, and dense features. arXiv preprint arXiv:2502.14786 .Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhi-hao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, and 1 others. 2024a. Qwen2-vl: Enhancing vision-language model’s perception of the world at any resolution. arXiv preprint arXiv:2409.12191 .Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin Jing, Shenglong Ye, Jie Shao, and 1 others. 2025. In-ternvl3. 5: Advancing open-source multimodal mod-els in versatility, reasoning, and efficiency. arXiv preprint arXiv:2508.18265 .Yi Wang, Kunchang Li, Xinhao Li, Jiashuo Yu, Yi-nan He, Guo Chen, Baoqi Pei, Rongkun Zheng, Zun Wang, Yansong Shi, and 1 others. 2024b. Intern-video2: Scaling foundation models for multimodal video understanding. In European conference on computer vision , pages 396–416. Springer. Haoning Wu, Dongxu Li, Bei Chen, and Junnan Li. 2024. Longvideobench: A benchmark for long-context interleaved video-language understanding. 
+
+Advances in Neural Information Processing Systems ,37:28828–28857. Mingze Xu, Mingfei Gao, Zhe Gan, Hong-You Chen, Zhengfeng Lai, Haiming Gang, Kai Kang, and Af-shin Dehghan. 2024. Slowfast-llava: A strong training-free baseline for video large language mod-els. arXiv preprint arXiv:2407.15841 .Ziqiang Xu, Qi Dai, Tian Xie, Yifan Yang, Kai Qiu, DongDong Chen, Zuxuan Wu, and Chong Luo. 2025. Viarl: Adaptive temporal grounding via visual it-erated amplification reinforcement learning. arXiv preprint arXiv:2505.15447 .Linli Yao, Haoning Wu, Kun Ouyang, Yuanxing Zhang, Caiming Xiong, Bei Chen, Xu Sun, and Junnan Li. 2025a. Generative frame sampler for long video understanding. In Findings of the Association for Computational Linguistics: ACL 2025 , pages 17900– 17917. Yifeng Yao, Yike Yun, Jing Wang, Huishuai Zhang, Dongyan Zhao, Ke Tian, Zhihao Wang, Minghui Qiu, and Tao Wang. 2025b. K-frames: Scene-driven any-k keyframe selection for long video understanding. 
+
+Preprint , arXiv:2510.13891. Shoubin Yu, Jaemin Cho, Prateek Yadav, and Mohit Bansal. 2023. Self-chained image-language model for video localization and question answering. Ad-vances in Neural Information Processing Systems ,36:76749–76771. Sicheng Yu, Chengkai Jin, Huanyu Wang, Zhenghao Chen, Sheng Jin, Zhongrong Zuo, Xiaolei Xu, Zhen-bang Sun, Bingni Zhang, Jiawei Wu, and 1 others. 2024. Frame-voyager: Learning to query frames for video large language models. arXiv preprint arXiv:2410.03226 .Shaojie Zhang, Jiahui Yang, Jianqin Yin, Zhenbo Luo, and Jian Luan. 2025. Q-frame: Query-aware frame 
+
+10 selection and multi-resolution adaptation for video-llms. In Proceedings of the IEEE/CVF Interna-tional Conference on Computer Vision , pages 22056– 22065. Yuanhan Zhang, Jinming Wu, Wei Li, Bo Li, Zejun Ma, Ziwei Liu, and Chunyuan Li. 2024. Video instruction tuning with synthetic data. Preprint ,arXiv:2410.02713. Junjie Zhou, Yan Shu, Bo Zhao, Boya Wu, Zhengyang Liang, Shitao Xiao, Minghao Qin, Xi Yang, Yong-ping Xiong, Bo Zhang, and 1 others. 2025. Mlvu: Benchmarking multi-task long video understanding. In Proceedings of the IEEE/CVF Conference on Com-puter Vision and Pattern Recognition , pages 13691– 13701. Yuanhao Zou, Shengji Jin, Andong Deng, Youpeng Zhao, Jun Wang, and Chen Chen. 2025. A.I.R.: En-abling adaptive, iterative, and reasoning-based frame selection for video question answering. Preprint ,arXiv:2510.04428. 
+
+11
