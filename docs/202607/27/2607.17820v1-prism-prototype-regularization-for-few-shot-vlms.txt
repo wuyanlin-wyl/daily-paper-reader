@@ -1,0 +1,451 @@
+Title: PRiSM: Prototype Regularization for Few-Shot VLMs
+
+URL Source: https://arxiv.org/pdf/2607.17820v1
+
+Published Time: Tue, 21 Jul 2026 01:46:43 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# PRiSM: Prototype Regularization for Few-Shot VLMs 
+
+Ghassen Baklouti ∗
+
+ÉTS Montreal 
+
+Omprakash Chakraborty 
+
+ÉTS Montreal 
+
+Jose Dolz 
+
+ÉTS Montreal 
+
+Ismail Ben Ayed 
+
+ÉTS Montreal 
+
+Abstract 
+
+Training-free few-shot adaptation methods have gained significant attention recently in the context of Vision-language Models (VLMs). Yet, current benchmarks rely on strong assumptions about the statistics of the adaptation data, e.g., class balance. We question these simplifying assumptions and introduce a more realistic benchmark that varies both the levels of class balance and the effective number of classes in few-shot tasks via Dirichlet sampling. Surprisingly, under our setting, we observe substantial drops in the performances of state-of-the-art methods, more so when the number of labeled samples increases. To mitigate this, we introduce PRiSM, a class-prototype regularization that can be deployed as a plug and play module on top of any existing baseline method, significantly improving performances. Our method optimizes a novel multi-term loss, which includes a regularizer maximizing inter-class pairwise distances, along with additional terms promoting support-feature alignment and fidelity to the baseline prototypes. Furthermore, we introduce an effective and computationally efficient block Majorize-Minimize optimizer for our objective. More specifically, we derive a valid blockwise Lipschitz constant (i.e., a bound on the Hessian’s spectral norm), which can be computed efficiently via the Gershgorin circle theorem. Extensive experiments show that PRiSM improves several training-free baselines, with large gains when dealing with severe class imbalance and high numbers of classes. 
+
+1 Introduction 
+
+Vision–language models (VLMs) [ 20 , 12 , 25 ] have emerged as powerful general-purpose learners, enabling zero-shot recognition by aligning visual and textual representations in a shared embedding space. A common paradigm for downstream adaptation is few-shot learning, where a small set of labeled samples, referred to as the support set, is used to refine class prototypes, which are then evaluated on unseen query samples. Existing few-shot adaptation methods for VLMs can be broadly grouped into prompt-learning, adapter-based, and training-free approaches. Prompt-learning [ 29 , 30 ]methods optimize learnable input tokens to obtain task-specific textual prototypes. In contrast, adapter-based methods [ 8 , 26 ] learn a small set of trainable parameters to adjust the feature space, classifier weights, or prototype geometry while preserving the pretrained knowledge encoded in the model. Training-free approaches [ 1 , 23 , 28 , 31 ] further improve efficiency by exploiting the support set without gradient updates, offering stable alternatives to training-based adaptation. Representative training-free methods include TIP-Adapter [ 28 ], which builds a cache model from support features; APE [ 31 ], which incorporates a feature-selection step into the cache model; GDA [ 23 ], which models each class as a Gaussian distribution with shared covariance in the embedding space; and ProKeR [1], which performs kernel-based prototype refinement. Despite their strong empirical performance, these methods remain limited by two important factors. First, many training-free and adapter-based methods rely on sensitive task-specific hyperparameters that control the balance between the pretrained zero-shot classifier and the task-specific information provided by the support set [ 11 , 21 ]. This trade-off is crucial: overemphasizing the support set 
+
+> ∗ghassen.baklouti.1@ens.etsmtl.ca Preprint. arXiv:2607.17820v1 [cs.CV] 20 Jul 2026
+
+can lead to overfitting and prototype drift, while relying too strongly on the zero-shot classifier can prevent meaningful task adaptation. Consequently, competitive performance often requires careful hyperparameter selection, typically through grid search on validation data, while hyperparameters tuned for one task rarely transfer reliably to another, requiring repeated calibration for each new dataset, shot number or adaptation scenario. This model-selection procedure is often unrealistic in genuine few-shot settings. A separate validation set may not be available, or is as expensive to annotate as the support set itself. In fact, assuming access to labeled validation sets may invalidate the few-shot assumption on which the methods are built. Indeed, in some cases, hyperparameters are selected using large validation or test sets [ 16 , 28 , 15 ], which implicitly assumes access to far more labeled data than the few-shot setting enables. Thus, when competitive performance depends on task-specific tuning, the reported results reflect not only the adaptation method itself, but also an additional model-selection protocol that departs from the few-shot assumption. Second, the standard few-shot evaluation protocol [ 1, 27 , 29 ] relies on a critical yet often overlooked assumption: 
+
+class-balanced tasks . In particular, both the support and query sets are constructed such that the classes are equally represented, implicitly enforcing a uniform prior. While this protocol simplifies adaptation, it poorly reflects real-world scenarios, where data distributions are naturally skewed, certain classes dominate others, and the set of observed classes during adaptation may be incomplete. This discrepancy has important consequences. Under class-balanced sampling, the support set provides reliable and unbiased estimates of class prototypes, enabling effective adaptation even with very few samples. However, once this assumption is relaxed, the support distribution becomes highly uneven and prototype estimates are disproportionately influenced by the majority classes. As a result, the underlying representations become biased, leading to distorted decision boundaries and increased confusion among classes. Importantly, this issue is not necessarily mitigated by simply increasing the number of shots. On the contrary, as we observe in Fig. 1 (left), adding more samples under imbalanced distributions can further amplify the majority-class bias, causing several strong few-shot methods to degrade significantly. This behavior suggests that the core limitation of existing few-shot adaptation methods lies not in the adaptation mechanism itself, but in the quality of the class prototypes used for prediction. The increase in additional data with the shots may amplify the biases in prototype estimation rather than refine the decision boundaries. To address these issues, we propose PRiSM , a validation-free prototype regularization framework that explicitly corrects biased and poorly separated class prototypes under realistic few-shot conditions. 
+
+PRiSM is designed to mitigate the dominance of majority classes while preserving the discriminative structure of the VLM embedding space. As illustrated in Fig. 1 (right), the impact of this regularization is very significant across both near balanced and severe imbalance settings. A key trend emerges from our results: baseline methods that substantially underperform under imbalance can reach performance levels comparable to stronger state-of-the-art approaches after prototype rectification. For instance, under severe imbalance, a relatively weaker method such as Tip-Adapter closes much of the gap to the recent ProKeR once its prototypes are regularized. This suggests that the primary bottleneck is not necessarily the adaptation mechanism itself, but the quality of the underlying prototypes. More broadly, this finding indicates that prototype bias induced by imbalance acts as a common failure mode across methods, and rectifying it can systematically elevate the performance of diverse approaches. Concretely, 
+
+PRiSM regularizes the classifier prototypes by optimizing a novel loss that combines support-feature alignment, fidelity to the baseline prototypes and pairwise inter-class separation. We optimize our loss with an efficient block majorize–minimize algorithm, alternating between class prototype updates and a lightweight parameter-efficient finetuning of the vision encoder. We summarize our contributions as follows: • We expose a critical limitation of standard few-shot protocols for VLMs: class-balanced support and query sets may hide severe prototype bias. We introduce a controlled benchmark that varies both the effective number of classes and the level of class imbalance through Dirichlet sampling. • We show that, under our realistic setting, increasing the number of shots degrades training-free adaptation as additional samples may amplify the majority-class bias. • We introduce PRiSM, a class-prototype regularization that can be deployed as a plug-and-play module on top of any existing baseline method, significantly improving performances. Our method optimizes a novel multi-term loss, which includes a regularizer maximizing inter-22-shot 4-shot 16-shot      
+
+> Number of shots
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> Mean Top-1 Acc. on 11 datasets (%)
+> Tip-Adapter
+> APE
+> GDA
+> ProKeR Tip-Adapter
+> (ECCV'22)
+> APE
+> (ICCV'23)
+> GDA
+> (ICLR'24)
+> ProKeR
+> (CVPR'25)
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> Mean Top-1 Acc. on 11 datasets (%)
+> +35.1 +14.6
+> +6.6
+> +3.0
+> +29.8 +11.0 +5.0
+> +0.4
+> Near balanced Severe imbalance PRiSM improvement
+
+Figure 1: Few-shot methods under realistic imbalance and effectiveness of prototype rectifi-cation. (Left) Variation of mean Top-1 accuracy across 10 datasets with the number of shots under severe imbalance. Contrary to standard few-shot assumptions, increasing the number of support samples does not necessarily improve performance; instead, several strong baselines degrade as additional samples amplify majority-class bias in prototype estimation. (Right) Performance at 16-shot under near balanced and severe imbalance settings. Our proposed prototype rectification (PRiSM ) consistently improves all baselines, with particularly large gains under severe imbalance. class pairwise distances, along with additional terms promoting support-feature alignment and fidelity to the baseline prototypes. • We introduce an effective and computationally efficient block Majorize-Minimize optimizer for our loss. More precisely, we derive a valid blockwise Lipschitz constant (i.e., a bound on the Hessian’s spectral norm), which can be evaluated effortlessly via the Gershgorin circle theorem. • We report extensive experiments showing that PRiSM can improve the performance of few-shot baselines, including state-of-the-art methods, with large gains when dealing with severe class imbalance and high numbers of classes. 
+
+2 Toward Realistic Few-Shot Adaptation 
+
+Let us define a few-shot adaptation task from a downstream dataset with label space Y =
+
+{1, 2, . . . , C }. Each task consists of a labeled support set Dadapt = {(xn, yn)}Nn=1 , where xn
+
+denotes an input image and yn is its corresponding one-hot label vector over Y. In the standard few-shot setting, Dadapt is constructed as a balanced support set with K labeled examples per class, where K ∈ { 1, 2, 4, 8, 16 }. Hence, the total number of adaptation samples is N = KC .This balanced construction relies on several restrictive assumptions: all classes of interest are observed during adaptation, each class is represented by the same number of labeled examples, and the support and query sets follow the same class-frequency distribution. These assumptions are often violated in practical few-shot adaptation scenarios, where the available labeled data may cover only a subset of the target space and may exhibit class proportions that differ from those encountered at evaluation. To capture these constraints, we consider realistic few-shot adaptation tasks in which the support set covers only an effective subset of classes Yeff ⊆ Y , with Ceff = |Y eff |, and where the support and query sets may follow different class-frequency distributions. We define two class-coverage regimes according to the proportion of classes included in Yeff : low coverage, where 10% –30% of the classes are available during adaptation, and high coverage, where 70% –90% are available. To model both class imbalance and distributional mismatch between adaptation and evaluation, we independently sample class proportions for the support and query sets from Dirichlet distributions over Yeff . Let πS ∼ Dir( δS ) and πQ ∼ Dir( δQ) denote the class-proportion vectors used to construct Dadapt and Dquery , respectively. Since these proportions are sampled independently, the class frequencies observed during adaptation may differ from those encountered at evaluation. The concentration parameter δ ∈ [0 , 1] controls the dispersion of the sampled class proportions. Smaller values of δ produce highly skewed distributions dominated by a few classes, whereas larger values yield distributions closer to uniform sampling (see Appendix A.2). We consider two imbalance regimes: severe imbalance, with δ ∈ [0 .1, 0.3] , and near balanced sampling, with δ ≈ 0.9. For each 3task, we fix the support set size to N = K × Ceff and the query set size to Nquery = 16 × Ceff [ 3], and then allocate samples across classes according to πS and πQ. The resulting class-wise sample counts can vary substantially across both sets and some classes may even be absent in a query set for a given task. However, to ensure that the task remains a valid few-shot adaptation problem, we enforce that every class in Yeff appears at least once in Dadapt .Combining the two class-coverage regimes with the two imbalance regimes yields four realistic evaluation settings: low coverage with severe imbalance, low coverage with near balanced sampling, 
+
+high coverage with severe imbalance, and high coverage with near balanced sampling. 
+
+3 Formulation of PRiSM 
+
+3.1 Our Method 
+
+Consider a pretrained vision-language model, such as CLIP, composed of an image encoder fϕ(.) and a text encoder fθ (.), both mapping visual and textual inputs into a shared d-dimensional embedding space. Given a downstream task of image classification into C classes, zero-shot prediction amounts to matching image embeddings to text-based class prototypes. For each class c, let {tm,c }Mm=1 
+
+denote a set of M textual descriptions (or prompts) of the class, e.g., “A photo of [class name]”. The corresponding zero-shot prototype is uc = 1
+
+> M
+
+P 
+
+> m
+
+fθ (tm,c ) ∈ Rd. Given a query image x, with visual embedding v = fϕ(x) ∈ Rd, the zero-shot posterior probability prediction of class c is: Pr (c|x) = exp( ⟨v, uc⟩/τ )
+
+PCi=1 exp( ⟨v, ui⟩/τ ) (1) where pairwise operator ⟨· , ·⟩ denotes the cosine similarity and τ is a temperature scaling parameter. In general, few-shot adaptation methods update the visual features, the class prototypes or both using the support set (i.e., a set of few labeled samples), while discouraging substantial deviations from zero-shot class prototypes {uc}Cc=1 ; see, for instance, [ 21 , 28 , 1]. We write such adaptation mechanisms in a generic form as (a, v′) = fψ (u, v), where u = [ u1, ..., uC ] ∈ RdC is a vector concatenating all zero-shot prototypes, v′ is the adapted visual embedding, and ψ denotes the learnable or method-specific adaptation parameters. We denote by a = [ a1, ..., aC ] ∈ RdC a vector concatenating the class prototypes obtained by a given baseline method. Thus, for each class c, ac
+
+could be a task-adapted prototype obtained from any given few-shot adaptation method, or just the zero-shot prototype if no adaptation is used. As discussed earlier, realistic few-shot settings often exhibit severe class imbalance, causing the support set to provide uneven evidence across the classes. Therefore, some initial prototypes might be less reliable than others: the minority-class prototypes might be weakly aligned with their visual samples, while the majority classes may dominate the classifier decisions, particularly when the support and query (test) distributions differ. To address this issue, our goal is to rectify a classifier a
+
+of a given baseline method by learning regularized prototypes w = [ w1, ..., wC ] ∈ RdC . For each class c, let μc(ϕ) = 1
+
+> nc
+
+P 
+
+> n
+
+yn,c fϕ(xn) denote the mean of vision features within the class, where 
+
+nc is the number of class’ samples and yn,c ∈ { 0, 1} is a binary-indicator function for the support-set samples: yn,c = 1 when c is the class of the i th support sample and yn,c = 0 otherwise. We propose to minimize the following objective to learn rectified prototypes: 
+
+L(w, ϕ) = β X
+
+> c
+
+∥wc − μc(ϕ)∥22 + γ X
+
+> c
+
+∥wc − ac∥22 − λ
+
+2( C − 1) 
+
+X
+
+> c#c′
+
+∥wc − wc′ ∥22 (2) where ∥.∥2 denotes the standard l2 norm. The first term in Eq. (2) encourages alignment between each rectified prototype and the corresponding class’ visual mean, promoting consistency with the support-set distribution. The second anchors our prototype rectification to the baseline-method classifier, discouraging wc from deviating substantially from ac. The last term is the pairwise regularizer driving our prototype rectification: It encourages inter-class separation by pushing away each pair of class prototypes, reducing their interference under our realistic settings. Note that this regularizer is 4concave with respect to the class prototypes, which makes the overall objective non-convex 2 with respect to w. Non-negative scalars β, γ, and λ control the relative strength of each term. 
+
+3.2 Block Majorize-Minimize optimization 
+
+Majorize-Minimize (MM) [ 14 ] is a general optimization paradigm that includes standard optimizers such as gradient descent, expectation-maximization and concave-convex procedures as special cases. At each iteration, MM minimizes a majorizing function – an upper bound on the original objective 
+
+L(w) – which is tight at the current iteration j: L(w) ≤ M (w, wj ) and L(wj ) = M(wj , wj ).Hence, iterative step wj+1 = min w M(w, wj ) guarantees that the original objective does not increase: L(wj+1 ) ≤ M (wj+1 , wj ) ≤ M (wj , wj ) = L(wj ). Hence, in the MM framework, step sizes are implicit, unlike standard gradient-descent updates, in which the learning rates are heavily searched using validation data and running the optimizer multiple times. In the following, we take advantage of the blockwise Lipschitz-gradient continuity of our objective in Eq. (2) with respect to the block of prototype variables w. More precisely, we derive a bound on the spectral norm of the blockwise Hessian with respect to w (Prop. 1), which yields a block majorizing function with implicit step size. This relaxes the need for computationally intensive validation searches for the step size, while yielding results on par with the best learning rates obtained with validation data; See Fig. 2 in the experiments. Also, interestingly, our Lipschitz-driven step size is substantially larger than those commonly used in deep learning, yielding steeper descent towards a local minimum. Our objective in Eq. 2 involves two blocks of variables: the corrected prototypes w and the vision encoder parameters ϕ. We optimize these variables using a block Majorize-Minimize (MM) procedure, which alternates two MM sub-steps: prototype rectification and feature adaptation. At each iteration, one block is updated while the other is kept fixed. This yields two simpler subproblems: a quadratic problem in w and a lightweight encoder-adaptation step in ϕ, with standard gradient steps 3. The complete procedure is summarized in Algorithm 1 (refer Appendix A.5). 
+
+3.2.1 Optimization with respect to the prototypes 
+
+When vision-encoder variables ϕ are fixed, our objective in Eq. (2) reduces to a quadratic function of 
+
+w:
+
+Lw(w) c
+
+= X
+
+> c,c ′
+
+Rcc ′ w⊤ 
+
+> c′
+
+wc − 2 X
+
+> c
+
+b⊤ 
+
+> c
+
+wc = w⊤Φw − 2B⊤w (3) where symbol c
+
+= means equality up to a constant, bc = βμc(ϕ) + γac ∈ Rd, and R ∈ RC×C is a prototype-interaction matrix given by Rcc ′ = λC−1 for c̸ = c′ and Rcc = β + γ − λ. Also, matrix 
+
+B = [ b1, ..., bC ] ∈ RdC ×dC , and matrix Φ = R ⊗ Id, where ⊗ denotes the Kronecker product and 
+
+Id is the d × d identity matrix. As Lw(w) in Eq. (3) is quadratic, twice-differentiable function, it has a Lipschitz continuous gradient, i.e., there exists a strictly positive Lipschitz constant ρ such that the spectral norm (the largest singular value) of the Hessian is bounded by ρ: ∥∇ 2Lw(w)∥2 ≤ ρ ∀w, with ∥.∥2 denoting the spectral norm for a matrix. From this inequality, we obtain a majorizing function for Lw at iteration j:
+
+Lw(w) ≤ M w(w, wj ) = Lw(wj ) + ∇L w(wj )⊤(w − wj ) + ρ
+
+2 ∥w − wj ∥22. (4) Minimizing the majorizing function Mw in Eq. (4) yields gradient-type updates with implicit step sizes 1/ρ , which guarantee that the objective decreases by at least 12ρ ∥∇L (wj )∥2 at each iteration, a result known as the Descent Lemma. One valid Lipschitz constant would be the maximum singular value of the Hessian of Eq. (3) , i.e. twice the spectral norm of Φ: 2∥Φ∥2. However, a spectral decomposition of Φ, a dC × dC matrix, could be computationally intensive for large numbers of classes. In the following proposition, we derive an explicit upper bound on 2∥Φ∥2, which provides a valid Lipschitz constant. 
+
+Proposition 1. Objective Lw in Eq. (3) has ρ-Lipschitz gradient, with ρ given by: 
+
+ρ = 2( |β + γ − λ| + λ) ≥ 2∥Φ∥2 (5)         
+
+> 2In fact, the convexity of the overall objective in Eq. (2) is controlled by the choice of non-negative weighting factors
+> β,γand λ. However, choosing these factors such that the objective is strictly convex does not yield the desired prototype rectifications as it makes the l2-regularization components on wcdominate the overall objective function.
+> 3Standard gradient steps could be also viewed as an instance of MM updates.
+
+5Proof. The proof follows from the fact that ∥Φ∥2 = ∥R ⊗ Id∥2 = ∥R∥2∥Id∥2 = ∥R∥2, and from bounding ∥R∥2 using the Gershgorin’s circle theorem. The details are deferred to the appendix. 
+
+3.2.2 Optimization with respect to the vision encoder parameters 
+
+For the vision encoder block, with w fixed, the objective depends only on ϕ through the visual mean μ(ϕ). We optimize this block by standard back-propagation using a conventional learning rate 
+
+ηϕ, while restricting the trainable parameters to a parameter-efficient subset of the image encoder. Specifically, we use LoRA [ 10 ] to introduce a small set of trainable low-rank updates in selected layers of fϕ(.). For a frozen pretrained weight matrix T0, LoRA parameterizes the adapted weight as 
+
+T = T0 +PL where P ∈ Rl1×r and L ∈ Rr×l2 are trainable low-rank factors with r ≪ min (l1, l 2) .Only P and L are optimized, while T0 remains fixed. This parameter-efficient design reduces the number of trainable parameters while maintaining the expressive power of the pretrained vision encoder. 
+
+4 Experiments 
+
+Datasets. Following standard practices in vision-language models [ 20 , 30 , 29 , 27 ], we consider 10 
+
+widely used image classification benchmarks covering diverse domains and levels of granularity. These include fine-grained recognition datasets such as Oxford-Pets [ 19 ], Stanford Cars [ 13 ], and FGVC Aircraft [ 17 ]; texture and material datasets including Describable Textures Dataset (DTD) [ 4]and Food-101 [ 2]; scene and remote sensing benchmarks such as SUN397 [ 24 ] and EuroSAT [ 9]; as well as generic object recognition datasets including Oxford Flowers [ 18 ], Caltech-101 [ 7],and UCF101 [ 22 ]. To avoid task-specific validation on the downstream benchmarks, we reserve ImageNet [ 5] exclusively as a held-out validation dataset for selecting a single hyperparameter configuration applied to all evaluation datasets. 
+
+Baselines. We evaluate PRiSM on top of four representative training-free few-shot adaptation methods for VLMs, covering diverse adaptation mechanisms. These include the cache-based retrieval method Tip-Adapter [ 28 ], Gaussian Discriminant Analysis (GDA) [ 23 ], Adaptive Prior rEfinement (APE), [ 31 ], and the recent kernel-based prototype refinement method ProKeR [ 1]. This diversity allows us to assess the generality of PRiSM as a plug-and-play prototype rectification module that can be applied across different adaptation paradigms. 
+
+Implementation Details. All experiments are conducted using CLIP [ 20 ] pre-trained features with a ViT-B/16 backbone [ 6]. For each downstream task, we first apply the corresponding baseline method using the task-specific support set, and then perform our prototype rectification on top of the resulting classifier. All reported results are averaged over 400 randomly sampled tasks. Data augmentation is applied during the feature extraction stage using random zoom, crops, and flips, following [ 1], with 
+
+10 augmentations per support sample. We use the same text prompts per dataset as in [ 1]. Following our claim that using a validation set for few-shot adaptation is unrealistic, we run all experiments using the same configuration across all datasets and shot numbers. Concretely, we set β to 0.01 ,
+
+γ to 1, and λ to 0.05 . PRiSM is optimized for 3 alternating rounds; in each round, we perform 1
+
+prototype-update step followed by 10 LoRA-update steps. We use LoRA adapters with rank 8 in the vision encoder, updating only the last three layers with a learning rate of 5 × 10 −4. All experiments are conducted on a single NVIDIA H100 SXM5 GPU. 
+
+4.1 Severe imbalance with high effective classes 
+
+Table 1 reveals a characteristic degradation of training-free few-shot adaptation baselines under realistic class imbalance. In particular, since Ceff is fixed to a large label space ( 80% of classes), increasing the number of shots introduces more support samples but does not alleviate the skewed Dirichlet distribution. As a result, majority classes become increasingly dominant, while minority classes remain under-represented, leading to progressively biased prototype estimates. This effect is clearly reflected in the performance degradation of several baselines as K increases. For instance, Tip-Adapter drops from 63 .66 to 33 .25 when going from 2- to 16-shots , while APE’s performance decreases from 68 .26 to 54 .15 . In contrast, PRiSM explicitly rectifies these biased prototypes, leading 6Caltech DTD EuroSAT FGVC Food101 Flowers Pets Cars Sun397 UCF101 Mean 16-shot 
+
+Tip-Adapter 82.51 21.56 21.05 17.71 19.64 20.06 21.51 35.24 48.73 44.53 33.25 w/ PRiSM 93.24 +10.73 61.76 +40.21 74.36 +53.32 31.40 +13.69 33.92 +14.29 84.98 +64.92 91.04 +69.53 68.10 +32.86 68.20 +19.47 76.03 +31.50 68.30 +35.05 
+
+GDA 87.68 44.33 58.34 23.08 55.80 63.59 66.29 50.72 60.31 66.26 57.64 w/ PRiSM 88.11 +0.43 53.50 +9.17 58.47 +0.12 28.47 +5.39 68.79 +12.99 79.77 +16.18 74.55 +8.26 57.41 +6.69 64.57 +4.25 68.39 +2.13 64.20 +6.56 
+
+APE 91.67 50.77 34.10 19.26 60.34 41.50 69.25 44.17 62.08 68.38 54.15 w/ PRiSM 92.80 +1.13 61.20 +10.44 76.12 +42.02 26.83 +7.57 76.35 +16.01 69.73 +28.23 86.82 +17.57 56.75 +12.58 65.74 +3.66 75.08 +6.71 68.74 +14.59 
+
+ProKeR 91.86 57.39 65.61 34.71 82.47 86.91 84.18 68.39 67.91 74.54 71.40 w/ PRiSM 92.80 +0.94 62.75 +5.35 80.65 +15.04 35.13 +0.42 81.51 -0.97 88.94 +2.04 90.10 +5.92 68.38 -0.01 67.50 -0.41 76.51 +1.97 74.43 +3.03 
+
+4-shot 
+
+Tip-Adapter 89.58 34.70 27.91 16.32 72.07 26.43 57.81 47.83 59.91 63.88 49.64 w/ PRiSM 92.97 +3.39 59.89 +25.19 78.12 +50.21 31.00 +14.69 82.33 +10.27 84.24 +57.81 90.41 +32.61 67.12 +19.30 67.26 +7.35 75.27 +11.39 72.86 +23.22 
+
+GDA 86.12 45.04 58.32 23.23 54.52 68.29 62.83 45.71 54.45 64.43 56.30 w/ PRiSM 86.72 +0.60 49.96 +4.92 57.22 -1.11 26.51 +3.27 61.54 +7.03 77.02 +8.73 71.08 +8.25 50.68 +4.97 57.10 +2.65 65.67 +1.23 60.35 +4.05 
+
+APE 92.11 49.91 52.32 19.19 84.13 58.52 86.95 55.07 65.92 71.68 63.58 w/ PRiSM 92.56 +0.45 59.75 +9.84 77.22 +24.90 28.14 +8.94 81.12 -3.01 80.75 +22.23 89.73 +2.78 61.62 +6.55 66.18 +0.26 75.27 +3.59 71.23 +7.65 
+
+ProKeR 92.21 56.42 66.09 32.38 84.84 86.20 86.21 68.44 68.17 74.63 71.56 w/ PRiSM 92.62 +0.41 60.53 +4.12 79.01 +12.92 33.42 +1.04 81.16 -3.68 87.64 +1.44 88.93 +2.72 66.49 -1.95 66.15 -2.01 75.21 +0.58 73.12 +1.56 
+
+2-shot 
+
+Tip-Adapter 92.37 47.36 47.07 23.09 85.48 56.42 83.49 63.63 66.17 71.52 63.66 w/ PRiSM 92.92 +0.55 58.53 +11.17 76.37 +29.30 30.61 +7.52 81.88 -3.60 83.88 +27.47 89.69 +6.20 66.36 +2.73 66.27 +0.10 75.37 +3.85 72.19 +8.53 
+
+GDA 84.41 43.48 57.08 23.15 57.06 70.03 58.75 43.46 52.70 62.69 55.28 w/ PRiSM 85.33 +0.93 47.68 +4.20 54.33 -2.75 26.00 +2.85 61.74 +4.68 75.70 +5.67 68.85 +10.10 47.92 +4.46 54.17 +1.47 63.96 +1.27 58.57 +3.29 
+
+APE 93.05 49.03 59.16 25.65 87.01 73.49 90.30 65.95 67.44 71.52 68.26 w/ PRiSM 92.88 -0.17 58.28 +9.25 76.65 +17.49 29.97 +4.31 81.43 -5.59 84.47 +10.98 89.82 -0.48 64.89 -1.07 66.05 -1.39 74.52 +3.00 71.89 +3.63 
+
+ProKeR 92.46 56.32 69.11 31.61 86.07 85.99 87.96 69.40 69.04 75.12 72.31 w/ PRiSM 92.49 +0.03 58.55 +2.23 77.78 +8.67 31.36 -0.25 80.82 -5.25 86.91 +0.92 88.54 +0.59 65.60 -3.80 65.22 -3.82 74.92 -0.20 72.22 -0.09 
+
+Table 1: Severe imbalance with high effective classes. We report Top-1 accuracy (%) across 10 datasets. Differences with base methods are shown as subscripts. to substantial recovery in performance under severe imbalance. For example, PRiSM improves the mean accuracy of Tip-Adapter by +23 .22 in 4-shot ( 49 .64 → 72 .86 ) and by +35 .05 in 16-shot (33 .25 → 68 .30 ), effectively reversing the degradation trend. Similarly, APE’s performance is enhanced by +7 .65 and +14 .59 in 4-shot and 16-shot, respectively, restoring performance despite the increasing imbalance. The effect is particularly pronounced on datasets where imbalance severely distorts the baseline prototypes. For instance, on EuroSAT and Flowers, PRiSM brings improvements to Tip-Adapter ranging from nearly 50-70% in 4- and 16-shot, whereas APE’s performance gains range from 22.23% to 42.02% under the same settings. Importantly, improvements are consistent across different adaptation mechanisms: GDA shows steady average gains of +3 .29 , +4 .05 , and 
+
++6 .56 from 2-shot to 16-shot, while ProKeR, despite being a strong baseline, still benefits with gains of +1 .56 and +3 .03 in 4-shot and 16-shot scenarios. An interesting observation is that, simple methods such as Tip-Adapter, which substantially underperform arguably more complex approaches (i.e., ProKeR), are at par when PRiSM rectifies their visual prototypes (e.g., 72.19 vs. 72.31 in 2-shot; 72.86 vs. 71.56 in 4-shot), yielding state-of-the-art performance. These results show that 
+
+PRiSM provides a simple yet effective plug-and-play correction that regularizes prototype geometry, preserving semantic fidelity while preventing collapse toward dominant classes. 
+
+4.2 Near-balanced setting with high effective classes. 
+
+In Table 2 we present the results under near-balanced class distributions, where the Dirichlet concen-tration is high ( 0.9) and class proportions are relatively uniform. In contrast to the severe imbalance regime, the degradation of baseline methods with increasing shots is less pronounced. This is ex-pected, as the support set is more uniform across classes, leading to more stable prototype estimates. For instance, Tip-Adapter maintains relatively consistent performance from 68 .80 (2-shot) to 62 .98 
+
+(4-shot), before dropping to 45 .98 at 16-shot, indicating that imbalance-induced bias is less but not entirely mitigated. Despite this improved stability, PRiSM consistently enhances performance across all methods and shot regimes. For Tip-Adapter, the mean accuracy improves substantially 
+
+from 62.98 to 74.90 in 4-shot ( +11 .92 ) and from 45.98 to 75.77 in 16-shot ( +29 .79 ). Notably, even in this near-balanced setting, larger gains are observed on datasets such as EuroSAT ( +34 .56 
+
+7Caltech DTD EuroSAT FGVC Food101 Flowers Pets Cars Sun397 UCF101 Mean 16-shot 
+
+Tip-Adapter 86.43 33.16 33.32 21.19 53.77 34.60 37.75 44.95 56.69 57.91 45.98 w/ PRiSM 93.98 +7.54 64.85 +31.69 78.69 +45.37 32.75 +11.56 85.51 +31.74 85.87 +51.27 92.13 +54.38 72.60 +27.65 73.30 +16.60 78.00 +20.09 75.77 +29.79 
+
+GDA 91.60 53.66 67.12 29.29 69.66 77.28 76.86 65.19 69.82 73.33 67.38 w/ PRiSM 91.85 +0.25 62.52 +8.86 65.98 -1.14 34.49 +5.20 78.42 +8.77 89.53 +12.24 83.47 +6.61 69.20 +4.01 72.81 +2.99 75.15 +1.83 72.34 +4.96 
+
+APE 91.79 55.39 50.53 24.39 77.85 61.31 79.26 52.98 66.35 72.35 63.22 w/ PRiSM 93.58 +1.78 65.61 +10.22 83.42 +32.89 31.14 +6.76 83.85 +6.00 79.72 +18.41 90.91 +11.65 64.26 +11.28 71.66 +5.31 77.96 +5.60 74.21 +10.99 
+
+ProKeR 93.84 67.33 81.40 43.17 86.36 93.34 89.56 77.45 73.70 80.39 78.65 w/ PRiSM 94.50 +0.66 68.37 +1.04 86.44 +5.04 39.37 -3.80 85.66 -0.71 92.49 -0.85 92.88 +3.32 76.92 -0.53 73.70 +0.00 80.30 -0.09 79.06 +0.41 
+
+4-shot 
+
+Tip-Adapter 91.50 49.39 48.13 23.01 83.82 55.90 79.50 60.75 66.37 71.46 62.98 w/ PRiSM 93.33 +1.83 62.34 +12.95 82.70 +34.56 32.13 +9.12 83.97 +0.14 85.46 +29.57 91.80 +12.30 70.23 +9.49 70.25 +3.87 76.83 +5.37 74.90 +11.92 
+
+GDA 88.31 50.60 63.92 26.45 61.09 74.04 68.88 52.67 60.25 67.80 61.40 w/ PRiSM 88.49 +0.18 55.34 +4.74 62.20 -1.71 29.94 +3.49 68.39 +7.30 83.04 +9.00 76.83 +7.95 56.89 +4.22 62.56 +2.31 69.03 +1.24 65.27 +3.87 
+
+APE 92.76 50.81 61.96 26.17 86.87 74.96 89.87 64.58 68.45 72.88 68.93 w/ PRiSM 93.38 +0.63 62.72 +11.91 81.46 +19.49 32.43 +6.26 83.93 -2.94 86.23 +11.28 91.44 +1.58 68.26 +3.67 70.02 +1.57 77.08 +4.20 74.69 +5.76 
+
+ProKeR 93.10 61.67 76.62 36.12 86.24 89.75 88.65 72.70 71.18 77.57 75.36 w/ PRiSM 93.46 +0.36 63.50 +1.82 84.55 +7.93 35.36 -0.76 83.49 -2.76 89.79 +0.04 90.55 +1.89 71.08 -1.62 69.98 -1.20 77.64 +0.07 75.94 +0.58 
+
+2-shot 
+
+Tip-Adapter 92.67 50.55 59.23 28.02 87.06 72.99 89.03 68.38 67.77 72.31 68.80 w/ PRiSM 92.89 +0.21 59.67 +9.12 78.53 +19.30 31.25 +3.23 82.52 -4.54 84.26 +11.27 90.85 +1.82 67.96 -0.42 68.04 +0.28 75.57 +3.26 73.15 +4.35 
+
+GDA 85.72 46.90 59.91 24.92 59.60 73.33 61.84 46.46 55.18 64.62 57.85 w/ PRiSM 86.41 +0.69 51.32 +4.42 56.89 -3.02 27.77 +2.85 64.26 +4.66 78.49 +5.16 71.76 +9.92 50.94 +4.48 56.57 +1.38 65.80 +1.18 61.02 +3.17 
+
+APE 92.86 49.51 63.68 29.03 87.48 78.67 90.84 69.58 68.06 72.04 70.18 w/ PRiSM 92.80 -0.06 60.20 +10.69 78.44 +14.76 31.22 +2.19 82.38 -5.10 85.71 +7.04 90.36 -0.48 67.52 -2.06 67.73 -0.33 75.84 +3.80 73.22 +3.04 
+
+ProKeR 92.89 58.87 73.60 33.71 86.59 87.70 89.58 71.38 70.38 76.84 74.15 w/ PRiSM 92.76 -0.13 60.35 +1.48 80.53 +6.93 33.15 -0.56 81.91 -4.68 88.14 +0.44 89.71 +0.13 67.85 -3.53 67.29 -3.09 76.44 -0.40 73.81 -0.34 
+
+Table 2: Near-balanced setting with high effective classes. Top-1 accuracy (%) across 10 datasets. in 4-shot, +45 .37 in 16-shot) and Flowers ( +29 .57 in 4-shot, +51 .27 in 16-shot), suggesting that prototype bias persists beyond extreme imbalance and can still significantly affect adaptation. For other baselines, the improvements are more moderate but remain consistent: GDA achieves gains of 
+
++4 .96 for 16-shots, while APE improves by +10 .99 . Even for ProKeR, which already performs strongly, PRiSM provides slight gains in most cases (e.g., +0 .58 in 4-shot and +0 .41 in 16-shot), indicating that our method complements rather than replaces strong adaptation mechanisms. 
+
+4.3 Evaluation with Low effective classes. 
+
+We now report the average performance for low effective classes in Table 3. In this regime, the adaptation problem is intrinsically easier, as the support set covers a reduced label space, leading to more reliable class-wise statistics even under imbalance. Consequently, baseline methods exhibit significantly less degradation compared to the high effective class setting. Furthermore, higher performing approaches such as ProKeR remain relatively stable across shots (e.g., 85 .47 → 83 .74 ), indicating that the reduced label space reduces confusion among effective classes. 
+
+Severe imbalance Near balanced 2-shot 4-shot 16-shot 2-shot 4-shot 16-shot 
+
+Tip-Adapter 82.69 74.14 55.29 84.31 81.68 68.32 w/ PRiSM 86.14 +3.44 86.52 +12.38 87.03 +31.75 86.71 +2.40 88.02 +6.34 88.81 +20.50 
+
+GDA 74.21 75.93 77.40 76.07 79.79 83.82 w/ PRiSM 77.16 +2.95 78.63 +2.69 78.01 +0.61 78.55 +2.48 81.95 +2.16 85.83 +2.01 
+
+APE 83.91 82.91 79.44 84.42 84.71 83.37 w/ PRiSM 86.18 +2.27 86.28 +3.36 86.66 +7.22 86.92 +2.50 88.03 +3.31 89.46 +6.09 
+
+ProKeR 85.47 84.64 83.74 86.64 87.44 89.31 w/ PRiSM 85.91 +0.43 86.30 +1.66 87.32 +3.59 86.73 +0.09 88.38 +0.94 90.49 +1.18 
+
+Table 3: Severe imbalance and near balanced settings with low effective classes. We report mean Top-1 accuracy (%) across 10 datasets. Improvements over base methods are shown as subscripts; positive gains are highlighted in green. 8Even in this easier regime, PRiSM consistently improves performance across all methods and settings . The gains are particularly pronounced for weaker baselines. For instance, Tip-Adapter benefits from substantial improvements ranging from +12 .38 (4-shot) to +31 .75 (16-shot) under severe imbalance, and from +6 .34 to +20 .50 under near-balanced conditions. This indicates that even when the number of effective classes is limited, imbalance still introduces biases in prototype estimation that accumulate with increasing shots. Even for ProKeR, which already produces well-structured prototypes, PRiSM still yields additional gains, particularly in higher-shot regimes (e.g., 
+
++3 .59 under severe imbalance at 16-shot). Overall, these results highlight a similar trend to the high effective class setting and portrays how PRiSM improves the performance across both severe and near-balanced regimes. 
+
+4.4 Varying Lipschitz learning rate. 
+
+In this section we analyze the impact of Lipschitz-based learning rate on performance. As discussed earlier, the proposed prototype rectification objective admits a quadratic form with a closed-form upper bound on its curvature. This allows us to derive a valid block Lipschitz constant ρ, which naturally induces a principled learning rate of 1/ρ for the prototype update. Unlike conventional hyperparameter tuning, this choice is directly tied to the geometry of the optimization landscape and guarantees stable MM updates. We conduct this analysis on top of ProKeR [ 1 ] under the 16-shot severe-imbalance setting with a high number of effective classes, using EuroSat, DTD and Flowers as representative datasets. To isolate the effect of the prototype-block step size, we vary only the prototype learning rate while keeping all other hyperparameters fixed. As observed from Fig. 2, performance exhibits a clear sensitivity to the learning rate. Extremely small learning rates under-optimize the prototype correction, leading to weaker alignment between the rectified prototypes and the support-set feature distribution. In contrast, the Lipschitz-based learning rate, indicated by the vertical dashed line, consistently matches the best-performing region across datasets. This indicates that the proposed step-size selection captures the effective curvature of the prototype rectification objective and provides a reliable operating point without requiring an exhaustive learning-rate sweep. Notably, the resulting step size is orders of magnitude larger than those typically used in deep learning, which often lie in the range [10 −4, 10 −2]; see [28] for instance. 
+
+Figure 2: Prototype-block performance as a function of different values of the learning rates. 
+
+The dotted vertical lines show the Lipschitz-based learning rate. 
+
+5 Conclusion 
+
+We revisited the evaluation of training -free few -shot adaptation for vision–language models by re-laxing unrealistic assumptions on class balance and task composition. Through a Dirichlet - based benchmark, we showed that the performances of many state - of -the -art methods degrade signifi-cantly under class imbalance and large numbers of classes, even with increased supervision. To address this limitation, we propose PRiSM , a plug -and -play class -prototype regularization that consistently improves performance across diverse settings. PRiSM is optimized via an efficient block majorize–minimize algorithm with theoretically grounded Lipschitz-gradient bound, ensuring both effectiveness and scalability. Extensive experiments demonstrate that PRiSM substantially enhances robustness in challenging few -shot regimes. We hope that our benchmark and method will encourage more realistic evaluations and foster the development of adaptation techniques better suited to real-world deployment. 9References 
+
+[1] Yassir Bendou, Amine Ouasfi, Vincent Gripon, and Adnane Boukhayma. Proker: A Kernel Perspective on Few-shot Adaptation of Large Vision-Language Models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 25092–25102, 2025. [2] Lukas Bossard, Matthieu Guillaumin, and Luc Van Gool. Food-101 — Mining Discriminative Components with Random Forests. In European Conference on Computer Vision (ECCV) , 2014. [3] Malik Boudiaf, Imtiaz Ziko, Jérôme Rony, José Dolz, Pablo Piantanida, and Ismail Ben Ayed. Information maximization for few-shot learning. Advances in Neural Information Processing Systems , 33:2445–2457, 2020. [4] Mircea Cimpoi, Subhransu Maji, Iasonas Kokkinos, Sammy Mohamed, and Andrea Vedaldi. Describing Textures in the Wild. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , 2014. [5] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. ImageNet: A Large-Scale Hierarchical Image Database. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR) ,2009. [6] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929 , 2020. [7] Li Fei-Fei, Rob Fergus, and Pietro Perona. Learning Generative Visual Models from Few Training Examples: An Incremental Bayesian Approach Tested on 101 Object Categories. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) Workshops , 2004. [8] Peng Gao, Shijie Geng, Renrui Zhang, Teli Ma, Rongyao Fang, Yongfeng Zhang, Hongsheng Li, and Yu Qiao. Clip-adapter: Better vision-language models with feature adapters. International journal of computer vision , 132(2):581–595, 2024. [9] Patrick Helber, Benjamin Bischke, Andreas Dengel, and Damian Borth. EuroSAT: A Novel Dataset and Deep Learning Benchmark for Land Use and Land Cover Classification. IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing , 12(7):2217–2226, 2019. [10] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-Rank Adaptation of Large Language Models. In International Conference on Learning Representations (ICLR) , 2022. [11] Yunshi Huang, Fereshteh Shakeri, Jose Dolz, Malik Boudiaf, Houda Bahig, and Ismail Ben Ayed. Lp++: A surprisingly strong linear probe for few-shot clip. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 23773–23782, 2024. [12] Chao Jia, Yinfei Yang, Ye Xia, Yi-Ting Chen, Zarana Parekh, Hieu Pham, Quoc V. Le, Yunhsuan Sung, Zhen Li, and Tom Duerig. Scaling Up Visual and Vision-Language Representation Learning With Noisy Text Supervision. In Proceedings of the International Conference on Machine Learning (ICML) , 2021. [13] Jonathan Krause, Michael Stark, Jia Deng, and Li Fei-Fei. 3D Object Representations for Fine-Grained Categorization. In IEEE International Conference on Computer Vision Workshops (ICCVW) , 2013. [14] Kenneth Lange, David R Hunter, and Ilsoon Yang. Optimization transfer using surrogate objective functions. Journal of computational and graphical statistics , 9(1):1–20, 2000. [15] Zhiqiu Lin, Samuel Yu, Zhiyi Kuang, Deepak Pathak, and Deva Ramanan. Multimodality helps unimodality: Cross-modal few-shot learning with multimodal models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 19325–19337, 2023. [16] Yuning Lu, Jianzhuang Liu, Yonggang Zhang, Yajing Liu, and Xinmei Tian. Prompt Distribution Learning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 5206–5215, 2022. [17] Subhransu Maji, Esa Rahtu, Juho Kannala, Matthew Blaschko, and Andrea Vedaldi. Fine-grained Visual Classification of Aircraft. arXiv preprint arXiv:1306.5151 , 2013. [18] Maria-Elena Nilsback and Andrew Zisserman. Automated Flower Classification over a Large Number of Classes. In Proceedings of the Indian Conference on Computer Vision, Graphics and Image Processing (ICVGIP) , 2008. 
+
+10 [19] Omkar M. Parkhi, Andrea Vedaldi, Andrew Zisserman, and C. V. Jawahar. Cats and Dogs. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , 2012. [20] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning Transferable Visual Models From Natural Language Supervision. In Proceedings of the 38th International Conference on Machine Learning (ICML) , 2021. [21] Julio Silva-Rodríguez, Sina Hajimiri, Ismail Ben Ayed, and Jose Dolz. A Closer Look at the Few-Shot Adaptation of Large Vision-Language Models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. [22] Khurram Soomro, Amir Roshan Zamir, and Mubarak Shah. UCF101: A Dataset of 101 Human Actions Classes from Videos in the Wild. arXiv preprint arXiv:1212.0402 , 2012. [23] Zhengbo Wang, Jian Liang, Lijun Sheng, Ran He, Zilei Wang, and Tieniu Tan. A Hard-to-Beat Base-line for Training-free CLIP-based Adaptation. In The Twelfth International Conference on Learning Representations (ICLR) , 2024. [24] Jianxiong Xiao, James Hays, Krista Ehinger, Aude Oliva, and Antonio Torralba. SUN Database: Large-scale Scene Recognition from Abbey to Zoo. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , 2010. [25] Hu Xu, Saining Xie, Xiaoqing Ellen Tan, Po-Yao Huang, Russell Howes, Vasu Sharma, Shang-Wen Li, Gargi Ghosh, Luke Zettlemoyer, and Christoph Feichtenhofer. Demystifying CLIP Data. arXiv preprint arXiv:2309.16671 , 2023. Introduces MetaCLIP dataset and scaling insights. [26] Tao Yu, Zhihe Lu, Xin Jin, Zhibo Chen, and Xinchao Wang. Task residual for tuning vision-language models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10899–10909, 2023. [27] Maxime Zanella, Benoît Gérin, and Ismail Ayed. Boosting Vision-Language Models with Transduction. 
+
+Advances in Neural Information Processing Systems , 37:62223–62256, 2024. [28] Renrui Zhang, Wei Zhang, Rongyao Fang, Peng Gao, Kunchang Li, Jifeng Dai, Yu Qiao, and Hongsheng Li. Tip-adapter: Training-free adaption of clip for few-shot classification. In European conference on computer vision , pages 493–510. Springer, 2022. [29] Kaiyang Zhou, Jingkang Yang, Chen Change Loy, and Ziwei Liu. Conditional Prompt Learning for Vision-Language Models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2022. [30] Kaiyang Zhou, Jingkang Yang, Chen Change Loy, and Ziwei Liu. Learning to Prompt for Vision-Language Models. IJCV , 130(9):2337–2348, 2022. [31] Xiangyang Zhu, Renrui Zhang, Bowei He, Aojun Zhou, Dong Wang, Bin Zhao, and Peng Gao. Not All Features Matter: Enhancing Few-shot Clip with Adaptive Prior Refinement. In Proceedings of the IEEE/CVF international conference on computer vision , pages 2605–2615, 2023. 
+
+11 A Supplementary 
+
+A.1 Proof of proposition 1 
+
+The spectral norm of the Hessian of quadratic objective Lw is given by: 
+
+2∥Φ∥2 = 2 ∥R ⊗ Id∥2 = 2 ∥R∥2∥Id∥2 = 2 ∥R∥2
+
+The second equality above comes from the spectral-norm property of the Kronecker product, and the last comes from the fact ∥Id∥2 = 1 .Now we need to find an upper bound on ∥R∥2. As R is symmetric, ∥R∥2 is the largest absolute eigenvalue of R. By Gershgorin’s circle theorem, for each eigenvalue s of R, there exists at least a row of the matrix such that s lies within a disk centered at the diagonal entry of the row, with a radius equal to the sum of absolute values of the off-diagonal elements in that row. Now observe that all the diagonal elements of R are given by 
+
+Rcc = β + γ − λ (6) Also, for all rows of R, the sum of absolute values of the non-diagonal elements is given by: 
+
+X
+
+> c′#c
+
+| Rc′c| = ( C − 1) λC − 1 = λ (7) From (6) and (7), it follows that every eigenvalue s of R satisfies: 
+
+|s| ≤ | β + γ − λ| + λ (8) Therefore: 
+
+∥R∥2 ≤ | β + γ − λ| + λ (9) As ∥Φ∥2 = ∥R∥2, we obtain the following upper bound on the spectral norm of the Hessian of quadratic objective Lw, which provides a valid Lipschitz constant: 
+
+ρ = 2( | β + γ − λ| + λ) ≥ 2∥R∥2 (10) 
+
+A.2 Effect of the Dirichlet Concentration Parameter on Class Imbalance 
+
+Figure 3 illustrates the effect of the Dirichlet concentration parameter δ on class imbalance across three classes. Smaller values of δ produce more skewed class distributions, whereas larger values lead to more uniform sampling. 
+
+Figure 3: Effect of the Dirichlet concentration parameter δ on class imbalance across three different classes. Smaller δ values yield more skewed class distributions, while larger values approach uniform sampling. 12 A.3 Detailed Results for Near Balanced Setting with Low Effective Classes. 
+
+Caltech DTD EuroSAT FGVC Food101 Flowers Pets Cars Sun397 UCF101 Mean 16-shot 
+
+Tip-Adapter 95.64 52.62 69.89 39.01 78.38 54.46 67.76 69.86 78.01 77.54 68.32 w/ PRiSM 98.16 +2.52 81.82 +29.20 96.38 +26.48 59.18 +20.17 93.00 +14.62 93.64 +39.18 97.37 +29.61 89.80 +19.94 88.21 +10.19 90.60 +13.06 88.81 +20.50 
+
+GDA 96.54 74.33 91.52 54.91 82.89 90.80 92.47 84.13 84.41 86.17 83.82 w/ PRiSM 96.74 +0.20 78.63 +4.29 92.84 +1.32 56.71 +1.81 86.80 +3.91 94.07 +3.27 94.82 +2.35 84.47 +0.34 85.79 +1.38 87.40 +1.24 85.83 +2.01 
+
+APE 97.80 72.76 87.23 48.52 93.47 84.48 95.54 81.81 85.33 86.72 83.37 w/ PRiSM 98.25 +0.45 82.64 +9.89 97.31 +10.07 61.06 +12.54 93.67 +0.20 96.32 +11.83 97.75 +2.21 88.75 +6.95 88.23 +2.89 90.61 +3.89 89.46 +6.09 
+
+ProKeR 98.16 81.49 94.37 63.41 93.79 97.02 96.03 90.51 88.01 90.28 89.31 w/ PRiSM 98.43 +0.27 84.44 +2.95 96.99 +2.63 64.98 +1.57 93.67 -0.12 97.49 +0.47 97.48 +1.45 91.54 +1.02 88.72 +0.70 91.18 +0.91 90.49 +1.18 
+
+4-shot 
+
+Tip-Adapter 97.36 68.94 82.45 48.52 93.40 77.95 93.73 83.80 84.47 86.20 81.68 w/ PRiSM 98.07 +0.71 80.46 +11.52 94.48 +12.03 57.37 +8.85 92.73 -0.66 95.07 +17.11 97.36 +3.64 88.33 +4.53 86.64 +2.17 89.70 +3.50 88.02 +6.34 
+
+GDA 95.25 69.06 88.90 49.67 80.97 89.94 86.01 76.49 78.58 83.08 79.79 w/ PRiSM 95.83 +0.57 73.91 +4.86 89.16 +0.26 51.51 +1.84 83.55 +2.58 91.15 +1.21 92.23 +6.22 78.31 +1.81 79.54 +0.96 84.37 +1.29 81.95 +2.16 
+
+APE 97.99 69.38 89.63 53.13 94.52 87.71 96.99 86.88 85.07 85.85 84.71 w/ PRiSM 98.13 +0.14 80.29 +10.91 94.67 +5.04 57.42 +4.29 92.31 -2.21 95.89 +8.18 97.10 +0.11 87.80 +0.92 86.71 +1.65 89.93 +4.08 88.03 +3.31 
+
+ProKeR 97.87 77.66 92.12 57.14 93.82 95.29 96.76 87.91 86.65 89.17 87.44 w/ PRiSM 98.11 +0.24 81.37 +3.71 94.97 +2.85 58.87 +1.73 92.26 -1.56 96.75 +1.47 97.27 +0.51 88.08 +0.17 86.19 -0.46 89.92 +0.75 88.38 +0.94 
+
+2-shot 
+
+Tip-Adapter 97.60 70.20 87.81 52.92 94.48 85.62 96.58 86.96 84.62 86.31 84.31 w/ PRiSM 97.67 +0.08 77.88 +7.68 92.84 +5.02 54.91 +1.99 91.78 -2.70 94.52 +8.89 96.90 +0.32 86.86 -0.10 85.18 +0.56 88.60 +2.29 86.71 +2.40 
+
+GDA 93.77 63.26 88.20 45.52 78.25 88.30 79.92 69.72 74.15 79.66 76.07 w/ PRiSM 94.58 +0.81 68.23 +4.97 86.44 -1.76 47.92 +2.40 80.88 +2.63 88.93 +0.63 88.81 +8.89 73.34 +3.62 75.40 +1.24 81.02 +1.36 78.55 +2.48 
+
+APE 97.90 67.59 88.01 54.63 94.68 86.30 97.25 87.64 84.62 85.63 84.42 w/ PRiSM 97.91 +0.01 78.05 +10.46 93.77 +5.77 56.21 +1.58 91.70 -2.97 94.77 +8.46 96.74 -0.51 86.42 -1.22 85.22 +0.61 88.42 +2.79 86.92 +2.50 
+
+ProKeR 97.73 75.37 89.66 56.53 93.85 94.18 96.34 87.66 86.21 88.84 86.64 w/ PRiSM 97.84 +0.10 77.88 +2.51 91.86 +2.19 56.52 +0.00 91.38 -2.47 95.49 +1.31 96.36 +0.02 86.37 -1.29 84.66 -1.56 88.91 +0.07 86.73 +0.09 
+
+Table 4: Near-balanced setting with low effective classes. We report Top-1 accuracy (%) across 10 datasets. Improvements over base methods are shown as subscripts; positive gains are highlighted in green. 13 A.4 Detailed Results for Severe Imbalance Setting with Low Effective Classes. 
+
+Caltech DTD EuroSAT FGVC Food101 Flowers Pets Cars Sun397 UCF101 Mean 16-shot 
+
+Tip-Adapter 93.77 34.64 62.23 31.65 48.66 32.91 47.11 62.39 72.76 66.72 55.29 w/ PRiSM 98.15 +4.38 79.01 +44.36 93.55 +31.31 55.29 +23.64 92.08 +43.42 93.81 +60.90 96.55 +49.44 87.28 +24.89 85.61 +12.85 88.98 +22.26 87.03 +31.75 
+
+GDA 95.38 65.95 86.62 47.51 74.50 84.59 87.17 73.98 77.05 81.26 77.40 w/ PRiSM 95.46 +0.08 66.62 +0.67 86.78 +0.16 48.42 +0.90 75.87 +1.37 84.98 +0.39 87.35 +0.18 75.00 +1.02 78.03 +0.99 81.61 +0.36 78.01 +0.61 
+
+APE 97.85 69.35 79.98 41.27 90.60 74.27 93.48 78.44 83.82 85.31 79.44 w/ PRiSM 98.19 +0.34 78.44 +9.09 94.18 +14.20 53.83 +12.56 92.09 +1.49 94.33 +20.06 96.79 +3.30 84.53 +6.09 85.40 +1.58 88.78 +3.47 86.66 +7.22 
+
+ProKeR 97.32 69.23 84.86 53.60 91.24 93.19 93.31 84.85 83.60 86.19 83.74 w/ PRiSM 97.89 +0.58 79.35 +10.12 93.39 +8.53 58.12 +4.52 92.03 +0.79 95.92 +2.74 96.77 +3.46 86.45 +1.60 84.35 +0.75 88.98 +2.79 87.32 +3.59 
+
+4-shot 
+
+Tip-Adapter 96.53 59.42 76.16 38.54 89.55 54.28 86.68 76.93 80.96 82.39 74.14 w/ PRiSM 97.74 +1.21 78.14 +18.72 92.33 +16.17 54.49 +15.95 91.50 +1.95 93.96 +39.68 96.94 +10.26 86.64 +9.71 84.84 +3.88 88.65 +6.26 86.52 +12.38 
+
+GDA 93.63 62.28 87.78 45.50 77.19 86.02 82.54 70.23 73.77 80.41 75.93 w/ PRiSM 94.76 +1.12 67.05 +4.77 87.57 -0.21 48.73 +3.23 80.67 +3.48 88.19 +2.17 89.86 +7.32 72.93 +2.70 74.98 +1.21 81.52 +1.11 78.63 +2.69 
+
+APE 97.89 68.16 87.09 48.46 94.16 82.97 96.56 84.70 83.95 85.22 82.91 w/ PRiSM 97.99 +0.10 77.52 +9.36 90.61 +3.52 55.03 +6.58 92.11 -2.05 94.58 +11.61 96.98 +0.42 85.34 +0.65 84.32 +0.37 88.28 +3.06 86.28 +3.36 
+
+ProKeR 97.48 71.21 86.75 52.83 93.05 93.12 94.16 85.29 85.07 87.42 84.64 w/ PRiSM 97.77 +0.29 77.40 +6.19 90.49 +3.74 56.19 +3.36 91.59 -1.46 95.33 +2.21 95.93 +1.76 85.32 +0.03 84.22 -0.85 88.81 +1.39 86.30 +1.66 
+
+2-shot 
+
+Tip-Adapter 97.69 68.71 86.63 50.05 93.83 80.18 94.70 84.61 84.44 86.07 82.69 w/ PRiSM 97.80 +0.10 77.08 +8.37 91.99 +5.36 54.46 +4.41 91.38 -2.45 94.25 +14.07 96.00 +1.30 85.77 +1.16 84.44 +0.00 88.19 +2.12 86.14 +3.44 
+
+GDA 92.69 60.92 86.95 43.99 77.02 86.46 78.12 66.25 72.07 77.61 74.21 w/ PRiSM 94.09 +1.40 65.72 +4.80 85.81 -1.14 46.62 +2.63 79.81 +2.79 87.25 +0.79 88.57 +10.44 71.01 +4.76 73.44 +1.38 79.30 +1.69 77.16 +2.95 
+
+APE 97.84 67.39 86.62 53.32 94.58 84.63 97.00 87.49 84.67 85.55 83.91 w/ PRiSM 97.64 -0.20 77.44 +10.05 92.09 +5.48 54.91 +1.59 90.95 -3.63 94.00 +9.37 96.03 -0.97 85.77 -1.72 84.32 -0.35 88.68 +3.13 86.18 +2.27 
+
+ProKeR 97.77 73.08 89.27 52.77 94.10 93.12 95.11 86.03 85.69 87.79 85.47 w/ PRiSM 97.72 -0.05 76.64 +3.56 92.69 +3.42 54.13 +1.36 91.56 -2.54 94.77 +1.65 95.43 +0.32 84.56 -1.48 83.77 -1.92 87.80 +0.00 85.91 +0.43 
+
+Table 5: Severe imbalance with low effective classes. We report Top-1 accuracy (%) across 10 datasets. Improvements over base methods are shown as subscripts; positive gains are highlighted in green. 
+
+A.5 Block Coordinate Majorize-Minimize Algorithm Algorithm 1: Block coordinate MM ( w, ϕ)iter w = 1; iter ϕ = 3; β = 0 .01 ; γ = 1 ; δ = 0 .05 ; j = 3 
+
+Initialize w0,0 = a // Initial prototypes from the base method 
+
+Initialize ϕ0,0 // Pretrained vision encoder with LoRA parameters 
+
+for j = 0 , 1, . . . do for l1 = 0 , 1, . . . , iter w do 
+
+wj,l 1+1 = wj,l 1 − 1
+
+ρ ∇Lw(wj,l 1 , ϕj, 0)
+
+// 1/ρ , from Eq.(5) 
+
+wj+1 ,0 = wj, iter w
+
+for l2 = 0 , 1, . . . , iter ϕ do 
+
+ϕj,l 2+1 = ϕj,l 2 − ηϕ∇Lϕ(wj+1 ,0, ϕj,l 2 )
+
+// ηϕ, Standard learning rate for LoRA-based encoder adaptation 
+
+ϕj+1 ,0 = ϕj, iter ϕ
+
+14
