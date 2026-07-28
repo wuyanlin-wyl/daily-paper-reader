@@ -6,98 +6,104 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-27
-- 运行时间：2026-07-27 20:44:23 UTC
+- 最新运行日期：2026-07-28
+- 运行时间：2026-07-28 21:40:43 UTC
 - 运行状态：成功
-- 本次总论文数：26
-- 精读区：14
+- 本次总论文数：28
+- 精读区：16
 - 速读区：12
 
 ### 今日简报（AI）
-今日精读26篇论文，重点覆盖3D OCT分割与少样本视觉语言模型。最值得关注PC-Seg（9.0分）和PRiSM（9.0分），分别聚焦稀疏标注下的跨视图一致性及原型正则化提升少样本性能。建议普通读者优先了解医学影像AI与少样本学习结合的最新进展。
-- 详情：[/202607/27/README](/202607/27/README)
+今日精读16篇论文，聚焦高效病理基础模型与视觉语言模型缺陷检测两大高分方向。最推荐《GigaPath-Flash/GigaTIME-Flash》和《MissingBench-Verified》，分别开创全切片肿瘤分析新范式与揭示VLMs物体部分缺失盲区。下一步可深入实践这两篇9分论文，并结合《PRiSM》原型正则化技术拓展小样本应用场景。
+- 详情：[/202607/28/README](/202607/28/README)
 
 ### 精读区论文标签
-1. [PC-Seg: Progressive Cross-View Consistency for 3D OCT Segmentation from Sparse 2D Annotations](/202607/27/2607.17718v1-pc-seg-progressive-cross-view-consistency-for-3d-oct-segmentation-from-sparse-2d-annotations)  
+1. [GigaPath-Flash and GigaTIME-Flash: Efficient Pathology Foundation Models for Whole-Slide and Tumor Microenvironment Analysis](/202607/28/2607.18218v2-gigapath-flash-and-gigatime-flash-efficient-pathology-foundation-models-for-whole-slide-and-tumor-microenvironment-analysis)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：具有渐进跨视图一致性的3D OCT分割
-2. [PRiSM: Prototype Regularization for Few-Shot VLMs](/202607/27/2607.17820v1-prism-prototype-regularization-for-few-shot-vlms)  
+   evidence：用于全切片分析的高效病理基础模型
+2. [MissingBench-Verified: Probing Vision-Language Models' Inability to Detect Missing Object Parts](/202607/28/2607.18673v1-missingbench-verified-probing-vision-language-models-inability-to-detect-missing-object-parts)  
    标签：评分：9.0/10、query:vl
-   evidence：少样本视觉语言模型的原型正则化
-3. [PRiSM: Prototype Regularization for Few-Shot VLMs](/202607/27/2607.17820v2-prism-prototype-regularization-for-few-shot-vlms)  
+   evidence：探究视觉语言模型局限性的基准测试
+3. [HPD-Parsing: Hierarchical Parallel Document Parsing](/202607/28/2607.18839v1-hpd-parsing-hierarchical-parallel-document-parsing)  
    标签：评分：9.0/10、query:vl
-   evidence：少样本VLM基准和原型正则化
-4. [MissingBench-Verified: Probing Vision-Language Models' Inability to Detect Missing Object Parts](/202607/27/2607.18673v1-missingbench-verified-probing-vision-language-models-inability-to-detect-missing-object-parts)  
-   标签：评分：9.0/10、query:vl
-   evidence：评估VLM未能检测缺失物体部分的基准
-5. [Attributes Should Come from Images, Not Class Names: Distribution-Conditioned Attribute Selection for Vision-Language Models](/202607/27/2607.18695v1-attributes-should-come-from-images-not-class-names-distribution-conditioned-attribute-selection-for-vision-language-models)  
-   标签：评分：9.0/10、query:vl
-   evidence：基于分布条件属性选择的视觉语言模型零样本分类
-6. [MedDDC-Eval: Diagnosis-Decoupled Evaluation of Multi-Turn Medical Consultation Agents](/202607/27/2607.18999v1-medddc-eval-diagnosis-decoupled-evaluation-of-multi-turn-medical-consultation-agents)  
+   evidence：基于VLM的层级文档解析
+4. [DobicVLM: Aligning Chest X-Ray Report Generation with Clinically-Grounded Programmatic Rewards via Group Relative Policy Optimization](/202607/28/2607.18988v2-dobicvlm-aligning-chest-x-ray-report-generation-with-clinically-grounded-programmatic-rewards-via-group-relative-policy-optimization)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：多轮医疗咨询代理的解耦诊断评估
-7. [ViSTR-Bench: Can MLLMs Reason from Continuous Visual Cues in Dynamic Scenes?](/202607/27/2607.20868v1-vistr-bench-can-mllms-reason-from-continuous-visual-cues-in-dynamic-scenes)  
-   标签：评分：9.0/10、query:vl
-   evidence：多模态大模型时空推理基准
-8. [Towards Privacy-Preserving Federated Prompt Tuning under Data Heterogeneity: A Subspace-Decomposed Expert Approach](/202607/27/2607.21417v1-towards-privacy-preserving-federated-prompt-tuning-under-data-heterogeneity-a-subspace-decomposed-expert-approach)  
-   标签：评分：9.0/10、query:vl
-   evidence：视觉语言模型的联邦提示调优
-9. [Be Consistent! Enhancing Robust Visual Reasoning in LVLMs with Consistency Constraints](/202607/27/2607.21722v1-be-consistent-enhancing-robust-visual-reasoning-in-lvlms-with-consistency-constraints)  
-   标签：评分：9.0/10、query:vl
-   evidence：提出了针对LVLM复杂视觉推理的ConVBench基准
-10. [Systematic Literature Reviews With Two Multi-Agentic Systems And Human-In-The-Loop](/202607/27/2607.21920v1-systematic-literature-reviews-with-two-multi-agentic-systems-and-human-in-the-loop)  
+   evidence：用于胸部X光报告生成的视觉语言模型，结合临床奖励
+5. [Medical-Checklist: Assessing the Comprehension of Medical Images by Multimodal Models](/202607/28/2607.21998v1-medical-checklist-assessing-the-comprehension-of-medical-images-by-multimodal-models)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：用于临床文献综述的多智能体系统
-11. [TextSLIP: Text Self-Supervised CLIP for Medical Report Generation](/202607/27/2607.21970v1-textslip-text-self-supervised-clip-for-medical-report-generation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：用于报告生成的医学视觉语言预训练
-12. [Medical-Checklist: Assessing the Comprehension of Medical Images by Multimodal Models](/202607/27/2607.21998v1-medical-checklist-assessing-the-comprehension-of-medical-images-by-multimodal-models)  
+   evidence：医学多模态模型基准
+6. [Scaling Native Multimodal Pre-Training From Scratch](/202607/28/2607.22043v1-scaling-native-multimodal-pre-training-from-scratch)  
    标签：评分：9.0/10、query:vl
-   evidence：医学多模态图像理解基准
-13. [RadSight: Towards Perceptually Reliable Multimodal Radiology Image Understanding](/202607/27/2607.22293v1-radsight-towards-perceptually-reliable-multimodal-radiology-image-understanding)  
+   evidence：原生多模态预训练的缩放规律研究
+7. [RadSight: Towards Perceptually Reliable Multimodal Radiology Image Understanding](/202607/28/2607.22293v1-radsight-towards-perceptually-reliable-multimodal-radiology-image-understanding)  
    标签：评分：9.0/10、query:vl
-   evidence：医学多模态大语言模型基准测试
-14. [SLIP: Segmentation with Low-latency Interactive Prompting for 3D Medical Images](/202607/27/2607.22332v1-slip-segmentation-with-low-latency-interactive-prompting-for-3d-medical-images)  
+   evidence：用于放射学任务的医学MLLM的Perception-Bench基准
+8. [DAMamba-UNet3D: A Parameter-Efficient Mamba State Space U-Net with Dynamic Adaptive Scan for 3D Medical Image Segmentation](/202607/28/2607.22718v1-damamba-unet3d-a-parameter-efficient-mamba-state-space-u-net-with-dynamic-adaptive-scan-for-3d-medical-image-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：低延迟可逆提示的交互式三维医学图像分割
+   evidence：3D医学图像分割的新型扫描机制
+9. [Post-Operative Glioma Segmentation via Loss Stabilization, Normalization and Subspace Attention](/202607/28/2607.22749v1-post-operative-glioma-segmentation-via-loss-stabilization-normalization-and-subspace-attention)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：基于Transformer的SwinUNETR用于医学图像分割
+10. [AdaKAN: A dual-branch adaptive Kolmogorov-Arnold network for medical image segmentation](/202607/28/2607.22891v1-adakan-a-dual-branch-adaptive-kolmogorov-arnold-network-for-medical-image-segmentation)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：用于医学图像分割的新型自适应KAN
+11. [WaveZip: Wavelet-Driven Space-Time Decoupling for Video Token Condensation](/202607/28/2607.23265v1-wavezip-wavelet-driven-space-time-decoupling-for-video-token-condensation)  
+   标签：评分：9.0/10、query:vl
+   evidence：基于小波的视觉语言大模型token压缩方法
+12. [Explaining BiomedCLIP with Weighted Banzhaf Interactions Supported by Tree-Gram Parsing](/202607/28/2607.23368v1-explaining-biomedclip-with-weighted-banzhaf-interactions-supported-by-tree-gram-parsing)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：解释BiomedCLIP提升医学视觉语言模型可解释性
+13. [PathScale-R1: Cross-scale Reasoning for Pathological Image Analysis](/202607/28/2607.23794v1-pathscale-r1-cross-scale-reasoning-for-pathological-image-analysis)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：大视觉语言模型用于病理图像分析
+14. [DecoupleMix: Decoupled Ratio Search and Convex Allocation for Scalable VLM Data Recipes](/202607/28/2607.24516v1-decouplemix-decoupled-ratio-search-and-convex-allocation-for-scalable-vlm-data-recipes)  
+   标签：评分：9.0/10、query:vl
+   evidence：提出DecoupleMix用于可扩展的VLM数据混合优化
+15. [KANEx: Translating Kolmogorov-Arnold Networks' Interpretability to Medical Explainability](/202607/28/2607.24730v1-kanex-translating-kolmogorov-arnold-networks-interpretability-to-medical-explainability)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：基于VLM的胸片分类器可解释性
+16. [ClinFusion: A Vision-Centric Multimodal LLM System for Holistic Medical Understanding](/202607/28/2607.24743v1-clinfusion-a-vision-centric-multimodal-llm-system-for-holistic-medical-understanding)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：以视觉为中心的多模态大模型用于全面医学理解
 
 ### 速读区论文标签
-1. [Searching for Task-Specific Vision Paths: Evolutionary Block Pruning Across Vision-Language Models](/202607/27/2607.17052v1-searching-for-task-specific-vision-paths-evolutionary-block-pruning-across-vision-language-models)  
+1. [PRiSM: Prototype Regularization for Few-Shot VLMs](/202607/28/2607.17820v1-prism-prototype-regularization-for-few-shot-vlms)  
    标签：评分：8.0/10、query:vl
-   evidence：视觉语言模型任务特定视觉路径剪枝
-2. [A Diagnostic Framework for AI Agent Behavior](/202607/27/2607.17149v1-a-diagnostic-framework-for-ai-agent-behavior)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：临床AI代理行为诊断框架
-3. [Medical Imaging Fusing Vision Transformer: Laryngeal Cancer Screening with Explanation](/202607/27/2607.17789v1-medical-imaging-fusing-vision-transformer-laryngeal-cancer-screening-with-explanation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：视觉transformer用于喉癌分类与注意力机制
-4. [PGN: Design and Implementation of a Vision-Language Navigation System Based on Pangu Multimodal Foundation Model](/202607/27/2607.17806v1-pgn-design-and-implementation-of-a-vision-language-navigation-system-based-on-pangu-multimodal-foundation-model)  
+   evidence：少样本VLM的基准与方法
+2. [PRiSM: Prototype Regularization for Few-Shot VLMs](/202607/28/2607.17820v2-prism-prototype-regularization-for-few-shot-vlms)  
    标签：评分：8.0/10、query:vl
-   evidence：基于多模态基础模型的视觉语言导航系统
-5. [SkyVLaM: Multimodal Large Language Model for UAV Video Understanding in Remote Sensing](/202607/27/2607.17386v1-skyvlam-multimodal-large-language-model-for-uav-video-understanding-in-remote-sensing)  
-   标签：评分：7.0/10、query:vl
-   evidence：用于无人机视频理解的多模态大语言模型
-6. [OrientSAM: Mitigating Camera-Centric Shortcut in Multimodal Spatial Reasoning via Orientation-Aware Spatial Alignment](/202607/27/2607.17657v1-orientsam-mitigating-camera-centric-shortcut-in-multimodal-spatial-reasoning-via-orientation-aware-spatial-alignment)  
-   标签：评分：7.0/10、query:vl
-   evidence：多模态LLM的朝向感知框架
-7. [Occlusion-Aware Panoptic Segmentation with Joint Position Embedding and Occlusion-Level Attention](/202607/27/2607.18112v1-occlusion-aware-panoptic-segmentation-with-joint-position-embedding-and-occlusion-level-attention)  
+   evidence：提出现实场景的少样本视觉语言模型基准和原型正则化
+3. [ST-Veto: Spatio-Temporal Token Veto for Diffusion MLLMs via Taylor Prediction and Visual Grounding](/202607/28/2607.17884v1-st-veto-spatio-temporal-token-veto-for-diffusion-mllms-via-taylor-prediction-and-visual-grounding)  
+   标签：评分：8.0/10、query:vl
+   evidence：扩散多模态大模型推理增强
+4. [Occlusion-Aware Panoptic Segmentation with Joint Position Embedding and Occlusion-Level Attention](/202607/28/2607.18112v2-occlusion-aware-panoptic-segmentation-with-joint-position-embedding-and-occlusion-level-attention)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：新颖的遮挡感知注意力用于分割
+5. [Medical Imaging Fusing Vision Transformer: Laryngeal Cancer Screening with Explanation](/202607/28/2607.17789v1-medical-imaging-fusing-vision-transformer-laryngeal-cancer-screening-with-explanation)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：使用Transformer的遮挡感知全景分割
-8. [Robust Multimodal Dynamic Object Segmentation](/202607/27/2607.18153v1-robust-multimodal-dynamic-object-segmentation)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：使用Transformer和多模态线索的分割
-9. [G2-Nav: Grounded and Guarded Vision-Language Costmaps for Robot Social Navigation](/202607/27/2607.16956v1-g2-nav-grounded-and-guarded-vision-language-costmaps-for-robot-social-navigation)  
+   evidence：医学图像分类中的视觉Transformer和注意力机制
+6. [PGN: Design and Implementation of a Vision-Language Navigation System Based on Pangu Multimodal Foundation Model](/202607/28/2607.17806v1-pgn-design-and-implementation-of-a-vision-language-navigation-system-based-on-pangu-multimodal-foundation-model)  
+   标签：评分：7.0/10、query:vl
+   evidence：基于盘古模型的视觉语言导航系统
+7. [Stochastic Meta-Unlearning: Bridging Language Backbone and Multimodal Unlearning](/202607/28/2607.18615v1-stochastic-meta-unlearning-bridging-language-backbone-and-multimodal-unlearning)  
+   标签：评分：7.0/10、query:vl
+   evidence：视觉语言模型元遗忘框架
+8. [Dual Adversarial Fine-tuning for Enhancing Robustness of Large Vision Language Model](/202607/28/2607.18958v1-dual-adversarial-fine-tuning-for-enhancing-robustness-of-large-vision-language-model)  
+   标签：评分：7.0/10、query:vl
+   evidence：针对大视觉语言模型鲁棒性的对抗微调
+9. [Pailitao-MMSearch: Building Native E-Commerce Multimodal Search Foundation](/202607/28/2607.17499v1-pailitao-mmsearch-building-native-e-commerce-multimodal-search-foundation)  
    标签：评分：6.0/10、query:vl
-   evidence：基于视觉语言模型的机器人社交导航成本图
-10. [TurboVec: A Case Study in Cost-Efficient Private Retrieval for Enterprise RAG via Codebook-Oblivious Quantization](/202607/27/2607.16973v1-turbovec-a-case-study-in-cost-efficient-private-retrieval-for-enterprise-rag-via-codebook-oblivious-quantization)  
-   标签：评分：6.0/10、query:vlmmed
-   evidence：企业RAG的高效私有检索
-11. [Pailitao-MMSearch: Building Native E-Commerce Multimodal Search Foundation](/202607/27/2607.17499v1-pailitao-mmsearch-building-native-e-commerce-multimodal-search-foundation)  
+   evidence：电商多模态搜索与视觉语言模型
+10. [Anticipate Before Acting: Future-State-Conditioned Vision-Language Navigation](/202607/28/2607.18042v2-anticipate-before-acting-future-state-conditioned-vision-language-navigation)  
    标签：评分：6.0/10、query:vl
-   evidence：使用VLM的电商多模态搜索
-12. [DA-Fusion: Deformable Attention-Based RGB-D Fusion Transformer for Unseen Object Instance Segmentation](/202607/27/2607.17754v1-da-fusion-deformable-attention-based-rgb-d-fusion-transformer-for-unseen-object-instance-segmentation)  
+   evidence：基于视觉语言模型的导航方法
+11. [jina-reranker-v3.5: An Efficient Listwise Reranker with Hybrid Attention and Self-Distillation](/202607/28/2607.18152v1-jina-reranker-v35-an-efficient-listwise-reranker-with-hybrid-attention-and-self-distillation)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：基于变形注意力的Transformer分割
+   evidence：用于智能体检索流水线的高效重排序器
+12. [Weakly Supervised Pathology-Informed Representation Learning for PET-Based Content Retrieval of Intra-Tumour Heterogeneity](/202607/28/2607.18762v1-weakly-supervised-pathology-informed-representation-learning-for-pet-based-content-retrieval-of-intra-tumour-heterogeneity)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：弱监督医学图像检索结合病理信息
 
 
 <div class="dpr-home-promo-card">
