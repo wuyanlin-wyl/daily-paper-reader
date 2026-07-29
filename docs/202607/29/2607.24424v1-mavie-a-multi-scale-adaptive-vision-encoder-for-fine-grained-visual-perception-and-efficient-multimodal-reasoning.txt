@@ -1,0 +1,443 @@
+Title: MAViE: A Multi-scale Adaptive Vision Encoder for Fine-grained Visual Perception and Efficient Multimodal Reasoning
+
+URL Source: https://arxiv.org/pdf/2607.24424v1
+
+Published Time: Tue, 28 Jul 2026 02:00:35 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# MAViE: A Multi-scale Adaptive Vision Encoder for Fine-grained Visual Perception and Efficient Multimodal Reasoning 
+
+Shaofei Lei 
+
+# Abstract 
+
+Vision-language models commonly project all tokens produced by a pretrained vision encoder into a large language model. However, final-layer features can discard text, local attributes, and spatial relationships, while high-resolution inputs substantially increase context length and inference latency. We introduce MAViE, a Multi-scale Adaptive Vision Encoder. MAViE uses position-dependent gates to fuse shallow, intermediate, and deep features from a vision Transformer, preserving global semantics while enhancing edges, text, and local structure. It then performs question-conditioned token routing according to question relevance, local infor-mation content, global semantics, and spatial coverage, with a token budget that adapts to image complexity. To mitigate compression loss, we further introduce full-to-compressed representation distillation and a spatial diversity regularizer. In an illustrative simulation under a unified 7B language-model framework, MAViE reduces the average number of SigLIP-SO400M visual tokens from 729 to 146 (approximately 80.0%) and improves the mean score on VQAv2, GQA, TextVQA, ScienceQA-IMG, and MMBench by 2.2 percentage points, while reducing single-image time to first token from 228 ms to 129 ms. We provide the full model design and evaluation protocol. All reported numbers currently serve only as placeholders for paper organization and experimental design; formal claims require real training runs, independent replications, and official benchmark evaluation. 
+
+# 1 Introduction 
+
+Vision-language models (VLMs) typically consist of a vision encoder, a vision-language connector, and a large language model. The vision encoder is the model’s gateway to the external world: once object attributes, text, spatial locations, or local relationships are lost during encoding, even a powerful downstream language model cannot reliably recover the missing evidence. Work such as LLaVA [Liu et al., 2023a] has shown that connecting a pretrained vision encoder to a language model and applying visual instruction tuning provides a simple and scalable multimodal modeling paradigm. Modern VLMs widely use Vision Transformer (ViT) [Dosovitskiy et al., 2021] encoders pretrained as CLIP [Radford et al., 2021], SigLIP [Zhai et al., 2023], or DINOv2 [Oquab et al., 2024]. A common design takes only the final encoder layer and projects every visual token through a linear layer or a two-layer MLP. This design presents two related challenges. First, shallow ViT layers emphasize edges, textures, and character strokes; intermediate layers capture parts and regional structure; and deep layers favor global semantics. Using only final-layer features can therefore weaken OCR, counting, and local attribute recognition. Second, increasing input resolution improves fine-grained perception but rapidly expands the token sequence. With a fixed patch size, increasing the resolution from 224 × 224 to 448 × 448 produces approximately four times as many tokens and increases both visual self-attention and language-model prefill cost. 
+
+Preprint. arXiv:2607.24424v1 [cs.CV] 27 Jul 2026 Image I       
+
+> 384 ×384
+> SigLIP ViT
+> Z8, Z 16 , Z 24 HMF Gated fusion and local enhancement
+> QATR Relevance, information, coverage
+> Projector Compact visual tokens
+> 7B LLM Answer Y
+> Question Q
+> 729 tokens adaptive K+8
+
+Figure 1: Overview of MAViE. Multi-level features are fused by HMF, after which QATR selects an adaptive number of visual tokens conditioned on the image and question. Pruned tokens are compressed into eight context tokens. Existing compression methods use spatial pooling, fixed-query resampling, similarity-based merging, or dynamic pruning. Average pooling mixes adjacent objects, fixed queries are independent of the current question, and independent Top-K pruning can concentrate on only a few salient regions. TokenPacker [Li et al., 2024b] demonstrates that visual tokens contain substantial redundancy, but also suggests that compression must preserve both global semantics and local evidence. We propose MAViE to jointly address insufficient fine-grained representations and visual-token redundancy. Figure 1 summarizes the pipeline. First, a Hierarchical Multi-level Fusion module (HMF) combines shallow, intermediate, and deep representations using position-dependent gates and preserves high-frequency details through local enhancement. Second, a Question-conditioned Adaptive Token Routing module (QATR) selects tokens using question relevance, local information content, global semantics, and spatial coverage. Finally, a complexity estimator dynamically sets the token budget between 72 and 288 , while unselected tokens are aggregated into a small set of context tokens. Our contributions are: • We introduce MAViE, a multi-scale adaptive vision encoder that jointly supports fine-grained perception and compact visual outputs. • We propose position-dependent hierarchical gated fusion and dynamic token routing jointly driven by question semantics, visual complexity, and spatial coverage. • We develop full-to-compressed representation distillation and a spatial diversity constraint to reduce information loss and excessive regional concentration. • Under a unified evaluation protocol, we analyze the trade-off among task performance, token count, latency, and memory, while explicitly separating illustrative results from experiments that remain to be run. 
+
+# 2 Related Work 
+
+Vision encoders. ViT divides an image into fixed-size patches and models global relationships as a sequence [Dosovitskiy et al., 2021]. Feature Pyramid Networks established the value of semantically strong multi-scale features [Lin et al., 2017], and Swin Transformer introduced hierarchical shifted-window attention with linear complexity in image size [Liu et al., 2021]. NaViT further supports native aspect ratios and resolutions through sequence packing [Dehghani et al., 2023]. CLIP learns a shared semantic space through large-scale image-text contrastive learning [Radford et al., 2021]. SigLIP replaces globally normalized softmax contrastive learning with a pairwise sigmoid loss [Zhai et al., 2023], while DINOv2 learns transferable image-level and pixel-level representations through self-supervision [Oquab et al., 2024]. InternVL [Chen et al., 2024] further scales the vision foundation model and progressively aligns it with language. Unlike the common practice of using only final-layer outputs, MAViE explicitly preserves complementary information across levels. 
+
+Vision-language models. LLaVA [Liu et al., 2023a] connects CLIP features to a language model through a projector and performs end-to-end tuning with visual instruction data. Flamingo uses a resampler and gated cross-attention for interleaved visual-text inputs [Alayrac et al., 2022], whereas BLIP-2 and InstructBLIP use querying transformers to extract a compact, optionally instruction-aware set of visual features [Li et al., 2023, Dai et al., 2023]. Honeybee emphasizes locality preservation and flexible output length in the projector [Cha et al., 2024]. Qwen-VL extends general-purpose models with grounding and text reading [Bai et al., 2023]; Qwen2-VL introduces native dynamic resolution [Wang et al., 2024], and LLaVA-OneVision unifies single-image, multi-image, and video 2transfer [Li et al., 2024a]. Across these architectures, too few visual tokens create an information bottleneck, whereas too many increase context length, memory consumption, and time to first token. 
+
+Visual-token compression and efficient encoding. Spatial pooling is inexpensive but blurs bound-aries. Fixed-query resampling provides a stable output length but usually does not change with the question. TokenLearner adaptively extracts a small set of visual tokens [Ryoo et al., 2021]; DynamicViT, A-ViT, and AdaViT progressively reduce input-dependent computation within vision transformers [Rao et al., 2021, Yin et al., 2022, Meng et al., 2022]. Token Merging combines similar tokens without requiring pruning [Bolya et al., 2023]. For vision-language inference, PruMerge clusters redundant visual tokens [Shang et al., 2024], PAR makes reduction prompt-aware [Liu et al., 2024], SparseVLM performs training-free text-guided sparsification [Zhang et al., 2025c], and CrossGET uses cross-modal token matching [Shi et al., 2024]. TokenPacker [Li et al., 2024b] compresses through coarse-to-fine information injection, while FastVLM [Vasu et al., 2025] reduces time to first token with an efficient high-resolution encoder. MAViE additionally models image complexity and spatial diversity and recycles information from pruned tokens. 
+
+Fine-grained and high-resolution perception. Earlier remote-sensing segmentation studies strengthen dense prediction by deep feature fusion, frequency decoupling, and architectures special-ized for ultra-high-resolution imagery [Shan and Wang, 2021, Shan et al., 2021b,a]. Global–local interaction and multi-resolution branches further preserve context without discarding fine structures [Li et al., 2021a, Shan and Wang, 2022], while multilevel compactness and dispersion improve the separability of dense features [Shan et al., 2023a]. This literature motivates MAViE’s explicit preservation of shallow detail, intermediate structure, and deep semantics. In multimodal modeling, LLaVA-UHD similarly combines native-resolution slicing, visual-token compression, and explicit spatial organization [Xu et al., 2024]. 
+
+Adaptive architectures for dense vision. Learnable patch proposals and dynamic refinement allocate computation according to image content [Shan et al., 2023b, Ji and Shan, 2024]. Recent high-resolution networks combine self- and cross-attention, dual branches, or asymmetric state-space and convolutional pathways [Meng et al., 2025, Du et al., 2025a, Zhang et al., 2025a]. Related work also studies global–local cross-attention, dual-relation distillation, and binary quantization [Yi and Shan, 2025a, Li et al., 2025, Ding et al., 2024]. Whereas these methods adapt dense-prediction backbones, MAViE adapts the visual sequence delivered to a language model. 
+
+Continual and data-efficient segmentation. Class-incremental segmentation has been approached through multi-aspect distillation, pixel-level feature generation, and dynamic queries [Shan et al., 2021c, 2022, Wu et al., 2023]. Energy regularization and recursive least-squares fusion offer complementary mechanisms for retaining or combining knowledge [Li et al., 2021b,c]. Few-shot and lifelong settings further benefit from language-driven classifiers, contrastive selective forgetting, and explicit organization of latent background classes [Shan et al., 2023c, 2024b,c]. Class-balanced active learning and flexible annotated-data generation address the acquisition side of efficient learning [Shan et al., 2024a, Yi-Ge and Shan, 2025]. 
+
+Adaptive multimodal reasoning. Dynamic-resolution vision-language models directly connect input allocation to autonomous-driving perception [Zhou et al., 2025], and multimodal remote-sensing interpretation similarly couples dynamic resolution with multi-scale vision-language align-ment [Zhang et al., 2025b]. Efficiency can also be improved after visual encoding through gated, chunked key–value caching [Xu and Zhuang, 2025]. Complementary studies investigate cognitive memory, supervised fine-tuning for visual geolocation, and language-aligned 3D perception [Shan et al., 2025, Yi and Shan, 2025b, Liu and Shan, 2025]. Chain-of-thought training, graph recommen-dation, and cross-modal retrieval provide broader evidence that structured reasoning and alignment mechanisms can improve multimodal decision making [Xie et al., 2025, Luo et al., 2025, Sun et al., 2025]. 
+
+Broader visual applications. The need to preserve localized evidence also appears in unregistered bi-temporal change detection and trimap-free image matting [Zhao et al., 2023, Shan and Zhou, 2024]; in medical and scene understanding, contrastive learning has been applied to synthetic lung radiographs, dental X-ray segmentation, and scene-text detection [Pi and Shan, 2025, Du et al., 2025b, Huang et al., 2025]. Finally, efficient 3D Gaussian splatting uses geometry-guided initialization, 3adaptive resolution, and density control [Wang and Shan, 2025, Liu et al., 2025]. These domain-specific results reinforce a common principle behind MAViE: preserve task-relevant fine structure while controlling representational cost. 
+
+# 3 Method 
+
+3.1 Problem Formulation and Architecture 
+
+Given an image I and a question Q, we resize the image to 384 × 384 and encode it with SigLIP-SO400M/14 using 14 × 14 patches. Excluding the class token, the visual sequence length is 
+
+N = 27 × 27 = 729 :
+
+Z0 = PatchEmbed( I) + P, (1) 
+
+Zl = Block l(Zl−1), l = 1 , . . . , L, (2) where P denotes the two-dimensional positional encoding. We extract representations from layers 8, 16, and 24: 
+
+Fs = Z8, Fm = Z16 , Fd = Z24 , (3) These correspond to shallow detail, intermediate structure, and deep semantics, respectively. HMF produces an enhanced representation F ∈ RN ×d, and QATR selects an index set S, where |S| = K,while recycling information from unselected tokens. The final computation is 
+
+V = MLP proj (Fout ), Y = LLM  [V ; E(Q)] . (4) 
+
+3.2 Hierarchical Multi-level Fusion Unified projection and local enhancement. Features from different layers are first mapped to a common dimension: bFj = Fj Wj + bj , j ∈ { s, m, d }. (5) We then reshape the shallow and intermediate tokens into two-dimensional grids and use depthwise separable convolution to introduce a local inductive bias: 
+
+F j = Flatten 
+
+
+
+DWConv 3×3(Reshape( bFj )) 
+
+
+
++ bFj , j ∈ { s, m }. (6) 
+
+Position-dependent gating. Each spatial position independently predicts mixture weights for the three feature levels: 
+
+gi = softmax 
+
+
+
+Wg [f s,i ; f m,i ; bfd,i ]
+
+
+
+, (7) 
+
+efi = gs,i f s,i + gm,i f m,i + gd,i bfd,i , (8) 
+
+fi = bfd,i + γ efi, (9) where gs,i + gm,i + gd,i = 1 , and γ is a learnable scalar initialized to 0.1. This residual design prevents noise in shallow features from disrupting deep semantics early in training. 
+
+High-frequency region enhancement. Let N (i) be the local neighborhood of token i. We define its local variation magnitude as 
+
+ui = 1
+
+|N (i)|
+
+X 
+
+> j∈N (i)
+
+∥fi − fj ∥2. (10) Windowed attention is applied to text, boundaries, and complex textures with large ui:
+
+f ′ 
+
+> i
+
+= fi + X 
+
+> j∈N (i)
+
+aij Wv fj , (11) 
+
+aij = exp(( Wq fi)⊤(Wkfj )/√d)
+
+P  
+
+> t∈N (i)
+
+exp(( Wq fi)⊤(Wkft)/√d) . (12) This computation is restricted to local windows and does not construct an additional global attention matrix. 43.3 Question-conditioned Adaptive Token Routing Question representation and importance scoring. We attention-pool the language-model token embeddings et:
+
+q =
+
+> T
+
+X
+
+> t=1
+
+βtet, βt = exp( w⊤ 
+
+> q
+
+et)
+
+PTk=1 exp( w⊤ 
+
+> q
+
+ek) . (13) The score for visual token i contains four terms: 
+
+si = λr srel  
+
+> i
+
++ λusunc  
+
+> i
+
++ λg sglobal  
+
+> i
+
++ λcscover  
+
+> i
+
+, (14) 
+
+srel  
+
+> i
+
+= cos( Wv fi, W q q), sunc  
+
+> i
+
+= Norm( ui), (15) 
+
+sglobal  
+
+> i
+
+= cos( fi, f ), f = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+fi, (16) 
+
+scover  
+
+> i
+
+= min 
+
+> j∈S
+
+∥pi − pj ∥2
+
+D , (17) where pi is the two-dimensional token coordinate and D is the image diagonal. By default, 
+
+(λr , λ u, λ g , λ c) = (0 .45 , 0.20 , 0.15 , 0.20) . The coverage term is updated during sequential selection to prevent all tokens from collapsing onto a single salient region. 
+
+Dynamic token budget. The complexity estimator combines statistics of local variation, visual attention entropy, and the question norm: 
+
+c = σ(Wc[Mean( u); Std( u); H(a); ∥q∥2]) , (18) 
+
+K = Kmin + Round( c(Kmax − Kmin )) , (19) where Kmin = 72 and Kmax = 288 ; K is rounded to a multiple of eight for efficient batching. During training, we use a temperature-controlled Gumbel-Top-K relaxation. During inference, we apply hard Top-K selection. 
+
+Recycling information from pruned tokens. To preserve background information and the overall layout, we aggregate unselected tokens into M = 8 context tokens: 
+
+rm =
+
+P 
+
+> i / ∈S
+
+ami fi
+
+P 
+
+> i / ∈S
+
+ami 
+
+, Fout = [ FS ; r1, . . . , r M ], (20) where ami is determined by the similarity between token i and the m-th learnable context query. 
+
+3.4 Training Objective 
+
+The overall objective is 
+
+L = LLM + αLalign + βLdistill + ηLdiv , (21) where (α, β, η ) = (0 .10 , 0.50 , 0.05) . The language-modeling term is the standard autoregressive cross-entropy: 
+
+LLM = −
+
+> Ty
+
+X
+
+> t=1
+
+log p(yt | y<t , I, Q ). (22) For global visual representations vi and question-answer text representations tj in a batch, we use a sigmoid alignment loss: 
+
+Lalign = − 1
+
+B
+
+X
+
+> i,j
+
+log σ zij (v⊤ 
+
+> i
+
+tj − τ ) , (23) We set zij = 1 for matching image-text pairs and −1 otherwise. Let hfull = AttnPool( F ) and 
+
+hcomp = AttnPool( Fout ). The distillation objective is 
+
+Ldistill = 1 − cos( hfull , h comp ) + 1
+
+d ∥hfull − hcomp ∥22. (24) The spatial diversity loss is 
+
+Ldiv = 1
+
+K(K − 1) 
+
+X
+
+> i̸=j
+
+exp 
+
+
+
+− ∥pi − pj ∥22
+
+2σ2
+
+
+
+. (25) 5Table 1: Illustrative overall results for different visual encoding strategies. Apart from public model names, all values are simulated placeholders to be replaced by real experiments. Method Token VQAv2 GQA TextVQA SQA-IMG MMBench MME-P TTFT/ms CLIP-ViT-L/14@336 + MLP 576 78.4 61.9 58.3 69.6 64.8 1504 184 DINOv2-ViT-L/14@336 + MLP 576 77.8 62.5 55.9 70.1 64.1 1532 186 SigLIP-SO400M/14@384 + MLP 729 80.0 63.6 62.7 71.4 67.8 1586 228 SigLIP + average pooling 144 78.9 62.5 60.2 70.6 65.9 1551 133 SigLIP + fixed-query resampling 144 79.4 62.9 61.5 70.9 66.7 1564 139 SigLIP + TokenPacker-style 144 79.8 63.4 62.4 71.2 67.5 1578 136         
+
+> MAViE (ours) 146 81.4 65.1 65.8 73.7 70.5 1637 129
+
+# 4 Experiments 
+
+4.1 Experimental Setup Datasets and metrics. We design evaluations on VQAv2 test-dev [Goyal et al., 2017], GQA test-dev balanced [Hudson and Manning, 2019], TextVQA validation [Singh et al., 2019], ScienceQA-IMG test [Lu et al., 2022], MMBench-EN development with CircularEval [Liu et al., 2023b], and MME Perception [Fu et al., 2023]. We report accuracy or the official score for the first five benchmarks and the summed perception score for MME-P. Efficiency metrics include the average number of visual tokens passed to the language model, time to first token (TTFT), and peak memory. Appendix A provides further dataset details. 
+
+Model and training. The base vision encoder is SigLIP-SO400M/14 with a visual width of 1152, 
+
+384 × 384 input resolution, and 729 base tokens. The language model is a 7B autoregressive model with hidden width 4096. The two-layer projector has dimensions 1152 → 4096 → 4096 . MAViE adds approximately 18.6M parameters, or 0.25% of the full model. In stage one, we use approximately 600K image-caption pairs for vision-language alignment, freeze the language model, and train the projector, MAViE, and the final eight layers of the vision encoder. In stage two, we train these modules and the language model’s LoRA parameters (rank 64, scale 128) on approximately 660K visual instruction examples. We use AdamW with β1 = 0 .9, β2 = 0 .999 , and weight decay 0.05. Learning rates are 2 × 10 −5
+
+for the vision encoder and LoRA and 10 −4 for MAViE and the projector. Training uses 3% linear warmup, cosine decay, BF16, and gradient clipping at 1.0. Each stage runs for one epoch, with global batch sizes of 256 and 128, respectively. The planned setup uses eight NVIDIA A100 80GB GPUs. 
+
+Inference protocol. All models use greedy decoding, temperature 0, and a maximum generation length of 64. We measure TTFT on one A100 80GB GPU with batch size 1. TTFT includes image preprocessing, visual encoding, projection, LLM prefill, and generation of the first output token. We average over 500 examples after 50 warmup runs. 
+
+4.2 Main Results The results in this section illustrate an experimental design and are not measurements from actual runs. In Table 1, the full SigLIP baseline generally outperforms the CLIP and DINOv2 baselines. DINOv2 is relatively strong on GQA and MME-P but weaker than SigLIP on TextVQA, potentially because its self-supervised features are more difficult to align with the language space. Average pooling reduces the token count from 729 to 144 and TTFT from 228 ms to 133 ms, but lowers VQAv2, TextVQA, and MMBench by 1.1, 2.5, and 1.9 percentage points, respectively. MAViE uses only 146 tokens on average yet exceeds the full SigLIP baseline on every benchmark in the table. VQAv2, GQA, TextVQA, ScienceQA-IMG, and MMBench improve by 1.4, 1.5, 3.1, 2.3, and 2.7 percentage points, respectively, for a mean gain of 2.2 points. TextVQA shows the largest gain, consistent with the motivation that hierarchical fusion preserves character strokes and local structure. The GQA gain suggests that question-conditioned routing and spatial coverage may preserve multiple reference regions required for relational reasoning. 6Table 2: Illustrative inference-efficiency breakdown. Method Vision/ms LLM prefill/ms Other/ms TTFT/ms Memory/GB SigLIP + MLP 91 112 25 228 17.8 Average pooling 91 22 20 133 13.2 TokenPacker-style 96 20 20 136 13.4 MAViE 87 21 21 129 13.3 Table 3: Component ablation. FD: full-to-compressed distillation; SD: spatial diversity. HMF QATR FD SD Token VQAv2 GQA TextVQA SQA-IMG MMBench 729 80.0 63.6 62.7 71.4 67.8 
+
+✓ 729 80.8 64.4 64.0 72.2 68.7 
+
+✓ 146 80.4 64.2 63.6 72.0 68.4 
+
+✓ ✓ 146 81.0 64.8 65.1 73.0 69.7 
+
+✓ ✓ ✓ 146 81.3 65.0 65.6 73.5 70.1 
+
+✓ ✓ ✓ ✓ 146 81.4 65.1 65.8 73.7 70.5 
+
+4.3 Efficiency Analysis 
+
+Relative to the full SigLIP baseline, the visual-token compression ratio is 
+
+R = 1 − 146 729 = 79 .97% , (26) and TTFT decreases by (228 − 129) /228 = 43 .4% . Table 2 decomposes latency into visual encoding, LLM prefill, and other overhead. The token count falls by approximately 80%, whereas TTFT falls by only 43.4%, because fixed costs such as preprocessing, the visual backbone, and output generation do not scale proportionally with LLM input length. 
+
+4.4 Ablation Studies 
+
+Table 3 illustrates the contribution of each component. Adding HMF alone improves TextVQA by 1.3 percentage points. With QATR alone, performance remains slightly above the full baseline despite an approximately 80% reduction in average visual tokens. HMF and QATR are complementary, and distillation and spatial diversity further improve compression stability. The dynamic budget has an average token count close to the fixed-144 setting, but can shift com-putation from single-object images to text-dense images and charts. Appendix B further reports feature-level combinations, score components, fixed and dynamic budgets, capability categories, token allocation, and sensitivity to question conditioning. 
+
+# 5 Limitations and Broader Impacts 
+
+Limitations. First, a fixed 384 × 384 input remains insufficient for extremely small or severely blurred text; shallow features cannot recover information absent from the input. Second, when a question requires comparing multiple distant small objects, the router may omit a low-salience object. Third, ambiguous pronouns can cause question relevance to focus on the wrong region too early. Fourth, although padding and length-bucketed training can mitigate variable sequence lengths, dynamic routing still adds engineering complexity to large-scale distributed training. Fifth, the current tables contain simulated values and do not include multi-seed error bars, statistical significance, end-to-end energy consumption, or replication across hardware. The numbers should not be treated as empirical evidence until these experiments are completed. 
+
+Broader impacts. Reducing visual tokens may lower VLM inference latency, memory use, and energy consumption, making multimodal capabilities more accessible on resource-constrained devices. Conversely, selective routing may systematically ignore small objects, low-contrast regions, or text 7outside the training distribution, amplifying model errors. Token-selection heatmaps should not be treated as sufficient evidence in document understanding, accessibility assistance, or other high-stakes applications. A responsible release should report disaggregated performance, provide a fallback to the full token set, and apply appropriate governance to privacy-sensitive images. 
+
+# 6 Conclusion 
+
+We introduced MAViE, a multi-scale adaptive vision encoder that enhances fine-grained visual representations through position-dependent hierarchical fusion and produces compact tokens through question-conditioned routing and a dynamic budget. Full-to-compressed distillation and spatial diversity further mitigate information loss caused by compression. The illustrative results show the potential to reduce visual tokens by approximately 80% and lower TTFT while preserving or improving multimodal performance. The next steps are to complete real training and official evaluation, incorporate dynamic high-resolution cropping, and extend the method to video, multi-image inputs, and iterative “observe-reason-observe” visual routing. 
+
+# References 
+
+Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, Antoine Miech, Iain Barr, Yana Hasson, Karel Lenc, Arthur Mensch, Katherine Millican, Malcolm Reynolds, Roman Ring, Eliza Rutherford, Serkan Cabi, Tengda Han, Zhitao Gong, Sina Samangooei, Marianne Monteiro, Jacob Menick, Sebastian Borgeaud, Andrew Brock, Aida Nematzadeh, Sahand Sharifzadeh, Mikolaj Binkowski, Ricardo Barreira, Oriol Vinyals, Andrew Zisserman, and Karen Simonyan. Flamingo: A visual language model for few-shot learning. In Advances in Neural Information Processing Systems ,volume 35, 2022. Jinze Bai, Shuai Bai, Shusheng Yang, Shijie Wang, Sinan Tan, Peng Wang, Junyang Lin, Chang Zhou, and Jingren Zhou. Qwen-VL: A versatile vision-language model for understanding, localization, text reading, and beyond. arXiv preprint arXiv:2308.12966 , 2023. Daniel Bolya, Cheng-Yang Fu, Xiaoliang Dai, Peizhao Zhang, Christoph Feichtenhofer, and Judy Hoffman. Token merging: Your ViT but faster. In International Conference on Learning Represen-tations , 2023. Junbum Cha, Wooyoung Kang, Jonghwan Mun, and Byungseok Roh. Honeybee: Locality-enhanced projector for multimodal LLM. In IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13817–13827, 2024. Zhe Chen, Jiannan Wu, Wenhai Wang, Weijie Su, Guo Chen, Sen Xing, Zhaoyang Muyan, Qinglong Zhang, Xizhou Zhu, Lewei Lu, Bin Li, Ping Luo, Tong Lu, Yu Qiao, and Jifeng Dai. InternVL: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. In IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 24185–24198, 2024. Wenliang Dai, Junnan Li, Dongxu Li, Anthony Meng Huat Tiong, Junqi Zhao, Weisheng Wang, Boyang Li, Pascale Fung, and Steven Hoi. InstructBLIP: Towards general-purpose vision-language models with instruction tuning. In Advances in Neural Information Processing Systems , volume 36, 2023. Mostafa Dehghani, Basil Mustafa, Josip Djolonga, Jonathan Heek, Matthias Minderer, Mathilde Caron, Andreas Steiner, Joan Puigcerver, Robert Geirhos, Ibrahim Alabdulmohsin, Avital Oliver, Piotr Padlewski, Alexey A. Gritsenko, Mario Lucic, and Neil Houlsby. Patch n’ pack: NaViT, a vision transformer for any aspect ratio and resolution. In Advances in Neural Information Processing Systems , volume 36, 2023. Xiaohan Ding, Lianlei Shan, Guangyu Zhao, Ming Wu, Wenzhang Zhou, and Wei Li. The binary quantized neural network for dense prediction via specially designed upsampling and attention. 
+
+arXiv preprint arXiv:2405.17776 , 2024. Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. In International Conference on Learning Representations , 2021. 8Bin Du, Lianlei Shan, Xin Shao, Dong Zhang, Xin Wang, and Jian Wu. Transform dual-branch attention net: Efficient semantic segmentation of ultra-high-resolution remote sensing images. 
+
+Remote Sensing , 17(3):540, 2025a. Yi Du, Zhen Zeng, Yu Tian, Zhe Zhang, Xin Zhang, and Lianlei Shan. A dental periapical x-ray images segmentation network based on pixel-wise contrastive learning with dual attention mechanisms. In International Joint Conference on Neural Networks , pages 1–8, 2025b. Chaoyou Fu, Peixian Chen, Yunhang Shen, Yulei Qin, Mengdan Zhang, Xu Lin, Zhenyu Qiu, Wei Lin, Jinrui Yang, Xiawu Zheng, Ke Li, Xing Sun, and Rongrong Ji. MME: A comprehensive evaluation benchmark for multimodal large language models. arXiv preprint arXiv:2306.13394 ,2023. Yash Goyal, Tejas Khot, Douglas Summers-Stay, Dhruv Batra, and Devi Parikh. Making the V in VQA matter: Elevating the role of image understanding in visual question answering. In IEEE Conference on Computer Vision and Pattern Recognition , pages 6904–6913, 2017. Jinhong Huang, Hongrong Yin, Lianlei Shan, and Subrota Kumar Mondal. A scene text detection method based on supervised contrastive learning. In International Conference on Artificial Neural Networks , pages 569–580, 2025. Drew A. Hudson and Christopher D. Manning. GQA: A new dataset for real-world visual reasoning and compositional question answering. In IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 6700–6709, 2019. Yiming Ji and Lianlei Shan. LDNet: Semantic segmentation of high-resolution images via learnable patch proposal and dynamic refinement. In IEEE International Conference on Multimedia and Expo , pages 1–6, 2024. Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Peiyuan Zhang, Yanwei Li, Ziwei Liu, and Chunyuan Li. LLaVA-OneVision: Easy visual task transfer. 
+
+arXiv preprint arXiv:2408.03326 , 2024a. Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. BLIP-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In International Conference on Machine Learning , volume 202 of Proceedings of Machine Learning Research , pages 19730– 19742, 2023. Ming Li, Lianlei Shan, Xiang Li, Yang Bai, Dong Zhou, Weiqiang Wang, Kai Lv, Bin Luo, and Shibao Chen. Global-local attention network for semantic segmentation in aerial images. In 
+
+International Conference on Pattern Recognition , pages 5704–5711, 2021a. Ming Li, Lianlei Shan, Weiqiang Wang, Kai Lv, Bin Luo, and Shibao Chen. Building lightweight semantic segmentation models for aerial images using dual relation distillation. arXiv preprint arXiv:2506.20688 , 2025. Wentong Li, Yuqian Yuan, Jian Liu, Dongqi Tang, Song Wang, Jianke Zhu, and Lei Zhang. To-kenPacker: Efficient visual projector for multimodal LLM. arXiv preprint arXiv:2407.02392 ,2024b. Xiang Li, Lianlei Shan, Ming Li, and Weiqiang Wang. Energy minimum regularization in continual learning. In International Conference on Pattern Recognition , pages 6404–6409, 2021b. Xiang Li, Lianlei Shan, and Weiqiang Wang. Fusing multitask models by recursive least squares. In 
+
+IEEE International Conference on Acoustics, Speech and Signal Processing , 2021c. Tsung-Yi Lin, Piotr Dollár, Ross Girshick, Kaiming He, Bharath Hariharan, and Serge Belongie. Feature pyramid networks for object detection. In IEEE Conference on Computer Vision and Pattern Recognition , pages 2117–2125, 2017. Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. In Advances in Neural Information Processing Systems , volume 36, pages 34892–34916, 2023a. 9Shuo Liu and Lianlei Shan. NeuroVoxel-LM: Language-aligned 3d perception via dynamic voxeliza-tion and meta-embedding. arXiv preprint arXiv:2507.20110 , 2025. Xin Liu, Wei Chen, and Lianlei Shan. Adaptive resolution and gaussians-economization based on efficient 3d gaussian splatting on large-scale scenes. In International Conference on Big Data, Artificial Intelligence and Internet of Things Engineering , pages 133–139, 2025. doi: 10.1109/ICBAIE66852.2025.11326614. Yingen Liu, Fan Wu, Ruihui Li, Zhuo Tang, and Kenli Li. PAR: Prompt-aware token reduction method for efficient large multimodal models. arXiv preprint arXiv:2410.07278 , 2024. Yuan Liu, Haodong Duan, Yuanhan Zhang, Bo Li, Songyang Zhang, Wangbo Zhao, Yike Yuan, Jiaqi Wang, Conghui He, Ziwei Liu, Kai Chen, and Dahua Lin. MMBench: Is your multi-modal model an all-around player? arXiv preprint arXiv:2307.06281 , 2023b. Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. Swin transformer: Hierarchical vision transformer using shifted windows. In IEEE/CVF International Conference on Computer Vision , pages 10012–10022, 2021. Pan Lu, Swaroop Mishra, Tony Xia, Liang Qiu, Kai-Wei Chang, Song-Chun Zhu, Oyvind Tafjord, Peter Clark, and Ashwin Kalyan. Learn to explain: Multimodal reasoning via thought chains for science question answering. In Advances in Neural Information Processing Systems , volume 35, pages 2507–2521, 2022. Haoyu Luo, Bowen Wu, Haoran Jia, Qiang Zhu, and Lianlei Shan. LLM-CoT enhanced graph neural recommendation with harmonized group policy optimization. arXiv preprint arXiv:2505.12396 ,2025. Lingchen Meng, Hengduo Li, Bor-Chun Chen, Shiyi Lan, Zuxuan Wu, Yu-Gang Jiang, and Ser-Nam Lim. AdaViT: Adaptive vision transformers for efficient image recognition. In IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 12309–12318, 2022. Weiran Meng, Lianlei Shan, Shuang Ma, Dong Liu, and Bo Hu. DLNet: A dual-level network with self- and cross-attention for high-resolution remote sensing segmentation. Remote Sensing , 17(7): 1119, 2025. Maxime Oquab, Timothée Darcet, Théo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, Mahmoud Assran, Nico-las Ballas, Wojciech Galuba, Russell Howes, Po-Yao Huang, Shang-Wen Li, Ishan Misra, Michael Rabbat, Vasu Sharma, Gabriel Synnaeve, Hu Xu, Hervé Jégou, Julien Mairal, Patrick Labatut, Ar-mand Joulin, and Piotr Bojanowski. DINOv2: Learning robust visual features without supervision. 
+
+Transactions on Machine Learning Research , 2024. Rui Pi and Lianlei Shan. Synthetic lung x-ray generation through cross-attention and affinity transformation. arXiv preprint arXiv:2503.07209 , 2025. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning transferable visual models from natural language supervision. In International Conference on Machine Learning , pages 8748–8763, 2021. Yongming Rao, Wenliang Zhao, Benlin Liu, Jiwen Lu, Jie Zhou, and Cho-Jui Hsieh. DynamicViT: Efficient vision transformers with dynamic token sparsification. In Advances in Neural Information Processing Systems , volume 34, 2021. Michael S. Ryoo, A. J. Piergiovanni, Anurag Arnab, Mostafa Dehghani, and Anelia Angelova. TokenLearner: Adaptive space-time tokenization for videos. In Advances in Neural Information Processing Systems , volume 34, 2021. Lianlei Shan and Weiqiang Wang. DenseNet-based land cover classification network with deep fusion. IEEE Geoscience and Remote Sensing Letters , 19:1–5, 2021. 10 Lianlei Shan and Weiqiang Wang. MBNet: A multi-resolution branch network for semantic segmen-tation of ultra-high resolution images. In IEEE International Conference on Acoustics, Speech and Signal Processing , 2022. Lianlei Shan and Wenzhang Zhou. Boosting general trimap-free matting in the real-world image. 
+
+arXiv preprint arXiv:2405.17916 , 2024. Lianlei Shan, Ming Li, Xiang Li, Yang Bai, Kai Lv, Bin Luo, Shibao Chen, and Weiqiang Wang. UHRSNet: A semantic segmentation network specifically for ultra-high-resolution images. In 
+
+International Conference on Pattern Recognition , pages 1460–1466, 2021a. Lianlei Shan, Xiang Li, and Weiqiang Wang. Decouple the high-frequency and low-frequency information of images for semantic segmentation. In IEEE International Conference on Acoustics, Speech and Signal Processing , 2021b. Lianlei Shan, Weiqiang Wang, Kai Lv, and Bin Luo. Class-incremental learning for semantic segmentation in aerial imagery via distillation in all aspects. IEEE Transactions on Geoscience and Remote Sensing , 60:1–12, 2021c. Lianlei Shan, Weiqiang Wang, Kai Lv, and Bin Luo. Class-incremental semantic segmentation of aerial images via pixel-level feature generation and task-wise distillation. IEEE Transactions on Geoscience and Remote Sensing , 60:1–17, 2022. Lianlei Shan, Weiqiang Wang, Kai Lv, and Bin Luo. Boosting semantic segmentation of aerial images via decoupled and multilevel compaction and dispersion. IEEE Transactions on Geoscience and Remote Sensing , 61:1–16, 2023a. Lianlei Shan, Guangyu Zhao, Jing Xie, Peng Cheng, Xiang Li, and Zhen Wang. A data-related patch proposal for semantic segmentation of aerial images. IEEE Geoscience and Remote Sensing Letters , 20:1–5, 2023b. Lianlei Shan, Wenzhang Zhou, and Guangyu Zhao. Incremental few-shot semantic segmentation via class-agnostic mask proposal and language-driven classifier. In ACM International Conference on Multimedia , pages 8561–8570, 2023c. Lianlei Shan, Weiqiang Wang, Kai Lv, and Bin Luo. Edge-guided and class-balanced active learning for semantic segmentation of aerial images. arXiv preprint arXiv:2405.18078 , 2024a. Lianlei Shan, Wenzhang Zhou, Wei Li, and Xiaohan Ding. Lifelong learning and selective forgetting via contrastive strategy. In International Joint Conference on Artificial Intelligence , 2024b. Lianlei Shan, Wenzhang Zhou, Wei Li, and Xiaohan Ding. Organizing background to explore latent classes for incremental few-shot semantic segmentation. In International Joint Conference on Artificial Intelligence , 2024c. Lianlei Shan, Shixian Luo, Zezhou Zhu, Yu Yuan, and Yong Wu. Cognitive memory in large language models. arXiv preprint arXiv:2504.02441 , 2025. Yuzhang Shang, Mu Cai, Bingxin Xu, Yong Jae Lee, and Yan Yan. LLaVA-PruMerge: Adaptive token reduction for efficient large multimodal models. arXiv preprint arXiv:2403.15388 , 2024. Dachuan Shi, Chaofan Tao, Anyi Rao, Zhendong Yang, Chun Yuan, and Jiaqi Wang. CrossGET: Cross-guided ensemble of tokens for accelerating vision-language transformers. In International Conference on Machine Learning , volume 235 of Proceedings of Machine Learning Research ,pages 44960–44990, 2024. Amanpreet Singh, Vivek Natarajan, Meet Shah, Yu Jiang, Xinlei Chen, Dhruv Batra, Devi Parikh, and Marcus Rohrbach. Towards VQA models that can read. In IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 8317–8326, 2019. Chen Sun, Wei Li, Xiang Li, Yang Liu, and Lianlei Shan. GMM-based comprehensive feature extraction and relative distance preservation for few-shot cross-modal retrieval. arXiv preprint arXiv:2505.13306 , 2025. 11 Pavan Kumar Anasosalu Vasu, Fartash Faghri, Raviteja Vemulapalli, Ali Farhadi, Oncel Tuzel, and Hadi Pouransari. FastVLM: Efficient vision encoding for vision language models. In IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2025. Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Yang Fan, Kai Dang, Mengfei Du, Xuancheng Ren, Rui Men, Dayiheng Liu, Chang Zhou, Jingren Zhou, and Junyang Lin. Qwen2-VL: Enhancing vision-language model’s perception of the world at any resolution. arXiv preprint arXiv:2409.12191 , 2024. Xin Wang and Lianlei Shan. GDGS: 3d gaussian splatting via geometry-guided initialization and dynamic density control. arXiv preprint arXiv:2507.00363 , 2025. Wen Wu, Yizhou Zhao, Zhi Li, Lianlei Shan, Haoran Zhou, and Mike Zheng Shou. Continual learning for image segmentation with dynamic query. IEEE Transactions on Circuits and Systems for Video Technology , 34(6):4874–4886, 2023. Yuxuan Xie, Xinyi Ren, Yiming Qi, Yifan Hu, and Lianlei Shan. RecLLM-R1: A two-stage training paradigm with reinforcement learning and chain-of-thought. arXiv preprint arXiv:2506.19235 ,2025. Ruyi Xu, Yuan Yao, Zonghao Guo, Junbo Cui, Zanlin Ni, Chunjiang Ge, Tat-Seng Chua, Zhiyuan Liu, Maosong Sun, and Gao Huang. LLaVA-UHD: An LMM perceiving any aspect ratio and high-resolution images. arXiv preprint arXiv:2403.11703 , 2024. Wanshun Xu and Long Zhuang. KV-Efficient VLA: A method to speed up vision language models with RNN-gated chunked KV cache. arXiv preprint arXiv:2509.21354 , 2025. Chen Yi and Lianlei Shan. A global-local cross-attention network for ultra-high resolution remote sensing image semantic segmentation. arXiv preprint arXiv:2506.19406 , 2025a. Qian Yi and Lianlei Shan. GeolocSFT: Efficient visual geolocation via supervised fine-tuning of multimodal foundation models. arXiv preprint arXiv:2506.01277 , 2025b. Ellen Yi-Ge and Lianlei Shan. FlexDataset: Crafting annotated dataset generation for diverse applications. In AAAI Conference on Artificial Intelligence , volume 39, pages 9481–9489, 2025. Hongxu Yin, Arash Vahdat, Jose M. Alvarez, Arun Mallya, Jan Kautz, and Pavlo Molchanov. A-ViT: Adaptive tokens for efficient vision transformer. In IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 10809–10818, 2022. Xiaohua Zhai, Basil Mustafa, Alexander Kolesnikov, and Lucas Beyer. Sigmoid loss for language image pre-training. In IEEE/CVF International Conference on Computer Vision , pages 11975– 11986, 2023. Jian Zhang, Ming Chen, Yifan Zhao, Lianlei Shan, Cheng Li, Hao Hu, Xin Ge, Qiang Zhu, and Bin Xu. Asymmetric Mamba–CNN collaborative architecture for large-size remote sensing image semantic segmentation. IEEE Transactions on Geoscience and Remote Sensing , 63:2002419, 2025a. doi: 10.1109/TGRS.2025.3589552. Siyu Zhang, Ying Chen, Lianlei Shan, and Runhe Qiu. Multimodal interpretation of remote sensing images: Dynamic resolution input strategy and multi-scale vision-language alignment mechanism. 
+
+arXiv preprint arXiv:2512.23243 , 2025b. Yuan Zhang, Chun-Kai Fan, Junpeng Ma, Wenzhao Zheng, Tao Huang, Kuan Cheng, Denis A. Gudovskiy, Tomoyuki Okuno, Yohei Nakata, Kurt Keutzer, and Shanghang Zhang. SparseVLM: Visual token sparsification for efficient vision-language model inference. In International Con-ference on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pages 74840–74857, 2025c. Guangyu Zhao, Lianlei Shan, and Weiqiang Wang. End-to-end remote sensing change detection of unregistered bi-temporal images for natural disasters. In International Conference on Artificial Neural Networks , pages 259–270, 2023. Xirui Zhou, Lianlei Shan, and Xiaolin Gui. DynRsl-VLM: Enhancing autonomous driving perception with dynamic resolution vision-language models. arXiv preprint arXiv:2503.11265 , 2025. 12 A Additional Dataset and Metric Details 
+
+VQAv2. VQAv2 reduces language priors by constructing questions with different answers for similar images. It primarily evaluates object, attribute, count, and common-scene understanding. We plan to report test-dev accuracy. 
+
+GQA. GQA is built from real-world scene graphs and compositional questions covering objects, attributes, spatial relationships, and multi-step reasoning. We plan to report balanced accuracy on test-dev. 
+
+TextVQA. TextVQA contains 28,408 images and 45,336 questions that require models to read scene text in natural images and reason about it. We plan to report validation accuracy. 
+
+ScienceQA-IMG. ScienceQA contains approximately 21K questions from natural science, social science, and language science. We use only the image-containing subset and report multiple-choice accuracy on the test set. 
+
+MMBench and MME. MMBench covers visual perception, attributes, spatial relationships, logic, and knowledge. CircularEval reduces bias from answer-option positions, and we report its MMBench-EN development score. MME contains 14 perceptual and cognitive subtasks; we report the aggregate MME Perception score. 
+
+Compression ratio and average token count. For Ntest examples in the test set, 
+
+K = 1
+
+Ntest 
+
+> Ntest
+
+X
+
+> i=1
+
+Ki, R = 1 − Kmethod 
+
+Kbaseline 
+
+. (27) For dynamic methods, Ki should count both selected and context tokens and should explicitly state whether the class token is included. 
+
+# B Additional Simulated Results 
+
+Reminder: all appendix values are illustrative experimental-design placeholders that must be replaced. 
+
+Table 4: Illustrative accuracy across capability categories. Method Object Attribute Spatial Counting OCR Knowledge SigLIP + MLP 84.2 77.6 70.3 62.8 59.4 68.7 TokenPacker-style 84.0 77.4 70.1 62.4 59.0 68.5 MAViE 85.1 79.4 73.2 65.1 64.3 70.5 
+
+Table 5: Dynamic token allocation for different image types. Image type Share/% Avg. tokens Single subject, simple background 27.4 84 Regular natural scene 38.1 128 Dense multi-object scene 18.5 178 Text-dense image 10.2 224 Chart or document 5.8 256 Overall 100.0 146 13 Table 6: Combinations of visual feature levels. Feature levels VQAv2 GQA TextVQA MMBench Layer 24 80.0 63.6 62.7 67.8 Layers 16 and 24 80.6 64.1 63.6 68.5 Layers 8 and 24 80.7 64.0 63.9 68.4 Layers 8, 16, and 24; mean 80.8 64.3 64.2 68.8 Layers 8, 16, and 24; gated 81.4 65.1 65.8 70.5 
+
+Table 7: Ablation of token importance-score components. Relevance Information Global Coverage GQA TextVQA MMBench 
+
+✓ 63.9 63.8 68.2 
+
+✓ ✓ 64.4 65.0 68.9 
+
+✓ ✓ ✓ 64.7 65.4 69.6 
+
+✓ ✓ ✓ ✓ 65.1 65.8 70.5 
+
+Table 8: Relationship among token count, performance, and efficiency. Strategy Token VQAv2 GQA TextVQA SQA-IMG MMBench TTFT/ms Fixed 72 72 80.3 64.1 63.5 72.4 68.8 112 Fixed 144 144 81.3 65.0 65.7 73.6 70.3 128 Fixed 288 288 81.5 65.2 65.9 73.8 70.6 155 Fixed 576 576 81.6 65.3 66.0 73.9 70.7 201 Dynamic 72–288 146 81.4 65.1 65.8 73.7 70.5 129 
+
+Sensitivity to question conditioning. For two questions about the same image, let their retained token sets be Sa and Sb. We measure their difference using 
+
+J(Sa, Sb) = |S a ∩ S b||S a ∪ S b| (28) In the illustrative results, the Jaccard similarities for semantically similar questions, different attributes of the same object, questions about different objects, and OCR versus scene questions are 0.78, 0.61, 0.43, and 0.31, respectively. This pattern is consistent with the expectation that the router changes its visual selection with the question. 
+
+Qualitative cases. For the question “What object is to the left of the red car?”, fixed Top-K may preserve only the car, whereas the relevance and coverage terms allow MAViE to retain both the car and the bicycle to its left. For “What number is on the store door?”, gated fusion can assign greater shallow-layer weight to the character region. In an image with a small traffic sign against a large sky region, local variation helps prevent average pooling from mixing the sign with the background. The final paper should replace these textual examples with real images, token heatmaps, and predictions, and should verify all image licenses. 
+
+# C Failure Cases and Future Directions 
+
+Extremely small characters may benefit from low-resolution localization followed by high-resolution re-encoding. Comparisons among distant objects may use set-coverage objectives or bounding-box supervision. Ambiguous questions could first undergo coreference resolution and fall back to a larger budget when confidence is low. Video and multi-image settings additionally require modeling temporal redundancy and cross-image relationships. The language model could also request local re-encoding during reasoning, creating a multi-stage “observe-reason-observe” router. A hardware-aware budget could directly optimize latency, energy consumption, and memory. 14 NeurIPS Paper Checklist 
+
+1. Claims 
+
+Question: Do the main claims made in the abstract and introduction accurately reflect the paper’s contributions and scope? Answer: [No] Justification: The method scope and intended evaluation protocol are explicit, but the current values are simulated and therefore do not support empirical claims. The abstract and Section 4.2 state this limitation. 2. Limitations 
+
+Question: Does the paper discuss the limitations of the work performed by the authors? Answer: [Yes] Justification: Section 5 discusses resolution, small objects, ambiguous questions, dynamic batching, and the absence of completed real experiments. 3. Theory assumptions and proofs 
+
+Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof? Answer: [NA] Justification: The paper presents a model design and training objectives, but does not make theorem-level claims or include theoretical proofs. 4. Experimental result reproducibility 
+
+Question: Does the paper fully disclose all the information needed to reproduce the main experimental results of the paper to the extent that it affects the main claims and/or conclu-sions of the paper (regardless of whether the code and data are provided or not)? Answer: [No] Justification: Section 4 specifies the planned model, optimization, and evaluation settings, but the results have not been run. Training-data composition, random seeds, and the exact software environment remain to be documented. 5. Open access to data and code 
+
+Question: Does the paper provide open access to the data and code, with sufficient instruc-tions to faithfully reproduce the main experimental results, as described in supplemental material? Answer: [No] Justification: The current draft does not provide an anonymized code repository, checkpoints, or end-to-end reproduction scripts. 6. Experimental setting/details 
+
+Question: Does the paper specify all the training and test details (e.g., data splits, hyperpa-rameters, how they were chosen, type of optimizer, etc.) necessary to understand the results? Answer: [No] Justification: Core hyperparameters and planned data splits are given, but the training-data inventory, preprocessing, software versions, and hyperparameter-selection procedure remain incomplete. 7. Experiment statistical significance 
+
+Question: Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments? Answer: [No] Justification: The simulated results do not include independent repetitions, error bars, confidence intervals, or significance tests. These are required for the final experiments. 8. Experiments compute resources 
+
+Question: For each experiment, does the paper provide sufficient information on the com-puter resources (type of compute workers, memory, time of execution) needed to reproduce the experiments? Answer: [No] Justification: Section 4 states the planned GPU type and count, but actual training time, storage, total compute, and the cost of failed runs are not yet available. 9. Code of ethics 
+
+Question: Does the research conducted in the paper conform, in every respect, with the 15 NeurIPS Code of Ethics? Answer: [NA] Justification: This is a structured draft whose experiments have not yet been run. The authors must review the applicable NeurIPS Code of Ethics and update this answer before submission. 10. Broader impacts 
+
+Question: Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed? Answer: [Yes] Justification: Section 5 discusses efficiency benefits, the risk that selective routing omits evidence in high-stakes applications, and potential mitigation directions. 11. Safeguards 
+
+Question: Does the paper describe safeguards that have been put in place for responsible release of data or models that have a high risk for misuse? Answer: [NA] Justification: The current work does not release new data or models. Any future release should add access controls, a model card, and use restrictions appropriate to the realized risk. 12. Licenses for existing assets 
+
+Question: Are the creators or original owners of assets used in the paper properly credited and are the license and terms of use explicitly mentioned and properly respected? Answer: [No] Justification: The relevant model and dataset papers are cited, but versions, download locations, licenses, and terms of use still require item-by-item verification and inclusion in the final manuscript. 13. New assets 
+
+Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets? Answer: [NA] Justification: The current manuscript does not release a new dataset, code package, or model checkpoint. 14. Crowdsourcing and research with human subjects 
+
+Question: For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation? Answer: [NA] Justification: The planned experiments do not involve crowdsourcing or new research with human participants. 15. Institutional review board (IRB) approvals or equivalent for research with human subjects 
+
+Question: Does the paper describe potential risks incurred by study participants, whether such risks were disclosed to the subjects, and whether IRB approvals (or equivalent) were obtained? Answer: [NA] Justification: The planned experiments do not involve new research with human participants. 16. Declaration of LLM usage 
+
+Question: Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research? Answer: [Yes] Justification: Sections 3 and 4 describe the roles of the 7B autoregressive language model, question representation, visual projection, and LoRA tuning. Writing and formatting assistance is not part of the core experiments. 16
