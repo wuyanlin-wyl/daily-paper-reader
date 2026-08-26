@@ -1,0 +1,282 @@
+Title: Search Broadly, Seek Evidence on Both Sides, Decide Narrowly: Evidence-Admissible GraphRAG for Longitudinal Clinical Event Verification
+
+URL Source: https://arxiv.org/pdf/2608.22062v1
+
+Published Time: Tue, 25 Aug 2026 00:55:17 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# Search Broadly, Seek Evidence on Both Sides, Decide Narrowly: Evidence-Admissible GraphRAG for Longitudinal Clinical Event Verification 
+
+# Xingtao Lin 1, Yubo Feng 1, Weixin Liu 1, Hangqi Ren 1, Junchao Zhou 1, Caiwan Sun 1, You Chen 1,2 ∗
+
+> 1
+
+Vanderbilt University 
+
+> 2
+
+Vanderbilt University Medical Center (VUMC) 
+
+Abstract 
+
+Longitudinal clinical event-relation verification determines whether a patient record supports a specified relation among two or more clinical events, such as whether acute kidney in-jury was documented after vancomycin within one encounter. Verification is difficult because the relevant information may be distributed across structured records, notes, laboratory tra-jectories, encounters, and time, while repeated documenta-tion, negation, temporal mismatch, and conflicting findings can make retrieved information appear relevant without estab-lishing the relation. We present MedEventGraph-RAG, which represents individual event occurrences in a patient-specific graph and links each to its record source: structured rows, note spans, timestamps, local context, and numerical trajecto-ries. A verification query specifies the events, the relation, and the clinical scope to be evaluated. The graph then guides re-trieval of candidate event sequences connecting those events, together with source evidence that may support or contradict the relation, and redirects retrieval while required events or relations remain unresolved. Before assessment, the system excludes information belonging to another patient, outside the specified encounter-, episode-, or patient-level scope, or lacking a traceable source. A separate assessor evaluates only the resulting query-specific evidence bundle and returns sup-ported, conflicting, refuted, or insufficient; graph scores, re-trieval rankings, search history, and procedural memory guide retrieval but do not enter that bundle. Across ten protocols on i2b2, n2c2, MIMIC-IV, and LUNGUAGE, it reaches bal-anced accuracies of 78.6, 67.3, and 96.8 on pairwise tem-poral, medication–adverse-event, and recorded-order verifi-cation, exceeding the strongest matched baseline by 26.9, 4.9, and 30.4. When a required evidence component is removed it reaches 92.2 balanced accuracy with no false-support predic-tions; when intermediate events are withheld it returns com-plete event sequences with traceable evidence for every re-lation in 57.9% of i2b2 and 70.0% of LUNGUAGE cases. These results indicate that pairing patient event graphs with source-linked evidence can improve longitudinal verification and reduce unfounded conclusions when evidence is missing. 
+
+# Introduction 
+
+Longitudinal clinical event-relation verification asks whether a patient’s electronic health record supports a given state-ment about the relation between two or more clinical events. This task is challenging because electronic health records 
+
+> ∗
+
+Corresponding author. 
+
+represent medications, laboratory measurements, diagnoses, procedures, and clinical assessments as separate observa-tions across structured tables, narrative notes, encounters, and time, leaving clinically meaningful relations largely im-plicit (Styler IV et al. 2014; Bethard et al. 2016). The required evidence may therefore form a chain linking medication ad-ministration, a subsequent creatinine rise, and a diagnostic assessment, while apparently relevant observations may be negated, copied forward, temporally misaligned, or drawn from another episode. Reliable verification consequently re-quires three capabilities: recovering the event occurrences needed to complete the chain, determining whether the re-covered evidence supports or contradicts the specified rela-tion, and grounding every event and relation in the correct patient, clinical scope, timestamp, and source. These three capabilities fail for distinct reasons. Copied notes, templated sections, and recurrent event types produce redundant mentions that exhaust a limited retrieval budget while the occurrences needed to ground a cross-encounter relation go unretrieved (Wrenn et al. 2010). Relevance does not establish direction, because retrieved content may affirm, negate, qualify, or retrospectively mention an event, and cor-rectly identified events may still be temporally incompatible with the queried relation or contradicted elsewhere (Chap-man et al. 2001; Harkema et al. 2009; Uzuner et al. 2011). Admissibility fails last: a plausible chain may combine in-compatible episodes, substitute documentation time for oc-currence time, or rest on copied statements whose originat-ing evidence cannot be resolved. Verification therefore needs broad signals to discover candidate chains, but stricter crite-ria to decide from them. We propose MedEventGraph-RAG , an evidence-admissible framework that searches broadly across longitu-dinal records, seeks evidence on both sides of a verification query, and decides only from validated patient evidence. An event-centric patient graph and a stateful controller discover query-covering candidate chains across structured records, notes, numerical trajectories, encounters, and time, linking every recovered occurrence to its originating row, span, or trajectory and redirecting search while required events, tran-sitions, or contexts remain unresolved. The controller re-trieves relation-aligned and potentially contradictory obser-vations alike, and a separate assessor then evaluates support and refutation on independent axes, distinguishing evidence arXiv:2608.22062v1 [cs.AI] 22 Aug 2026 on both sides from evidence on neither. A query-specific ev-idence contract finally admits only patient-consistent, scope-valid, and source-resolvable evidence, so graph scores, re-trieval priors, controller state, and procedural memory can influence what is recovered but never what is concluded. 
+
+# Related Work 
+
+Graph-based and adaptive RAG broaden candidate dis-covery through relational expansion, graph–vector fusion, textual-subgraph retrieval, and iterative graph–document search (Zhu et al. 2025; Gutiérrez et al. 2024, 2025; Guo et al. 2024; Edge et al. 2024; Sarthi et al. 2024; Hu et al. 2025; Ma et al. 2025; Li et al. 2024; He et al. 2024; Liu, Wang, and Li 2025; Park et al. 2026; Asai et al. 2024; Yan et al. 2024). Clin-ical variants incorporate medical knowledge, patient history, temporal structure, and factual or counterfactual context for generation, prediction, and longitudinal retrieval (Wu et al. 2025; Zhao et al. 2025; Jiang et al. 2025; Cao, Chen, and Guo 2026; Shurrab et al. 2026). These methods improve semantic access and structural reach, but do not separate the signals used to retrieve candidates from the evidence allowed to de-termine a patient-specific verdict. Domain-adapted clinical LLMs improve medical language understanding without en-forcing this boundary (Chen et al. 2023; Labrak et al. 2024). Agent-memory methods reuse reflections or workflows to improve future behavior (Shinn et al. 2023; Zhao et al. 2024; Wang et al. 2024; Packer et al. 2023), but instance-level memory could create an unintended cross-record channel in patient-specific verification. We instead retain only patient-independent retrieval policies. 
+
+# Method 
+
+Task and information-flow invariants. Given a record 
+
+p and query q, we parse a normalized verification query 
+
+c = (E, R, ϕ ), where E holds observed and unre-solved event slots, R their relation constraints, and ϕ ∈{encounter , episode , patient } the clinical scope. Unspec-ified fields stay unresolved. The system returns y ∈{supported , conflicting , refuted , insufficient } with its source-resolvable evidence and citations. The information flow is 
+
+Dc = Discover (c, Gp, Cp; π),
+
+Bc = Contract (c, D c),
+
+(S+, S −, y ) = Assess (c, Bc), (1) where Gp and Cp are the patient event graph and source-linked context store, π is the retrieval policy, Dc includes candidates and search metadata, and Bc contains only admit-ted evidence. Connectivity and retrieval relevance nominate candidates but do not establish the relation, and the direc-tion in which evidence was retrieved does not fix its evi-dential polarity. Every item in Bc must be patient-consistent, occurrence-bound, source-resolvable, and not scope-invalid, while graph scores, retrieval ranks, controller state, search history, and memory remain outside Bc and cannot alter the assessment of an identical bundle. 
+
+Search broadly: patient event–context representation. 
+
+Each record is (Gp, Cp), separating structural navigation from Algorithm 1: Broad, two-sided discovery with evidence-admissible assessment.                                                                                                                       
+
+> Input: query q; patient graph Gp; context store Cp; optional memory
+> M; budgets K, B, d max , R max
+> Output: verdict y; evidence axes (S+, S −); frozen bundle Bc
+> 1: c←Parse (q);u←InitObligations (c)
+> 2: π←InitPolicy (c, M);r←0
+> 3: F0←Anchors (c, Gp);I ← ∅
+> 4: for d= 1 to dmax do
+> ▷search broadly, on both sides
+> 5: Pd←Expand (Fd−1,Gp;K, π )
+> 6: (C+
+> d, C −
+> d)←TwoSidedRetrieve (Pd, c, u ;Cp)
+> 7: (Pd, C d)←BindDedup (Pd, C +
+> d∪C−
+> d)
+> 8: (Pd, u )←CandidateCheck (Pd, C d, c, u )
+> 9: bPd←TopB (Pd;R(· | c), B )
+> ▷decide narrowly, from admissible evidence only
+> 10: for each P∈bPddo
+> 11: I ← SourceDedup  I ∪ Contract (c, P, C d(P)) 
+> 12: Bc←(c, I)▷excludes π, R, M
+> 13: (S+, S −, y )←Assess θ(Bc)
+> 14: u←UpdateObligations (u, c, Bc)
+> 15: if y=conflicting or Resolved (u, c )then break
+> ▷replan retrieval only, never assessment
+> 16: f←StructuredFailure (u, c )
+> 17: if f̸=∅and r < R max then
+> 18: π←Replan (π, f, M);r←r+ 1
+> 19: Fd←Frontier (Pd, u, π )
+> 20: return y,(S+, S −),Bc
+
+evidential interpretation. Gp indexes occurrences with their recorded encounter and temporal structure; its edges are limited to recorded relations and deterministic derivations, never gold relations, assessor judgments, or model-inferred relations. Cp maps each occurrence to its originating struc-tured row, narrative span, or numerical trajectory, preserving negation, uncertainty, historical status, values, timestamps, and sources. Thus Gp broadens discovery, while the source-linked contexts supply the evidence from which relations are actually assessed. 
+
+Search broadly and seek evidence on both sides: adap-tive discovery. Given the normalized query c, discovery initializes a patient-scoped frontier and iteratively expands candidate event chains across time and encounters. At depth d
+
+the controller traverses structurally valid neighbors without requiring agreement with the specified relation, retrieving their occurrence-linked contexts through lexical, dense, and metadata-aware channels. Retrieval maintains complemen-tary obligations: aligned queries seek observations consis-tent with the specified events and relations, while counter-oriented queries target negation, incompatible order, histori-cal or hypothetical mentions, stable findings, and conflicting documentation. Retrieved contexts are bound to candidate occurrences, deduplicated, and annotated with patient, scope, timestamp, and source status. Malformed and cross-patient candidates are removed, while temporal or type patterns in-compatible with the specified relation stay eligible, because Figure 1: MedEventGraph-RAG in one view. Existing RAG paradigms may retrieve relevant but non-evidential content, whereas our framework binds event paths to source contexts and isolates assessment from search signals. they are exactly where counter-evidence tends to appear. Because only a bounded number of candidates can be contracted, each path P receives a query-conditioned priority score 
+
+R(P | c) = Y
+
+> k∈K (c)
+
+[ϵ + (1 − ϵ)sk(P, c )] , (2) where ϵ = 0 .2 and each sk(P, c ) ∈ [0 , 1] is a normalized discovery signal measuring graph diffusion, path compact-ness, source-context relevance, source-link completeness, or temporal and event-type compatibility. For a composi-tional query c = ( e0, r 1, e 1, . . . , r h, e h), K(c) additionally includes transition-evidence coverage 
+
+scov (P, c ) = 1
+
+h
+
+> h
+
+X
+
+> i=1
+
+I[Γ P (ei−1, r i, e i)̸ = ∅] , (3) where ΓP (ei−1, r i, e i) denotes the source-linked contexts, timestamps, or trajectories available to assess transition 
+
+(ei−1, r i, e i) on P . This measures whether each transition can be examined, not whether it supports the specified re-lation, so disagreement does not by itself eliminate a path. The lifted product maps every component to [ϵ, 1] , so weak signals lower priority without acting as hard filters. At each depth the highest-priority candidates are con-tracted and assessed after source-level deduplication; path rank and depth are not aggregation weights. If an obliga-tion remains unresolved the controller revises its policy from the corresponding structured failure and continues, stopping when both obligations resolve, admissible evidence estab-lishes conflict, or the budget is exhausted. In Algorithm 1, 
+
+dmax bounds event-to-event traversal and Rmax bounds pol-icy revisions. 
+
+Decide narrowly: evidence contract. Discovery output is converted into a frozen, query-specific evidence bundle 
+
+Bc = ( c, Ic), Ic = {zj = ( Ej , C j , T j , Πj )}mj=1 , (4) where each item zj binds one or more occurrences Ej to their source contexts Cj , recorded time types and granularities 
+
+Tj , and structured-row or note-span provenance Πj , keeping contexts, timestamps, and citations attached to what they ground. An item z is admitted only if 
+
+Adm( z; c) = Apatient (z) ∧ Abinding (z) ∧ Asource (z)
+
+∧ Ascope (z; c)̸ = invalid , (5) where Ascope (z; c) ∈ { valid , unknown , invalid }. Every ad-mitted item must therefore resolve to the target patient, to specific occurrences, and to original sources, and items used jointly must be consistent with the query-defined scope. Missing episode metadata or coarse timing stays explicitly 
+
+unknown : retained for assessment, but unable by itself to es-tablish support or refutation. The contract enforces patient identity, scope consistency, occurrence–source binding, and source resolution at assessment time; it does not guarantee correct event extraction, clinical interpretation, or the factual accuracy of the underlying record. Figure 2: Patient event graphs index source-resolvable contexts; adaptive two-sided discovery builds a query-specific bundle, and only admissible evidence reaches the fixed-bundle assessor. 
+
+Decide narrowly: isolated two-sided assessment. Af-ter source-level deduplication, the assessor receives only the frozen bundle Bc. It first assigns vtim ∈{compatible , incompatible , unknown } from recorded times, granularities, and source-linked spans; coarse times remain 
+
+unknown , and an incompatible order contributes to refutation only when occurrences, scope, timestamps, and sources are jointly resolved. Graph-native path order carries no eviden-tial force of its own. It then scores admissible evidence for and against the specified relation on independent axes: 
+
+S+ = αtim S+tim + αnum S+num + αjdg S+jdg ,S− = S−
+
+> jdg
+
+, (6) where S+tim measures source-grounded temporal compatibil-ity, S+num numerical evidence, and S± 
+
+> jdg
+
+assessor-identified supporting and refuting evidence. The refutation axis is con-servative: incompatibility raises S− only on explicit, source-grounded counter-evidence, each citing the item grounding it. The axes are evidence strengths, not complementary prob-abilities, so evidence on both sides raises both while unre-solved evidence raises neither. The weights are development-split operating points, frozen at αtim =0 .45 , αnum =0 .22 , and 
+
+αjdg =0 .33 , and are never re-calibrated per dataset or per pro-tocol. Thresholds selected on the same split map the two axes to the verdict: 
+
+y =
+
+
+
+supported , S+ ≥ τ+, S − < τ −,
+
+conflicting , S+ ≥ τ+, S − ≥ τ−,
+
+refuted , S+ < τ +, S − ≥ τ−,
+
+insufficient , S+ < τ +, S − < τ −.
+
+(7) For binary benchmarks the three non-supported verdicts are collapsed after four-way inference and solely for scoring, retaining verdict, axes, citations, and failure type for audit. With model revision, prompt, and decoding fixed, assessment satisfies fixed-bundle independence: 
+
+B(1)  
+
+> c
+
+= B(2)  
+
+> c
+
+=⇒ Assess θ (B(1)  
+
+> c
+
+) = Assess θ (B(2)  
+
+> c
+
+). (8) 
+
+Compositional and hidden-intermediate queries. We extend pairwise verification to compositional queries χ =(e0, r 1, e 1, . . . , r h, e h) with h ≥ 2, where each ei is a re-quired occurrence and each ri the relation between ei−1
+
+and ei. Such a query is supported only if a scope-consistent chain grounds every occurrence and supplies admissible ev-idence for every adjacent relation; recovering the nodes or their graph order is insufficient, since each transition must be assessed from its bound textual, numerical, or temporal evidence. The hidden-intermediate setting replaces χ with qhid =(e0, e h, ρ 1: h, τ 1: h−1), withholding the intermediate identi-ties and leaving only endpoints, relation sequence, and type constraints. We therefore separate structural recovery, which identifies a candidate chain, from evidential verification, which additionally requires admissible evidence and cita-tions for every relation. 
+
+Retrieval-only procedural memory. As an optional ex-tension, M is a frozen bank of patient-independent retrieval policies derived from recurring training and development search failures; it holds no patient identifiers or facts, event values, evidence spans, provenance, labels, answers, or ver-dicts. Given a query and structured failure f , the controller may retrieve π = RetrievePolicy (M, c, f ) to revise ex-pansion, query selection, or replanning. Memory therefore changes only which admissible evidence is recovered, leav-ing Eq. (8) intact. 
+
+# Task Construction 
+
+Existing clinical resources annotate relations or answer ques-tions; none scores whether a record supplies admissible evi-dence for a specified relation. We therefore construct ten pro-tocols from three annotated corpora and state their sources, negatives, and leakage controls here. 
+
+Query sources and labels. Pairwise queries come from i2b2 2012 TLINK annotations (T1), n2c2 2018 medication– ADE annotations (T2), and recorded event order in MIMIC-IV structured tables (T3) (Sun, Rumshisky, and Uzuner 2013; Henry et al. 2020; Johnson et al. 2023a,b). In each case the annotation supplies only the query endpoints and the held-out label. Relation direction never enters events, edges, contexts, prompts, retrieval scores, or memory, so no method can read a verdict from the artifact it searches. A release audit verifies this before evaluation: the selectable edge set contains no support relation, gold direction appears only in evaluation labels, positive and negative candidates share one graph schema, and train/dev/test patients do not overlap. 
+
+Negatives. A negative differing structurally from a positive can be solved by surface statistics rather than evidence, so each negative is a relation perturbation of a positive chain over the same events and contexts. Measured from the pro-tocol alone, with no model involved, positives and negatives on T9 i2b2 have chain lengths 4.05 and 3.90, hops 3.05 and 2.90, and 8.21 and 8.74 contexts per queried endpoint; on T9 n2c2 the classes are identical in both. Neither carries a retrieval-side signature. 
+
+The ten protocols. T1–T3 are the pairwise tasks defined above: given two named events, decide whether the record supports, refutes, conflicts on, or is insufficient for the stated relation. The other seven isolate one capability each. T4 
+
+scores retrieval alone, asking which node-attached contexts a method recovers before any verdict is formed. T5 masks the event, context, provenance, or timing that would establish a supported verdict, so the correct answer becomes insuffi-cient or conflicting and a method still answering supported is answering from relevance. T6 leaves the evidence intact but adds four distractor strata: other-patient events, other-patient events sharing a name, other-patient contexts carrying the exact query terms, and same-patient contexts from a query-incompatible encounter. T7 runs the system with and without procedural memory on identical identifiers. T8 is a patient-disjoint latest-time split testing transfer rather than memo-rization. T9 states every queried event and asks whether all adjacent relations hold jointly, so one refuted transition re-futes the query. T10 withholds the intermediate identities and scores whether a reconstructed chain is also verified and source-bound; it additionally runs on LUNGUAGE (Moon et al. 2025). 
+
+What is held fixed. Every method receives the same frozen artifacts, identifiers, patient filters, encoders, candidate caps, context budget, and assessor; only the online retrieval oper-ator differs. No protocol is filtered by any system’s output. 
+
+# Experiments 
+
+Setup 
+
+Baselines and implementation. B1 and B2 are direct and text-only retrieval; B3–B5 add the patient graph, a loose hy-brid, and coupled graph–context retrieval without isolated assessment; B6 is the full system and B7 adds procedu-ral memory. We reproduce the online retrieval operators of MedGraphRAG, EHR-RAG, HippoRAG 2, KG 2RAG, Ligh-tRAG, and GRAG on the shared index rather than importing published values. Qwen3-8B performs parsing and control, and the development-selected Qwen3-32B assesses frozen bundles (Qwen Team 2025); defaults are dmax =Rmax =5 
+
+and 12 final contexts. 
+
+Metrics. Balanced accuracy (BA) and macro-F1 are pri-mary for labeled protocols. The false support rate (FSR) is always reported together with supported recall, so that in-discriminate abstention cannot appear safe. T10 reports con-text recall (Ctx-R), hidden-bridge recall (Bridge), complete-chain recall at 20 (C@20), verified-chain recall (Verif), and provenance-valid chain recall (Prov.). Confidence intervals use 10,000 patient-cluster bootstrap replicates, and paired randomization tests use 10,000 permutations with Holm cor-rection over the complete comparison family. T9 i2b2, T9 n2c2, and T10 n2c2 ( n=11 ) are exploratory because of their small patient-cluster counts. 
+
+Results 
+
+Four tables support the analysis, each controlling a differ-ent confound. Table 1 reports the pairwise protocols T1–T3 together with the evidence-integrity protocols T5 and T6, placing accuracy beside a false-support column so that nei-ther can be raised alone. Table 2 asks whether any gain is an artifact of our index rather than our search policy, so it holds artifacts, identifiers, context budget, and assessor fixed and replaces only the online retrieval operator with that of six published systems, reproduced on the shared index rather than imported from their papers. Table 3 attributes the gain internally by adding one evidence-layer mechanism at a time over a frozen balanced 240-query set, so that a change in what is retrieved can be separated from a change in how it is judged. Table 4 moves from pairwise to compositional queries, with every event named in panel (a) and the inter-mediate identities withheld in panel (b). (a) Primary results                                                                                                       
+
+> Discrimination and evidence recovery Evidence integrity Method T1 T2 T3 Ctx P@10 1/2/3
+> ‡Pair R 1/2/3T5 T6 FSR ↓Sup.-rec B1 Direct LLM 46.1/33.0 62.4/62.4 50.2/40.4 ––46.6/42.6 48.1/33.6 11.5 7.6 B2 Text-RAG 50.0/37.5 51.3/36.2 53.0/47.3 ––21.0/29.4 48.3/39.2 96.6 93.1 B3 KG-only 47.8/44.3 48.7/48.5 66.4/63.2 ––43.0/41.6 50.3/42.5 20.7 21.4 B4 Loose hybrid 51.7/49.9 50.4/49.7 62.6/62.3 ––43.9/54.9 47.8/47.4 70.1 65.6 B5 Graph–text 50.1/35.9 39.4/33.9 50.2/35.1 ––20.8/29.0 51.9/43.6 93.1 96.9
+> B6 Isolated 78.6/78.5 67.3/65.7 96.8/96.8 29.5/27.3/19.4 68.5/53.5/71.6 92.2/94.4 75.5/75.0 25.3 76.3 B7 Full 78.6/78.5 67.3/65.7 96.8/96.8 †29.5/27.3/19.4 68.5/53.5/71.6 92.2/94.4 76.7/76.3 25.3 78.6
+> (b) Patient-cluster inference
+> Protocol B6 BA [95% CI] B6 F1 [95% CI] Strongest B1–B5 ∆BA Holm pBA Holm pF1
+> T1 i2b2 78.6 [75.4, 81.8] 78.5 [75.2, 81.7] B4 (51.7) +26.9 .0074 .0074 T2 n2c2 ‡67.3 [62.0, 72.8] 65.7 [59.2, 72.2] B1 (62.4) +4.9 1.000 1.000 T3 MIMIC 96.8 [95.2, 98.2] 96.8 [95.2, 98.2] B3 (66.4) +30.4 .0074 .0074 T5 masked 92.2 [87.7, 96.5] 94.4 [91.0, 97.5] B1 (46.6) +45.6 .0074 .0074 T6 scope 75.5 [64.1, 87.4] 75.0 [63.3, 86.2] B5 (51.9) +23.6 .0130 .0074 T9 MIMIC 61.1 [57.6, 65.1] 59.8 [56.0, 64.1] B5 (51.9) +9.2 .0074 .0074
+
+Table 1: Percent BA/F1 unless noted; superscripts 1/2/3 index T1/T2/T3, and FSR and supported recall are from T6. Bold marks the best value in a column, including where a control attains it: B1 has the lowest FSR and B5 the highest supported recall, each at the other’s expense. Panel (b) gives 95% bootstrap intervals and Holm-adjusted p-values. †B7 equals B6 on T3 by construction; ‡exploratory. ‡Ctx P@10 has a fixed denominator of 10 while a query has only 5.11, 3.18, and 2.85 gold contexts on average, capping it at 49.1, 31.8, and 28.5; the reported values reach 60%, 86%, and 68% of that cap.         
+
+> Method T1/T2/T3 BA MedGraphRAG 72.3/54.4/78.8 EHR-RAG 56.5/56.6/70.0 HippoRAG 2 57.9/61.9/64.8 KG 2RAG 61.0/56.6/70.2 LightRAG 71.3/52.2/76.8 GRAG 57.7/56.2/68.4
+> MedEventGraph-RAG 78.6/67.3/96.8
+
+Table 2: Matched-index retrieval. Artifacts, identifiers, con-text budget, and assessor are held fixed and only the online retrieval operator changes; bold marks the best value per task. Inference cost is reported in the supplement. 
+
+Does broad, source-linked discovery recover evidence that flat and graph-only retrieval miss? B6 gains 26.9, 4.9, and 30.4 BA over the strongest matched control (Ta-ble 1). Patient-cluster inference confirms T1 and T3 after Holm correction ( p=.0074 ); T2 is exploratory, and T3 mea-sures recorded order rather than causality. Under the matched index the best external result per task is 72.3, 61.9, and 78.8, attained by three different systems, against our 78.6, 67.3, and 96.8 (Table 2), so what differs is the search policy rather than the index. Two measurements bound the result: T4 reaches 89.5 context recall, so the occurrence-linked contexts are re-trievable, and T8 retains 71.5/69.5 on a patient-disjoint split, so the gain survives distribution shift. 
+
+Does relevance establish evidential direction? It does not, and balanced accuracy alone conceals this: under T5                        
+
+> Stage BA F1 FSR ↓Ctx-R Chain-R E1 bound graph–context 70.0 69.9 23.3 46.0 52.5 E2 + two-sided 72.5 72.2 16.7 63.1 47.5 E3 + isolated axes 75.0 74.7 15.0 63.1 47.5 E4 + replanning 75.8 75.7 15.8 60.0 55.0 E5 + memory 76.2 76.1 15.8 60.0 55.0
+
+Table 3: Cumulative ablation, percent, on a frozen balanced 240-query set; Chain-R is complete-chain recall. Stages add search over the patient graph with its occurrence-bound context index (E1), source-bound two-sided retrieval (E2), evidence-isolated dual-axis verification (E3), verifier-guided replanning (E4, our B6), and retrieval-only procedural mem-ory (E5, our B7), under the same candidate contract, assessor, and retrieval budget. E1–E3 decide from a coupled boundary and E4–E5 from an isolated one; E1–E3 hold the candidate superset fixed, while E4–E5 may extend it because that adap-tive change is the treatment measured. a system that answers from relevance must produce false support. The retrieval-coupled controls B2 and B5 do ex-actly that, reporting false support on 96.6% and 93.1% of non-supported queries: they answer supported almost when-ever retrieval returns anything. The opposite failure is equally available, since B1 holds FSR to 11.5 only by abstaining al-most everywhere, at 7.6% supported recall. B6 is the only configuration that separates the two axes, reaching 92.2/94.4 BA/F1 with zero false support on T5 ( +45 .6 BA over B1, p=.0074 ) while holding FSR at 25.3 with 76.3% sup-ported recall overall. One case shows the mechanism: asked (a) T9: all events named                                                     
+
+> Method i2b2 n2c2 MIMIC B2 Text-RAG 52.5/42.0 50.0/33.3 50.2/49.5 B3 KG-only 47.5/32.2 50.7/50.7 50.3/34.9 B4 Loose hybrid 67.5/67.0 47.9/35.6 49.4/42.8 B5 Graph–text 50.0/33.3 50.0/33.3 51.9/51.9
+> Ours 82.5/82.2 66.4/65.3 61.1/59.8 (b) T10: intermediates withheld
+> Method Ctx-R Bridge C@20 Verif Prov. B1 n/a n/a n/a n/a n/a B2 59.6 n/a n/a n/a n/a B3 n/a 56.1 5.8 n/a n/a B4 59.6 56.1 5.8 n/a n/a B5 50.2 90.1 67.1 n/a n/a
+> B6 65.2 99.9 77.1 77.9 57.9
+> B7 65.2 99.9 77.1 77.9 58.8
+> Ours-L 92.3 98.8 77.1 80.7 70.0
+
+Table 4: Compositional queries. (a) Percent BA/F1 on debi-ased balanced splits ( n=40 /140 /620 ). (b) Evidence survival from context and bridge recovery through complete candi-date (C@20), verification, and provenance. Each metric in (b) is defined only for architectures that emit the correspond-ing output, and n/a marks a stage a method lacks: B1 retrieves nothing, B2 builds no graph, B3 attaches no contexts, and no B1–B5 variant emits a verification path or a source-bound chain. We write n/a rather than 0 because the quantity is un-defined for them, not measured at zero, and claim nothing about an extended variant. Bold marks the best among B1– B7; Ours-L is LUNGUAGE, listed below the rule rather than compared in-column. whether kidney transplantation preceded pancreas transplan-tation once the establishing context was masked, B5 returned 
+
+supported from residual graph linkage, while B6 returned in-sufficient and named the missing provenance. The graph pro-poses the pair; it cannot substitute for the source that orders it. 
+
+Does admissibility buy safety by discarding evidence? It does not. Under T6 B6 reaches 75.5/75.0 ( +23 .6 BA over B5, p=.0130 ) while keeping 76.3% supported recall, so the patient boundary holds without rejecting legitimate cross-encounter evidence; blanket rejection would have depressed both quantities. The cumulative ablation (Table 3) separates the two routes to that result. E2 acts on what is found: context recall rises from 46.0 to 63.1 and FSR falls from 23.3 to 16.7. E3 then acts only on how that evidence is judged, leaving context and chain recall unchanged at 63.1 and 47.5 while FSR falls to 15.0 and BA rises to 75.0. Withholding an unfounded decision and failing to retrieve evidence are thus separable, and here the boundary costs no accuracy. Verifier-guided replanning (E4) then lifts chain recall to 55.0 at 75.8 BA, so the boundary does not foreclose further search. Retrieval-only procedural memory (E5) adds 0.4 BA/F1 at unchanged FSR (15.8), context recall (60.0), and chain recall (55.0). 
+
+Where does the compositional pipeline still fail? T9 ex-ceeds the strongest B2 to B5 control on every corpus (Ta-ble 4a), though only the larger MIMIC split supports a cor-rected result ( +9 .2 BA, p=.0074 ). T10 explains why (Ta-ble 4b). Read as a funnel from bridge recovery through com-plete candidate at 20, verification, and provenance, the com-parison is one of capability before degree. B5 reaches 90.1 and 67.1, so structural reach is attainable with no grounding stage at all. The substantive result is that our system popu-lates the last two columns at all, and non-trivially: B6 lifts the funnel to 99.9 and 77.1, preserves 77.9 through verifi-cation, yet retains only 57.9 as provenance-valid. Structural reach is therefore solved while source binding is not, and the 20.0-point drop from verification to provenance localizes the bottleneck. Ours-L shows the bottleneck is contextual rather than architectural: richer contexts raise Ctx-R from 65.2 to 92.3 and provenance to 70.0 at unchanged C@20. 
+
+Can procedural memory improve retrieval without reaching judgment? B7 stores no patient facts, spans, an-swers, or verdicts. It improves T6 by 1.2/1.3 BA/F1 through three corrected retrieval failures at unchanged FSR (25.3), so the gain enters through what is found rather than how it is judged, and equals B6 exactly on T1–T3 and T5. Fixed-bundle replay with memory disabled, enabled, or injected with fact-like content changed no verdict and no (S+, S −).
+
+What does the boundary cost? Evidence isolation is ma-terially more expensive: B6 uses 4.625 calls and 12.8k tokens per query against 1.000 and 1.4k for B2, a 4.6× call and 9.3×
+
+token premium, while procedural memory adds 3.06 seconds of local work and no LLM call. Per-method figures are in the supplement. 
+
+# Discussion and Conclusion 
+
+Longitudinal verification fails in three independent ways, each answered by a design decision rather than by scale. Binding the unit of search to an event occurrence and its source steers discovery by what still needs grounding, lifting hidden-bridge recovery to 99.9; scoring support and refu-tation on independent axes yields zero false support under masked evidence, against 96.6 and 93.1 for the coupled con-trols; and a contract applied at assessment time holds the patient boundary under distractors while retaining 76.3% supported recall. These answers are separable, and the resid-ual gap is localized: we verify 77.9 of reconstructed chains but ground 57.9. The principle generalizes beyond medicine: a verdict-producing system should separate the signals de-ciding where to look from the evidence permitted to decide, though we claim neither causality nor clinical safety beyond the corpora tested. 
+
+# References 
+
+Asai, A.; Wu, Z.; Wang, Y.; Sil, A.; and Hajishirzi, H. 2024. Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection. In Proceedings of the Twelfth Inter-national Conference on Learning Representations (ICLR) .Bethard, S.; Savova, G.; Chen, W.-T.; Derczynski, L.; Puste-jovsky, J.; and Verhagen, M. 2016. SemEval-2016 Task 12: Clinical TempEval. In Proceedings of the 10th International Workshop on Semantic Evaluation (SemEval-2016) .Cao, L.; Chen, Q.; and Guo, Y. 2026. EHR-RAG: Bridg-ing Long-Horizon Structured Electronic Health Records and Large Language Models via Enhanced Retrieval-Augmented Generation. arXiv preprint arXiv:2601.21340 .Chapman, W. W.; Bridewell, W.; Hanbury, P.; Cooper, G. F.; and Buchanan, B. G. 2001. A Simple Algorithm for Identify-ing Negated Findings and Diseases in Discharge Summaries. 
+
+Journal of Biomedical Informatics , 34(5): 301–310. Chen, Z.; Cano, A. H.; Romanou, A.; Bonnet, A.; Matoba, K.; Salvi, F.; Pagliardini, M.; Fan, S.; Köpf, A.; Mohtashami, A.; Sallinen, A.; Sakhaeirad, A.; Swamy, V.; Krawczuk, I.; Bayazit, D.; Marmet, A.; Montariol, S.; Hartley, M.-A.; Jaggi, M.; and Bosselut, A. 2023. MEDITRON-70B: Scal-ing Medical Pretraining for Large Language Models. arXiv preprint arXiv:2311.16079 .Edge, D.; Trinh, H.; Cheng, N.; Bradley, J.; Chao, A.; Mody, A.; Truitt, S.; and Larson, J. 2024. From Local to Global: A Graph RAG Approach to Query-Focused Summarization. 
+
+arXiv preprint arXiv:2404.16130 .Guo, Z.; Xia, L.; Yu, Y.; Ao, T.; and Huang, C. 2024. Ligh-tRAG: Simple and Fast Retrieval-Augmented Generation. 
+
+arXiv preprint arXiv:2410.05779 .Gutiérrez, B. J.; Shu, Y.; Gu, Y.; Yasunaga, M.; and Su, Y. 2024. HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models. In Advances in Neural Information Processing Systems 37 (NeurIPS) .Gutiérrez, B. J.; Shu, Y.; Qi, W.; Zhou, S.; and Su, Y. 2025. From RAG to Memory: Non-Parametric Continual Learning for Large Language Models. In Proceedings of the 42nd International Conference on Machine Learning (ICML) .Harkema, H.; Dowling, J. N.; Thornblade, T.; and Chap-man, W. W. 2009. ConText: An Algorithm for Determining Negation, Experiencer, and Temporal Status from Clinical Reports. Journal of Biomedical Informatics , 42(5): 839– 851. He, X.; Tian, Y.; Sun, Y.; Chawla, N. V.; Laurent, T.; LeCun, Y.; Bresson, X.; and Hooi, B. 2024. G-Retriever: Retrieval-Augmented Generation for Textual Graph Understanding and Question Answering. In Advances in Neural Information Processing Systems 37 (NeurIPS) .Henry, S.; Buchan, K.; Filannino, M.; Stubbs, A.; and Uzuner, O. 2020. 2018 n2c2 shared task on adverse drug events and medication extraction in electronic health records. 
+
+Journal of the American Medical Informatics Association ,27(1): 3–12. Hu, Y.; Lei, Z.; Zhang, Z.; Pan, B.; Ling, C.; and Zhao, L. 2025. GRAG: Graph Retrieval-Augmented Generation. In 
+
+Findings of the Association for Computational Linguistics: NAACL 2025 , 4145–4157. Jiang, P.; Xiao, C.; Jiang, M.; Bhatia, P.; Kass-Hout, T.; Sun, J.; and Han, J. 2025. Reasoning-Enhanced Healthcare Predictions with Knowledge Graph Community Retrieval. In 
+
+Proceedings of the Thirteenth International Conference on Learning Representations (ICLR) .Johnson, A. E. W.; Bulgarelli, L.; Shen, L.; Gayles, A.; Shammout, A.; Horng, S.; Pollard, T. J.; Hao, S.; Moody, B.; Gow, B.; wei H. Lehman, L.; Celi, L. A.; and Mark, R. G. 2023a. MIMIC-IV, a freely accessible electronic health record dataset. Scientific Data , 10(1): 1. Johnson, A. E. W.; Pollard, T. J.; Horng, S.; Celi, L. A.; and Mark, R. G. 2023b. MIMIC-IV-Note: Deidentified free-text clinical notes (version 2.2). PhysioNet. Labrak, Y.; Bazoge, A.; Morin, E.; Gourraud, P.-A.; Rou-vier, M.; and Dufour, R. 2024. BioMistral: A Collection of Open-Source Pretrained Large Language Models for Medical Domains. In Findings of the Association for Computational Linguistics: ACL 2024 .Li, S.; He, Y.; Guo, H.; Bu, X.; Bai, G.; Liu, J.; Liu, J.; Qu, X.; Li, Y.; Ouyang, W.; Su, W.; and Zheng, B. 2024. GraphReader: Building Graph-based Agent to En-hance Long-Context Abilities of Large Language Models. In 
+
+Findings of the Association for Computational Linguistics: EMNLP 2024 .Liu, H.; Wang, S.; and Li, J. 2025. Knowledge Graph Retrieval-Augmented Generation via GNN-Guided Prompt-ing. In Proceedings of the Second Conference on Language Modeling (COLM) .Ma, S.; Xu, C.; Jiang, X.; Li, M.; Qu, H.; Yang, C.; Mao, J.; and Guo, J. 2025. Think-on-Graph 2.0: Deep and Faithful Large Language Model Reasoning with Knowledge-Guided Retrieval Augmented Generation. In Proceedings of the Thirteenth International Conference on Learning Represen-tations (ICLR) .Moon, J. H.; Choi, G.; Rabaey, P.; Kim, M. G.; Hong, H. G.; Lee, J. O.; Yoon, H.; Doe, E.; Kim, J.; Sharma, H.; de Cas-tro, D. C.; Valle, J. A.; and Choi, E. 2025. LUNGUAGE: A Benchmark for Structured and Sequential Chest X-ray Inter-pretation. arXiv preprint arXiv:2505.21190 .Packer, C.; Wooders, S.; Lin, K.; Fang, V.; Patil, S. G.; Stoica, I.; and Gonzalez, J. E. 2023. MemGPT: Towards LLMs as Operating Systems. arXiv preprint arXiv:2310.08560 .Park, H.; Seo, J.; Mun, J.; Park, H.; Byeon, W.; Kim, S. J.; Im, H.; Lee, J.; and Kim, S. 2026. M 3KG-RAG: Multi-hop Mul-timodal Knowledge Graph-enhanced Retrieval-Augmented Generation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Qwen Team. 2025. Qwen3 Technical Report. arXiv preprint arXiv:2505.09388 .Sarthi, P.; Abdullah, S.; Tuli, A.; Khanna, S.; Goldie, A.; and Manning, C. D. 2024. RAPTOR: Recursive Abstractive Processing for Tree-Organized Retrieval. In Proceedings of the Twelfth International Conference on Learning Represen-tations (ICLR) .Shinn, N.; Cassano, F.; Gopinath, A.; Narasimhan, K.; and Yao, S. 2023. Reflexion: Language Agents with Verbal Re-inforcement Learning. In Advances in Neural Information Processing Systems 36 (NeurIPS) .Shurrab, S.; Al-Omari, M.; Samad, D. E.; and Shamout, F. E. 2026. EHR-RAGp: Retrieval-Augmented Prototype-Guided Foundation Model for Electronic Health Records. 
+
+arXiv preprint arXiv:2605.12335 .Styler IV, W. F.; Bethard, S.; Finan, S.; Palmer, M.; Prad-han, S.; de Groen, P. C.; Erickson, B.; Miller, T.; Lin, C.; Savova, G.; and Pustejovsky, J. 2014. Temporal Annotation in the Clinical Domain. Transactions of the Association for Computational Linguistics , 2: 143–154. Sun, W.; Rumshisky, A.; and Uzuner, O. 2013. Evaluat-ing temporal relations in clinical text: 2012 i2b2 Challenge. 
+
+Journal of the American Medical Informatics Association ,20(5): 806–813. Uzuner, O.; South, B. R.; Shen, S.; and DuVall, S. L. 2011. 2010 i2b2/VA Challenge on Concepts, Assertions, and Re-lations in Clinical Text. Journal of the American Medical Informatics Association , 18(5): 552–556. Wang, Z. Z.; Mao, J.; Fried, D.; and Neubig, G. 2024. Agent Workflow Memory. arXiv preprint arXiv:2409.07429 .Wrenn, J. O.; Stein, D. M.; Bakken, S.; and Stetson, P. D. 2010. Quantifying Clinical Narrative Redundancy in an Elec-tronic Health Record. Journal of the American Medical In-formatics Association , 17(1): 49–53. Wu, J.; Zhu, J.; Qi, Y.; Chen, J.; Xu, M.; Menolascina, F.; Jin, Y.; and Grau, V. 2025. Medical Graph RAG: Evidence-based Medical Large Language Model via Graph Retrieval-Augmented Generation. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 28443–28467. Yan, S.-Q.; Gu, J.-C.; Zhu, Y.; and Ling, Z.-H. 2024. Cor-rective Retrieval Augmented Generation. arXiv preprint arXiv:2401.15884 .Zhao, A.; Huang, D.; Xu, Q.; Lin, M.; Liu, Y.-J.; and Huang, G. 2024. ExpeL: LLM Agents Are Experiential Learners. In Proceedings of the AAAI Conference on Artificial Intelli-gence , volume 38, 19632–19642. Zhao, X.; Liu, S.; Yang, S.-Y.; and Miao, C. 2025. MedRAG: Enhancing Retrieval-Augmented Generation with Knowl-edge Graph-Elicited Reasoning for Healthcare Copilot. In 
+
+Proceedings of the ACM Web Conference 2025 (WWW) ,4442–4457. Zhu, X.; Xie, Y.; Liu, Y.; Li, Y.; and Hu, W. 2025. Knowl-edge Graph-Guided Retrieval Augmented Generation. In 
+
+Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Lin-guistics: Human Language Technologies (Volume 1: Long Papers) , 8912–8924.
