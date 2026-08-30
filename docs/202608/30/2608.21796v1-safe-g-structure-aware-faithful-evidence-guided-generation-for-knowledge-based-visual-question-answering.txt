@@ -1,0 +1,652 @@
+Title: SAFE-G: Structure-aware Faithful Evidence-guided Generation for Knowledge-based Visual Question Answering
+
+URL Source: https://arxiv.org/pdf/2608.21796v1
+
+Published Time: Tue, 25 Aug 2026 00:26:47 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# SAFE-G: Structure-aware Faithful Evidence-guided Generation for Knowledge-based Visual Question Answering 
+
+## Long Shu 
+
+State Key Laboratory of Cognitive Intelligence, University of Science and Technology of China China shulong@mail.ustc.edu.cn 
+
+## Shuochen Liu 
+
+State Key Laboratory of Cognitive Intelligence, University of Science and Technology of China China shuochenliu@mail.ustc.edu.cn 
+
+## Wei Chen 
+
+State Key Laboratory of Cognitive Intelligence, University of Science and Technology of China China chenweicw@mail.ustc.edu.cn 
+
+## Junda Lin 
+
+State Key Laboratory of Cognitive Intelligence, University of Science and Technology of China China linjunda@mail.ustc.edu.cn 
+
+## Zhi Zheng ∗
+
+State Key Laboratory of Cognitive Intelligence, University of Science and Technology of China China zhengzhi97@ustc.edu.cn 
+
+## Huijun Hou 
+
+NIO China houhj2009@163.com 
+
+## Tong Xu ∗
+
+State Key Laboratory of Cognitive Intelligence, University of Science and Technology of China China tongxu@ustc.edu.cn 
+
+Abstract 
+
+Knowledge-based Visual Question Answering (KB-VQA) aims to answer queries that necessitate reasoning over external knowledge sources beyond the visual content. Typically, current methods fuse multimodal features to retrieve external information, subsequently leveraging Multimodal Large Language Models (MLLMs) to derive answers from the retrieved evidence. However, these methods often struggle to capture structural associations within complex contexts to effectively filter noise. Furthermore, they frequently fail to en-sure that the reasoning process remains strictly faithful to the re-trieved evidence. To address these challenges, we propose SAFE-G ,a Structure-Aware Faithful Evidence-guided Generation frame-work, which enables precise evidence localization and trustworthy reasoning. Specifically, we first employ a coarse-grained hybrid search fusing visual and textual modalities to recall candidate docu-ments, and subsequently implement a structure-aware fine-grained graph retrieval that captures structural dependencies to filter noise and pinpoint precise evidence. Moreover, we introduce a reinforce-ment learning (RL) strategy with an evidence-grounded reward that assigns credit to correct answers only when the selected evidence is correct. This strict alignment constraint compels the model to an-chor its response in the retrieved context, effectively enhancing its capability to locate evidence via multimodal features and perform faithful reasoning. Extensive experiments on the Encyclopedic-VQA and InfoSeek benchmarks demonstrate that SAFE-G outperforms prior methods by a margin of 8.9% and 3.5%, substantially enhanc-ing the overall reasoning accuracy. Our source code is publicly available at: https://github.com/MINE-USTC/SAFE-G. 
+
+> ∗Corresponding authors
+
+CCS Concepts 
+
+• Information systems → Question answering ; • Comput-ing methodologies → Artificial intelligence ; Visual content-based indexing and retrieval .
+
+Keywords 
+
+KB-VQA, Reinforcement Learning, RAG 
+
+1 Introduction 
+
+Visual Question Answering (VQA) [1, 44] aims to answer natural-language questions about images by reasoning over visual content. However, many real-world questions require knowledge that can-not be observed from pixels alone, such as domain expertise or contextual background information [10]. This need gives rise to Knowledge-based Visual Question Answering (KB-VQA) [30, 45], where models must integrate visual understanding with external knowledge to produce accurate and well-grounded answers. Early studies on KB-VQA typically combined dedicated retriev-ers with task-specific VQA architectures [12, 25], injecting external knowledge through handcrafted pipelines or modular reasoning components. With the advent of Multimodal Large Language Mod-els (MLLMs), the dominant solution has shifted toward a Retrieval-Augmented Generation (RAG) paradigm [4, 46, 47]: relevant ev-idence is first retrieved from external sources and then fed into an MLLM to produce the final answer. By grounding generation on retrieved, potentially domain-specific information, such RAG-based KB-VQA systems can expand the model’s effective knowledge beyond its parameters. 
+
+> 1arXiv:2608.21796v1 [cs.CV] 22 Aug 2026
+
+Shu et al. Nowy Wiśnicz              
+
+> located on a forested hill ...in the village of Stary Wiśnicz, Lesser
+> Poland Voivodeship ...
+> Question:
+> In which country is
+> this castle located ?
+> Kliczkó w astle
+> (German : Schloss
+> Klitschdorf) is a late medieval castlein Klic-zkó w in Poland ...
+> Schwerin Castle
+> located in the city of Schwerin, the capital of Mecklenburg state,
+> Germany ...
+> Doc A (Gold doc)
+> (a) Prior Bias.
+> (b) Inconsistent reasoning.
+> Doc B
+> Doc C
+> <think>Based on my knowledge, this building is in Europe, and Doc.C men-tions Germany, so the answer is likely Germany .</think>
+> <answer>Germany.</answer>
+
+w/o SAFE-G  
+
+> KB
+> <think>Doc. A and B both mention
+> Poland, while Doc. C mentions Ger-many, so the building is more likely to be in Poland. </think>
+> <evidence> Doc B </evidence>
+> <answer> Poland. </answer>
+> Blindness
+> Confused
+
+w/ SAFE-G  
+
+> Top K Sections
+> Doc A - Sec 1
+> Doc B - Sec 1
+> Doc C - Sec3
+> <think> Although both Doc. A and B mention Poland, Doc A's description matches the image better, so the answer is Poland. </think>
+> <evidence> Doc A Sec 1 </evidence>
+> <answer> Poland </answer>
+> Section Reward
+> Accuracy
+> Reward
+> VQA
+
+Figure 1: Comparison of reasoning behaviors under different reward schemes: (a) Optimizing solely for the final answer causes the model to overlook external documents. (b) Us-ing separate rewards for retrieval and answering results in disconnected and inconsistent reasoning chains. (c) SAFE-G employs a holistic reward design that guides the model to learn a correct and coherent reasoning trajectory, ensuring the answer is faithfully anchored to the evidence. 
+
+Despite this progress, existing retrieval-augmented frameworks still face two fundamental limitations. (1) Reliance on Expen-sive Re-ranker Training . Existing fine-grained retrieval methods either rely on similarity-based passage retrieval or task-specific re-rankers trained on curated datasets [7, 46]. While the former treats knowledge entries as isolated units and struggles to aggregate complementary evidence across passages, the latter requires sub-stantial data curation and training, limiting generalizability across domains. (2) Generation Disconnect and Prior Bias . As illus-trated in Fig. 1, models may not consistently be compelled to ground their reasoning in the retrieved context. Without explicit alignment mechanisms, strong pre-trained priors may override external evi-dence, leading to hallucinations. Furthermore, even when context is accessed, the reasoning process often suffers from a disconnect, where the generated answer is not derived from the cited evidence. This disconnect results in unfaithful reasoning trajectories where the evidence fails to support the final answer. To address these challenges, we present SAFE-G , a Structure-Aware Faithful Evidence-guided Generation framework for KB-VQA, which is conceptually organized into two coupled compo-nents: structure-aware multimodal retrieval and evidence-grounded generation . By explicitly coupling evidence selection with answer reasoning, SAFE-G produces knowledge-grounded answers, allevi-ating both retrieval and generation failures in existing RAG-based systems. Specifically, SAFE-G first adopts a coarse-to-fine retrieval pipeline to suppress noise and progressively localize relevant evi-dence. It begins with a coarse-grained hybrid search that exploits multimodal information in the knowledge base to retrieve a small set of candidate articles. Building upon these candidates, we intro-duce a structure-aware refinement mechanism designed to achieve fine-grained evidence localization under a training-free paradigm. To this end, we construct a schema-less heterogeneous knowledge graph to interconnect disjointed section-level contexts. Crucially, we engineer a multimodal-guided propagation strategy: by inject-ing visual-semantic relevance into the graph topology, we direct the graph traversal to prioritize evidence that is not only textually coher-ent but also visually aligned with the query. This enables SAFE-G to explicitly navigate latent dependencies and aggregate complemen-tary evidence without the need for training an expensive re-ranker. During generation, to enforce factual consistency and evidence faithfulness, we introduce a reinforcement learning (RL) strategy based on Group Relative Policy Optimization (GRPO) [37] with an evidence-grounded reward. Unlike outcome-based RL paradigms that optimize solely for final answer accuracy, our reward assigns credit only when the model both identifies correct supporting ev-idence and produces an accurate response. This strict coupling trains MLLMs to anchor their reasoning in the retrieved context, suppressing reliance on unsupported priors and thereby mitigating hallucinations. Our contributions are summarized as follows: 
+
+• We propose SAFE-G, a framework that aggregates relevant evi-dence via a fine-grained graph retrieval. This mechanism local-izes relevant information without requiring a trainable re-ranker. 
+
+• To ensure faithful generation, we introduce an evidence-grounded reinforcement learning strategy. Unlike outcome-based super-vision, our method enforces strict adherence to the retrieved context by coupling answer correctness with evidence usage. 
+
+• Extensive experiments on the Encyclopedic-VQA and InfoSeek benchmarks demonstrate that SAFE-G achieves state-of-the-art performance, validating the effectiveness of our structure-aware retrieval and evidence-grounded generation. 
+
+2 Related Work 2.1 Knowledge-based VQA 
+
+Early research in Visual Question Answering (VQA) primarily focused on deriving answers from visual content [1]. However, to address queries requiring information beyond the image, the field has expanded to the KB-VQA task [30, 32, 36, 42]. While MLLMs [2, 28] excel in general visual understanding, they struggle with knowledge-intensive queries requiring precise information beyond their pre-training [5, 31]. To address the knowledge gap, Retrieval-Augmented Generation (RAG) has witnessed increasing adoption across the field. Visual-language retrieval typically necessitates a cross-modal retrieval mechanism to effectively process and align multimodal queries with heterogeneous document sources. Methods like Pre-FLMR [26] and MuKA [11] enhance this process by optimizing fine-grained cross-modal interactions or leveraging object-level visual features to query external knowledge bases. Following a hierarchi-cal or re-ranking paradigm, approaches such as Wiki-LLaVA [4] and EchoSight [46] first retrieve candidate documents via global simi-larity and then refine them using learned scorers to select relevant context. Subsequently, MR2AG [51] and ReflectiVA [7] incorporate reflective mechanisms, enabling the model to explicitly assess the 
+
+2SAFE-G: Structure-aware Faithful Evidence-guided Generation for Knowledge-based Visual Question Answering 
+
+relevance of retrieved knowledge or its own generation process to improve accuracy. Diverging from paradigms that rely on heavy training or learned re-rankers, SAFE-G introduces a multimodal structure-aware graph mechanism. By injecting visual-semantic signals into the graph initialization, our approach leverages training-free Personalized PageRank (PPR) [3] to aggregate evidence that is both structurally central and visually consistent. This design enables the model to bridge isolated evidence fragments and filter noise through multi-modal structural consistency, bypassing the dependency on expen-sive parametric patterns. 
+
+2.2 RL for MLLM Reasoning 
+
+Recent research has shown that the alignment of Large Language Models (LLMs) has increasingly shifted toward RL-based policy opti-mization [49], which has proven effective in augmenting reasoning capabilities for complex problem-solving [20, 39]. DeepSeek-R1 [15] marked a milestone, demonstrating that RL-driven post-training can elicit Chain-of-Thought (CoT) reasoning and trigger emergent “aha moments”. Drawing from these textual advancements, recent initiatives have extended R1-style methodologies to Multimodal Large Language Models (MLLMs), employing rule-based incentives to enhance mathematical and perceptual reasoning [29, 38]. Surpass-ing the limitations of conventional Supervised Fine-Tuning (SFT), RL paradigms enable more profound reasoning depth and general-ization without the bottleneck of massive human labeling [6]. While alleviating the reliance on annotated data, these RL meth-ods often shift the bottleneck to computational resources. To miti-gate the computational burden, Group Relative Policy Optimization (GRPO) [37] has emerged as a preferred, efficient alternative, dis-tinguishing itself by eliminating the need for a concurrent value function critic. Within the specific landscape of KB-VQA, pioneer-ing efforts such as VLM-PRF [18] have successfully leveraged RL to optimize the efficiency of feedback integration, primarily utiliz-ing outcome-level supervision to align model outputs with target answers. However, a critical challenge remains in ensuring that the generated answers are faithfully grounded in the retrieved con-text. To address this, our proposed SAFE-G introduces an evidence-grounded reward mechanism. By coupling the reward signal with the verification of supporting documents, SAFE-G compels the model to anchor its reasoning in retrieved evidence, thereby ensur-ing that reliability stems from verified context. 
+
+3 Preliminaries 
+
+Knowledge-based Visual Question Answering (KB-VQA) extends traditional visual reasoning by explicitly introducing an external knowledge retrieval constraint. Unlike standard VQA, where an-swers are derived directly from visual content, KB-VQA requires the model to answer a multimodal query by retrieving and reason-ing over the relevant evidence from an explicit external knowledge base (e.g., Wikipedia). We denote the external document collection as D = {𝑑 𝑖 }𝑁 𝑖 =1,where each entry 𝑑 𝑖 corresponds to a Wikipedia page. Each docu-ment 𝑑 𝑖 is associated with (i) metadata 𝑀 𝑖 (e.g., document title and section title), (ii) the associated document image 𝐼 𝑖 , and (iii) a set of section-level textual units {𝑠 𝑖,𝑗 }𝑛 𝑖 
+
+> 𝑗 =1
+
+. Here, 𝑠 𝑖,𝑗 denotes the 𝑗 -th section of document 𝑑 𝑖 , where the section title and its content are treated as a single textual unit. Given a query 𝑞 = (𝐼 𝑞 , 𝑄 ) consisting of an image 𝐼 𝑞 and a question 
+
+𝑄 , KB-VQA can be formulated as retrieval-conditioned generation. A retriever R first selects a query-specific subset of the document collection. Formally, 
+
+D𝑞 = R ( 𝐼 𝑞 , 𝑄, D) , D𝑞 ⊆ D , (1) and MLLM parameterized by 𝜃 then predicts the final answer 𝑦 
+
+conditioned on the query and retrieved knowledge: 
+
+𝑦 = M𝜃 (𝐼 𝑞 , 𝑄, D𝑞 ). (2) We assess answer quality using BEM score [50] for E-VQA and VQA Accuracy [13] for InfoSeek. Retrieval quality is measured by Recall@ 𝐾 (R@ 𝐾 ) at both document and section level. 
+
+4 Method 
+
+In this section, we present SAFE-G , a structure-aware and evidence-guided framework that jointly improves evidence retrieval and faithful generation. As shown in Fig. 2, SAFE-G consists of three stages. In stage 1, we perform coarse-grained multimodal retrieval (§4.1) to identify a set of candidate documents relevant to the query image. Then, we conduct fine-grained structure-aware graph re-trieval (§4.2) over sections by constructing a query-specific graph and propagating relevance to aggregate relevant evidence across related sections as the second stage. In stage 3, we apply RL with an evidence-grounded objective to encourage the model to select evidence and generate answers that remain faithful to the selected context (§4.3). These components reduce retrieval noise, aggregate cross-passage evidence without re-ranker training, and improve the faithfulness of knowledge-grounded answering. 
+
+4.1 Coarse-grained Multimodal Hybrid Retrieval 
+
+Directly performing fine-grained retrieval over the massive cor-pus D is inefficient, yet prior coarse-grained methods often suffer from single-modality limitations like visual ambiguity. To address this, we introduce a Coarse-grained Multimodal Hybrid Retrieval approach. By matching the query image against both document summaries and images, we leverage complementary multimodal sig-nals to narrow the search space, ensuring high-quality candidates for the subsequent refinement. 
+
+4.1.1 Summary Generation. A full Wikipedia document typically contains extensive details, which can introduce redundancy and noise when used directly as an indexing unit. Therefore, construct-ing a compact representation that retains only the salient infor-mation is crucial for robust retrieval. Following a summary-based indexing strategy [47], we first generate a concise yet informative summary for each document to distill its core semantics, thereby aligning the textual evidence more closely with the query image. Concretely, given the section-level texts {𝑠 𝑖,𝑗 }𝑛 𝑖  
+
+> 𝑗 =1
+
+of a document 𝑑 𝑖 ,we feed the concatenated texts 𝑎 𝑖 into a pre-trained summariza-tion model M𝑠 and apply an instruction prompt 𝑃 to produce the 
+
+> 3
+
+Shu et al. Doc # 3 Evidences 
+
+> Title & Summary
+> Section 3 Title & Text
+> Image
+> Doc Summary
+> Doc Image
+> Top N Documents
+> OpenIE
+> KG Triples
+
+Coarse-Grained Hybrid Retrieval 1
+
+> Rule Reward
+> Reference
+> Model
+> KL Divergency
+> Advantage
+> Multimodal Fusion-
+> based Ranking
+
+Reinforcement Learning based GRPO 3
+
+> Generate completions
+> Question : What can
+> be minimized by mowing of this plant?
+> Triples
+> Doc # 1 Evidences
+> Title & Summary
+> Knowledge Base
+> Similarity
+> Doc # 1 Text
+> Doc # 2 Text
+> Doc # N Text
+> weighted Fusion
+> Fusion Module
+> Procedure
+> Extract Triples
+> Personalized
+> Page Ranking
+> Top K Sections
+> Doc # 1 - Section # 1 Text
+> Doc # 3 - Section # 1 Text
+> Doc # 1 - Section # 3 Text
+> Input
+> Question
+> Fusion Score
+
+Evidence-Grounded Reward Design       
+
+> <think> The image shows a plant with pink flowers , which appears to be a type of legume. The question asks what can be minimized by careful mowing of this plant. Based on the image and the question, the plant seems to be a type of sainfoin, as it matches the description provided in the passage about
+> Onobrychis viciifolia. The relevant section from the passage is: “Onobrychis
+> viciifolia | Cultivation of O. viciifolia ”This section directly addresses the question by stating that careful mowing helps minimize disintegration losses.
+> </think> <evidence>Onobrychis viciifolia |Cultivation of O. viciifolia :Careful mowing is important to minimize disintegration losses. </evidence><answer> Careful mowing minimizes disintegration
+> losses.</answer>
+
+RL Model Generation 
+
+1. Format Reward: 𝑟 𝑓𝑚𝑡  
+
+> <think></think><evidence></evidence><answer></answer>
+
+𝑟 𝑓𝑚𝑡 =1 
+
+2. Section Reward: 𝑟 s𝑒𝑐 
+
+𝑟 s𝑒𝑐 =1 EM (g.t., title ) title = Onobrychis viciifolia 
+
+3. Accuracy Reward: 𝑟 acc 
+
+> I(r=1)
+
+pred. = disintegration losses  Matches (ans., pred.)  𝑟 acc =1 
+
+Overall Reward Calculation: r = 𝑟 𝑓𝑚𝑡 + 𝑟 s𝑒𝑐 + 𝑟 acc  
+
+> Visual Emb.
+> Text Emb.
+> Assigning seed node weights by sim. Entity Nodes Section Nodes
+> Image
+
+Structure-Aware Graph Retrieval 2
+
+> Fusion Score
+
+𝐼 𝑟 s𝑒𝑐 = 1 
+
+> Policy Optimization with LoRA
+
+Figure 2: Overview of the SAFE-G framework. Left: A three-stage retrieval-augmented generation framework tailored for the KB-VQA task. Right: The Evidence-grounded Reward Design employed during GRPO training. 
+
+summary 𝑚 𝑖 , as follows: 
+
+𝑎 𝑖 = Concat  {𝑠 𝑖,𝑗 }𝑛 𝑖 
+
+𝑗 =1
+
+, (3) 
+
+𝑚 𝑖 = M𝑠 (𝑃, 𝑎 𝑖 ). (4) 
+
+4.1.2 Hybrid Retrieval. After obtaining the generated document summaries, we perform hybrid retrieval conditioned on the query image 𝐼 𝑞 . Specifically, we project the query image, candidate docu-ment summaries, and associated document images into a shared feature space using CLIP encoders [33]. To capture both visual and semantic relevance, we compute similarity-based matching between the query image and (i) the candidate summary, (ii) the candidate image, and then combine these two signals via a weighted fusion to obtain the final relevance score for each document. 
+
+𝑆𝑐𝑜𝑟𝑒 𝑑 𝑖 = 𝛼 · sim  𝐸 𝑣 (𝐼 𝑞 ), 𝐸 𝑡 (𝑚 𝑖 )
+
++ ( 1 − 𝛼 ) · sim  𝐸 𝑣 (𝐼 𝑞 ), 𝐸 𝑣 (𝐼 𝑖 ), (5) 
+
+C𝑞 = Top-𝐾 𝑑 
+
+
+
+{𝑆𝑐𝑜𝑟𝑒 𝑑 𝑖 }𝑑 𝑖 ∈ D 
+
+
+
+, (6) where 𝐼 𝑖 is the image associated with document 𝑑 𝑖 , and 𝑚 𝑖 denotes the document summary. 𝐸 𝑣 (·) and 𝐸 𝑡 (·) represent the visual and tex-tual encoders, respectively. The hyperparameter 𝛼 ∈ [ 0, 1] balances the contribution of visual alignment versus semantic consistency. For computational efficiency, we implement the retrieval using FAISS [21] to perform Maximum Inner-Product Search (MIPS) over the pre-indexed embeddings. Finally, we retrieve the top-𝐾 𝑑 doc-uments according to 𝑆𝑐𝑜𝑟𝑒 𝑑 𝑖 and denote the resulting candidate document set as C𝑞 .
+
+4.2 Structure-aware Graph Retrieval 
+
+While the coarse-grained stage efficiently filters the corpus, an-swering complex visual queries requires identifying specific evi-dence segments hidden within the candidate documents. To achieve this, we perform Structure-aware Graph Retrieval to capture fine-grained semantic details within the candidate set. Inspired by Hip-poRAG [16], we use Open Information Extraction (OpenIE) 1 to construct graphs for the candidates C𝑞 . Crucially, we enhance this structure by injecting the multimodal relevance scores derived in the previous stage into the section nodes as a retrieval prior. By ap-plying structure-aware propagation, we globally rank the sections and output the top-𝐾 𝑠 evidence units, which serve as the precise context for the subsequent generation stage. 
+
+4.2.1 Graph Construction via OpenIE. Building on the candidate set 
+
+C𝑞 , we construct a schema-less heterogeneous graph that encodes the structural dependencies of knowledge units. For every section 
+
+𝑠 𝑖,𝑗 , we extract relational triples (ℎ, 𝑟, 𝑡 ) via OpenIE, where ℎ and 𝑡 
+
+denote the head and tail entities and 𝑟 denotes the relation between them. Then we define the graph G𝑞 = (V 𝑞 , E𝑞 ) with section nodes and entity nodes as the vertex set. The edge set E𝑞 incorporates textual grounding by connecting section nodes to their mentioned entities (via contain edges), and relational structure by linking enti-ties according to the extracted triples. This topology links disjointed sections through shared entities, allowing subsequent propagation to aggregate evidence across documents. 
+
+4.2.2 Multimodal-aware Section Prior. While the graph G𝑞 estab-lishes structural pathways between sections, effectively traversing 
+
+> 1
+
+https://stanfordnlp.github.io/CoreNLP/openie.html 4SAFE-G: Structure-aware Faithful Evidence-guided Generation for Knowledge-based Visual Question Answering 
+
+this structure requires a query-dependent initialization to guide the search. To this end, we construct a multimodal-aware prior by synergizing dense text matching with the multimodal relevance signals derived from Stage 1. 
+
+Section-node prior. To capture local textual relevance, we first compute a dense retrieval score DPR (𝑠 𝑖,𝑗 ) measuring the seman-tic correspondence between the question 𝑄 and the section text. However, looking at sections in isolation risks missing the broader visual context. To bridge this, we incorporate the global multimodal confidence from Stage 1. Specifically, we re-calibrate the document-level score 𝑆𝑐𝑜𝑟𝑒 𝑑 𝑖 via min-max normalization over the candidate set C𝑞 to sharpen its discriminability: ˜𝜌 𝑖 = 𝑆𝑐𝑜𝑟𝑒 𝑑 𝑖 − min 𝑑 𝑘 ∈ C 𝑞 𝑆𝑐𝑜𝑟𝑒 𝑑 𝑘 
+
+max 𝑑 𝑘 ∈ C 𝑞 𝑆𝑐𝑜𝑟𝑒 𝑑 𝑘 − min 𝑑 𝑘 ∈ C 𝑞 𝑆𝑐𝑜𝑟𝑒 𝑑 𝑘 
+
+. (7) We then modulate the textual relevance with this multimodal prior to establish the final initial weight for each section node: 
+
+𝑤 𝑖,𝑗 = DPR (𝑠 𝑖,𝑗 ) · 
+
+
+
+1 + 𝛽 · ˜𝜌 𝑖 
+
+
+
+, (8) where 𝛽 ∈ [ 0, 1] is a hyperparameter governing the influence of the global multimodal signal. 
+
+Entity-node initialization. To enable query-aware propagation over relational structures, we further activate relevant entity nodes in G𝑞 . Specifically, we compute semantic similarity scores between the question and the extracted OpenIE triples using the dense en-coder. Entities involved in these top-ranked triples accumulate the relevance scores, thereby being assigned higher initial weights and serving as auxiliary semantic seeds. Finally, we normalize the initial weights across all section and entity nodes in G𝑞 to formulate the final personalization prior for graph propagation. 
+
+4.2.3 Query-personalized Propagation and Evidence Selection. With the constructed graph G𝑞 and the multimodal-aware node prior, we perform query-personalized propagation to establish a global ranking over section nodes. To implement this, we employ the Personalized PageRank (PPR) algorithm [3]. Crucially, we directly utilize the multimodal prior derived in § 4.2.2 as the personaliza-tion vector to initialize the random walk. This setup directs the probability mass to diffuse from semantically and visually relevant anchors, propagating relevance through entity–relation connec-tions to aggregate complementary cues across disjoint sections. Upon convergence, the stationary distribution serves as the final relevance score. We then retain the top-𝐾 𝑠 ranked sections as the evidence set E𝑞 , passing them to the generation stage. 
+
+4.3 Evidence-guided Generation via RL 
+
+While the retrieval stage provides high-quality evidence E𝑞 , stan-dard generation models may still hallucinate or ignore the provided context. To enforce strict faithfulness, we introduce a Reinforcement Learning (RL) method that couples evidence usage with answer correctness. This mechanism guides the model to anchor its reason-ing process in the retrieved evidence, ensuring that the generated answer is correct and grounded. 
+
+4.3.1 Evidence-grounded Reward Design. To promote both answer accuracy and faithful evidence usage, we design a composite reward that evaluates the output based on three criteria: answer correctness, evidence selection, and evidence-grounded consistency. We require the model to generate structured outputs containing its reasoning process in <think> , citations in <evidence> , and the final answer in <answer> . This format allows us to parse the sampled output 𝑜 𝑖 
+
+and extract both the predicted answer ˆ 𝑦 𝑖 and the cited content. Since the evidence strings follow the specific format Document Title | Section Title: snippet , we can directly identify the predicted document title ˆ 𝑇 𝑖 and verify it against the ground-truth title 𝑇 ∗.
+
+Section reward. To guide the model to select knowledge in a tar-geted manner during reasoning, we introduce a section reward that encourages the chosen evidence to originate from the correct source document. This provides a lightweight supervision signal that pro-motes grounding without requiring strict section-level annotation. Formally, we define: 
+
+𝑟 sec (𝑜 𝑖 ) =
+
+(
+
+1, if ˆ 𝑇 𝑖 = 𝑇 ∗,
+
+0, otherwise , (9) where ˆ 𝑇 𝑖 is the document title extracted from <evidence> and 𝑇 ∗
+
+is the ground-truth supporting document title. 
+
+Accuracy reward. We formulate an evidence-grounded accuracy reward to enforce faithful reasoning by strictly coupling answer correctness with evidence validity. Specifically, the model receives credit for a correct prediction if and only if its cited evidence aligns with the ground-truth source, as defined by gating the accuracy score with the section reward: 
+
+𝑟 acc (𝑜 𝑖 ) =
+
+(
+
+1, if ˆ 𝑦 𝑖 matches 𝑦 and 𝑟 sec (𝑜 𝑖 ) = 1,
+
+0, otherwise , (10) where 𝑦 is the ground-truth answer and the matching follows the benchmark evaluation protocol. 
+
+Format Reward. To enforce strict compliance with the required output structure, we define a format reward: 
+
+𝑟 fmt (𝑜 𝑖 ) =
+
+(
+
+1, if the format is correct ,
+
+−1, otherwise . (11) Penalizing outputs that violate the required format strengthens structural compliance and speeds up alignment to the desired tem-plate, allowing subsequent optimization to focus more effectively on evidence selection and answer quality. 
+
+Overall Reward. Finally, we aggregate the components into the overall reward 𝑟 (𝑜 𝑖 ). We adopt a cascaded evaluation strategy where content quality is assessed only when the structural requirements are met: 
+
+𝑟 (𝑜 𝑖 ) =
+
+(
+
+−1 if 𝑟 fmt (𝑜 𝑖 ) = -1, 
+
+𝑟 fmt (𝑜 𝑖 ) + 𝑟 sec (𝑜 𝑖 ) + 𝑟 acc (𝑜 𝑖 ) if 𝑟 fmt (𝑜 𝑖 ) = 1. (12) This formulation jointly enforces format compliance, incentivizes precise evidence selection, and ensures faithful answer generation by gating accuracy on evidence validity. Consequently, the pol-icy is steered toward outputs that are not only correct but also strictly grounded in the retrieved knowledge, effectively mitigating ungrounded hallucinations. 
+
+> 5Shu et al.
+
+4.3.2 Training Algorithm. We leverage Group Relative Policy Op-timization (GRPO) [37] to optimize the policy 𝜋 𝜃 under our fine-grained reward constraints. GRPO is particularly well-suited for this setting as it eliminates the need for a value function critic, instead estimating the baseline from the group average of sampled outputs. By sampling a group of candidate responses per query and computing their group-wise relative advantages, GRPO iteratively updates 𝜋 𝜃 to reinforce generation trajectories that yield superior performance relative to the group baseline. 
+
+5 Experiments 5.1 Datasets and Evaluation Metrics 
+
+Encyclopedic-VQA. The Encyclopedic-VQA (E-VQA) [31] dataset is a KB-VQA benchmark that targets questions about fine-grained entities. It provides 221K distinct question–answer pairs, and each question is paired with up to five images (drawn from iNatural-ist [41] and Google Landmarks v2 [43]). The data are organized into train/validation/test splits with approximately 1M / 13.6K / 5.8K instances, and we follow prior work [18, 46] by reporting per-formance on the 5.8K test set. To support retrieval-based methods, E-VQA also releases a large Wikipedia-derived document collection (about 2M pages), where each page contains the document title, sec-tioned text, and associated images; we use this original collection in our experiments. 
+
+InfoSeek. The InfoSeek [5] dataset is a large-scale benchmark for visual information-seeking questions. It contains about 1.3M image– question–answer triplets aligned with roughly 11K Wikipedia en-tities/pages. The dataset is split into train/validation/test sets of approximately 934K/73K/348K samples. InfoSeek also provides a Wikipedia-based knowledge base with 6M Wikipedia entries. Fol-lowing common practice in prior work [18, 46], we conduct retrieval over a 100K-page subset to balance coverage and efficiency. 
+
+Evaluation Metrics. We adopt the official evaluation protocols released with each benchmark. For E-VQA, we use the BERT-based Matching (BEM) score [50] to evaluate answer quality by measuring the semantic similarity between the predicted and ground-truth answers. For InfoSeek, the evaluation follows its standard setting: we report VQA Accuracy [13, 30], which provides a more tolerant matching criterion for open-ended information-seeking answers. 
+
+5.2 Implementation Details 
+
+Retrieval Details. For coarse-grained retrieval, to ensure consis-tency in the retrieval setting, we utilize the open-source document summaries provided by OMGM [47] and encode images via EVA-CLIP-8B [40]. We perform FAISS-based retrieval in two steps: ini-tially filtering the top-40 documents via summary matching, then re-ranking to select the top-20 candidates using the fused score (Eq. 6). In the fine-grained stage, we employ LLaMa-3.3-70B-Instruct [14] for OpenIE extraction. Separately, we adopt nvidia/NVEmbed-v2 [22] as the unified encoder for all dense matching tasks, including question–section and query–triple relevance. 
+
+Generator Training Details. We utilize Qwen2.5-VL-3B/7B [2] as our backbone generators and employ LoRA [19] ( 𝑟 = 64, 𝛼 = 64) for parameter-efficient fine-tuning, keeping the vision transformer (ViT) frozen. The GRPO optimization uses a learning rate of 1 ×
+
+10 −5 with cosine decay, a micro-batch size of 2 with 2 gradient accumulation steps, and 𝐺 = 8 rollouts per query at temperature 0.9. The maximum generation length is set to 600 tokens, with maximum prompt lengths of 16,384 and 32,768 tokens for E-VQA and InfoSeek, respectively. We sample 4K instances from the E-VQA training split and 4K instances from ReflectiVA [7] for InfoSeek. All experiments are conducted on 8 NVIDIA RTX A6000 (48GB) GPUs, taking 24 hours per model, with DeepSpeed [35] ZeRO-Offload [34] and Flash-Attention 2 [9] for memory and throughput optimization. 
+
+5.3 Main Results 
+
+5.3.1 VQA Results. We conduct a comprehensive evaluation of SAFE-G on E-VQA and InfoSeek, comparing it against a broad set of baselines that cover zero-shot and retrieval-augmented baselines. For zero-shot performance, where MLLMs rely solely on the query inputs, we evaluated BLIP-2 [24], InstructBLIP [8], LLaVAv1.5 [28], and Qwen2.5-VL [2]. For retrieval-augmented methods, we com-pare frameworks including EchoSight [46], WikiLLaVA [4], MMKB-RAG [27], mKG-RAG [48], ReflectiVA [7], and CC-VQA [17]. We include VLM-PRF [18], an approach that utilizes reinforcement learning for optimization. As detailed in Tab. 1, zero-shot MLLMs struggle on both bench-marks, constrained by the static knowledge within their pre-trained parameters. This underscores the necessity of external retrieval for open-ended visual reasoning. While standard RAG baselines provide a performance lift, they often lack the mechanism to align generation strictly with the retrieved context. Recent RL-based ap-proaches like VLM-PRF have attempted to bridge this gap. However, they primarily optimize for final answer correctness, often over-looking the intermediate reasoning quality. Consequently, models may still fail to filter irrelevant noise or hallucinate despite having correct evidence. SAFE-G addresses these limitations by enforcing structure-aware filtering and evidence-grounded faithfulness. By penalizing ungrounded answers through our composite reward, we compel the model to anchor its reasoning path in verified knowl-edge sections rather than treating retrieval as a black box. In our experiments, SAFE-G achieves substantial gains across both benchmarks. On E-VQA, SAFE-G with Qwen2.5-VL-7B achieves 45.1%, surpassing the prior SOTA CC-VQA by 3.7 points and VLM-PRF by +8.0 points. Although CC-VQA also employs a strong Qwen2.5-VL-7B backbone, it lacks an explicit evidence-grounded generation mechanism, confirming that retrieval quality alone is insufficient without faithful reasoning. The improvement is even more pronounced on the smaller 3B model; notably, SAFE-G-3B (39.2%) even surpasses VLM-PRF-7B (37.1%), demonstrating that fine-grained evidence supervision effectively compensates for lim-ited model capacity. On InfoSeek, SAFE-G yields consistent im-provements over both CC-VQA ( +1.6 points) and VLM-PRF ( +1.9 
+
+and +3.9 points), setting a new SOTA across both model scales. 
+
+5.3.2 Results with Oracle Documents. To estimate the upper bound of SAFE-G, we follow prior work [7] and evaluate under an oracle setting, where the ground-truth Wikipedia page associated with each query is provided. We compared (i) a zero-shot MLLM baseline that directly consumes the full oracle document as input, and (ii) retrieval-augmented pipelines that further apply model-specific 
+
+> 6SAFE-G: Structure-aware Faithful Evidence-guided Generation for Knowledge-based Visual Question Answering
+
+Table 1: VQA accuracy on E-VQA and InfoSeek. Results for our method are highlighted in light blue. ∗ marks entries that are incomparable due to differences in knowledge bases. Method Model Retriever E-VQA InfoSeek 
+
+Single-Hop All Unseen-Q Unseen-E All 
+
+Zero-shot MLLMs 
+
+BLIP-2 [24] Flan-T5XL – 12.6 12.4 12.7 12.3 12.5 InstructBLIP [8] Flan-T5XL – 11.9 12.0 8.9 7.4 8.1 LLaVA-v1.5 [28] Vicuna-7B – 16.3 16.9 9.6 9.4 9.5 Qwen2.5-VL-3B [2] – – 17.9 19.6 20.4 21.9 21.4 Qwen2.5-VL-7B [2] – – 21.7 20.3 22.8 24.1 23.7 
+
+Retrieval-Augmented Models 
+
+DPR_V+T ∗ [23] Multi-passage BERT CLIP ViT-B/32 29.1 – – – 12.4 RORA-VLM ∗ [32] Vicuna-7B CLIP + Google Search – 20.3 25.1 27.3 –EchoSight ∗ [46] Mistral-7B/LLaMA-3-8B EVA-CLIP-8B 19.4 – – – 27.7 Wiki-LLaVA [4] Vicuna-7B CLIP ViT-L/14 + Contriever 17.7 20.3 30.1 27.8 28.9 ReflectiVA [7] LLaMA-3.1-8B EVA-CLIP-8B 28.0 29.2 40.4 39.8 40.1 MMKB-RAG [27] Qwen2-7B EVA-CLIP-8B 39.7 35.9 36.4 36.3 36.4 mKG-RAG [48] LLaMA-3.1-8B QM-Retriever 38.4 36.3 41.4 39.6 40.5 CC-VQA [17] Qwen2.5-VL-7B EVA-CLIP-8B 41.4 36.1 44.7 46.1 45.1 
+
+Retrieval-Augmented Models with RL 
+
+VLM-PRF [18] Qwen2.5-VL-3B EVA-CLIP-8B 31.1 32.4 39.7 38.8 39.0 
+
+SAFE-G (Ours) Qwen2.5-VL-3B EVA-CLIP-8B 39.2 37.9 40.9 40.8 40.9 VLM-PRF [18] Qwen2.5-VL-7B EVA-CLIP-8B 37.1 36.0 43.3 42.7 42.8 VLM-PRF [18] InternVL3-8B EVA-CLIP-8B 40.1 39.2 43.5 42.1 42.5 
+
+SAFE-G (Ours) Qwen2.5-VL-7B EVA-CLIP-8B 45.1 44.3 46.3 47.1 46.7 Table 2: VQA accuracy scores on E-VQA and InfoSeek with oracle Wikipedia pages. Method Generator E-VQA Infoseek                                       
+
+> Single-Hop Un-Q Un-E All Base model Qwen2.5-VL-7B 35.7 39.1 38.0 35.2 ReflectiVA [7] Qwen2.5-VL-7B 71.3 56.1 55.9 56.0
+> SAFE-G (Ours) Qwen2.5-VL-3B 63.1 56.7 55.5 56.1 Wiki-LLaVA [4] LLaMA-3.1-8B 46.8 51.2 50.6 50.9 ReflectiVA [7] LLaMA-3.1-8B 75.2 57.8 57.4 57.6 ReflectiVA [7] Qwen2.5-VL-7B 72.9 53.4 53.9 53.7
+> SAFE-G (Ours) Qwen2.5-VL-7B 82.8 60.0 58.8 59.4
+
+filtering over the oracle page (e.g., passage selection) before feeding the resulting context to the generator. As shown in Tab. 2, simply providing the oracle document is insufficient: the Zero-shot base-line yields only 35.7% on E-VQA, lagging behind SAFE-G by over 47 
+
+points. This massive gap indicates that standard MLLMs struggle to filter noise within long contexts. In contrast, SAFE-G benefits from its fine-grained graph refinement and RL-based optimization. Even in this high-information density setting, our method effec-tively localizes the precise evidence and enforces faithful reasoning, thereby substantially raising the achievable performance ceiling compared to prior best methods. Notably, under the same Qwen2.5-VL-7B generator, SAFE-G outperforms ReflectiVA by 9.9 points (82.8% vs. 72.9%), demonstrating that the performance gap stems not from model capacity but from superior evidence localization and faithful reasoning — capabilities that our graph refinement and evidence-gated RL are specifically designed to address. 
+
+5.3.3 Coarse-grained Hybrid Retrieval Results. As the entry point of our multi-stage pipeline, Stage 1 aims to narrow the million-scale corpus down to a manageable candidate set visually aligned with the query entity in 𝐼 𝑞 . To validate the impact of different retrieval signals, we compared several variants on E-VQA and In-foSeek (Tab. 3). Quantitatively, we find that relying on a single modality is suboptimal for coarse filtering. We observe that both 
+
+Image →Document and Image →Image achieve limited recall, sug-gesting that neither page-level textual matching nor pure visual similarity alone can capture the full cues. While retrieving against high-information-density summaries proves more effective than using full documents, single-modality approaches still struggle to cover all critical features, leading to inferior alignment. In contrast, 
+
+> 7Shu et al.
+
+Table 3: Comparison of coarse-grained retrieval performance (R@K) on E-VQA and Infoseek datasets. Method E-VQA Infoseek 
+
+R@1 R@5 R@10 R@20 R@1 R@5 R@10 R@20 I→Doc. 13.2 27.7 35.5 41.7 45.6 67.1 73.0 77.9 I→Img. 13.4 31.8 41.9 48.8 43.7 64.9 72.8 79.6 I→Sum. 19.1 41.2 49.8 58.7 52.6 73.9 80.0 84.8 
+
+I→Hyb. 25.6 44.6 53.7 59.7 56.7 76.0 81.7 85.6 Table 4: Fine-grained section retrieval performance on E-VQA. “S. R@k” denotes the recall of the top-𝑘 sections. Method S. R@1 S. R@5 S. R@10 S. R@20 EchoSight w/o train 0.0301 0.1036 0.1775 0.2901 EchoSight 0.2429 0.4034 0.4217 0.4423 SAFE-G (Ours) 0.2530 0.4020 0.4230 0.4407 our hybrid retriever consistently improves R@K on both datasets. By synergizing image–image and image–summary matching, our method exploits complementary multimodal signals, yielding a no-tably higher-quality candidate set C𝑞 for the subsequent structure-aware refinement. 
+
+5.3.4 Fine-grained Graph Retrieval Results. To compare SAFE-G’s structure-aware graph retrieval with the learning-based reranking approach EchoSight [46], which trains a task-specific Q-Former reranker on curated data, we evaluated section-level recall on the single-hop split of E-VQA under the same Stage 1 candidate pool (document Recall@20 = 44.5%). As shown in Tab. 4, applying EchoSight’s Q-Former directly without task-specific fine-tuning (w/o train ) yields drastically lower recall, confirming that learning-based re-rankers rely heavily on in-domain supervision to general-ize. In contrast, SAFE-G achieves comparable section retrieval per-formance to the fully trained EchoSight model solely through PPR-based propagation, demonstrating that competitive fine-grained evidence localization can be achieved without expensive data con-struction or model training. 
+
+5.4 Ablation Study 
+
+We conduct a comprehensive ablation study on both E-VQA and InfoSeek to validate the contribution of each component in SAFE-G. As presented in Tab. 5, we progressively remove individual modules from the full model, and the results are analyzed as follows. 
+
+(1) Multimodal Prior Drives Evidence Localization. Remov-ing the image-guided node initialization from graph propagation (row 1) reduces VQA accuracy to 42.7% on E-VQA, a drop of 2.4 points from the full model. This confirms that injecting visual-semantic relevance into the graph initialization is essential: without this multimodal prior, the propagation relies solely on text-based structural connectivity, which is insufficient to align evidence lo-calization with the visual query context in KB-VQA. 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0             
+
+> Fusion Weight
+> 0.42 0.44 0.46 0.48 0.50 0.52 0.54 0.56 0.58 0.60
+> Recall
+> E-VQA
+> Recall@10 Recall@20
+> 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0
+> Fusion Weight
+> 0.74 0.76 0.78 0.80 0.82 0.84 0.86
+> InfoSeek
+> Recall@10 Recall@20
+
+Figure 3: Retrieval performance (Recall@10/20) under differ-ent 𝛼 settings on E-VQA and Infoseek datasets. (2) Evidence-grounded Reward Enforces Faithful Reason-ing. When the base model directly consumes graph-retrieved ev-idence without any RL training (row 2), performance stands at 34.8%, confirming that high-quality retrieval alone is insufficient without faithful generation. Adding the evidence-grounded reward (row 3) lifts performance to 38.3%, showing that explicitly coupling evidence selection with answer correctness teaches the model to ground its reasoning in the retrieved context rather than relying on parametric priors. 
+
+(3) Evidence Gating Prevents Ungrounded Reward. Adding the evidence gating (row 4) further improves performance from 38.3% to 43.2%. Without this mechanism, the accuracy reward is granted regardless of evidence correctness, allowing the model to receive positive feedback from parametrically correct answers without grounding in the retrieved context. By conditioning 𝑟 acc 
+
+on 𝑟 sec = 1, this gating penalizes ungrounded answers and compels the model to cite correct evidence before receiving accuracy credit. 
+
+(4) Summaries Align Retrieval with Visual Queries. The full SAFE-G model achieves 45.1%, outperforming the w/o summary variant (43.2%) by 1.9 points. Document summaries provide compact representations that align the coarse-grained multimodal retrieval signal more closely with the visual query, yielding consistent gains across all evaluation splits on both benchmarks. 
+
+5.5 Further Analysis 
+
+5.5.1 Effect of Fusion Weight 𝛼 in Coarse-grained Retrieval. In this section, we explored the impact of the fusion weight 𝛼 in Eq. (6) on the performance of coarse-grained retrieval. As shown in Fig. 3, relying solely on one modality proves suboptimal in large-scale search tasks: pure image retrieval ( 𝛼 = 0) is often distracted by visual ambiguities (e.g., entities with similar appearances or back-grounds), while pure summary-based retrieval ( 𝛼 = 1) may struggle with semantic confusion, especially when multiple candidates share overlapping textual descriptions. When 𝛼 is small, even a modest amount of summary matching added to image-only retrieval provides a noticeable performance boost, demonstrating that textual cues help disambiguate visually similar entities. As 𝛼 increases, the performance generally contin-ues to improve, indicating that summary-level semantics provide a strong signal for identifying the correct entity, while the image modality remains essential in aligning entities. Notably, the best performance is observed at 𝛼 = 0.9, with a slight decline when 
+
+> 8SAFE-G: Structure-aware Faithful Evidence-guided Generation for Knowledge-based Visual Question Answering
+
+Table 5: Ablation study results on E-VQA and InfoSeek to validate the effectiveness of our model component. ✓indicates the inclusion of a specific module. Model Graph Retrieval Reinforcement Learning E-VQA InfoSeek 
+
+PPR w/ image w/ evidence w/ gating w/ summary Single-hop Unseen-Q Unseen-E All Qwen2.5-VL-7B 
+
+✓ ✓ ✓ ✓ 42.7 43.2 44.6 43.5 
+
+✓ ✓ 34.8 33.8 35.4 34.9 
+
+✓ ✓ ✓ 38.3 41.5 41.9 41.7 
+
+✓ ✓ ✓ ✓ 43.2 44.7 45.3 45.1 
+
+SAFE-G(Ours) ✓ ✓ ✓ ✓ ✓ 45.1 46.3 47.1 46.7 200 400 600 800 1000         
+
+> Training Steps
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> E-VQA
+> accuracy_reward
+> 200 400 600 800 1000
+> Training Steps
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> section_reward
+> 200 400 600 800 1000
+> Training Steps
+> 0.5 1.0 1.5 2.0 2.5 3.0
+> Overall_reward
+
+Figure 4: Training curves of SAFE-G-7B on E-VQA, showing the trajectories of 𝑟 acc , 𝑟 sec , and overall reward 𝑟 . All metrics increase synchronously and stabilize upon convergence, validating the effectiveness of our evidence-gated reward design. Table 6: VQA accuracy on the OK-VQA benchmark. SAFE-G is evaluated at both 3B and 7B model scales and compared against zero-shot, RAG, and RL-based baselines. Method Retriever Model OK-VQA 
+
+Base model – Qwen2.5-VL-7B 64.7 KU-RAG [52] – LLaVA-Next-7B 73.1 MMKB-RAG [27] PreFLMR LLaMA-3.1-8B 65.4 VLM-PRF [18] EVA-CLIP-8B Qwen2.5-VL-3B 68.6 
+
+SAFE-G (Ours) EVA-CLIP-8B Qwen2.5-VL-3B 70.2 VLM-PRF [18] EVA-CLIP-8B Qwen2.5-VL-7B 77.8 
+
+SAFE-G (Ours) EVA-CLIP-8B Qwen2.5-VL-7B 79.8 
+
+moving to the text-only setting ( 𝛼 = 1). This suggests that while summary matching is the dominant factor, retaining a small con-tribution from image similarity is beneficial for robust retrieval. Therefore, we set 𝛼 = 0.9 in all experiments unless otherwise stated. 
+
+5.5.2 Results on more benchmarks. To further validate the general-izability of SAFE-G beyond the E-VQA and InfoSeek benchmarks, we evaluate on OK-VQA [30], a widely adopted benchmark re-quiring external world knowledge. As shown in Tab. 6, SAFE-G consistently outperforms all baselines at both model scales. With Qwen2.5-VL-7B, SAFE-G achieves 79.8%, surpassing the strongest baseline VLM-PRF by 2.0 points and outperforming the zero-shot base model by a large margin of 15.1 points. With the smaller 3B backbone, SAFE-G still achieves 70.2%, exceeding VLM-PRF by 1.6 
+
+points. These results demonstrate that SAFE-G’s structure-aware retrieval and evidence-grounded generation strategy transfer effec-tively to a different knowledge-intensive benchmark, confirming the broad applicability of the proposed framework. 
+
+5.5.3 Efficiency Analysis. SAFE-G achieves competitive inference efficiency while requiring no model training. At query time, the online pipeline consists of coarse retrieval (3.67s) and PPR-based graph propagation (1.03s), totaling 4.70s per query — approximately 34% higher than a representative trainable RAG baseline. However, this modest overhead is justified by the elimination of training costs: methods such as EchoSight [46] require constructing curated contrastive training data and approximately 40 GPU-hours of fine-tuning before deployment. The offline preprocessing costs of SAFE-G (OpenIE extraction and graph indexing) are amortized over the corpus before serving and do not affect query-time latency. All components are built upon open-source models, making the full pipeline locally deployable without proprietary API dependencies or external service cost. 
+
+5.5.4 Effectiveness of Reinforcement Learning. To clarify the source of performance gains, we compare three training paradigms under identical graph-retrieved evidence: zero-shot inference, supervised 
+
+> 9
+
+Shu et al. Summary: The Residence of Biscainhos, also known as Casa dos Biscainhos or Museu dos  
+
+> Biscainhos, is a historical manor located in Braga, Portugal. Constructed in the late 17th
+> century by Dr. Constantino Ribeiro do Lago …
+> Section Title: History: In 1665, Maria da Silva e Sousa married Dr. Constantino Ribeiro do
+> Lago (1619 -1686), who was one of the most important civil personalities in Braga. He was a
+> Knight in the Order of Christ, alcalde of Ervededo…
+
+SAFE -G Model Reasoning: 
+
+<think>  The question asks who designed the palace shown in the image. The image depicts a palace with a grand staircase and ornate 
+
+details, which aligns with the Mateus Palace described in the first article. The Mateus Palace is mentioned in the summary an d
+
+detailed sections of the article, and it states that the palace was designed by architect Nicolau Nasoni . Therefore, the relevant article 
+
+and section are Mateus Palace | Description: Architect Nicolau Nasoni was involved in the project for the construction of the  pa lace. 
+
+</think> 
+
+<evidence>  Mateus Palace  | : Description : Architect Nicolau Nasoni was involved in the project for the construction of the 
+
+palace .</evidence> 
+
+<answer>  Nicolau Nasoni  </answer> 
+
+Question : Who designed this palace? 
+
+Biscainhos Museum   
+
+> Summary: The Mateus Palace is a historic palace located in the civil parish of Mateus.
+> Construction of the palace began in the 18th century, under the direction of architect Nicolau
+> Nasoni …
+> Section Title: Description: The winery buildings date from the 16th century and were
+> modified in the 1800s. Architect Nicolau Nasoni was involved in the project for the
+> construction of the palace …
+
+Mateus Palace Sim. Score = 0.311 
+
+Sim. Score = 0.339 Summary :Socola Monastery, also known as Schimbarea la Față, is a Romanian Orthodox  
+
+> monastery located in Iaşi, Romania. Founded in 1562 by Moldavian Prince Alexandru
+> Lăpușneanu …
+> Section Title: Features: In its earliest state, the Socola Monastery church, built entirely in
+> stone, was only as long as its present -day nave, featuring a single tower and narrow windows
+> placed high on each side wall. The design closely…
+
+SAFE -G Model Reasoning: 
+
+<think>  The image shows a large, ornate building with a distinctive architectural style, resembling a mausoleum. The question asks 
+
+who found this building. Given the architectural style and the context provided in the image,  it is likely referring to the Curtea de 
+
+Argeș Cathedral, as the image appears to depict a similar structure .The relevant passage is from the "Curtea de Argeș Cathedral" 
+
+article, specifically the "Curtea de Argeș Cathedral | Inscriptions" section, which discusses the founders of the cathedral.  The  text 
+
+mentions  Prince Neagoe Basarab and his wife Milica Despina of Wallachia as the founders .Therefore, the answer is Prince Neagoe 
+
+Basarab. 
+
+</ think> 
+
+<evidence>  Curtea de Argeș Cathedral  : Inscriptions : The founders were Prince Neagoe Basarab (1512 –1521) and his wife Milica 
+
+Despina of Wallachia. </ evidence> 
+
+<answer>  Prince Neagoe Basarab </ answer> 
+
+Question : Who found this building? 
+
+Socola Monastery    
+
+> Summary :The Cathedral of Curtea de Argeș, constructed in the early 16th century, is a
+> prominent Romanian Orthodox cathedral located in Curtea de Argeș, Romania. Dedicated to
+> the Dormition of the Mother of God …
+> Section Title: Inscriptions: The archives of the cathedral were plundered by Hungarians and
+> Turks, but several inscriptions are left. One tablet records that the founders were Prince
+> Neagoe Basarab (1512 –1521) and his wife Milica …
+
+Curtea de Argeș Cathedral Sim. Score = 0.342 
+
+Sim. Score = 0.321 
+
+Figure 5: Qualitative case studies on E-VQA (left) and InfoSeek (right). SAFE-G corrects retrieval bias via graph propagation and precisely localizes target evidence sections, with answers faithfully grounded in the cited evidence. Table 7: Comparison of training paradigms on E-VQA and InfoSeek, isolating the contribution of RL over zero-shot inference and supervised fine-tuning (SFT). Method Training E-VQA Infoseek 
+
+Single-Hop Unseen-Q Unseen-E All SAFE-G Zero-shot 34.8 33.8 35.4 34.9 SAFE-G SFT 40.4 41.7 42.9 42.3 
+
+SAFE-G (Ours) RL 45.1 46.3 47.1 46.7 
+
+fine-tuning (SFT), and our GRPO-based RL, all using the same train-ing set size. As shown in Tab. 7, the zero-shot variant achieves 34.8% on E-VQA and 34.9% on InfoSeek, confirming that high-quality graph retrieval alone provides a strong foundation. SFT further im-proves to 40.4% and 42.3% respectively, demonstrating that training with evidence-grounded annotations helps the model better utilize the retrieved context. However, RL outperforms SFT by 4.7 points on E-VQA and 4.4 points on InfoSeek. This gap arises because SFT trains the model to mimic fixed annotated reasoning trajectories, which may be suboptimal or inconsistent. In contrast, GRPO ex-plores diverse generation trajectories and reinforces only those that simultaneously cite correct evidence and produce accurate answers, allowing the model to discover more effective reasoning strategies beyond what static supervision can provide. 
+
+5.5.5 Analysis of Training Dynamics. We analyze the training dy-namics of the reward functions as shown in Fig. 4. In the initial phase, the accuracy reward 𝑟 acc (𝑜 𝑖 ) remains low as the model strug-gles with precise document retrieval and evidence faithfulness. This is primarily due to our strict evidence-gating mechanism: when 
+
+𝑟 sec = 0, the accuracy reward is suppressed regardless of answer correctness, forcing the model to first master evidence localization before receiving positive accuracy feedback. As training progresses, all three metrics— 𝑟 acc , 𝑟 sec , and the overall reward—increase syn-chronously, indicating that the model gradually masters the com-plete reasoning chain: identifying the visual entity, mapping it to 
+
+Table 8: Sensitivity of SAFE-G to RL training data size on E-VQA (Single-hop), evaluated at both 3B and 7B model scales with training set sizes ranging from 2K to 6K samples. Method Model 2K 3K 4K 5K 6K 
+
+SAFE-G Qwen2.5-VL-3B 37.2 38.4 39.2 39.7 39.5 SAFE-G Qwen2.5-VL-7B 43.5 44.3 45.1 44.9 45.3 the correct document, and pinning down the specific evidence sec-tion. By the final stage, the reward curves converge and stabilize, validating that our carefully designed reward mechanism effectively guides the model to perform evidence-grounded answer generation. 
+
+5.5.6 Sensitivity to Training Data Size. To investigate the sensitiv-ity of SAFE-G to the amount of RL training data, we finally vary the training set size from 2K to 6K samples and report E-VQA perfor-mance for both model scales in Tab. 8. Both SAFE-G-3B and SAFE-G-7B exhibit clear diminishing returns: SAFE-G-7B improves from 43.5% at 2K to 45.1% at 4K, but plateaus beyond that point (44.9% at 5K, 45.3% at 6K). A similar trend holds for SAFE-G-3B, which reaches near-peak performance at 5K. This efficiency stems from the nature of RL post-training: rather than memorizing question-answer patterns, RL teaches the model how to ground its reasoning in retrieved evidence and extract the correct answer from exter-nal context. Once this reasoning capability is acquired, additional training data yields diminishing returns. These results confirm that SAFE-G is highly sample-efficient, and all main experiments in this paper adopt the 4K setting as the default. 
+
+5.6 Case Study 
+
+To qualitatively evaluate SAFE-G, we present representative cases from E-VQA and InfoSeek in Fig. 5. As shown in Fig. 5 (left), the Stage 1 retriever initially ranks a visually similar distractor docu-ment higher than the gold document. SAFE-G’s structure-aware 
+
+10 SAFE-G: Structure-aware Faithful Evidence-guided Generation for Knowledge-based Visual Question Answering 
+
+graph retrieval then propagates multimodal relevance across entity-linked sections, re-ranking the candidate set and successfully el-evating the correct evidence to the top. The model subsequently constructs a coherent reasoning chain strictly grounded in the re-trieved section, producing the correct answer. This demonstrates SAFE-G’s ability to overcome retrieval bias through fine-grained visual-textual consistency verification. As shown in Fig. 5 (right), the InfoSeek question requires locating a specific piece of information buried deep within a long Wikipedia article (“Inscriptions” section). SAFE-G’s PPR-based propagation precisely identifies this section by aggregating cross-passage struc-tural cues. The evidence-grounded reward then ensures the model explicitly cites the section in <evidence> before deriving the final answer, preventing the model from relying on parametric priors. Together, these cases validate that coupling training-free graph re-trieval with evidence-gated RL effectively suppresses hallucinations and anchors responses to verified knowledge. 
+
+6 Conclusion 
+
+In this paper, we presented SAFE-G, a unified framework designed to address the critical challenges of retrieval noise and ungrounded hallucinations in Knowledge-based VQA. By integrating a structure-aware graph retrieval mechanism with a faithfulness-driven rein-forcement learning strategy, our approach effectively isolates pre-cise evidence without costly re-ranker training, and enforces strict adherence to the retrieved context during generation. Specifically, our training-free graph retrieval leverages Personalized PageRank with multimodal priors to aggregate cross-passage evidence, while our evidence-grounded GRPO strategy compels the model to anchor its reasoning in verified knowledge by coupling answer correctness with evidence selection. Extensive experiments on Encyclopedic-VQA, InfoSeek, and OK-VQA demonstrate that SAFE-G establishes a new state-of-the-art across benchmarks, outperforming existing baselines by substantial margins. 
+
+References 
+
+[1] Stanislaw Antol, Aishwarya Agrawal, Jiasen Lu, Margaret Mitchell, Dhruv Batra, C Lawrence Zitnick, and Devi Parikh. 2015. Vqa: Visual question answering. In 
+
+Proceedings of the IEEE international conference on computer vision . 2425–2433. [2] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, et al. 2025. Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923 (2025). [3] Sergey Brin and Lawrence Page. 1998. The anatomy of a large-scale hypertextual web search engine. Computer networks and ISDN systems 30, 1-7 (1998), 107–117. [4] Davide Caffagni, Federico Cocchi, Nicholas Moratelli, Sara Sarto, Marcella Cornia, Lorenzo Baraldi, and Rita Cucchiara. 2024. Wiki-llava: Hierarchical retrieval-augmented generation for multimodal llms. In Proceedings of the IEEE/CVF Con-ference on Computer Vision and Pattern Recognition . 1818–1826. [5] Yang Chen, Hexiang Hu, Yi Luan, Haitian Sun, Soravit Changpinyo, Alan Ritter, and Ming-Wei Chang. 2023. Can pre-trained vision and language models answer visual information-seeking questions? arXiv preprint arXiv:2302.11713 (2023). [6] Tianzhe Chu, Yuexiang Zhai, Jihan Yang, Shengbang Tong, Saining Xie, Dale Schuurmans, Quoc V Le, Sergey Levine, and Yi Ma. 2025. Sft memorizes, rl generalizes: A comparative study of foundation model post-training. arXiv preprint arXiv:2501.17161 (2025). [7] Federico Cocchi, Nicholas Moratelli, Marcella Cornia, Lorenzo Baraldi, and Rita Cucchiara. 2025. Augmenting multimodal llms with self-reflective tokens for knowledge-based visual question answering. In Proceedings of the Computer Vision and Pattern Recognition Conference . 9199–9209. [8] Wenliang Dai, Junnan Li, Dongxu Li, Anthony Tiong, Junqi Zhao, Weisheng Wang, Boyang Li, Pascale N Fung, and Steven Hoi. 2023. Instructblip: Towards general-purpose vision-language models with instruction tuning. Advances in neural information processing systems 36 (2023), 49250–49267. [9] Tri Dao. 2023. Flashattention-2: Faster attention with better parallelism and work partitioning. arXiv preprint arXiv:2307.08691 (2023). [10] Jiaqi Deng, Zonghan Wu, Huan Huo, and Guandong Xu. 2025. A Comprehensive Survey of Knowledge-Based Vision Question Answering Systems: The Lifecycle of Knowledge in Visual Reasoning Task. arXiv preprint arXiv:2504.17547 (2025). [11] Lianghao Deng, Yuchong Sun, Shizhe Chen, Ning Yang, Yunfeng Wang, and Rui-hua Song. 2025. MuKA: Multimodal knowledge augmented visual information-seeking. In Proceedings of the 31st International Conference on Computational Linguistics . 9675–9686. [12] Feng Gao, Qing Ping, Govind Thattai, Aishwarya Reganti, Ying Nian Wu, and Prem Natarajan. 2022. Transform-retrieve-generate: Natural language-centric outside-knowledge visual question answering. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition . 5067–5077. [13] Yash Goyal, Tejas Khot, Douglas Summers-Stay, Dhruv Batra, and Devi Parikh. 2017. Making the v in vqa matter: Elevating the role of image understanding in visual question answering. In Proceedings of the IEEE conference on computer vision and pattern recognition . 6904–6913. [14] Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Ab-hishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schel-ten, Alex Vaughan, et al. 2024. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 (2024). [15] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi Wang, Xiao Bi, et al. 2025. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 (2025). [16] Bernal Jiménez Gutiérrez, Yiheng Shu, Weijian Qi, Sizhe Zhou, and Yu Su. 2025. From rag to memory: Non-parametric continual learning for large language models. arXiv preprint arXiv:2502.14802 (2025). [17] Yuyang Hong, Jiaqi Gu, Yujin Lou, Lubin Fan, Qi Yang, Ying Wang, Kun Ding, Yue Wu, Shiming Xiang, and Jieping Ye. 2026. CC-VQA: Conflict-and Correlation-Aware Method for Mitigating Knowledge Conflict in Knowledge-Based Visual Question Answering. arXiv preprint arXiv:2602.23952 (2026). [18] Yuyang Hong, Jiaqi Gu, Qi Yang, Lubin Fan, Yue Wu, Ying Wang, Kun Ding, Shim-ing Xiang, and Jieping Ye. 2025. Knowledge-based Visual Question Answer with Multimodal Processing, Retrieval and Filtering. arXiv preprint arXiv:2510.14605 
+
+(2025). [19] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, Weizhu Chen, et al. 2022. Lora: Low-rank adaptation of large language models. ICLR 1, 2 (2022), 3. [20] Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan Arik, Dong Wang, Hamed Zamani, and Jiawei Han. 2025. Search-r1: Training llms to reason and leverage search engines with reinforcement learning. arXiv preprint arXiv:2503.09516 (2025). [21] Jeff Johnson, Matthijs Douze, and Hervé Jégou. 2019. Billion-scale similarity search with GPUs. IEEE Transactions on Big Data 7, 3 (2019), 535–547. [22] Chankyu Lee, Rajarshi Roy, Mengyao Xu, Jonathan Raiman, Mohammad Shoeybi, Bryan Catanzaro, and Wei Ping. 2024. Nv-embed: Improved techniques for training llms as generalist embedding models. arXiv preprint arXiv:2405.17428 
+
+(2024). [23] Paul Lerner, Olivier Ferret, and Camille Guinaudeau. 2024. Cross-modal retrieval for knowledge-based visual question answering. In European Conference on Information Retrieval . Springer, 421–438. [24] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. 2023. Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In International conference on machine learning . PMLR, 19730–19742. [25] Weizhe Lin and Bill Byrne. 2022. Retrieval augmented visual question answering with outside knowledge. arXiv preprint arXiv:2210.03809 (2022). [26] Weizhe Lin, Jingbiao Mei, Jinghong Chen, and Bill Byrne. 2024. Preflmr: Scal-ing up fine-grained late-interaction multi-modal retrievers. arXiv preprint arXiv:2402.08327 (2024). [27] Zihan Ling, Zhiyao Guo, Yixuan Huang, Yi An, Shuai Xiao, Jinsong Lan, Xiaoy-ong Zhu, and Bo Zheng. 2025. MMKB-RAG: A Multi-Modal Knowledge-Based Retrieval-Augmented Generation Framework. arXiv preprint arXiv:2504.10074 
+
+(2025). [28] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. 2024. Improved baselines with visual instruction tuning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition . 26296–26306. [29] Shuochen Liu, Pengfei Luo, Chao Zhang, Yuhao Chen, Haotian Zhang, Qi Liu, Xin Kou, Tong Xu, and Enhong Chen. 2025. Look as You Think: Unifying Reasoning and Visual Evidence Attribution for Verifiable Document RAG via Reinforcement Learning. arXiv preprint arXiv:2511.12003 (2025). [30] Kenneth Marino, Mohammad Rastegari, Ali Farhadi, and Roozbeh Mottaghi. 2019. Ok-vqa: A visual question answering benchmark requiring external knowledge. In Proceedings of the IEEE/cvf conference on computer vision and pattern recognition .3195–3204. [31] Thomas Mensink, Jasper Uijlings, Lluis Castrejon, Arushi Goel, Felipe Cadar, Howard Zhou, Fei Sha, André Araujo, and Vittorio Ferrari. 2023. Encyclopedic vqa: Visual questions about detailed properties of fine-grained categories. In 11 Shu et al. 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision . 3113– 3124. [32] Jingyuan Qi, Zhiyang Xu, Rulin Shao, Yang Chen, Jin Di, Yu Cheng, Qifan Wang, and Lifu Huang. 2024. Rora-vlm: Robust retrieval-augmented vision language models. arXiv preprint arXiv:2410.08876 (2024). [33] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sand-hini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. 2021. Learning transferable visual models from natural language supervision. In 
+
+International conference on machine learning . PmLR, 8748–8763. [34] Samyam Rajbhandari, Olatunji Ruwase, Jeff Rasley, Shaden Smith, and Yuxiong He. 2021. Zero-infinity: Breaking the gpu memory wall for extreme scale deep learning. In Proceedings of the international conference for high performance computing, networking, storage and analysis . 1–14. [35] Jeff Rasley, Samyam Rajbhandari, Olatunji Ruwase, and Yuxiong He. 2020. Deep-speed: System optimizations enable training deep learning models with over 100 billion parameters. In Proceedings of the 26th ACM SIGKDD international conference on knowledge discovery & data mining . 3505–3506. [36] Dustin Schwenk, Apoorv Khandelwal, Christopher Clark, Kenneth Marino, and Roozbeh Mottaghi. 2022. A-okvqa: A benchmark for visual question answering using world knowledge. In European conference on computer vision . Springer, 146–162. [37] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 (2024). [38] Haozhan Shen, Peng Liu, Jingcheng Li, Chunxin Fang, Yibo Ma, Jiajia Liao, Qiaoli Shen, Zilun Zhang, Kangjia Zhao, Qianqian Zhang, et al. 2025. Vlm-r1: A stable and generalizable r1-style large vision-language model. arXiv preprint arXiv:2504.07615 (2025). [39] Huatong Song, Jinhao Jiang, Yingqian Min, Jie Chen, Zhipeng Chen, Wayne Xin Zhao, Lei Fang, and Ji-Rong Wen. 2025. R1-searcher: Incentivizing the search capability in llms via reinforcement learning. arXiv preprint arXiv:2503.05592 
+
+(2025). [40] Quan Sun, Jinsheng Wang, Qiying Yu, Yufeng Cui, Fan Zhang, Xiaosong Zhang, and Xinlong Wang. 2024. Eva-clip-18b: Scaling clip to 18 billion parameters. 
+
+arXiv preprint arXiv:2402.04252 (2024). [41] Grant Van Horn, Elijah Cole, Sara Beery, Kimberly Wilber, Serge Belongie, and Oisin Mac Aodha. 2021. Benchmarking representation learning for natural world image collections. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition . 12884–12893. [42] Peng Wang, Qi Wu, Chunhua Shen, Anthony Dick, and Anton Van Den Hengel. 2017. Fvqa: Fact-based visual question answering. IEEE transactions on pattern analysis and machine intelligence 40, 10 (2017), 2413–2427. [43] Tobias Weyand, Andre Araujo, Bingyi Cao, and Jack Sim. 2020. Google landmarks dataset v2-a large-scale benchmark for instance-level recognition and retrieval. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition .2575–2584. [44] Qi Wu, Damien Teney, Peng Wang, Chunhua Shen, Anthony Dick, and Anton Van Den Hengel. 2017. Visual question answering: A survey of methods and datasets. Computer Vision and Image Understanding 163 (2017), 21–40. [45] Alexandros Xenos, Themos Stafylakis, Ioannis Patras, and Georgios Tzimiropou-los. 2023. A simple baseline for knowledge-based visual question answering. 
+
+arXiv preprint arXiv:2310.13570 (2023). [46] Yibin Yan and Weidi Xie. 2024. EchoSight: Advancing visual-language models with Wiki knowledge. arXiv preprint arXiv:2407.12735 (2024). [47] Wei Yang, Jingjing Fu, Rui Wang, Jinyu Wang, Lei Song, and Jiang Bian. 2025. OMGM: Orchestrate Multiple Granularities and Modalities for Efficient Multi-modal Retrieval. arXiv preprint arXiv:2505.07879 (2025). [48] Xu Yuan, Liangbo Ning, Wenqi Fan, and Qing Li. 2025. mKG-RAG: Multimodal Knowledge Graph-Enhanced RAG for Visual Question Answering. arXiv preprint arXiv:2508.05318 (2025). [49] Haotian Zhang, Shuanghong Shen, Bihan Xu, Zhenya Huang, Jinze Wu, Jing Sha, and Shijin Wang. 2024. Item-difficulty-aware learning path recommenda-tion: From a real walking perspective. In Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining . 4167–4178. [50] Tianyi Zhang, Varsha Kishore, Felix Wu, Kilian Q Weinberger, and Yoav Artzi. 2019. Bertscore: Evaluating text generation with bert. arXiv preprint arXiv:1904.09675 (2019). [51] Tao Zhang, Ziqi Zhang, Zongyang Ma, Yuxin Chen, Zhongang Qi, Chunfeng Yuan, Bing Li, Junfu Pu, Yuxuan Zhao, Zehua Xie, et al. 2024. mR 2AG: Multimodal Retrieval-Reflection-Augmented Generation for Knowledge-Based VQA. arXiv preprint arXiv:2411.15041 (2024). [52] Zhengxuan Zhang, Yin Wu, Yuyu Luo, and Nan Tang. 2025. Fine-grained retrieval-augmented generation for visual question answering. arXiv e-prints (2025), arXiv–2502. 12

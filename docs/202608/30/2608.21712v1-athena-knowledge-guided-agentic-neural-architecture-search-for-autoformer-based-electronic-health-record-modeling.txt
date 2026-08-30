@@ -1,0 +1,895 @@
+Title: ATHENA: Knowledge-guided agentic neural architecture search for AutoFormer-based electronic health record modeling
+
+URL Source: https://arxiv.org/pdf/2608.21712v1
+
+Published Time: Tue, 25 Aug 2026 00:25:20 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# ATHENA: Knowledge-guided agentic neural architecture search for AutoFormer-based electronic health record modeling 
+
+## Deyi Li a,∗,1 , Qi Xu a,1 , Lingyao Li b, Tiansheng Wang c,d , Muxuan Liang e and Mei Liu a,∗∗ 
+
+> a
+
+Department of Health Outcomes and Biomedical Informatics, College of Medicine, University of Florida, Gainesville, FL, USA 
+
+> b
+
+College of Information Science, University of Arizona, Tucson, AZ, USA 
+
+> c
+
+Department of Pharmaceutical Health Outcomes and Policy, College of Pharmacy, University of Houston, Houston, TX, USA 
+
+> d
+
+Department of Epidemiology, Gillings School of Global Public Health, University of North Carolina at Chapel Hill, Chapel Hill, NC, USA 
+
+> e
+
+Department of Biostatistics, University of Texas MD Anderson Cancer Center, Houston, TX, USA 
+
+A R T I C L E I N F O 
+
+Keywords :Electronic health records Clinical predictive modeling Neural architecture search Knowledge transfer Multi-agent systems 
+
+A B S T R A C T 
+
+Transformer-based models are widely used for clinical prediction from electronic health records (EHRs), yet their architectures still require substantial manual tuning, and the optimal configuration may vary across tasks and hospitals. Neural architecture search (NAS) automates architecture design, but conventional methods are computationally costly for Transformer-based EHR models. Recent large language model (LLM)-guided NAS methods reduce manual search design but typically conduct each search independently, without reusing architecture knowledge across hospitals. In this study, we propose ATHENA ( Agentic Transfer across Hospitals for EHR Neural Architecture Search), a knowledge-guided agentic NAS framework for Transformer-based EHR modeling. ATHENA uses a weight-sharing supernet that is pretrained once per hospital, allowing candidate architectures to be instantiated as inherited subnetworks and evaluated through fine-tuning rather than independent pretraining. It also incorporates a two-layer cross-hospital architecture prior. The first layer retrieves high-performing architecture examples from source sites based on task descriptors, while the second estimates the effects of architectural components using SHapley Additive exPlanations (SHAP)-based meta-regression. These priors guide a multi-agent LLM search together with validation feedback from the target hospital. Across six clinical prediction tasks and two independent health systems, ATHENA matches or outperforms four NAS baselines in 9 of 12 hospital–task evaluations at a search budget of 30. It also shows more consistent architecture selection across repeated searches. ATHENA provides a practical approach for reducing manual architecture tuning in Transformer-based EHR modeling. Code is publicly available at https://github.com/GatorAIM/ATHENA .
+
+## 1. Introduction 
+
+The increasing availability of large-scale electronic health record (EHR) data has motivated the development of models that can learn predictive patterns directly from routinely collected clinical records [1]. Deep learning has become a standard approach for these tasks, with Transformer-based models increasingly adopted for their ability to capture dependencies among medical events across a patient’s longi-tudinal record [2]. A common two-stage paradigm consists of pretraining a Transformer backbone on large-scale EHR data to learn generalizable clinical patterns, followed by fine-tuning to adapt the model to task-specific objectives [3–6]. Despite these advances, Transformer architectures for EHR modeling are still largely determined through manual design, relying on prior experience and trial-and-error. The optimal architecture can vary across prediction tasks and health systems, as differences in cohort composition, clinical workflows, and outcome characteristics may favor different architectural configurations [7]. Consequently, a single hand-designed architecture may not perform consistently well across tasks and sites, whereas manually redesigning the 
+
+> ∗
+
+Corresponding author 
+
+> ∗∗
+
+Corresponding author  
+
+> lideyi@ufl.edu
+
+(D. Li); mei.liu@ufl.edu (M. Liu) 
+
+> ORCID
+
+(s): 0009-0004-7039-7303 (D. Li); 0000-0002-8036-2110 (M. Liu) 
+
+> 1
+
+These authors contributed equally to this work. 
+
+architecture for each new setting is computationally costly and fails to systematically leverage knowledge gained from previous settings. Neural architecture search (NAS) addresses this problem by treating architecture design as an optimization problem over a predefined search space [8, 9]. Classical NAS ap-proaches, including reinforcement learning [10], evolutionary algorithm (EA) [11], differentiable search [12], and Bayesian optimization [13], have been successfully applied to vision tasks. However, evaluating each candidate architecture can require substantial training. This is particularly problematic for Transformer-based EHR modeling, where pretraining on large longitudinal EHR datasets can dominate the computa-tional cost of model development [3]. Weight-sharing NAS reduces this cost by training a single over-parameterized su-pernet whose subnetworks share parameters, allowing candi-date architectures to be instantiated as inherited subnetworks and evaluated through fine-tuning rather than independently pretrained from scratch [14]. This makes weight-sharing NAS particularly well suited to architecture search for Transformer-based EHR models. Recent work has also explored using large language models (LLMs) to guide NAS [15–18]. Given descriptions of the task, search space, and computational budget, an LLM can propose new architectural configurations, providing a flexible alternative to manually designed search heuristics. However, existing LLM-guided approaches generally treat 
+
+D. Li et al.: Preprint submitted to Elsevier Page 1 of 16 arXiv:2608.21712v1 [cs.AI] 22 Aug 2026 ATHENA: Knowledge-guided agentic NAS for EHR Transformers 
+
+each search as an independent optimization problem. When architecture search is repeated across clinical tasks or health systems, information from previous searches is not explicitly retained as a reusable prior. Consequently, each new search must rediscover useful architectural patterns through its own evaluations, even when related tasks or sites have already been explored. In this study, we propose ATHENA ( Agentic Transfer across Hospitals for EHR Neural Architecture Search), a knowledge-guided agentic NAS framework for Transformer-based EHR modeling. ATHENA addresses the two limi-tations identified above through weight-sharing evaluation and a cross-hospital architecture prior. Specifically, we construct an AutoFormer-style supernet [19] that is pretrained once for each hospital and reused throughout architecture search, allowing each candidate architecture to inherit the corresponding subnetwork weights and be evaluated through fine-tuning rather than independent pretraining. ATHENA then combines a multi-agent LLM search with a two-layer prior that transfers architectural knowledge from previously studied hospitals. The first layer retrieves high-performing ar-chitectures from source sites based on task descriptors, while the second estimates the effects of architectural components using SHapley Additive exPlanations (SHAP)-based meta-regression. Together, these components allow the search to build on previously observed architectural patterns rather than treating each hospital–task pair as an independent optimization problem. Across six clinical prediction tasks and two independent health systems, ATHENA achieves up to a 15.3-fold speedup in architecture evaluation compared with conventional inde-pendent pretraining and fine-tuning. With a limited search budget, ATHENA matches or outperforms conventional and LLM-guided NAS baselines while exhibiting more consistent architecture selection across repeated searches. 
+
+## 2. Related work 
+
+2.1. Transformer-based EHR modeling 
+
+The longitudinal and irregular nature of EHR data makes modeling patient trajectories particularly challenging. Trans-former architectures [20] have consequently become widely used for EHR modeling because of their ability to capture dependencies across longitudinal clinical events. BEHRT [21] represents medical codes as tokens and models longi-tudinal patient histories using Transformer encoders, while Med-BERT [3] demonstrates the effectiveness of large-scale pretraining on millions of patient records. Subsequent work has incorporated richer temporal and clinical information into Transformer-based EHR models. CEHR-BERT [22] introduces temporal-aware embeddings and auxiliary learning objectives, whereas Hi-BEHRT [23] employs a hierarchical architecture to capture long-range dependencies in extended patient histories. More recent studies have explored Transformer architectures beyond the conventional encoder-only design. TransformEHR [4] adopts an encoder–decoder architecture with generative pretraining objectives for longitudinal clinical modeling, while Foresight [24] employs GPT-style autoregressive pretraining to model patient trajectories. CLMBR [25] learns transferable patient representations through autoregressive next-code prediction. Collectively, these studies demonstrate the value of pretraining and contextualized representation learning for clinical prediction. Despite these advances, the architec-tures of Transformer-based EHR models remain largely handcrafted, with model configurations typically selected through manual tuning or limited hyperparameter search. This limitation motivates the use of NAS to systematically explore Transformer architectures for downstream clinical prediction tasks. 
+
+2.2. NAS for healthcare models 
+
+NAS automates architecture design by defining a search space, a search strategy, and a performance-estimation scheme [26]. Recent advances, including gradient-based optimization [12] and weight-sharing supernet methods [14], have substantially reduced the computational cost of architecture search. NAS has also been extended to Transformer architectures through methods such as Evolved Transformer [27], HAT [28], NAS-BERT [29], AutoBERT-Zero [30], and Primer [31]. However, these methods were primarily developed for natural-language and vision tasks and do not explicitly account for the characteristics of longitudinal EHR data. Within healthcare, NAS has been applied predominantly to medical imaging [18, 32] and multimodal learning [33, 34]. For structured EHR data, existing efforts have focused mainly on modality fusion and multi-task prediction. MUFASA [33] and AutoFM [34] search modality-specific architectures and fusion strategies for integrating longitudinal EHR records with clinical notes, while recent work has also explored NAS for multi-task disease prediction [34]. To our knowledge, existing EHR NAS approaches primarily target fusion or task-sharing structures rather than the internal architecture of Transformer backbones. Consequently, architecture search for Transformer backbones tailored to different clinical prediction tasks remains largely unexplored. 
+
+2.3. LLM-driven NAS 
+
+Recent work has explored the use of LLMs for NAS, lever-aging architectural knowledge encoded during pretraining to generate and refine candidate architectures. Early studies demonstrated that LLMs can serve as architecture generators or search controllers within NAS pipelines. GENIUS [16] employs an LLM as a black-box architecture optimizer that iteratively proposes and refines candidate architectures through natural-language interaction, while EvoPrompting [35] integrates LLM-based mutation and crossover operators into an evolutionary search framework. Subsequent work has further combined LLM reasoning with conventional search strategies. GPT-NAS [36] couples GPT-guided architecture generation with evolutionary optimization, whereas LLMatic [37] integrates LLM-based code generation with quality-diversity search to discover diverse and robust neural archi-tectures.   
+
+> D. Li et al.: Preprint submitted to Elsevier Page 2 of 16 ATHENA: Knowledge-guided agentic NAS for EHR Transformers
+
+Applications of LLM-driven NAS to healthcare remain limited and have focused primarily on medical imaging. For example, a recent framework for histopathology diagnosis uses an LLM to iteratively refine the search space of a one-shot NAS pipeline, enabling the discovery of lightweight and transferable models across multiple pathology tasks [18]. Despite these advances, LLM-driven NAS has not been systematically explored for longitudinal EHR modeling. Moreover, existing methods typically treat each architecture search as an independent optimization problem and do not ex-plicitly reuse architectural knowledge from previous searches across related clinical tasks or health systems. ATHENA extends this emerging paradigm by combining multi-agent LLM search with retrieved high-performing architectures and cross-hospital architecture-effect priors for Transformer-based EHR model design. 
+
+## 3. Methods 
+
+3.1. Overview 
+
+ATHENA is a two-stage framework for knowledge-guided NAS of EHR Transformers (Figure 1). Let  denote the source hospitals, 𝐻 a held-out target hospital, and  the clinical prediction tasks. The target hospital is excluded from all metadata used to construct the cross-hospital prior. In Stage 1 , ATHENA pretrains one hospital-specific AutoFormer-style supernet at each 𝑆 ∈  using masked language modeling (MLM) and evaluates a fixed collection of subnet architectures on the source tasks. Each metadata record has the form 
+
+(
+
+𝑆, 𝑡, 𝑎, Params 𝑆,𝑡 (𝑎 ), 𝐦 src 
+
+> 𝑆,𝑡
+
+(𝑎 )
+
+)
+
+,
+
+where 𝑡 ∈  , 𝑎 is an architecture, Params 𝑆,𝑡 (𝑎 ) is its parameter count, and 𝐦 src 
+
+> 𝑆,𝑡
+
+(𝑎 ) contains its source performance metrics. Pooled source records yield two complementary priors: Layer 1 retrieves concrete high-performing architec-tures from a task-matched source hospital, whereas Layer 2 
+
+summarizes cross-hospital associations between architectural choices and performance. In Stage 2 , a Proposal Agent generates candidates, a Critic Agent checks and refines them, and an Experiment Agent evaluates accepted subnetworks and chooses whether the next round should emphasize exploration or exploitation. Both prior layers provide soft guidance together with feedback from earlier target-hospital evaluations. 
+
+3.2. Problem formulation 
+
+Let  denote the vocabulary of diagnosis, medication, lab-oratory, and procedure tokens. The chronologically ordered visits of patient 𝑝 are 
+
+𝑝 = ( 𝑣 𝑝, 1, … , 𝑣 𝑝,𝑇 𝑝 ), 𝑣 𝑝,𝜏 = { 𝑐 𝑝,𝜏, 1, … , 𝑐 𝑝,𝜏,𝑁 𝑝,𝜏 },
+
+where 𝑐 𝑝,𝜏,𝑖 ∈ . Visits are chronological, but no within-visit order is assumed because event timestamps within an encounter may not reflect the underlying clinical sequence [3, 38, 39]. For each prediction example, only visits available by its index time are retained. They are flattened into a token sequence, prepended with [CLS] , and annotated with token-type and visit-index embeddings. For target hospital 𝐻 and task 𝑡 , a candidate architecture is 
+
+𝑎 = ( 𝑑, 𝐿, 𝛾, ℎ ),
+
+where 𝑑 is the embedding dimension, 𝐿 is the number of encoder layers, 𝛾 is the multi-layer perceptron (MLP) expansion ratio, and ℎ is the number of attention heads. Let 
+
+, , , and  denote their respective candidate sets. The unfiltered search space is 
+
+0 =  ×  ×  × ,
+
+in the order (𝑑, 𝐿, 𝛾, ℎ ). The target-specific legal set is 
+
+𝐻,𝑡 =
+
+{𝑎 ∈ 0 ∶ 𝑑 mod ℎ = 0 ,
+
+Params 𝐻,𝑡 (𝑎 ) ≤ 𝑃 max 
+
+}
+
+,
+
+where 𝑃 max is the parameter-count limit. The divisibility condition ensures an integral attention-head dimension. During target search, each evaluated architecture pro-duces a validation metric vector over 
+
+ = {Accuracy , 𝐹 1, AUROC , AUPRC} .
+
+For binary tasks, 𝐹 1 is the positive-class binary 𝐹 1, and AUROC and AUPRC use the positive-class probability. For multilabel tasks, all metrics are macro-averaged over label classes. After 𝑏 accepted evaluations, let 
+
+𝑏 = (( 𝑎 𝑖 , 𝐦 val ,𝑡 (𝑎 𝑖 ))) 𝑏 𝑖 =1 
+
+denote the ordered target-validation history. ATHENA ranks each metric in descending performance order, assigns average ranks to ties, and computes 
+
+𝑅 𝑡 (𝑎 ; 𝑏 ) = 1
+
+||∑
+
+> 𝑔 ∈
+
+rank ↓
+
+> 𝑔,𝑡
+
+(𝑎 ; 𝑏 ), (1) where lower ranks are preferred. If composite ranks tie, the architecture evaluated first is retained, making selection deterministic with respect to the archive order. Let 𝑏 end ≤ 𝐵 be the number of architectures evaluated before budget exhaustion or early termination. ATHENA returns 
+
+𝑎 ⋆𝐻,𝑡 = arg min 
+
+> 𝑎 ∶ ( 𝑎, 𝐦 )∈ 𝑏 end
+
+𝑅 𝑡 (𝑎 ; 𝑏 end ).
+
+Here 𝐵 is the maximum evaluation budget. 
+
+3.3. Transformer subnet architecture 
+
+Given architecture 𝑎 = ( 𝑑, 𝐿, 𝛾, ℎ ), token 𝑖 is represented by the sum of its code, token-type, and visit-index embed-dings: 
+
+𝐡 0 
+
+> 𝑖
+
+= 𝐞 code  
+
+> 𝑖
+
++ 𝐞 type  
+
+> 𝑖
+
++ 𝐞 visit  
+
+> 𝑖
+
+∈ ℝ𝑑 ,  
+
+> D. Li et al.: Preprint submitted to Elsevier Page 3 of 16
+
+ATHENA: Knowledge-guided agentic NAS for EHR Transformers 
+
+Figure 1: The ATHENA framework. Stage 1 evaluates sampled architectures across source hospitals and tasks to obtain architecture–performance metadata. The metadata yield a retrieval prior of high-performing source architectures and a SHAP-based architecture-effect prior. Stage 2 combines these priors with target-validation feedback to guide agentic NAS while adaptively balancing exploration and exploitation. 
+
+where 𝐞 code  
+
+> 𝑖
+
+, 𝐞 type  
+
+> 𝑖
+
+, and 𝐞 visit  
+
+> 𝑖
+
+denote the corresponding embed-ding vectors. The input sequence consists of a prepended [CLS] token followed by the flattened EHR token sequence: 
+
+𝐇 0 =
+
+[
+
+𝐡 0
+
+> [CLS]
+
+, 𝐡 01, … , 𝐡 0
+
+> 𝑛
+
+]
+
+∈ ℝ(𝑛 +1)× 𝑑 .
+
+ATHENA uses a pre-normalization Transformer encoder. Multi-head attention (MHA), feed-forward network (FFN), and layer normalization (LN) denote the corresponding Transformer operations below. For layer 𝓁 = 1 , … , 𝐿 ,̃
+
+𝐇 𝓁 = 𝐇 𝓁 −1 + MHA 𝑎, 𝓁 
+
+(
+
+LN attn  
+
+> 𝑎, 𝓁
+
+(𝐇 𝓁 −1 )
+
+)
+
+,
+
+𝐇 𝓁 =̃ 𝐇 𝓁 + FFN 𝑎, 𝓁 
+
+(
+
+LN f fn  
+
+> 𝑎, 𝓁
+
+(̃𝐇 𝓁 )
+
+)
+
+,
+
+where MHA 𝑎, 𝓁 uses ℎ heads and FFN 𝑎, 𝓁 has hidden width 
+
+𝛾𝑑 . Dropout and drop-path are applied within the residual branches. For downstream prediction, the hidden representation corresponding to the final [CLS] token is used as the patient-level representation: 
+
+𝐳 𝑝,𝑗,𝑎 = LN 𝑎 
+
+(
+
+𝐡 𝐿 𝑝,𝑗, [CLS] 
+
+)
+
+,
+
+where 𝐡 𝐿 𝑝,𝑗, [CLS] is the final [CLS] hidden state for target admission 𝑗 .
+
+3.4. AutoFormer-style supernet training and subnet evaluation 
+
+Training every architecture independently would require repeated self-supervised pretraining and downstream fine-tuning. ATHENA therefore uses an AutoFormer-style shared-weight supernet [19] spanning 0. The supernet takes the componentwise maximal configuration in the search space. A subnet activates the first 𝑑 embedding channels, the first 𝐿 en-coder blocks, and the first 𝛾𝑑 FFN units. Its attention module partitions a fixed internal query/key/value representation into 
+
+ℎ heads, while the input and output projections are sliced to width 𝑑 . Thus, each candidate architecture is instantiated as a weight-inherited subnetwork of the shared supernet rather 
+
+D. Li et al.: Preprint submitted to Elsevier Page 4 of 16 ATHENA: Knowledge-guided agentic NAS for EHR Transformers  
+
+> Figure 2: Illustration of the four configurable Transformer architecture parameters in the NAS space.
+
+than as an independently trained model. Figure 2 illustrates how the four configurable parameters alter the resulting subnet. One supernet is pretrained per hospital and shared by all methods and random seeds at that hospital. Each MLM minibatch samples 𝑎 ∼ Uniform( 0), activates the corre-sponding parameter slices, and updates only those active weights. During downstream fine-tuning, 𝑎 is fixed and the same inherited slices are updated at every epoch. Following BERT-style masking [40], a subset of non-special tokens is selected for MLM and corrupted. Let Ω
+
+denote the set of masked positions. The pretraining loss is 
+
+MLM = − ∑
+
+> 𝑖 ∈Ω
+
+log 𝑝 𝐖 𝑎 
+
+(
+
+𝑐 𝑖 ∣̃ 𝐇 0)
+
+,
+
+where ̃ 𝐇 0 is constructed from the corrupted tokens and 
+
+𝐖 𝑎 denotes the active subnet weights. Selected non-special tokens are replaced by [MASK] , replaced by a random token of the same modality, or left unchanged. Each candidate inherits its encoder weights from this checkpoint, is fine-tuned on the target training split, and is monitored on the target validation split. The resulting validation metrics form one record in the search archive. 
+
+3.5. Cross-hospital prior construction 
+
+ATHENA uses source-hospital metadata to construct a two-layer prior. Layer 1 retrieves high-performing ar-chitectures from a task-matched source hospital. Layer 2 
+
+pools source hospitals to estimate task-specific architectural preferences and interactions. Both layers are provided to the agents as context rather than imposed as hard constraints. 
+
+3.5.1. Task-driven retrieval prior 
+
+For task 𝑡 at hospital 𝐻 , the task descriptor is 
+
+𝐠 𝐻,𝑡 =
+
+[
+
+𝕀 binary (𝑡 ), 𝕀 multilabel (𝑡 ),̃ 𝐶 𝑡 , label (𝐻, 𝑡 ), 𝜋 +
+
+> 𝐻,𝑡
+
+,̃ Δ𝑡 
+
+]
+
+,
+
+where the first two entries identify the task type, ̃ 𝐶 𝑡 is the normalized number of output classes, label is label entropy, 
+
+𝜋 + is positive-label prevalence, and ̃ Δ𝑡 is the normalized prediction horizon. The data-dependent entries are computed from each hospital’s downstream training split; consequently, the target descriptor uses target-training data only. When exact task 𝑡 is present at the source hospitals, ATHENA selects 
+
+𝑆 ⋆𝑡 = arg max 
+
+> 𝑆 ∈
+
+𝐠 𝖳 
+
+> 𝐻,𝑡
+
+𝐠 𝑆,𝑡 
+
+‖𝐠 𝐻,𝑡 ‖2‖𝐠 𝑆,𝑡 ‖2
+
+.
+
+Here ‖⋅‖2 denotes the Euclidean norm. ATHENA then ranks the legal source architectures for (𝑆 ⋆𝑡 , 𝑡 ) by the composite source-performance rank corresponding to Equation 1 and retrieves the top 𝐾 . These configurations and their source metrics form the Layer 1 retrieval set ret .If exact task metadata are unavailable, ATHENA selects the source hospital with the highest cosine similarity between standardized dataset profiles (e.g., sample size, modality counts, and mean encounters per patient). Within the selected hospital, ATHENA chooses the available surrogate task whose descriptor is most similar to 𝐠 𝐻,𝑡 .
+
+3.5.2. Architecture-effect prior 
+
+For Layer 2 , architecture evaluations for task 𝑡 are pooled across source hospitals. For source record 𝑖 , ATHENA defines 
+
+𝑦 𝑡,𝑖 = − 𝑅 𝑡 
+
+(𝑎 𝑖 ; ,𝑡 
+
+) ,
+
+where ,𝑡 is the pooled source metadata table for task 𝑡 and larger 𝑦 𝑡,𝑖 indicates better performance relative to all source records for that task. Hospital identity is retained for the subsequent mixed-effects analysis. For each task, ATHENA fits the XGBoost surrogate [41] 
+
+𝑦 𝑡,𝑖 = 𝑓 XGBoost ,𝑡 (𝑎 𝑖 ) + 𝜀 𝑡,𝑖 .
+
+The discrete-valued architecture features are supplied to the tree model in their numeric form. SHAP TreeExplainer [42] produces a signed contribution 𝜙 (𝑞 ) 
+
+> 𝑡,𝑖
+
+for each architectural feature 𝑞 and record 𝑖 .  
+
+> D. Li et al.: Preprint submitted to Elsevier Page 5 of 16
+
+ATHENA: Knowledge-guided agentic NAS for EHR Transformers 
+
+To separate population-level architectural patterns from hospital variation, ATHENA fits 
+
+𝜙 (𝑞 ) 
+
+> 𝑡,𝑖
+
+= 𝜇 (𝑞 )
+
+> 𝑡, 𝓁 𝑖,𝑞
+
++ 𝑢 (𝑞 ) 
+
+> 𝑡,𝑆 𝑖
+
++ 𝜖 (𝑞 ) 
+
+> 𝑡,𝑖
+
+, 𝑢 (𝑞 ) 
+
+> 𝑡,𝑆
+
+∼  (0 , 𝜎 2 
+
+> 𝑢,𝑞
+
+),
+
+where 𝓁 𝑖,𝑞 is the categorical level of 𝑞 and 𝑢 (𝑞 ) 
+
+> 𝑡,𝑆
+
+is a hospital random intercept. The reported 𝜇 (𝑞 ) 
+
+> 𝑡, 𝓁
+
+values are level-specific mean SHAP contributions reconstructed from the reference-coded model. Levels whose confidence intervals lie entirely above or below zero are labeled preferred or discouraged , respectively; the remainder are inconclusive . ATHENA applies the same idea to the most influential feature pair to obtain supported interaction rules. Feature importance, level labels, confidence intervals, and interaction rules form the Layer 2 prior meta .They are presented to the agents as non-causal, directional evidence. 
+
+3.6. Agentic NAS 
+
+ATHENA coordinates a Proposal Agent 𝐴 𝑝 , a Critic Agent 𝐴 𝑐 , and an Experiment Agent . The Experiment Agent consists of a deterministic evaluator 𝐴 𝑒 and an LLM-based strategy module 𝐴 𝑠 . Proposal, critique, revision, and strategy selection are LLM calls; legality checks, subnet fine-tuning, metric calculation, ranking, and final selection are controller operations. For each target hospital-task pair (𝐻, 𝑡 ), ATHENA con-structs a fixed context 
+
+𝐻,𝑡 = { 𝐠 𝐻,𝑡 , ret , meta },
+
+containing the target task descriptor, the 𝐾 retrieved archi-tectures, and the Layer 2 prior. At round 𝑟 , ATHENA maintains two distinct histories. The ordered search memory (or search transcript) (𝑟 )
+
+contains proposals, critiques, revisions, evaluation feedback, and strategy decisions, and is supplied as LLM context. The 
+
+structured validation archive 
+
+(𝑟 ) = (( 𝑎 𝑖 , 𝐦 val ,𝑡 (𝑎 𝑖 ))) 𝑏 𝑟 
+
+> 𝑖 =1
+
+contains only evaluated architectures and their validation met-rics. It is used by the deterministic controller for ranking and selection. Thus, (𝑟 ) carries accumulated search experience, whereas (𝑟 ) is the authoritative record of empirical evidence. The memory is an ordered transcript, not a separately learned or retrieval-based long-term-memory system. The round also has remaining budget 𝐵 −𝑏 𝑟 and a strategy 
+
+𝑠 (𝑟 ) = ( 𝑧 (𝑟 ), 𝜂 (𝑟 )), 𝑧 (𝑟 ) ∈ { exploration , exploitation },
+
+where 𝜂 (𝑟 ) is a natural-language rationale. Exploration en-courages coverage of under-sampled architectural choices, whereas exploitation focuses proposals around configurations that have performed well on target validation. Conditioned on (𝐻,𝑡 , (𝑟 ), (𝑟 ), 𝐵 − 𝑏 𝑟 , 𝑠 (𝑟 )), 𝐴 𝑝 pro-poses candidates with rationales. The Critic checks legality and novelty, provides structured feedback, and allows rejected                          
+
+> Proposal Agent Prompt Template Role: You are an NAS agent for Transformer models applied to longitudinal EHR data. Generate candidate architectures for the target hospital-task pair.
+> Search space and constraints: Choices for embed_dim ,depth ,
+> mlp_ratio , and num_heads ; require embed_dim % num_heads = 0 ;enforce parameter-count constraints; identify infeasible regions.
+> Task context: Target-task statistics 𝐠 𝐻,𝑡 .
+> Retrieval prior: Retrieved top-𝐾 source architectures ret and their source performance.
+> Architecture-effect prior: Preferred/discouraged architectural levels, feature-importance rankings, confidence labels, and interaction rules meta .
+> Search state: Ordered transcript (𝑟 )
+> 𝐻,𝑡 , validation history (𝑟 ),current best architecture, and remaining budget.
+> Strategy directive: 𝑠 (𝑟 )= ( 𝑧 (𝑟 ), 𝜂 (𝑟 )). Under exploration , prioritize diversity and coverage of under-explored regions. Under
+> exploitation , refine architectures near the current best region.
+> Output: JSON array of candidate architectures containing
+> embed_dim ,depth ,mlp_ratio ,num_heads , and rationale . Return only valid JSON. Test-set metrics are never provided.
+
+Figure 3: The Proposal Agent prompt template. The imple-mentation populates each block with task-specific values before invoking the LLM. 
+
+non-duplicate candidates to be revised for at most 𝑅 passes. Parameter-limit violations and duplicates are hard rejections; disagreement with a Layer 2 preference is only a soft concern. The proposal–critique–revision records are appended to (𝑟 )
+
+even when no candidate is evaluated. Figure 3 shows the Proposal Agent prompt template. The evaluator fine-tunes each accepted subnet and ap-pends the resulting records to both (𝑟 ) and (𝑟 ). The controller then recomputes the leader using Equation 1. When budget remains, 𝐴 𝑠 reads the updated transcript and validation trajectory and selects the next strategy, treating the cross-hospital prior as secondary evidence. The strategy decision is also appended to (𝑟 ).If a round produces no legal, non-duplicate candidate, no evaluation budget is consumed and a consecutive-failure counter is incremented. The counter resets after any success-ful evaluation round. Search terminates when the budget 
+
+𝐵 is exhausted or after 𝐹 max consecutive empty rounds, and ATHENA returns the current validation-selected leader. A run in which no candidate is evaluated is recorded as unsuccessful. Algorithm 1 summarizes this search logic. 
+
+## 4. Experiment configuration 
+
+4.1. Data sources and cohort construction 
+
+This study uses EHR data from OneFlorida+ [43, 44] and MIMIC-IV [45]. OneFlorida+ is a large clinical research network within PCORnet [46] and contains standardized EHR data across multiple health systems. MIMIC-IV is a public de-identified EHR database from Beth Israel Dea-coness Medical Center containing more than 524,000 hos-pital admissions from over 257,000 patients. Both datasets include longitudinal diagnoses, procedures, medications, and laboratory records used to construct the clinical prediction tasks. 
+
+D. Li et al.: Preprint submitted to Elsevier Page 6 of 16 ATHENA: Knowledge-guided agentic NAS for EHR Transformers 
+
+Algorithm 1 ATHENA Agentic NAS Loop                                                                                                                       
+
+> Require: Fixed context 𝐻,𝑡 , legal set 𝐻,𝑡 , budget 𝐵 , critique-pass limit 𝑅 , failure limit 𝐹 max
+> Ensure: Validation-selected architecture 𝑎 ⋆𝐻,𝑡 , or failure if no candidate is evaluated
+> 1: Initialize ordered search memory ←() , validation archive
+> ←() , strategy 𝑠 ←exploration , and failure count 𝑓 ←0
+> 2: while ||< 𝐵 and 𝑓 < 𝐹 max do
+> 3: ←𝐴 𝑝 (𝐻,𝑡 ,,, 𝐵 −||, 𝑠 )
+> 4: (,Δ)←CritiqueAndRevise( ,𝐻,𝑡 ,,, 𝑠, 𝑅 )
+> 5: ←‖Δ
+> 6: Remove illegal and duplicate candidates from in proposal order
+> 7: Retain at most the first 𝐵 −||candidates in 
+> 8: if = ∅ then
+> 9: 𝑓 ←𝑓 + 1 ;continue
+> 10: end if
+> 11: ←𝐴 𝑒 ()using target training and validation data
+> 12: ←‖;←‖;𝑓 ←0
+> 13: 𝑎 best ←arg min 𝑎 ∶ ( 𝑎, 𝐦 )∈ 𝑅 𝑡 (𝑎 ;)
+> 14: if ||< 𝐵 then
+> 15: 𝑠 ←𝐴 𝑠 (𝐻,𝑡 ,,, 𝑎 best , 𝐵 −||)
+> 16: ←‖𝑠
+> 17: end if
+> 18: end while
+> 19: if = ∅ then
+> 20: return failure
+> 21: end if
+> 22: return 𝑎 ⋆𝐻,𝑡 ←𝑎 best
+
+For ATHENA, the processed OneFlorida+ data comprise four prior-source sites (Sites A–D) and one internal held-out target (Site E); MIMIC-IV serves as the external held-out target. Records from both target cohorts are excluded from the cross-hospital prior. The OneFlorida+ and MIMIC-IV cohorts follow the same EHR tokenization, task-construction, and split conventions. Each hospital’s unlabeled EHR corpus is first divided into a pretraining pool of patients without downstream labels and a downstream pool containing the remaining patients. The pretraining pool is further split 90%/10% for masked-language-model supernet pretraining and validation. We evaluate six downstream clinical prediction tasks: in-hospital mortality (Mortality), Stay > 7d, Readmission (3M), Phenotype (6M), Phenotype (12M), and same-visit Drug Recommendation. The two phenotype tasks are multilabel predictions over 18 commonly benchmarked phenotype classes [47, 48]. Phenotype cohorts include patients with a qualifying next admission. Drug Recommendation uses a separate eligibility cohort consisting of patients with at least one in-vocabulary medication. Cohort inclusion and exclusion criteria and detailed task definitions are provided in Supplementary Method S1 and Supplementary Table S1. Within the downstream pool, patient-level training, validation, and test splits are defined by task family: 20%/40%/40% for the three binary tasks (Mortality, Stay >
+
+7d, and Readmission (3M)) and 40%/30%/30% for Phenotype (6M) and Phenotype (12M). Drug Recommendation is independently split 40%/30%/30% within its eligibility cohort. For all tasks, the training set is used for subnet fine-tuning, the validation set guides architecture search and model selection, and the test set is evaluated only once after the search terminates. 
+
+4.2. Transformer architecture search space 
+
+The NAS search space comprises four configurable Transformer architecture parameters: embedding dimension, depth, number of attention heads, and MLP expansion ratio (Figure 2). Embedding dimension takes values in 
+
+{32 , 64 , 128 , 256} , while depth, number of attention heads, and MLP expansion ratio each take values in {1 , 2, 4, 8} .The Cartesian product of these choices yields 44 = 256 
+
+candidate architectures. The same search space is used across all hospitals, tasks, and NAS methods to ensure a consistent comparison. Other implementation details are provided in Supplementary Method S2. 
+
+4.3. Compared methods and ablations 
+
+We compare ATHENA against representative baselines from both classical and LLM-based NAS: • Random Search. Uniformly samples legal, non-duplicate architectures from 𝐻,𝑡 until the evaluation budget is exhausted. • EA . Following regularized evolution for NAS [11], this baseline maintains a population of candidate architectures and iteratively selects high-performing parents through tournament selection, generates new candidates via mutation, and removes the oldest indi-viduals from the population. • GENIUS [16]. A single-agent LLM-based NAS frame-work that iteratively proposes candidate architectures based on search history and validation feedback, with-out the multi-agent collaboration used in ATHENA. • CoLLM-NAS [17]. A collaborative LLM-based NAS framework that uses a stateful Navigator to iteratively refine search strategies from evaluation feedback and historical trajectories, and a stateless Generator to translate these strategies into candidate architectures. A Coordinator manages their interaction, validates gen-erated architectures, and maintains the search archive. Unlike ATHENA, CoLLM-NAS does not leverage cross-site architecture priors. ATHENA incorporates a two-layer cross-hospital prior consisting of the Layer 1 retrieval prior and the Layer 2 
+
+architecture-effect prior. To quantify the contribution of each component, we evaluate the following ablated variants: • L1-only. Retains the retrieval-based cross-hospital prior while removing the architecture-effect prior, quantifying the contribution of Layer 2 .• Leave-One-Task-Out (LOTO) Retrieval. Excludes task-matched source records during retrieval, forcing knowledge transfer from related but non-identical tasks   
+
+> D. Li et al.: Preprint submitted to Elsevier Page 7 of 16
+
+ATHENA: Knowledge-guided agentic NAS for EHR Transformers 
+
+and evaluating the robustness of retrieval-based priors when exact precedents are unavailable. • Cold Start. Removes both the retrieval prior and the architecture-effect prior, evaluating the effectiveness of the agentic NAS framework in the absence of cross-hospital knowledge. 
+
+## 5. Results 
+
+5.1. Study cohorts 
+
+The cross-hospital prior was constructed from four de-identified OneFlorida+ source sites (Sites A–D). Their pretraining pools comprised 125,819 patients, representing 49.3% of patients at the four source sites (Table 1). The target cohorts were excluded from prior construction. The pretraining pools comprised 54,410 patients at Site E (64.4% of the cohort) and 42,494 patients in MIMIC-IV (70.0% of the cohort). The source and target cohorts differed substantially in case mix and data density (Supplementary Table S2). Across the six cohorts, Mortality ranged from 0.4% to 4.2%, Stay >
+
+7d from 9.6% to 34.0%, and Readmission (3M) from 12.7% to 23.9%. Median length of stay ranged from 2 to 5 days, and admissions per patient ranged from 1.4 to 2.7. Diagnoses per admission ranged from 5.4 to 19.1 and medications per admission from 3.2 to 13.1. Comorbidity prevalence was also heterogeneous: chronic kidney disease ranged from 2.8% to 16.0% of admissions and coronary atherosclerosis from 1.1% to 23.3%. Together, these differences provided heterogeneous settings in which to evaluate transfer of architecture knowledge. 
+
+5.2. Supernet ranking fidelity and search efficiency 
+
+Before using supernet-based evaluations to guide archi-tecture search, we first assessed whether weight-inherited subnetworks preserved the relative performance ranking of independently trained architectures. For each MIMIC-IV task, we sampled 150 valid Transformer architectures (58.59% of the search space) and evaluated each under two settings: fine-tuning with weights inherited from the pretrained supernet and independent pretraining followed by fine-tuning. We then computed Spearman rank correlations between the resulting architecture rankings based on AUROC and AUPRC. This analysis examined whether the computationally cheaper supernet-based approach could serve as a reliable proxy for conventional pretrain-then-fine-tune evaluation. The AutoFormer-style weight-sharing supernet preserved the relative performance of conventionally pretrained and fine-tuned Transformer architectures (Table 2). Spearman correlations were positive for every task and metric. Ranking fidelity was particularly high for the three multilabel tasks: correlations ranged from 0.940 to 0.951 for Phenotype (6M) and Phenotype (12M), and from 0.944 to 0.958 for Drug Recommendation. Stay > 7d also showed strong agreement (𝜌 = 0 .809 for AUROC and 𝜌 = 0 .806 for AUPRC). Agree-ment was more moderate for Mortality and Readmission (3M), with the lowest correlation observed for Readmission (3M) AUPRC ( 𝜌 = 0 .412 ). Thus, although fidelity varied 
+
+Table 1 
+
+Pretraining-pool sizes and patient-level fine-tuning splits. OneFlorida+ contributor sites are de-identified as Site A– E. Share denotes the fraction of cohort patients in the pretraining pool. Fine-tuning counts are shown in separate training, validation, and test columns. Binary denotes the common split for Mortality, Stay > 7d, and Readmission (3M). Phenotype and Drug Recommendation are abbreviated as Pheno. and Drug Rec., respectively. †Drug Recommendation uses a separately defined drug-eligible cohort ( ≥ 1 in-vocabulary medication) and an independent patient-level split; its counts may therefore exceed the pretraining-pool patient count in the 
+
+Patients column.                                                                                                             
+
+> Pretraining Fine-tuning (Binary) Cohort Patients Share Train Val. Test
+> Prior source pool
+> Site A 22,186 42.0% 6,158 12,234 12,253 Site B 29,222 52.4% 5,300 10,566 10,647 Site C 37,152 42.0% 10,134 20,594 20,647 Site D 37,259 63.9% 4,204 8,409 8,410 Total 125,819 49.3% 25,796 51,803 51,957
+> Target cohorts
+> Site E (internal) 54,410 64.4% 6,013 12,027 12,029 MIMIC-IV (external) 42,494 70.0% 3,642 7,284 7,286 Cohort Task Train Val. Test
+> Prior source pool
+> Site A Pheno. 6M 11,083 8,147 8,405 Pheno. 12M 12,235 9,124 9,100 Drug Rec. †78,999 59,249 59,251 Site B Pheno. 6M 9,229 6,892 6,921 Pheno. 12M 10,285 7,792 7,643 Drug Rec. †73,660 55,245 55,246 Site C Pheno. 6M 18,257 13,922 13,699 Pheno. 12M 20,082 14,953 14,919 Drug Rec. †92,600 69,450 69,450 Site D Pheno. 6M 7,103 5,327 5,328 Pheno. 12M 7,988 5,991 5,991 Drug Rec. †22,958 17,218 17,219 Total Pheno. 6M 45,672 34,288 34,353 Pheno. 12M 50,590 37,860 37,653 Drug Rec. †268,217 201,162 201,166
+> Target cohorts
+> Site E Pheno. 6M 9,195 6,896 6,897 Pheno. 12M 10,382 7,786 7,787 Drug Rec. †33,380 25,035 25,036 MIMIC-IV Pheno. 6M 3,866 2,900 2,901 Pheno. 12M 4,478 3,359 3,360 Drug Rec. †24,017 18,012 18,014
+
+by task, the supernet provided an informative proxy ranking across the complete search space. We next measured the GPU time required to evaluate in-creasing numbers of candidate architectures on one NVIDIA L4. The weight-sharing calculation included one supernet pretraining run followed by subnet fine-tuning for each candidate, whereas conventional search repeated pretraining and fine-tuning independently for every candidate. Weight 
+
+D. Li et al.: Preprint submitted to Elsevier Page 8 of 16 ATHENA: Knowledge-guided agentic NAS for EHR Transformers                                                                             
+
+> Table 2
+> Supernet ranking fidelity on MIMIC-IV. For each task, 150 architectures are sampled and evaluated both as weight-inherited subnetworks of the pretrained supernet and through independent pretraining followed by fine-tuning. 𝜌 denotes the Spearman rank correlation between the resulting architecture rankings. Task 𝜌 (AUROC) 𝜌 (AUPRC) Mortality 0.544 0.567 Stay >7d 0.809 0.806 Readmission (3M) 0.570 0.412 Phenotype (6M) 0.951 0.944 Phenotype (12M) 0.940 0.944 Drug Recommendation 0.944 0.958
+> Table 3
+> Search compute under weight sharing, in GPU-minutes on one NVIDIA L4. The shared-weight approach pretrains the supernet
+> once and fine-tunes each of 𝑁 candidates on it ( 𝑇 pre +𝑁 𝑇 f t ); conventional from-scratch NAS incurs 𝑁 (𝑇 pre +𝑇 f t ). Measured times are OneFlorida+ 𝑇 pre =30 and 𝑇 f t =2 , and MIMIC-IV
+> 𝑇 pre =29 and 𝑇 f t =1 . All compared NAS methods share one supernet and therefore have the same per-candidate evaluation cost. Values at the maximum budget of 30 evaluations are shown in bold .OneFlorida+ held-out MIMIC-IV
+> 𝑁 Shared Scratch Speedup Shared Scratch Speedup 540 160 4.0 ×34 150 4.4 ×
+> 10 50 320 6.4 ×39 300 7.7 ×
+> 20 70 640 9.1 ×49 600 12.2 ×
+> 30 90 960 10.7 ×59 900 15.3 ×
+
+sharing yielded larger reductions in search cost as more architectures were evaluated (Table 3). At a budget of five evaluations, the measured speedup over conventional pretrain-then-fine-tune evaluation was 4.0 × on OneFlorida+ and 4.4 ×
+
+on MIMIC-IV. At 30 evaluations, the corresponding speedups increased to 10.7 × and 15.3 ×, reducing the estimated cost from 960 to 90 GPU-minutes on OneFlorida+ and from 900 to 59 GPU-minutes on MIMIC-IV. 
+
+5.3. Task-specific architecture-effect prior 
+
+The cross-hospital architecture-effect prior captured both shared and task-specific Transformer design preferences across the six clinical tasks (Supplementary Figure S1). The most consistent signal was model width. Embedding dimen-sions of 128 and 256 were reliably preferred for Mortality, while dimensions of 64, 128, and 256 were preferred for the other five tasks. Increasing the number of attention heads was also generally favorable: configurations with 2, 4, or 8 heads had positive effects for Mortality, Stay > 7d, Readmission (3M), Phenotype (6M), and Phenotype (12M). For Drug Recommendation, 4 and 8 heads had positive effects relative to the one-head reference level, whereas the effect of 2 heads was inconclusive. Depth showed a more heterogeneous pattern. Mortality and Stay > 7d favored depths of 2, 4, and 8 over the single-layer reference configuration. Readmission (3M) did not show the same trend: depths of 2 and 8 were discouraged, while the effect of a depth of 4 was inconclusive. Among the multilabel tasks, Phenotype (6M) favored a depth of 2 but discouraged depths of 4 and 8; Phenotype (12M) and Drug Recommendation discouraged all depths greater than one. The MLP expansion ratio showed a similarly conser-vative pattern. Ratios greater than one were consistently discouraged for Mortality, Stay > 7d, Readmission (3M), and Phenotype (6M). For Phenotype (12M), ratios of 4 and 8 were discouraged and a ratio of 2 was inconclusive; for Drug Recommendation, a ratio of 4 was discouraged while ratios of 2 and 8 were inconclusive. Thus, the prior identified wider embeddings and multi-head attention as relatively transferable signals, while retaining task-dependent guidance for depth and MLP expansion ratio rather than prescribing one architecture for all outcomes. Pairwise rules derived from each task’s two most in-fluential features were also supplied to the search prompt (Supplementary Table S3). For five of the six tasks, the direction of the identified preference remained unchanged across all levels of the second feature. Mortality was the exception, where the preference for an embedding dimension of 256 emerged when the number of attention heads was at least two. 
+
+5.4. Predictive performance under different search budgets 
+
+ATHENA achieved the best overall test AUPRC ranking across all search budgets (Table 4). With only five architecture evaluations, it ranked first in 10 of 12 hospital–task compar-isons and second in the remaining two, yielding an average rank of 1.17. It ranked first across all six OneFlorida+ tasks and four of six MIMIC-IV tasks, including all multilabel tasks at both targets. The largest gains over the strongest baseline were observed for OneFlorida+ Phenotype (12M), OneFlorida+ Phenotype (6M), and MIMIC-IV Drug Recom-mendation. This advantage persisted at larger budgets. At both 20 and 30 evaluations, ATHENA ranked first in 9 of 12 comparisons, with average ranks of 1.29 and 1.42, respectively, compared with 3.17 and 2.50 for the next-best baseline. At budget 30, the AUROC analysis (Supplementary Table S4) showed a similar pattern, with ATHENA ranking first in 7 of 12 comparisons (including one tie with EA) and achieving the best average rank (1.71). Overall, the advantage was consistent across both target health systems. Validation trajectories further showed that ATHENA’s gains generally emerged within the first few evaluations rather than only after most of the search budget had been consumed (Figure 4; Supplementary Figure S2). This pattern was most evident for Phenotype (6M), Phenotype (12M), and Drug Recommendation, for which ATHENA rapidly attained strong validation AUPRC and remained leading or competitive through most of the search. The margins were   
+
+> D. Li et al.: Preprint submitted to Elsevier Page 9 of 16
+
+ATHENA: Knowledge-guided agentic NAS for EHR Transformers 
+
+Table 4 
+
+Test AUPRC across target hospitals and prediction tasks under increasing NAS budgets of 5, 20, and 30 architecture evaluations (mean ± standard deviation over five random seeds). For each row, the best mean is in bold and the second-best mean is underlined; tied values share the mark. Avg. Rank is the mean within-row rank over the 12 hospital–task comparisons in each panel (1 = best; ties receive the average rank), with the number of best-in-row comparisons in parentheses. All methods search the same pretrained supernet and therefore differ only in search strategy. Target Task Random Search EA GENIUS CoLLM-NAS ATHENA 
+
+(a) Search budget = 5 evaluations 
+
+OneFlorida+ Mortality 57.78 ± 0.90 57.78 ± 0.90 58.04 ± 0.34 57.72 ± 1.36 58.23 ± 1.72 
+
+OneFlorida+ Stay > 7d 73.25 ± 0.33 73.25 ± 0.33 74.00 ± 0.34 73.59 ± 0.45 74.03 ± 0.37 
+
+OneFlorida+ Readmission (3M) 52.09 ± 0.42 52.09 ± 0.42 52.06 ± 0.58 52.16 ± 0.40 52.26 ± 0.27 
+
+OneFlorida+ Phenotype (6M) 29.65 ± 0.59 29.53 ± 0.40 29.28 ± 0.87 29.29 ± 1.50 30.42 ± 0.51 
+
+OneFlorida+ Phenotype (12M) 30.86 ± 0.71 30.74 ± 0.69 30.39 ± 0.57 30.23 ± 0.60 32.17 ± 0.42 
+
+OneFlorida+ Drug Recommendation 19.09 ± 0.24 19.09 ± 0.24 19.11 ± 0.27 19.16 ± 0.22 19.32 ± 0.08 
+
+MIMIC-IV Mortality 79.25 ± 0.64 79.25 ± 0.64 79.29 ± 0.62 79.52 ± 0.43 79.31 ± 0.40 MIMIC-IV Stay > 7d 74.67 ± 0.41 74.80 ± 0.59 75.22 ± 0.66 75.02 ± 0.60 75.66 ± 0.71 
+
+MIMIC-IV Readmission (3M) 43.64 ± 0.47 43.64 ± 0.47 44.29 ± 0.26 44.55 ± 0.55 44.47 ± 0.44 MIMIC-IV Phenotype (6M) 48.96 ± 0.76 48.97 ± 0.76 48.19 ± 0.66 48.63 ± 0.67 49.25 ± 0.57 
+
+MIMIC-IV Phenotype (12M) 48.64 ± 0.41 48.63 ± 0.39 47.98 ± 0.41 48.79 ± 0.64 49.26 ± 0.09 
+
+MIMIC-IV Drug Recommendation 20.63 ± 0.43 20.63 ± 0.43 20.36 ± 0.36 20.24 ± 0.12 21.16 ± 0.17 
+
+Avg. Rank (best-in-row) 3.54 (0) 3.62 (0) 3.58 (0) 3.08 (2) 1.17 (10) 
+
+(b) Search budget = 20 evaluations 
+
+OneFlorida+ Mortality 57.46 ± 0.50 58.10 ± 0.48 58.18 ± 0.61 57.88 ± 0.92 58.85 ± 0.84 
+
+OneFlorida+ Stay > 7d 73.28 ± 0.52 73.42 ± 0.23 73.60 ± 0.73 73.65 ± 0.51 73.90 ± 0.28 
+
+OneFlorida+ Readmission (3M) 52.21 ± 0.22 52.34 ± 0.18 52.40 ± 0.16 52.49 ± 0.12 52.44 ± 0.28 OneFlorida+ Phenotype (6M) 30.57 ± 0.20 30.23 ± 1.00 30.02 ± 0.52 29.46 ± 1.57 31.06 ± 0.55 
+
+OneFlorida+ Phenotype (12M) 31.53 ± 0.66 32.14 ± 0.85 31.37 ± 0.76 30.54 ± 1.06 32.62 ± 0.29 
+
+OneFlorida+ Drug Recommendation 19.28 ± 0.12 19.27 ± 0.21 19.44 ± 0.06 19.29 ± 0.19 19.32 ± 0.04 MIMIC-IV Mortality 79.16 ± 0.41 79.46 ± 0.24 79.21 ± 0.45 79.48 ± 0.63 79.75 ± 0.37 
+
+MIMIC-IV Stay > 7d 75.18 ± 0.64 75.67 ± 0.26 75.39 ± 0.45 75.20 ± 0.58 75.64 ± 0.48 MIMIC-IV Readmission (3M) 44.25 ± 0.35 44.88 ± 0.97 44.61 ± 0.46 44.94 ± 0.57 44.94 ± 0.55 
+
+MIMIC-IV Phenotype (6M) 49.43 ± 0.53 49.22 ± 0.69 49.26 ± 0.69 49.01 ± 0.73 49.84 ± 0.35 
+
+MIMIC-IV Phenotype (12M) 49.10 ± 0.16 49.04 ± 0.28 49.05 ± 0.24 48.66 ± 0.59 49.42 ± 0.20 
+
+MIMIC-IV Drug Recommendation 21.08 ± 0.09 20.98 ± 0.33 20.75 ± 0.35 20.39 ± 0.32 21.15 ± 0.13 
+
+Avg. Rank (best-in-row) 3.75 (0) 3.25 (1) 3.17 (1) 3.54 (2) 1.29 (9) 
+
+(c) Search budget = 30 evaluations 
+
+OneFlorida+ Mortality 57.91 ± 0.40 58.07 ± 0.49 58.18 ± 0.61 57.88 ± 0.92 58.85 ± 0.84 
+
+OneFlorida+ Stay > 7d 73.52 ± 0.78 73.97 ± 0.40 74.10 ± 0.13 73.65 ± 0.51 73.90 ± 0.27 OneFlorida+ Readmission (3M) 52.27 ± 0.24 52.41 ± 0.20 52.54 ± 0.23 52.49 ± 0.12 52.56 ± 0.24 
+
+OneFlorida+ Phenotype (6M) 30.57 ± 0.20 31.01 ± 0.30 30.02 ± 0.52 29.46 ± 1.57 31.06 ± 0.55 
+
+OneFlorida+ Phenotype (12M) 31.71 ± 0.49 32.34 ± 0.75 31.44 ± 0.71 30.54 ± 1.06 32.54 ± 0.40 
+
+OneFlorida+ Drug Recommendation 19.32 ± 0.11 19.43 ± 0.08 19.44 ± 0.06 19.29 ± 0.19 19.34 ± 0.07 MIMIC-IV Mortality 79.16 ± 0.42 79.30 ± 0.54 79.12 ± 0.57 79.48 ± 0.63 79.75 ± 0.37 
+
+MIMIC-IV Stay > 7d 75.01 ± 0.50 75.69 ± 0.41 75.56 ± 0.42 75.20 ± 0.58 75.88 ± 0.43 
+
+MIMIC-IV Readmission (3M) 44.76 ± 0.16 44.78 ± 1.02 44.79 ± 0.33 44.94 ± 0.57 45.13 ± 0.53 
+
+MIMIC-IV Phenotype (6M) 49.61 ± 0.51 49.56 ± 0.48 49.22 ± 0.68 49.01 ± 0.73 49.84 ± 0.35 
+
+MIMIC-IV Phenotype (12M) 49.11 ± 0.14 49.14 ± 0.29 49.05 ± 0.24 48.66 ± 0.59 49.42 ± 0.20 
+
+MIMIC-IV Drug Recommendation 21.03 ± 0.12 21.15 ± 0.06 20.78 ± 0.39 20.39 ± 0.32 21.08 ± 0.08 
+
+Avg. Rank (best-in-row) 3.83 (0) 2.50 (1) 3.08 (2) 4.17 (0) 1.42 (9) 
+
+D. Li et al.: Preprint submitted to Elsevier Page 10 of 16 ATHENA: Knowledge-guided agentic NAS for EHR Transformers                              
+
+> Table 5
+> Search behavior at a budget of 30 evaluations, averaged over the six tasks and five random seeds. Params is the size of the selected architecture; Evals is the number of distinct architectures actually evaluated. OneFlorida+ MIMIC-IV Method Params (M) Evals Params (M) Evals Random Search 1.28 30.0 2.34 30.0 EA 1.33 30.0 2.11 30.0 GENIUS 1.90 23.6 2.42 20.3 CoLLM-NAS 1.28 10.7 1.93 9.1 ATHENA 1.55 22.5 2.58 19.6
+
+most persistent for Phenotype (12M) on both targets, whereas competing methods narrowed or occasionally closed the gap on the other tasks as the budget increased. Mortality, Stay 
+
+> 7d, and Readmission (3M) showed closer convergence among methods. Some LLM-based searches terminated before 30 evaluations when they could no longer generate new legal, non-duplicate candidates. Overall, ATHENA retained most of its early gains, with smaller and task-dependent improvements from later evaluations, indicating that much of its advantage was established under a relatively small search budget. 
+
+5.5. Performance–complexity trade-offs and selection behavior 
+
+The validation Pareto analyses showed that performance was not a monotonic function of model size (Figure 5; Supplementary Figure S3). In the binary tasks, relatively small architectures could be competitive with substantially larger models, while architectures with similar parameter counts often had visibly different AUPRC values. The multilabel tasks exhibited stepwise improvements across parameter bands, but still showed considerable within-band variation. ATHENA evaluated candidates across these bands and repeatedly placed architectures near the empirical Pareto frontier rather than concentrating exclusively at the largest end of the search space. This pattern was present on both the internal and external targets. ATHENA’s predictive performance was not explained by systematically selecting the largest models or by using more candidate evaluations (Table 5). On OneFlorida+, the architectures selected by ATHENA averaged 1.55 million parameters, compared with 1.90 million for GENIUS, despite ATHENA’s substantially better average performance rank. ATHENA evaluated an average of 22.5 architectures on OneFlorida+ and 19.6 on MIMIC-IV, below the maximum budget of 30 and slightly fewer than GENIUS on both targets. Architecture selection was also more reproducible across repeated searches (Table 6). For each task 𝑡 , we calculated the modal architecture selection rate as the proportion of the five random seeds selecting the most frequently chosen architecture, and averaged this rate across the six tasks: Mean modal selection (%) = 16
+
+> 6
+
+∑
+
+> 𝑡 =1
+
+100 × max 𝑎 (𝑛 𝑡,𝑎 )5 ,
+
+where 𝑛 𝑡,𝑎 is the number of random seeds selecting archi-tecture 𝑎 for task 𝑡 . On OneFlorida+, ATHENA and EA achieved the highest mean modal architecture selection rate of 40.0%, compared with 26.7% for Random Search and 33.3% for both GENIUS and CoLLM-NAS. On MIMIC-IV, ATHENA achieved the highest rate at 43.3%, compared with 20.0%–33.3% for the baselines. Higher rates indicate greater convergence toward the same architecture across repeated searches and reflect selection consistency rather than architecture quality. 
+
+5.6. Robustness of the cross-hospital prior 
+
+The ablation results separated the contributions of re-trieval and architecture-effect guidance (Figure 6; Supple-mentary Figure S4). Removing Layer 2 (L1-only ) generally retained competitive performance but reduced AUPRC on several tasks, particularly Phenotype (6M) and Phenotype (12M) on OneFlorida+ and Mortality and Readmission (3M) on MIMIC-IV. Removing both prior layers (Cold Start) produced the clearest degradation for Phenotype (6M) and Phenotype (12M) on both targets. When exact task-matched retrieval records were withheld, LOTO Retrieval remained comparable to exact retrieval and was occasionally higher, showing that related-task source records could provide useful fallback guidance. 
+
+## 6. Discussion 
+
+In this study, we developed ATHENA, a knowledge-guided agentic NAS framework that combines weight-sharing evaluation with reusable cross-hospital architecture knowl-edge for Transformer-based EHR modeling. Across six clinical prediction tasks and two target health systems, ATHENA achieved the strongest overall AUPRC ranking across search budgets while requiring substantially less computation than independently pretraining each candidate architecture. ATHENA also produced more consistent ar-chitecture selections across repeated searches, and its per-formance gains were not explained simply by evaluating more candidates or selecting larger models. These findings suggest that architecture-search experience accumulated from prior hospital–task settings can be reused to make model development more efficient and reproducible when adapting EHR models across clinical prediction settings. Our findings also highlight the complementary roles of the two cross-hospital priors. The retrieval prior provides architecture-level examples from related source settings, whereas the architecture-effect prior summarizes task-specific effects of individual design choices across hospitals. The abla-tion results support this distinction: removing the architecture-effect prior reduced performance on several tasks, while removing both priors produced larger declines, particularly   
+
+> D. Li et al.: Preprint submitted to Elsevier Page 11 of 16
+
+ATHENA: Knowledge-guided agentic NAS for EHR Transformers 
+
+Figure 4: Search trajectories on the held-out OneFlorida+ target for ( a) Mortality, ( b) Stay > 7d, ( c) Readmission (3M), ( d)Phenotype (6M), ( e) Phenotype (12M), and ( f) Drug Recommendation. Lines and shaded bands show the mean and SD, respectively, of the best validation AUPRC attained across five random seeds as a function of the number of evaluated architectures. Curves may end before the full budget when proposal saturation yields no new legal architecture. 
+
+Figure 5: Validation AUPRC versus parameter count on the held-out OneFlorida+ target. Markers identify the search method and the dashed line denotes the empirical Pareto frontier across evaluated architectures. D. Li et al.: Preprint submitted to Elsevier Page 12 of 16 ATHENA: Knowledge-guided agentic NAS for EHR Transformers 
+
+Table 6 
+
+Modal architecture selected by each method, reported as embed_dim/depth/heads/mlp_ratio, with the number of random seeds selecting that architecture (out of five) in parentheses. For task 𝑡 , let 𝑛 𝑡,𝑎 denote the number of random seeds selecting architecture 
+
+𝑎 ; the task-level modal selection rate is 100 × max 𝑎 (𝑛 𝑡,𝑎 )∕5 . Mean modal architecture selection (%) is the average of these rates across the six tasks, i.e. 16
+
+∑6 
+
+> 𝑡 =1
+
+100 × max 𝑎 (𝑛 𝑡,𝑎 )∕5 . A dash (—) indicates that all five random seeds selected distinct architectures, corresponding to a task-level rate of 20%. Higher values indicate greater convergence toward the same architecture across random seeds and reflect selection consistency, not architecture quality. 
+
+Target Task Random Search EA GENIUS CoLLM-NAS ATHENA OneFlorida+ Mortality — 64/2/2/2 (2) 256/2/8/1 (2) — —OneFlorida+ Stay > 7d — — — — 128/4/4/1 (2) OneFlorida+ Readmission (3M) 128/1/8/1 (2) — — 128/4/4/2 (2) 128/2/8/2 (2) OneFlorida+ Phenotype (6M) — 256/1/8/2 (2) 256/2/4/1 (2) — 256/1/4/1 (2) OneFlorida+ Phenotype (12M) — 256/1/8/1 (4) — 128/2/4/2 (2) 256/1/8/1 (4) OneFlorida+ Drug Recommendation 256/2/8/2 (2) 256/2/4/2 (2) 256/2/8/4 (3) 256/4/8/2 (3) —
+
+Mean modal architecture selection (%) 26.7 40.0 33.3 33.3 40.0 
+
+MIMIC-IV Mortality — — — — 256/4/8/1 (3) MIMIC-IV Stay > 7d — — 256/2/4/2 (2) — 256/4/8/1 (3) MIMIC-IV Readmission (3M) — — — 128/4/4/4 (2) —MIMIC-IV Phenotype (6M) — 256/1/8/1 (2) 256/2/4/2 (2) 128/4/2/2 (2) 256/1/8/1 (2) MIMIC-IV Phenotype (12M) — — 256/2/8/4 (2) — 256/1/4/1 (2) MIMIC-IV Drug Recommendation — 256/1/8/1 (2) 256/2/8/4 (2) 128/4/8/8 (2) 256/1/4/2 (2) 
+
+Mean modal architecture selection (%) 20.0 26.7 33.3 30.0 43.3 
+
+Figure 6: Cross-hospital prior ablation on the external MIMIC-IV target. Bars and error bars show the mean and SD, respectively, of test AUPRC across five random seeds for exact task-matched retrieval, L1-only retrieval without the Layer 2 architecture-effect prior, LOTO Retrieval excluding exact task matches, Cold Start without either prior layer, and CoLLM-NAS as the representative baseline. D. Li et al.: Preprint submitted to Elsevier Page 13 of 16 ATHENA: Knowledge-guided agentic NAS for EHR Transformers 
+
+for multilabel outcomes. Notably, LOTO Retrieval remained competitive even when exact task matches were excluded from the source knowledge base. This result suggests that the transferred information is not limited to reusing architectures previously optimized for the same endpoint; architectural patterns learned from related prediction problems may also provide useful guidance for a new task. At the same time, the observed task-specific architecture effects argue against a single universally optimal Transformer configuration for longitudinal EHR data. Clinical prediction tasks differ in outcome structure, prediction horizon, and the information that must be integrated across a patient’s record, and these differences may favor different model capacities and config-urations. Cross-hospital transfer of architecture knowledge should therefore complement, rather than replace, adaptation to the target task. ATHENA extends existing LLM-guided NAS approaches that primarily derive search guidance from information gen-erated during the current search process [16, 17]. Rather than beginning each search without prior architectural evidence, ATHENA incorporates structured knowledge accumulated from previously evaluated hospital–task settings and updates this guidance using validation performance at the target site. This distinction is particularly relevant to multi-institutional EHR research, where models are repeatedly developed or adapted across institutions and clinical endpoints. Differ-ences in patient populations, coding practices, clinical care patterns, data density, and outcome prevalence can affect both model performance and the architecture best suited to a prediction problem. Nevertheless, architecture selection is often repeated independently for each new dataset or endpoint. Performing an extensive architecture search for every hospital–task combination can become computationally burdensome, particularly for pretrained Transformer models. Reusing evidence from previous architecture evaluations provides a practical middle ground between applying the same architecture across all settings and repeating a compu-tationally intensive search from scratch for every new study. The external evaluation on MIMIC-IV further illustrates the potential value of this approach. Architecture knowledge derived from the source hospitals remained informative when transferred to a target health system with different cohort characteristics and clinical data distributions. Importantly, ATHENA did not directly transfer a source architecture as the final model. Instead, source knowledge was used to guide candidate generation, while architecture selection continued to depend on validation performance at the target site. This separation between transferred guidance and local evaluation is important for multi-institutional clinical modeling because an architecture that performs well in one health system may not remain optimal in another because of differences in patient populations, clinical care patterns, and outcome distributions. Architecture transfer may therefore be most useful when prior evidence narrows and informs the search while target-site data retain the final role in model selection. Several limitations should be considered. First, the evalu-ation included two target health systems and six downstream prediction tasks. Additional institutions, clinical specialties, coding systems, patient populations, and prediction horizons will be needed to determine how broadly the observed transfer patterns generalize. Although MIMIC-IV provided an external target health system, it represents a single aca-demic medical center and does not capture the heterogeneity of potential real-world deployment environments. Second, the search space was limited to Transformer embedding dimension, depth, number of attention heads, and MLP expansion ratio. Other design choices, including temporal representations, attention mechanisms, prediction heads, tokenization strategies, and training hyperparameters, were held fixed and may interact with the architectural components examined here. Third, although supernet-based evaluation generally preserved architecture rankings, ranking fidelity was lower for some binary outcomes, particularly Readmis-sion (3M), indicating that the accuracy of weight-inherited subnetwork evaluation may vary by prediction task. Fourth, the reported target-search cost does not include the upfront computation required to construct the source-site architecture knowledge base. The efficiency advantage of ATHENA therefore depends on reuse: its potential benefit increases when accumulated architecture evidence can support multiple subsequent modeling studies rather than a single search. In conclusion, ATHENA demonstrates a framework for reusing architecture-search knowledge across hospitals and clinical prediction tasks while preserving local model selection. By combining retrieved architecture examples, architecture-effect guidance, target-site validation, and weight-sharing evaluation, ATHENA identified strong Transformer configurations under limited search budgets while retaining task- and site-specific adaptation. More broadly, this approach reframes architecture search as knowledge that can accumulate across EHR modeling studies rather than a computational process that must be repeated independently for each new prediction problem. Future work should evaluate this strategy across more diverse health systems and model families, expand the range of transferable architectural and training information, and examine whether more efficient and reproducible architecture development can support robust external validation and prospective evaluation of EHR prediction models. 
+
+## CRediT authorship contribution statement 
+
+Deyi Li: Conceptualization, Data curation, Formal anal-ysis, Investigation, Methodology, Software, Visualization, Writing – original draft. Qi Xu: Conceptualization, Data cu-ration, Formal analysis, Investigation, Methodology, Writing – original draft. Lingyao Li: Validation, Writing – original draft. Tiansheng Wang: Validation, Writing – original draft. Muxuan Liang: Validation, Writing – original draft. 
+
+Mei Liu: Conceptualization, Funding acquisition, Project administration, Resources, Supervision, Validation, Writing – original draft.   
+
+> D. Li et al.: Preprint submitted to Elsevier Page 14 of 16
+
+ATHENA: Knowledge-guided agentic NAS for EHR Transformers 
+
+## Declaration of competing interest 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+## Data availability 
+
+The patient-level OneFlorida+ data used in this study are not publicly available because of privacy, institutional, and data-use restrictions. Researchers may request access through the OneFlorida+ Clinical Research Network Front Door or Coordinating Center ( https://onefl.net/front-door/ ); ac-cess is contingent on eligibility, network and institutional review, applicable data-use agreements, and ethical or institu-tional review board approvals. MIMIC-IV is a de-identified, credentialed-access resource available through PhysioNet (https://physionet.org/ ). Access requires PhysioNet creden-tialing, completion of the required research training, and acceptance of the applicable data-use agreement. The study-specific analytic datasets derived from OneFlorida+ and MIMIC-IV cannot be redistributed by the authors; eligible researchers must obtain the source data independently under the respective data-governance requirements. 
+
+## References 
+
+[1] J. Wang, J. Luo, M. Ye, X. Wang, Y. Zhong, A. Chang, G. Huang, Z. Yin, C. Xiao, J. Sun, et al., Recent advances in predictive modeling with electronic health records, in: IJCAI: proceedings of the conference, Vol. 2024, 2024, p. 8272. [2] W. Ren, J. Zhu, Z. Liu, T. Zhao, V. Honavar, A comprehensive survey of electronic health record modeling: From deep learning approaches to large language models, arXiv preprint arXiv:2507.12774 (2025). [3] L. Rasmy, Y. Xiang, Z. Xie, C. Tao, D. Zhi, Med-bert: pretrained contextualized embeddings on large-scale structured electronic health records for disease prediction, NPJ digital medicine 4 (1) (2021) 86. [4] Z. Yang, A. Mitra, W. Liu, D. Berlowitz, H. Yu, Transformehr: transformer-based encoder-decoder generative model to enhance prediction of disease outcomes using electronic health records, Nature communications 14 (1) (2023) 7857. [5] R. Poulain, R. Beheshti, Graph transformers on ehrs: Better representa-tion improves downstream performance, in: The Twelfth International Conference on Learning Representations, 2024. [6] D. Li, Z. Yao, Q. Xu, M. Liang, L. Li, Z. Xu, M. Liu, Dt-behrt: Disease trajectory-aware transformer for interpretable patient representation learning, arXiv preprint arXiv:2603.10180 (2026). [7] M. Kirchler, M. Ferro, V. Lorenzini, R. P. van de Water, F. G. A. 3, C. Lippert, A. Ganna, Large language models improve transferability of electronic health record-based predictions across countries and coding systems, npj Digital Medicine 9 (1) (2026) 177. [8] S. Salmani Pour Avval, N. D. Eskue, R. M. Groves, V. Yaghoubi, Systematic review on neural architecture search: Ssp avval et al..., Artificial Intelligence Review 58 (3) (2025) 73. [9] T. Elsken, J. H. Metzen, F. Hutter, Neural architecture search: A survey, Journal of Machine Learning Research 20 (55) (2019) 1–21. [10] B. Zoph, Q. V. Le, Neural architecture search with reinforcement learning, arXiv preprint arXiv:1611.01578 (2016). [11] E. Real, A. Aggarwal, Y. Huang, Q. V. Le, Regularized evolution for image classifier architecture search, in: Proceedings of the aaai conference on artificial intelligence, Vol. 33, 2019, pp. 4780–4789. [12] H. Liu, K. Simonyan, Y. Yang, Darts: Differentiable architecture search, arXiv preprint arXiv:1806.09055 (2018). [13] K. Kandasamy, W. Neiswanger, J. Schneider, B. Poczos, E. P. Xing, Neural architecture search with bayesian optimisation and optimal transport, Advances in neural information processing systems 31 (2018). [14] Z. Guo, X. Zhang, H. Mu, W. Heng, Z. Liu, Y. Wei, J. Sun, Single path one-shot neural architecture search with uniform sampling, in: European conference on computer vision, Springer, 2020, pp. 544–560. [15] Z. Ji, G. Zhu, C. Yuan, Y. Huang, Rz-nas: Enhancing llm-guided neural architecture search via reflective zero-cost strategy., in: ICML, 2025. [16] M. Zheng, X. Su, S. You, F. Wang, C. Qian, C. Xu, S. Al-banie, Can gpt-4 perform neural architecture search?, arXiv preprint arXiv:2304.10970 (2023). [17] Z. Li, Z. Lin, Y. Wang, Collm-nas: Collaborative large language models for efficient knowledge-guided neural architecture search, in: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 2026, pp. 3273–3282. [18] X. Su, Q. Mao, Z. Wu, X. Lin, S. You, Y. Liao, C. Xu, Large language models driven neural architecture search for universal and lightweight disease diagnosis on histopathology slide images, npj Digital Medicine 8 (1) (2025) 682. [19] M. Chen, H. Peng, J. Fu, H. Ling, Autoformer: Searching transformers for visual recognition, in: Proceedings of the IEEE/CVF international conference on computer vision, 2021, pp. 12270–12280. [20] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, I. Polosukhin, Attention is all you need, Advances in neural information processing systems 30 (2017). [21] Y. Li, S. Rao, J. R. A. Solares, A. Hassaine, R. Ramakrishnan, D. Canoy, Y. Zhu, K. Rahimi, G. Salimi-Khorshidi, Behrt: transformer for electronic health records, Scientific reports 10 (1) (2020) 7155. [22] C. Pang, X. Jiang, K. S. Kalluri, M. Spotnitz, R. Chen, A. Perotte, K. Natarajan, Cehr-bert: Incorporating temporal information from structured ehr data to improve prediction tasks, in: Machine Learning for Health, PMLR, 2021, pp. 239–260. [23] Y. Li, M. Mamouei, G. Salimi-Khorshidi, S. Rao, A. Hassaine, D. Canoy, T. Lukasiewicz, K. Rahimi, Hi-behrt: hierarchical transformer-based model for accurate prediction of clinical events using multimodal longitudinal electronic health records, IEEE journal of biomedical and health informatics 27 (2) (2022) 1106–1117. [24] Z. Kraljevic, D. Bean, A. Shek, R. Bendayan, H. Hemingway, J. A. Yeung, A. Deng, A. Balston, J. Ross, E. Idowu, et al., Foresight—a generative pretrained transformer for modelling of patient timelines using electronic health records: a retrospective modelling study, The Lancet Digital Health 6 (4) (2024) e281–e290. [25] M. Wornow, R. Thapa, E. Steinberg, J. Fries, N. Shah, Ehrshot: An ehr benchmark for few-shot evaluation of foundation models (2023), URL https://arxiv. org/abs/2307.02028 2307. [26] C. White, M. Safari, R. Sukthanker, B. Ru, T. Elsken, A. Zela, D. Dey, F. Hutter, Neural architecture search: Insights from 1000 papers, arXiv preprint arXiv:2301.08727 (2023). [27] D. So, Q. Le, C. Liang, The evolved transformer, in: International conference on machine learning, PMLR, 2019, pp. 5877–5886. [28] H. Wang, Z. Wu, Z. Liu, H. Cai, L. Zhu, C. Gan, S. Han, Hat: Hardware-aware transformers for efficient natural language processing, in: Proceedings of the 58th annual meeting of the association for computational linguistics, 2020, pp. 7675–7688. [29] J. Xu, X. Tan, R. Luo, K. Song, J. Li, T. Qin, T.-Y. Liu, Nas-bert: Task-agnostic and adaptive-size bert compression with neural architecture search, in: Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining, 2021, pp. 1933–1943. [30] J. Gao, H. Xu, H. Shi, X. Ren, P. L. Yu, X. Liang, X. Jiang, Z. Li, Autobert-zero: Evolving bert backbone from scratch, in: Proceedings of the AAAI Conference on Artificial Intelligence, Vol. 36, 2022, pp. 10663–10671. [31] D. R. So, W. Manke, H. Liu, Z. Dai, N. Shazeer, Q. V. Le, Primer: Searching for efficient transformers for language modeling, 2022, URL https://arxiv. org/abs/2109.08668 (2022). [32] M. Bal-Ghaoui, M. Tiouti, Metallmix: An xai aided llm-meta-learning based approach for hyper-parameters optimization, arXiv preprint arXiv:2509.09387 (2025). 
+
+D. Li et al.: Preprint submitted to Elsevier Page 15 of 16 ATHENA: Knowledge-guided agentic NAS for EHR Transformers 
+
+[33] Z. Xu, D. R. So, A. M. Dai, Mufasa: Multimodal fusion architecture search for electronic health records, in: Proceedings of the AAAI Conference on Artificial Intelligence, Vol. 35, 2021, pp. 10532–10540. [34] S. Cui, J. Wang, Y. Zhong, H. Liu, T. Wang, F. Ma, Automated fusion of multimodal electronic health records for better medical predictions, in: Proceedings of the... SIAM International Conference on Data Mining. SIAM International Conference on Data Mining, Vol. 2024, 2024, p. 361. [35] A. Chen, D. Dohan, D. So, Evoprompting: Language models for code-level neural architecture search, Advances in neural information processing systems 36 (2023) 7787–7817. [36] C. Yu, X. Liu, Y. Wang, Y. Liu, W. Feng, D. Xiong, C. Tang, J. Lv, Gpt-nas: Evolutionary neural architecture search with the generative pre-trained model, arXiv preprint arXiv:2305.05351 (2023). [37] M. U. Nasir, S. Earle, J. Togelius, S. James, C. Cleghorn, Llmatic: neural architecture search via large language models and quality diversity optimization, in: proceedings of the Genetic and Evolutionary Computation Conference, 2024, pp. 1110–1118. [38] E. Choi, M. T. Bahadori, E. Searles, C. Coffey, M. Thompson, J. Bost, J. Tejedor-Sojo, J. Sun, Multi-layer representation learning for medical concepts, in: Proc. 22nd ACM SIGKDD Int. Conf. Knowledge Discovery and Data Mining (KDD), 2016, pp. 1495–1504. [39] T. Zhang, M. Chen, A. A. T. Bui, Diagnostic prediction with sequence-of-sets representation learning for clinical events, in: Proc. Int. Conf. Artificial Intelligence in Medicine (AIME), Vol. 12299 of LNAI, Springer, 2020, pp. 348–358. [40] J. Devlin, M.-W. Chang, K. Lee, K. Toutanova, Bert: Pre-training of deep bidirectional transformers for language understanding, in: Proceedings of the 2019 conference of the North American chapter of the association for computational linguistics: human language technologies, volume 1 (long and short papers), 2019, pp. 4171–4186. [41] T. Chen, C. Guestrin, Xgboost: A scalable tree boosting system, in: Proceedings of the 22nd acm sigkdd international conference on knowledge discovery and data mining, 2016, pp. 785–794. [42] S. M. Lundberg, G. Erion, H. Chen, A. DeGrave, J. M. Prutkin, B. Nair, R. Katz, J. Himmelfarb, N. Bansal, S.-I. Lee, From local explanations to global understanding with explainable ai for trees, Nature Machine Intelligence 2 (1) (2020) 2522–5839. [43] R. L. Fleurence, L. H. Curtis, R. M. Califf, R. Platt, J. V. Selby, J. S. Brown, Launching pcornet, a national patient-centered clinical research network, Journal of the American Medical Informatics Association 21 (4) (2014) 578–582. doi:10.1136/amiajnl-2014-002747 .URL https://doi.org/10.1136/amiajnl-2014-002747 
+
+[44] W. R. Hogan, et al., The oneflorida data trust: a centralized, transla-tional research data infrastructure of statewide scope, Journal of the American Medical Informatics Association 29 (4) (2022) 686–693. 
+
+> doi:10.1093/jamia/ocab221
+
+.[45] A. E. Johnson, L. Bulgarelli, L. Shen, A. Gayles, A. Shammout, S. Horng, T. J. Pollard, S. Hao, B. Moody, B. Gow, et al., Mimic-iv, a freely accessible electronic health record dataset, Scientific data 10 (1) (2023) 1. [46] R. L. Fleurence, L. H. Curtis, R. M. Califf, R. Platt, J. V. Selby, J. S. Brown, Launching pcornet, a national patient-centered clinical research network, Journal of the American Medical Informatics Association 21 (4) (2014) 578–582. [47] R. Xu, M. K. Ali, J. C. Ho, C. Yang, Hypergraph transformers for ehr-based clinical predictions, AMIA Summits on Translational Science Proceedings 2023 (2023) 582. [48] W. Yao, K. Yin, W. K. Cheung, J. Liu, J. Qin, Drfuse: Learning disentangled representation for clinical multi-modal fusion with missing modality and modal inconsistency, in: Proceedings of the AAAI conference on artificial intelligence, Vol. 38, 2024, pp. 16416– 16424. 
+
+D. Li et al.: Preprint submitted to Elsevier Page 16 of 16 Supplementary materials for: 
+
+# ATHENA: Knowledge-guided agentic neural architec-ture search for AutoFormer-based electronic health record modeling 
+
+Deyi Li 1,†,∗, Qi Xu 1,†, Lingyao Li 2, Tiansheng Wang 3,4, Muxuan Liang 5 and Mei Liu 1,∗∗ 
+
+> 1
+
+Department of Health Outcomes and Biomedical Informatics, College of Medicine, University of Florida, Gainesville, FL, USA 
+
+> 2
+
+College of Information Science, University of Arizona, Tucson, AZ, USA 
+
+> 3
+
+Department of Pharmaceutical Health Outcomes and Policy, College of Pharmacy, University of Hous-ton, Houston, TX, USA 
+
+> 4
+
+Department of Epidemiology, Gillings School of Global Public Health, University of North Carolina at Chapel Hill, Chapel Hill, NC, USA 
+
+> 5
+
+Department of Biostatistics, University of Texas MD Anderson Cancer Center, Houston, TX, USA 
+
+> †
+
+These authors contributed equally to this work. 
+
+> ∗
+
+Corresponding author: lideyi@ufl.edu 
+
+> ∗∗
+
+Corresponding author: mei.liu@ufl.edu 
+
+Method S1. Cohort construction and inclusion/exclusion criteria 
+
+The following criteria were applied to all cohorts. 
+
+• Multimodal completeness. An admission was included if it had at least one record in each of the diagnosis, medication, procedure, and laboratory tables. Admissions missing any of these modalities were excluded. 
+
+• Age. Only adult admissions ( ≥ 18 years) were included. Ages of 89 years and older were coded as 90 years and discretized into 20 equal-width bins. 
+
+• Number of clinical events. No minimum number of clinical events was required beyond the multimodal completeness criterion. 
+
+• Number of visits. No minimum number of admissions per patient was required. To limit computational burden, patients with more than eight distinct admissions were excluded. 1Method S2. Implementation details 
+
+• Architecture constraints and output heads. The target-specific parameter limit was 
+
+Pmax = 4 ,000 ,000. The componentwise maximal supernet configuration was ( d, L, γ, h ) = (256 , 8, 8, 8), and the internal query/key/value width was fixed at 256 for every subnet. All search methods operated on the legal space AH,t defined in the main-text Methods and used the same hospital-specific pretrained supernet. 
+
+• Cross-hospital prior. The source prior used four de-identified OneFlorida+ sites and 100 distinct architectures per source-hospital–task pair; both target cohorts were excluded from prior construction. Source metrics were averaged over the three checkpoints with the highest source-validation AUPRC. ATHENA retrieved K = 5 source architectures from the task-matched or fallback source set. In the task descriptor, eCt = log( Ct)/ log(20) and 
+
+e∆t = ∆ t/365, with ∆ t = 0 for same-admission outcomes. Architecture-effect labels and interaction rules used normal-approximation 95% CIs, and interaction cells required at least three records. 
+
+• Agentic search. ATHENA permitted at most R = 3 critique passes per search round and terminated after Fmax = 3 consecutive rounds without an accepted legal candidate. The maximum evaluation budget was B = 30. Results were summarized after 5, 20, and 30 evaluations. 
+
+• Masked language modeling (MLM) and supernet pretraining. For MLM, 15% of non-special tokens were selected; 80% of selected tokens were replaced by [MASK] , 10% by a random token of the same type, and 10% were unchanged. Supernet pretraining ran for at most 100 epochs with validation-loss patience 5. Optimization used AdamW, batch size 64, learning rate 2 × 10 −4, weight decay 10 −2, and gradient clipping at norm 1.0. The learning-rate schedule used linear warm-up over the first 10% of epochs followed by cosine decay to 1% of the peak rate. 
+
+• Candidate fine-tuning and checkpoint selection. Candidate fine-tuning used the same optimizer settings for at most 30 epochs with validation-AUPRC patience 5. Search-time metrics were averaged over the three epochs with the highest validation AUPRC, whereas the weights from the single best validation-AUPRC epoch were retained for final test evaluation. Attention dropout, residual dropout, and drop-path rate were each 0.1. 
+
+• Large language model (LLM) configuration. 
+
+All LLM-based methods used anthropic/claude-3.5-haiku . The Proposal, Critic, and Strategy modules returned structured JSON; invalid responses were retried and otherwise contributed to the consecutive-failure criterion. 2Table S1. Definitions of the six clinical prediction tasks. Each task is defined relative to the target admission , i.e., the hospital admission being modeled. 
+
+Mortality (binary): Whether the patient dies during the target admission (1 if a recorded in-hospital death time is present, 0 otherwise). The outcome is assessed only during the target admission, from admission to discharge or death, with no post-discharge follow-up. 
+
+Stay > 7d (binary): Whether the length of stay of the target admission exceeds seven days (1 if > 7 days, 0 otherwise), measured from admission to discharge. The outcome is defined for the single target admission rather than as a cumulative measure across admissions, and all admissions are included regardless of discharge disposition. 
+
+Readmission (3M) (binary): Whether the patient has a subsequent hospital admission within 3 months (90 days) of the target admission (1 if a subsequent admission occurs within 90 days, 0 otherwise). The interval is measured from the discharge date of the target admission to the admission date of the subsequent admission. 
+
+Phenotype (6M) (multilabel, 18 classes): The 18 predefined phenotype categories present among the diagnoses recorded at the patient’s next hospital admission, provided that the next admission occurs within 6 months (180 days) of the target admission. Only target admissions followed by a qualifying next admission are included. The 18 categories are: (1) acute and unspecified renal failure; (2) acute cerebrovascular disease; (3) acute myocardial infarction; (4) cardiac dysrhythmias; (5) chronic kidney disease; (6) chronic obstructive pulmonary disease; (7) conduction disorders; (8) congestive heart failure (nonhypertensive); (9) coronary atherosclerosis and related; (10) disorders of lipid metabolism; (11) essential hypertension; (12) fluid and electrolyte disorders; (13) gastrointestinal hemorrhage; (14) hypertension with complications; (15) other liver diseases; (16) other lower respiratory disease; (17) pneumonia; and (18) septicemia (except in labor). 
+
+Phenotype (12M) (multilabel, 18 classes): The same 18 phenotype categories are used as in the 6-month task, but the next hospital admission must occur within 12 months (365 days) of the target admission. The label is an 18-dimensional binary vector, and only target admissions followed by a qualifying next admission are included. 
+
+Drug Recommendation (multilabel, 55 classes): The medication classes prescribed during the target admission, based on the admission diagnoses and the patient’s prior visit history. Ground truth consists of physician-prescribed drugs mapped to Anatomical Therapeutic Chemical (ATC) level-4 classes. Of the 140 ATC level-4 classes, the 55 classes present in ≥ 1% of admissions (prevalence, 1.0–21.8%) are retained. The resulting label is a 55-dimensional binary vector. For model input, diagnoses from the target admission are retained, whereas medication, laboratory, and procedure tokens from that admission are masked; all tokens from prior visits remain available. The 55 ATC level-4 classes are: (1) antithrombotic agents (B01A); (2) other analgesics and antipyretics (N02B); (3) stomatological preparations (A01A); (4) laxatives (A06A); (5) drugs for peptic ulcer and gastro-oesophageal reflux (A02B); (6) other mineral supplements (A12C); (7) lipid-modifying agents (C10A); (8) irrigating solutions (B05C); (9) calcium (A12A); (10) beta-blocking agents (C07A); (11) opioids (N02A); (12) antidepressants (N06A); (13) antiemetics and antinauseants (A04A); (14) ACE inhibitors, plain (C09A); (15) antacids (A02A); (16) thyroid preparations (H03A); (17) pancreatic hormones (H04A); (18) insulins and analogues (A10A); (19) selective calcium-channel blockers (C08C); (20) other beta-lactam antibacterials (J01D); (21) high-ceiling diuretics (C03C); (22) vitamin B12 and folic acid (B03B); (23) intestinal antiinfectives (A07A); (24) anxiolytics (N05B); (25) adrenergics, inhalants (R03A); (26) antiepileptics (N03A); (27) other cardiac preparations (C01E); (28) thiazide diuretics (C03A); (29) cardiac vasodilators (C01D); (30) topical antihemorrhoidals (C05A); (31) class I and III antiarrhythmics (C01B); (32) angiotensin-II receptor blockers (C09C); (33) quinolone antibacterials (J01M); (34) antipsychotics (N05A); (35) antigout preparations (M04A); (36) potassium (A12B); (37) intestinal anti-inflammatory agents (A07E); (38) penicillins (J01C); (39) general anesthetics (N01A); (40) arteriolar smooth-muscle agents (C02D); (41) anti-inflammatory and antirheumatic NSAIDs (M01A); (42) dermatological corticosteroids (D07A); (43) propulsives (A03F); (44) antipruritics (D04A); (45) hypnotics and sedatives (N05C); (46) other dermatological preparations (D11A); (47) drugs used in addictive disorders (N07B); (48) cardiac stimulants, excluding glycosides (C01C); (49) topical nasal decongestants (R01A); (50) potassium-sparing agents (C03D); (51) direct-acting antivirals (J05A); (52) sulfonamides and trimethoprim (J01E); (53) cough suppressants (R05D); (54) bacterial vaccines (J07A); and (55) blood glucose-lowering drugs, excluding insulins (A10B). 
+
+3Table S2. Baseline characteristics of the six study cohorts. Sites A–D are OneFlorida+ source sites used to construct the cross-hospital architecture prior, Site E is the held-out OneFlorida+ internal target, and MIMIC-IV is the external target. Continuous variables are reported as mean (SD) or median [IQR] and categorical variables as n (%). Sex percentages are calculated among patients with recorded sex, with missing sex reported separately. Comorbidities are reported as the number and percentage of admissions with the corresponding diagnosis. 
+
+OneFlorida+ Source Sites Internal Target External Target 
+
+Characteristic Site A Site B Site C Site D Site E MIMIC-IV 
+
+Demographics 
+
+Patients, n 52,831 55,735 88,527 58,282 84,479 60,706 Admissions, n 144,313 119,579 200,911 97,303 135,955 84,492 Female, n (%) 5,547 (48.8) 25,439 (49.0) 18,511 (45.7) 26,223 (46.3) 44,078 (54.6) 30,198 (49.7) Sex not recorded, n (%) 41,470 (78.5) 3,863 (6.9) 48,059 (54.3) 1,653 (2.8) 3,816 (4.5) 0 (0.0) 
+
+Utilization 
+
+Admissions per patient, mean (SD) 2.7 (1.7) 2.1 (1.5) 2.3 (1.4) 1.7 (1.1) 1.6 (1.1) 1.4 (0.9) Length of stay, days, median [IQR] 2 [0–4] 4 [1–7] 4 [2–7] 5 [3–16] 4 [2–7] 4 [2–8] Diagnoses per admission, mean (SD) 10.8 (7.7) 14.2 (10.6) 19.1 (15.6) 12.5 (8.3) 5.4 (4.2) 11.9 (7.2) Medications per admission, mean (SD) 11.3 (7.1) 3.5 (2.7) 13.1 (9.9) 3.2 (2.3) 3.9 (2.8) 3.3 (2.5) 
+
+Outcomes 
+
+In-hospital mortality, n (%) 644 (0.4) 1,263 (1.1) 4,955 (2.5) 2,226 (2.3) 5,317 (3.9) 3,577 (4.2) Stay > 7d, n (%) 13,790 (9.6) 26,063 (21.8) 30,841 (15.4) 33,049 (34.0) 28,317 (20.8) 23,031 (27.3) Readmission (3M), n (%) 30,264 (21.0) 24,455 (20.5) 47,990 (23.9) 19,495 (20.0) 23,242 (17.1) 10,727 (12.7) 
+
+Comorbidities (n, % of admissions) 
+
+Essential hypertension 50,545 (35.0) 52,639 (44.0) 85,260 (42.4) 33,248 (34.2) 26,591 (19.6) 35,443 (41.9) Disorders of lipid metabolism 50,156 (34.8) 33,518 (28.0) 55,822 (27.8) 23,269 (23.9) 5,368 (3.9) 30,498 (36.1) Cardiac dysrhythmias 26,555 (18.4) 20,763 (17.4) 37,695 (18.8) 12,110 (12.4) 7,644 (5.6) 19,681 (23.3) Congestive heart failure 20,014 (13.9) 19,278 (16.1) 28,832 (14.4) 10,740 (11.0) 6,979 (5.1) 13,789 (16.3) Coronary atherosclerosis 8,808 (6.1) 4,809 (4.0) 9,244 (4.6) 3,055 (3.1) 1,543 (1.1) 19,675 (23.3) Acute/unspecified renal failure 18,337 (12.7) 18,995 (15.9) 29,141 (14.5) 12,409 (12.8) 12,003 (8.8) 13,861 (16.4) Chronic kidney disease 10,894 (7.5) 9,064 (7.6) 15,732 (7.8) 6,697 (6.9) 3,791 (2.8) 13,489 (16.0) COPD 11,814 (8.2) 11,984 (10.0) 20,920 (10.4) 4,581 (4.7) 3,957 (2.9) 7,634 (9.0) Pneumonia 6,468 (4.5) 7,449 (6.2) 15,576 (7.8) 4,235 (4.4) 6,086 (4.5) 5,971 (7.1) Fluid and electrolyte disorders 29,744 (20.6) 36,240 (30.3) 49,495 (24.6) 29,854 (30.7) 13,787 (10.1) 19,550 (23.1) 
+
+4Table S3. Layer 2 pairwise architecture-effect rules supplied to the search prompt ( Mmeta ). For each task, the interaction model uses the two most influential architecture features. The table reports feature-level combinations with estimated effects whose 95% confidence intervals (CIs) exclude zero. 
+
+Task Feature pair Rule supplied to the prompt 
+
+Mortality embed dim × heads Prefer embed dim ∈ { 128 , 256 }, with the preference for 256 applying when heads ≥ 2; discourage embed dim 
+
+∈ { 32 , 64 }.Stay > 7d depth × embed dim Prefer depth ≥ 2; discourage depth = 1 across all 
+
+embed dim levels. Readmission (3M) heads × embed dim Prefer heads ∈ { 4, 8}; discourage heads ∈ { 1, 2} across all 
+
+embed dim levels. Phenotype (6M) embed dim × depth Prefer embed dim ∈ { 128 , 256 }; discourage embed dim 
+
+∈ { 32 , 64 } across all depth levels. Phenotype (12M) embed dim × depth Prefer embed dim ∈ { 128 , 256 }; discourage embed dim 
+
+∈ { 32 , 64 } across all depth levels. Drug Recommendation 
+
+embed dim × depth Prefer embed dim ∈ { 128 , 256 }; discourage embed dim 
+
+∈ { 32 , 64 } across all depth levels. 
+
+Table S4. Test AUROC at a search budget of 30 architecture evaluations (mean ± standard deviation over five random seeds). Within each hospital–task comparison, the best mean is shown in bold and the second-best mean is underlined; ties share the same mark. Avg. Rank denotes the mean rank across the 12 hospital–task comparisons (1 = best; ties receive the average rank), with the number of best-in-row comparisons shown in parentheses. 
+
+Target Task Random Search EA GENIUS CoLLM-NAS ATHENA OneFlorida+ Mortality 89.15 ± 0.72 89.71 ± 0.51 89.07 ± 1.15 88.94 ± 1.49 89.30 ± 0.95 OneFlorida+ Stay > 7d 90.32 ± 0.31 90.31 ± 0.13 90.46 ± 0.13 90.39 ± 0.30 90.30 ± 0.25 OneFlorida+ Readmission (3M) 70.22 ± 0.28 70.52 ± 0.48 70.38 ± 0.19 70.29 ± 0.37 70.51 ± 0.35 OneFlorida+ Phenotype (6M) 78.74 ± 0.55 78.82 ± 0.31 78.39 ± 0.32 78.18 ± 0.71 78.82 ± 0.25 
+
+OneFlorida+ Phenotype (12M) 79.86 ± 0.40 79.84 ± 0.44 79.64 ± 0.26 78.85 ± 0.25 80.05 ± 0.10 
+
+OneFlorida+ Drug Recommendation 71.21 ± 0.08 71.26 ± 0.08 71.31 ± 0.07 71.20 ± 0.18 71.28 ± 0.09 MIMIC-IV Mortality 96.09 ± 0.14 96.18 ± 0.06 96.13 ± 0.17 96.18 ± 0.16 96.19 ± 0.16 
+
+MIMIC-IV Stay > 7d 85.14 ± 0.26 85.43 ± 0.20 85.33 ± 0.25 85.06 ± 0.36 85.56 ± 0.39 
+
+MIMIC-IV Readmission (3M) 67.89 ± 0.19 67.90 ± 0.78 67.77 ± 0.45 67.84 ± 0.23 68.08 ± 0.40 
+
+MIMIC-IV Phenotype (6M) 80.04 ± 0.47 79.89 ± 0.48 79.83 ± 0.52 79.47 ± 0.58 80.07 ± 0.25 
+
+MIMIC-IV Phenotype (12M) 79.38 ± 0.24 79.38 ± 0.27 79.15 ± 0.44 78.89 ± 0.61 79.53 ± 0.19 
+
+MIMIC-IV Drug Recommendation 78.25 ± 0.17 78.37 ± 0.07 77.90 ± 0.46 77.41 ± 0.46 78.32 ± 0.17 
+
+Avg. Rank (best-in-row) 3.29 (0) 2.21 (4) 3.42 (2) 4.38 (0) 1.71 (7) 
+
+5Figure S1. Cross-hospital architecture prior learned by the Layer 2 meta-regression across four One-Florida+ source sites. Rows denote the six prediction tasks: ( a) Mortality, ( b) Stay > 7d, ( c) Readmission (3M), ( d) Phenotype (6M), ( e) Phenotype (12M), and ( f ) Drug Recommendation; columns denote ar-chitecture dimensions. Points show mixed-effects SHapley Additive exPlanations (SHAP) estimates with 95% CIs for each hyperparameter level. Green indicates preferred levels (CI > 0), red indicates discour-aged levels (CI < 0), and gray indicates inconclusive levels whose CIs span 0. Gray points at zero without CIs denote reference levels. 
+
+6Figure S2. Search trajectories on the held-out MIMIC-IV target for ( a) Mortality, ( b) Stay > 7d, ( c)Readmission (3M), ( d) Phenotype (6M), ( e) Phenotype (12M), and ( f ) Drug Recommendation. Lines and shaded bands show the mean and SD, respectively, of the best validation AUPRC attained across five random seeds as a function of the number of evaluated architectures. Curves may end before the full budget when proposal saturation yields no new legal architecture. 
+
+7Figure S3. Validation AUPRC versus parameter count on the held-out MIMIC-IV target for ( a) Mor-tality, ( b) Stay > 7d, ( c) Readmission (3M), ( d) Phenotype (6M), ( e) Phenotype (12M), and ( f ) Drug Recommendation. Markers denote search methods, and the dashed line indicates the empirical Pareto frontier across evaluated architectures. Validation performance guided architecture search and selection; the selected architecture was evaluated only once on the held-out test set. 
+
+8Figure S4. Cross-hospital prior ablation on the held-out OneFlorida+ target. Bars and error bars show the mean and SD, respectively, of test AUPRC across five random seeds for exact task-matched retrieval, L1-only retrieval without the Layer 2 architecture-effect prior, Leave-One-Task-Out (LOTO) Retrieval excluding exact task matches, Cold Start without either prior layer, and CoLLM-NAS as the representative baseline. 
+
+9
