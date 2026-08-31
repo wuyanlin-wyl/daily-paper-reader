@@ -1,0 +1,503 @@
+Title: MegaMem: A Retrieval Solution for Ultra-Large Context Windows
+
+URL Source: https://arxiv.org/pdf/2608.22137v1
+
+Published Time: Tue, 25 Aug 2026 00:52:28 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# MegaMem : A Retrieval Solution for Ultra-Large Context Windows 
+
+Xinyuan Song 1,2 Bowen Zhu 1 Hasibul Haque 1 Liang Zhao 1,21Causal Dynamics Lab, USA 2Emory University, USA 
+
+Abstract 
+
+Modern language models and agents in-creasingly require persistent memory for complete codebases, long interaction histo-ries, and heterogeneous enterprise records. The key challenge is to keep hundreds of millions of tokens searchable while pass-ing only bounded source evidence to the answer model. We introduce MegaMem ,a source-resolved dual-view retrieval sys-tem that separates semantic access from generation evidence. Distilled records and detailed evidence are searched with orig-inal and transformed queries; every dis-tilled hit resolves to an immutable source ID before reciprocal-rank fusion, dedupli-cation, and cross-encoder reranking; and only the highest-ranked detailed evidence within a fixed budget supports genera-tion. Post-answer attribution then iden-tifies which loaded sources support the fixed answer. We evaluate MegaMem 
+
+on EnterpriseRAG-Bench, which contains more than 500,000 heterogeneous enter-prise documents and approximately 650M tokens. MegaMem improves Overall from 68.22 to 82.26 and reaches 86.50 Correctness. These results show that 
+
+MegaMem supports ultra-large persistent memory while preserving strong answer ac-curacy under a bounded generation con-text. By separating searchable memory scale from answer-context size, MegaMem 
+
+provides a practical path toward accurate retrieval over memories ranging from hun-dreds of millions to one billion tokens. Our code is available at https://github.com/ xfab-xinyuansong/MegaMem.git .
+
+1 Introduction 
+
+Modern large language models and agents in-creasingly depend on large context to support long-term interaction, planning, tool use, and knowledge-intensive decision making (Packer et al., 2023; Wang et al., 2023b; Zhong et al., 2023; Maharana et al., 2024; Wu et al., 2025; Chhikara et al., 2025; Kang et al., 2025). Mem-ory management has therefore become a core problem in agent systems, since an agent must retain observations, task states, interaction his-tories, and prior experience across steps and sessions. In practice, modern language systems require persistent memory that can store com-plete codebases, long interaction histories, and heterogeneous enterprise records (Sun et al., 2026; Choubey et al., 2025; Yu et al., 2025). Na-tive long-context models can process millions of tokens in one call (Gemini Team, 2024), while retrieval-based models can search datastores containing trillions of tokens (Borgeaud et al., 2022). Persistent-memory systems instead store information outside the active context and re-trieve selected content when needed (Packer et al., 2023; Wang et al., 2023b). Recent sys-tems further organize, update, and retrieve long-term memory to support continued inter-action, personalization, and cross-session rea-soning (Zhong et al., 2023; Maharana et al., 2024; Wu et al., 2025; Chhikara et al., 2025; Kang et al., 2025). However, only a small fraction of such mem-ory usually supports one answer. Directly load-ing more content creates a quality–cost trade-off: relevant evidence may be missed because of its position (Liu et al., 2023), performance can decline as context length and document count increase (Hsieh et al., 2024; Levy et al., 2025; Du et al., 2025), and irrelevant passages can distract the model (Cuconasu et al., 2024). Processing the full repository also causes at-tention computation, latency, and serving cost to grow with stored history. Existing meth-ods address this problem through hierarchical summaries (Sarthi et al., 2024), graph-based corpus representations (Edge et al., 2024; Guo 1arXiv:2608.22137v1 [cs.AI] 22 Aug 2026 et al., 2024; Gutiérrez et al., 2024), global mem-ory and retrieval clues (Qian et al., 2025), or external memory management (Packer et al., 2023; Wang et al., 2023b; Chhikara et al., 2025; Kang et al., 2025). These methods improve access to large stores, but compressed records may omit dates, exceptions, conditions, or con-flicts needed for a correct answer. In contrast, retrieving only detailed chunks preserves ex-act support but increases distractor exposure and weakens retrieval precision as the corpus grows (Cuconasu et al., 2024; Levy et al., 2024, 2025). Ultra-large memory retrieval must therefore support three goals: semantic retrieval across different expressions, source-faithful evidence for generation, and precise attribution to the sources used. We distinguish persistent context ,the full corpus that the system can search, from 
+
+evidence context , the bounded detailed source evidence consumed for one answer. The goal is to scale the former without increasing the latter at the same rate. We introduce MegaMem ,which assigns these goals to separate stages: dis-tilled records support retrieval, each distilled hit resolves to an immutable detailed-source identifier, only detailed source evidence enters generation, and post-answer attribution identi-fies the loaded sources that support the fixed answer (Hsia et al., 2025; Levy et al., 2024). Ultra-large memory retrieval must support semantic access, source-faithful generation, and precise attribution. We distinguish persistent context , the full searchable corpus, from evi-dence context , the bounded detailed source evi-dence used for one answer. MegaMem scales the former while keeping the latter fixed: dis-tilled records support retrieval, every distilled hit resolves to detailed source evidence through an immutable source ID, and only the highest-ranked resolved chunks enter generation. Origi-nal and transformed queries search both views, followed by reciprocal-rank fusion, deduplica-tion, and cross-encoder reranking. As shown in Figure 1, this design separates persistent mem-ory, retrieval candidates, loaded evidence, and reported sources, allowing MegaMem to oper-ate over hundreds of millions of tokens without passing the full memory to the answer model. This design builds on prior work in na-tive long context, persistent memory, struc-tured retrieval, multi-stage retrieval, and at-tribution (Gemini Team, 2024; Packer et al., 2023; Sarthi et al., 2024; Cormack et al., 2009; Gao et al., 2023), and leads to three research questions. First, does separating re-trieval records from generation evidence im-prove end-to-end answer quality? Second, which components—dual-view retrieval, distil-lation, query transformation, reranking, and post-answer attribution—produce the observed gains? Third, as persistent memory grows un-der a fixed evidence budget, does performance decline because retrieval fails to find the re-quired evidence or because the answer model cannot use the selected evidence? We evaluate these questions on EnterpriseRAG-Bench, a recent bench-mark for retrieval over realistic enterprise knowledge (Sun et al., 2026). It contains more than 500,000 documents from heterogeneous enterprise sources and 500 questions covering retrieval, multi-document reasoning, conflict resolution, constrained search, and missing-information cases. The full corpus used in our study contains approximately 650M tokens, providing a direct test of retrieval over ultra-large and noisy memory. On the disjoint 400-question validation split, MegaMem 
+
+provides an effective solution to ultra-large memory retrieval, improving Overall from 68.22 to 82.26 and reaching 86.50 Correctness. The strongest gains come from dual-view retrieval and distillation, confirming that separating semantic access from source-faithful evidence is central to the design. Post-answer attribution further reduces the reported source set without changing answer quality, improving source reporting while preserving the final prediction. This work makes three contributions: • We study the problem of ultra-large per-sistent memory at the scale of 250M to 1B tokens, where a language system must keep the full memory searchable while passing only a bounded amount of evidence to the answer model. • We introduce MegaMem , a source-resolved dual-view retrieval system that searches both distilled records and detailed evidence with original and transformed queries, resolves all distilled hits to im-mutable source IDs before reciprocal-rank 2Figure 1: MegaMem maps ultra-large persistent memory to a bounded evidence context. 
+
+> Enterprise knowledge is stored as source-linked raw evidence and typed memories, retrieved through multiple query routes, fused and reranked, and then reduced to a small set of detailed evidence cards used for answer generation and source attribution.
+
+fusion, deduplication, and cross-encoder reranking, loads only the highest-ranked detailed evidence under a fixed budget, and applies post-answer attribution to the fixed answer. • We evaluate MegaMem against strong retrieval and memory baselines and pro-vide controlled analyses of end-to-end qual-ity, component effects, wall-clock cost, to-ken use, evidence-budget trade-offs, and memory scaling. MegaMem achieves the best overall performance while keeping the generation context bounded as persistent memory grows. 
+
+2 Problem Formulation 
+
+2.1 Persistent Context and Evidence Context 
+
+Let D denote the full persistent corpus with T
+
+tokens. For a question q, the system retrieves an evidence set E(q) ⊆ D under a fixed budget 
+
+B:
+
+E(q) ⊆ D , tok( E(q)) ≤ B, B ≪ T. 
+
+(1) We refer to D as the persistent context and E(q)
+
+as the evidence context . The goal is to scale the searchable corpus while keeping the evi-dence context bounded, even though retrieval becomes harder as distractors increase. 
+
+2.2 Source-Resolved Retrieval 
+
+Prior work uses compressed or structured rep-resentations to improve retrieval over large cor-pora (Sarthi et al., 2024; Edge et al., 2024; Qian et al., 2025). In MegaMem , such rep-resentations are used only to locate relevant content: every compressed hit is resolved to its corresponding detailed source chunk before fu-sion, reranking, and generation. The answer is therefore produced only from detailed evidence: 
+
+a = A q, E (q), E(q) ⊆ X , (2) where X is the set of detailed source chunks. 
+
+3 Method 
+
+MegaMem consists of three stages: dual-view memory construction, multi-route retrieval, and bounded-evidence generation with post-answer attribution. As illustrated in Figure 1, the system separates retrieval-oriented repre-sentations from generation evidence. Distilled memories improve semantic access to the cor-pus, but every retrieved memory is resolved to its corresponding detailed source chunk be-fore fusion, reranking, and context construction. Consequently, only detailed source evidence is passed to the answer model or exposed as a reported source. 
+
+3.1 Dual-View Memory Construction 
+
+Given a document collection, we first nor-malize each document and segment it into 3section-aware evidence chunks using headings and paragraph boundaries. Long paragraphs are further split by sentence and token bound-aries. This produces a detailed evidence view 
+
+X = {x1, . . . , x n}, where each chunk retains its original content and source metadata. For each detailed chunk xi, an extractor pro-duces up to three compact typed memories: 
+
+mij = ( τij , u ij , v ij , π ij ), πij = i, (3) where τij specifies the memory type, uij is a re-trieval key, vij is a concise statement supported by xi, and πij links the memory to its source chunk. We use five memory types: fact, pro-cedure, definition, requirement, and decision. Chunks without useful semantic content may produce no memory. The resulting corpus is indexed in two com-plementary views. The detailed index stores embeddings of the original evidence chunks to-gether with their source metadata, while the distilled index stores embeddings of the typed memories and their source pointers. The dis-tilled view is optimized for semantic matching, whereas the detailed view preserves the exact wording, conditions, and provenance required for answering. Both views therefore refer to the same underlying evidence rather than forming separate evidence pools. Atomic memories are extracted with 
+
+gpt-5.4-mini (OpenAI, 2026b). MiniEx-tractor retains only these atomic memo-ries, whereas FullExtractor additionally uses 
+
+gpt-5.4 to construct higher-level retrieval ab-stractions (OpenAI, 2026a). Both configura-tions use text-embedding-3-small for index-ing (OpenAI, 2024). The hierarchy and relation structures ex-plored during development are not used in the final system. As shown in Table 9, the final design retains only the detailed and distilled views. Algorithm 2 in Appendix G provides the complete construction procedure. 
+
+3.2 Multi-Route Retrieval and Evidence Resolution 
+
+Given a question q, MegaMem constructs mul-tiple query routes from the original question, including a canonical rewrite and terminology-diverse expansions. Each route searches both the detailed index Id and the distilled index 
+
+Im. The detailed route directly retrieves source chunks, whereas the distilled route retrieves compact memories that may better match al-ternative expressions of the same information need. All distilled hits are resolved to their cor-responding detailed chunks before candidate aggregation. Let Retr( r, I ) denote the ranked set of top-k items retrieved from index I using query route r, and let π(m) map a distilled memory m to its associated detailed source chunk. The candidate set is therefore defined over detailed evidence identities: 
+
+C(q) = [
+
+> r∈Q (q)
+
+(Retr( r, I d) ∪ π (Retr( r, I m))) ,
+
+(4) where Q(q) contains the original and trans-formed queries, Id is the detailed index, and 
+
+Im is the distilled index. This resolution step allows multiple retrieval routes to improve re-call without treating compressed memories as independent evidence items. Because scores from different routes are not directly comparable, we combine their rankings using weighted reciprocal rank fusion (Cormack et al., 2009): 
+
+SRRF (x | q) = X
+
+> r∈L (q)
+
+wr 1[x ∈ r]
+
+γ + rank r(x) , (5) where L(q) is the set of ranked retrieval lists, 
+
+wr is the weight assigned to route r, and γ =60 . We assign larger weights to the original and canonical semantic routes than to auxiliary expansions. A cross-encoder then reranks the fused can-didate pool using the question and full de-tailed chunk content (Nogueira and Cho, 2019; Ma et al., 2023b). Duplicate candidates are merged by source identity, and the highest-ranked chunks are packed until the evidence budget B is reached. The resulting evidence context contains only detailed source chunks, while query transformation and distilled re-trieval serve solely to improve candidate discov-ery. 
+
+3.3 Bounded Generation and Post-Answer Attribution 
+
+The retrieval stage returns a bounded set of detailed evidence chunks E(q), which forms the 4Figure 2: Inference order in MegaMem . Query transformation broadens retrieval, source resolution and reranking construct the bounded evidence context, and post-answer attribution filters the reported sources without modifying the answer. 
+
+Algorithm 1 Multi-route retrieval with source resolution                          
+
+> Require: question q, detailed index Id, distilled index
+> Im, evidence budget B
+> 1: Q ← Transform (q)∪ { q}
+> 2: retrieve ranked candidates from Idand Imfor each query in Q
+> 3: resolve every distilled candidate mto its detailed source chunk π(m)
+> 4: fuse resolved rankings with weighted reciprocal rank fusion 5: rerank and deduplicate candidates by detailed source identity 6: E(q)←Pack (ranked detailed chunks , B )
+> 7: return E(q)
+
+complete context available to the answer model. The answer is generated under an evidence-only instruction: 
+
+a = A q, E (q). (6) No distilled memory or unselected source is exposed during generation. After the answer is fixed, a separate attri-bution module identifies which retrieved docu-ments directly support its claims: 
+
+Z = C a, E (q), Z ⊆ docs  E(q). (7) Because attribution is performed after genera-tion, it can only remove unsupported or unused sources from the reported set; it cannot revise the answer or introduce evidence that was not shown to the answer model. This ordering separates three roles in the pipeline. Query transformation broadens can-didate recall, reranking selects the evidence used for generation, and post-answer attribu-tion reduces the final source set. In our ablation, removing attribution leaves answer quality un-changed but increases the average number of reported documents from 2.31 to 5.00 , confirm-ing that the module primarily improves source precision rather than answer correctness. The complete runtime procedure is provided in Fig-ure 2 and Algorithm 3 in Appendix G (Gao et al., 2023; Qi et al., 2024). 
+
+4 Experimental Setup 
+
+Benchmarks and protocols. We primar-ily evaluate MegaMem on EnterpriseRAG-Bench, which contains 500 questions over more than 500,000 heterogeneous enterprise docu-ments (Sun et al., 2026). We use 100 questions for architecture, prompt, and hyperparameter development, then freeze the system and evalu-ate on the disjoint 400-question validation split. Table 1 summarizes the main analyses. Because the question sets, memory scales, and extrac-5tors differ across protocols, results should be compared only within matched settings. We additionally evaluate transfer on FinanceBench, HotpotQA, LoCoMo, and UltraDomain (Islam et al., 2023; Yang et al., 2018; Maharana et al., 2024; Qian et al., 2025). 
+
+Baselines and metrics. We compare against lexical and dense retrieval baselines, including BM25, DPR, and Contriever (Robert-son and Zaragoza, 2009; Karpukhin et al., 2020; Izacard et al., 2022), as well as hier-archical, graph-based, and memory-guided re-trieval methods (Sarthi et al., 2024; Edge et al., 2024; Guo et al., 2024; Qian et al., 2025). We adopt the evaluation metrics defined in EnterpriseRAG-Bench (Sun et al., 2026). Cor-rectness measures whether the generated an-swer reaches the correct conclusion while pre-serving the required scope, conditions, and con-flicts. Completeness measures how fully the answer covers the facts required by the ref-erence answer. Overall is the benchmark’s aggregate answer-quality score derived from Correctness and Completeness. Document Re-call measures the fraction of gold source docu-ments recovered by the system. InvDocs mea-sures the fraction of reported documents judged invalid or unsupported, with lower values in-dicating better source precision. Atomic ex-traction uses gpt-5.4-mini (OpenAI, 2026b); higher-level abstraction, query transformation, answering, attribution, and evaluation use 
+
+gpt-5.4 (OpenAI, 2026a); and all dense in-dices use text-embedding-3-small (OpenAI, 2024). Appendix B provides the full protocol and implementation details. 
+
+5 Results 
+
+We first present the main scaling results, show-ing that MegaMem remains effective as per-sistent memory grows to hundreds of millions of tokens under a fixed evidence budget. We then compare MegaMem with direct retrieval baselines and analyze the contribution of in-dividual components. Together, these experi-ments demonstrate that MegaMem provides a strong and scalable solution for retrieval over ultra-large persistent memory. Because the pro-tocols differ in question set, memory scale, and extractor, we interpret each result within its own experimental setting. 
+
+5.1 Scaling to Ultra-Large Persistent Memory 
+
+We next evaluate whether MegaMem remains effective as the persistent corpus grows from 20M to 250M tokens while the retrieval and evidence budgets remain fixed. As shown in Table 2 and Figure 3, MegaMem continues to produce useful answers throughout this range, achieving an Overall score of 58.02 and a Cor-rectness score of 73.50 even at 250M tokens. This demonstrates that the system can keep hundreds of millions of tokens searchable with-out increasing the generation context. 10M 20M 60M 100M 150M 250M 
+
+> Persistent memory size
+> 60 70 80 90
+> Score (%)
+
+Scaling under a fi xed retrieval budget 
+
+> Document recall Correctness Completeness Overall
+> 0.76 0.78 0.80 0.82 0.84
+> InvDocs
+
+Figure 3: Performance as persistent mem-ory grows under a fixed evidence budget. 
+
+MegaMem remains operational from 20M to 250M tokens without increasing the context provided to the answer model. 
+
+Although retrieval becomes more difficult as the corpus grows, performance degrades gradu-ally rather than collapsing. From 20M to 250M tokens, Correctness remains above 73%, while Document Recall remains above 66%. These re-sults support the central claim of MegaMem :ultra-large persistent memory can be made ad-dressable while keeping the evidence context bounded. 
+
+5.2 Comparison with Direct Retrieval Baselines 
+
+Table 3 compares MegaMem with standard retrieval pipelines that directly retrieve evi-dence from the original corpus, including lex-ical and single-vector dense RAG (Robert-son and Zaragoza, 2009; Karpukhin et al., 2020; Izacard et al., 2022). We also include compressed-memory variants, the published EnterpriseRAG-Bench leader, and intermedi-ate MegaMem configurations. All systems are evaluated on the same 400-question validation 6Table 1: Main EnterpriseRAG-Bench protocols. Results are comparable only within matched settings.                     
+
+> Analysis Questions Memory scale Extractor Purpose Headline comparison Validation, 400 10M FullExtractor End-to-end quality Scaling trace Validation, 400 20M–250M MiniExtractor Scale behavior Component ablation Full benchmark, 500 10M FullExtractor Component diagnosis Gold intervention Validation, 400 20M/60M/250M Both Failure localization
+
+Table 2: EnterpriseRAG-Bench performance across persistent-memory scales. All rows use the 400-question validation split, MiniExtractor, GPT-5.4 answering, and fixed retrieval and evidence budgets. InvDocs is in [0 , 1] , and lower is better. 
+
+Memory scale Overall Document Recall Correctness Completeness InvDocs 20M 71.67 84.00 84.00 73.78 0.782 60M 64.19 78.36 78.25 67.71 0.802 100M 63.17 75.23 77.00 66.87 0.814 150M 60.49 72.16 75.75 64.31 0.822 250M 58.02 66.79 73.50 62.01 0.836 split at the 10M memory scale. 
+
+MegaMem achieves the best Overall, Cor-rectness, Completeness, and Document Recall. Relative to the published benchmark leader, the final system improves Overall by 20 .58% ,Correctness by 6.00% , Completeness by 19 .38% ,and Document Recall by 3.64% . These gains show that combining distilled retrieval keys with source-resolved detailed evidence is more effective than directly retrieving only from the original corpus. Post-answer attribution further improves source reporting, reducing InvDocs from 0.774 
+
+to 0.760 without changing answer quality. This confirms that attribution removes unused or unsupported sources while preserving the gen-erated answer. 
+
+5.3 Component Analysis 
+
+Table 4 reports a leave-one-component-out study on all 500 EnterpriseRAG-Bench ques-tions at the 10M memory scale. The answer model, embeddings, evaluator, candidate bud-get, and evidence budget are fixed across all runs; each row removes only the specified com-ponent from the full MegaMem pipeline. The dual index and distillation provide the largest gains. Removing the dual index reduces Overall by 17 .91% and Document Recall from 
+
+81 .90% to 70 .20% , while removing distillation reduces Overall by 14 .15% . Query expansion and reranking provide additional improvements of 3.55% and 4.97% , respectively. These results show that complementary retrieval representa-tions determine the quality of the candidate set, while query transformation and reranking refine the final evidence selection. Post-answer attribution serves a different role. Removing it leaves all answer-quality metrics unchanged but increases the average number of reported documents from 2.31 to 
+
+5.00 . Thus, attribution removes 53 .8% of the retrieved source set without changing the gen-erated answer. Query expansion also recovers 13 of 33 targets missed by the base retriever, further confirming its contribution to recall. 
+
+5.4 Efficiency and Transfer External transfer. Table 5 evaluates whether MegaMem transfers beyond EnterpriseRAG-Bench. On FinanceBench (Is-lam et al., 2023) and HotpotQA (Yang et al., 2018), MegaMem achieves Overall scores of 81.05 and 86.37, demonstrating strong performance on financial question answering and multi-hop reasoning. LoCoMo (Maharana et al., 2024) and UltraDomain (Qian et al., 2025) are more challenging because they require retrieval over broader shared stores with temporal dependencies, cross-session evi-dence, and cross-domain distractors. Although performance is lower in these settings, the results identify clear directions for extending the current document-oriented memory representation. 7Table 3: Comparison with direct retrieval baselines on EnterpriseRAG-Bench. All rows use the 400-question validation split at the 10M persistent-memory scale. Lexical RAG and single-vector dense RAG retrieve evidence directly from the original corpus, while MegaMem uses source-resolved dual-view retrieval. InvDocs is in [0 , 1] , and lower is better. A dash indicates that the baseline does not produce the benchmark-compatible reported-document set required to compute InvDocs.                                              
+
+> System Overall Correctness Completeness Document Recall InvDocs Lexical RAG 40.27 52.75 46.95 83.71 –Single-vector dense RAG 43.03 55.50 51.08 83.74 –Hierarchy-only memory 60.48 73.00 64.19 68.59 0.818 Relation-only memory 59.16 72.50 63.02 66.74 0.828 Published benchmark leader 68.22 81.60 72.86 79.02 0.470 Reranked dual view 74.46 84.25 77.58 75.78 0.804 FullExtractor + Expansion 82.26 86.50 86.98 81.90 0.774 FullExtractor + Expansion + Attribution 82.26 86.50 86.98 81.90 0.760
+
+Table 4: Leave-one-component-out ablation on EnterpriseRAG-Bench. All rows use the full 500-question benchmark, 10M persistent memory, FullExtractor, GPT-5.4 answering and evaluation, and fixed candidate and evidence budgets. Change is relative to the full configuration.                                           
+
+> Configuration Overall Change (%) Correctness Document Recall Completeness Reported Documents Full configuration 82.26 –86.50 81.90 86.98 2.31 No query expansion 79.34 -3.55 83.25 81.90 84.58 2.31 No reranker 78.17 -4.97 82.75 81.90 83.74 2.31 No distillation 70.62 -14.15 74.75 73.10 77.64 2.31 No dual index 67.53 -17.91 72.50 70.20 75.18 2.31 No post-answer attribution 82.26 0.00 86.50 81.90 86.98 5.00
+
+Table 5: Cross-dataset transfer results. FullExtractor and GPT-5.4 are evaluated on each benchmark using its stated question count and task-specific memory setting. N/A indicates that the benchmark does not define the corresponding document metric. InvDocs is in [0 , 1] , and lower is better.                               
+
+> Benchmark Questions Correctness Completeness Overall Document Recall InvDocs FinanceBench 150 82.00 87.29 81.05 N/A N/A HotpotQA 200 87.00 87.09 86.37 N/A N/A LoCoMo 200 38.00 42.49 42.34 52.98 0.879 UltraDomain 200 9.50 13.28 17.73 45.00 0.910
+
+Evidence efficiency. We next compare three evidence policies while fixing candidate depth at 20 and sampling 100 questions at each mem-ory scale. As shown in Table 6, MegaMem re-tains most of the accuracy of detailed-evidence-only generation while using substantially fewer input tokens. At 10M and 20M, selective de-tail reduces answer input by 68 .6% and 68 .8% ,respectively, with only a 1.5-point reduction in Correctness. In contrast, distilled-only ev-idence is much shorter but loses most of the information required for accurate generation. These results show that MegaMem provides a favorable accuracy–context trade-off: it re-duces answer-model input by more than two thirds while preserving nearly all of the Cor-rectness obtained with full detailed evidence. This supports the central design choice of using compressed memories for retrieval and loading detailed evidence only when needed. 
+
+Operational efficiency. The bounded evi-dence context keeps online inference efficient as persistent memory grows. Building the mem-ory remains an offline cost: constructing 60M tokens requires 9.3 hours, while 250M tokens re-quires approximately 5.6 days. Retrieval takes only 0.30–1.10 seconds at 60M–100M, end-to-end answering takes 2.5–3.3 seconds, and the complete 500-question diagnostic costs $3.75, or $0.0075 per question. 
+
+Answerability-aware expansion. Query expansion substantially improves retrieval for answerable questions, producing relative gains of 20.8–100.0% across project, high-level, con-strained, conflict, and semantic categories. 8Table 6: Evidence-efficiency comparison. Each row uses 100 sampled questions, candidate depth 20, GPT-5.4 answering, and the stated persistent-memory scale. Token change is measured relative to detailed evidence only.                             
+
+> Memory scale Evidence policy Answer tokens/query Token change Correctness 10M Detailed evidence only 6,532 0.0% 88.00 10M Selective detail ( MegaMem )2,049 −68 .6% 86.50 10M Distilled only 1,013 −84 .5% 21.00 20M Detailed evidence only 6,497 0.0% 85.50 20M Selective detail ( MegaMem )2,025 −68 .8% 84.00 20M Distilled only 1,020 −84 .3% 17.00
+
+However, it reduces information-not-found Cor-rectness from 100.0% to 68.8%. A selective oracle preserves the gains on answerable cat-egories while restoring information-not-found Correctness to 100.0%, indicating that a cali-brated answerability gate is the main remaining requirement. 
+
+6 Conclusion 
+
+We introduced MegaMem , a retrieval solution for ultra-large persistent memory. By using distilled memories for semantic access and re-solving all retrieved content to detailed source evidence, MegaMem keeps hundreds of mil-lions of tokens searchable while maintaining a bounded generation context. Experiments on EnterpriseRAG-Bench show that this design improves retrieval and answering quality while remaining effective at scales up to 250M tokens. 
+
+Limitations 
+
+Most reported configurations are based on sin-gle runs, and the detailed-evidence-only pack-ing result is estimated from a retained trace rather than a new controlled rerun. Source precision remains lower than the published EnterpriseRAG-Bench leader, and performance on LoCoMo and UltraDomain shows that the current document-oriented retrieval design does not transfer uniformly to conversational or broad cross-domain memory stores. Finally, 
+
+MegaMem increases the amount of context that can be searched, but it does not extend the native attention window of the underlying language model. 
+
+References 
+
+Yushi Bai, Shangqing Tu, Jiajie Zhang, Hao Peng, Xiaozhi Wang, Xin Lv, Shulin Cao, Jiazheng Xu, Lei Hou, Yuxiao Dong, Jie Tang, and Juanzi Li. 2024. LongBench v2: Towards deeper under-standing and reasoning on realistic long-context multitasks. arXiv preprint arXiv:2412.15204 .Sebastian Borgeaud, Arthur Mensch, Jordan Hoff-mann, Trevor Cai, Eliza Rutherford, Katie Mil-lican, George van den Driessche, Jean-Baptiste Lespiau, Bogdan Damoc, Aidan Clark, Diego de Las Casas, Aurelia Guy, Jacob Menick, Ro-man Ring, Tom Hennigan, Saffron Huang, Loren Maggiore, Chris Jones, Albin Cassirer, and 9 others. 2022. Improving language models by re-trieving from trillions of tokens. In Proceedings of the 39th International Conference on Machine Learning (ICML) .Prateek Chhikara, Dev Khant, Saket Aryan, Taran-jeet Singh, and Deshraj Yadav. 2025. Mem0: Building production-ready ai agents with scalable long-term memory. Preprint , arXiv:2504.19413. Prafulla Kumar Choubey, Xiangyu Peng, Shilpa Bhagavath, Kung-Hsiang Huang, Caiming Xiong, and Chien-Sheng Wu. 2025. Benchmarking deep search over heterogeneous enterprise data. In 
+
+Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing: Indus-try Track , pages 501–517. Chroma. 2026a. Chroma python client reference. 
+
+https://docs.trychroma.com/reference/ python/client . Accessed 2026-08-02. Chroma. 2026b. Managing chroma collec-tions. https://docs.trychroma.com/docs/ collections/manage-collections . Accessed 2026-08-02. Yung-Sung Chuang, Wei Fang, Shang-Wen Li, Wen-tau Yih, and James Glass. 2023. Expand, rerank, and retrieve: Query reranking for open-domain question answering. In Findings of the Associa-tion for Computational Linguistics: ACL 2023 ,pages 12131–12147. Gordon V. Cormack, Charles L. A. Clarke, and Stefan Büttcher. 2009. Reciprocal rank fusion outperforms condorcet and individual rank learn-ing methods. In Proceedings of the 32nd Inter-national ACM SIGIR Conference on Research and Development in Information Retrieval , pages 758–759. 
+
+9Florin Cuconasu, Giovanni Trappolini, Federico Siciliano, Simone Filice, Cesare Campagnano, Yoelle Maarek, Nicola Tonellotto, and Fabrizio Silvestri. 2024. The power of noise: Redefining retrieval for RAG systems. In Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval .Yufeng Du, Minyang Tian, Srikanth Ronanki, Subendhu Rongali, Sravan Babu Bodapati, Aram Galstyan, Azton Wells, Roy Schwartz, Eliu A. Huerta, and Hao Peng. 2025. Context length alone hurts LLM performance despite perfect retrieval. In Findings of the Association for Computational Linguistics: EMNLP 2025 , pages 23281–23298. Darren Edge, Ha Trinh, Newman Cheng, Joshua Bradley, Alex Chao, Apurva Mody, Steven Truitt, Dasha Metropolitansky, Robert Osazuwa Ness, and Jonathan Larson. 2024. From local to global: A graph rag approach to query-focused summa-rization. Preprint , arXiv:2404.16130. Shahul Es, Jithin James, Luis Espinosa-Anke, and Steven Schockaert. 2024. Ragas: Automated evaluation of retrieval augmented generation. In 
+
+Proceedings of the 18th Conference of the Euro-pean Chapter of the Association for Computa-tional Linguistics (EACL): System Demonstra-tions .Thibault Formal, Carlos Lassance, Benjamin Piwowarski, and Stéphane Clinchant. 2021. SPLADE v2: Sparse lexical and expansion model for information retrieval. arXiv preprint arXiv:2109.10086 .Tianyu Gao, Howard Yen, Jiatong Yu, and Danqi Chen. 2023. Enabling large language models to generate text with citations. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pages 6465–6488, Singapore. Association for Computational Lin-guistics. Gemini Team. 2024. Gemini 1.5: Unlocking mul-timodal understanding across millions of tokens of context. arXiv preprint arXiv:2403.05530 .Zirui Guo, Lianghao Xia, Yanhua Yu, Tu Ao, and Chao Huang. 2024. Lightrag: Simple and fast retrieval-augmented generation. Preprint ,arXiv:2410.05779. Bernal Jiménez Gutiérrez, Yiheng Shu, Yu Gu, Michihiro Yasunaga, and Yu Su. 2024. Hipporag: Neurobiologically inspired long-term memory for large language models. In Advances in Neural Information Processing Systems (NeurIPS) .Jennifer Hsia, Afreen Shaikh, Zora Zhiruo Wang, and Graham Neubig. 2025. RAGGED: Towards informed design of scalable and stable RAG sys-tems. In Proceedings of the 42nd International Conference on Machine Learning , volume 267 of 
+
+Proceedings of Machine Learning Research , pages 24139–24155. Cheng-Ping Hsieh, Simeng Sun, Samuel Kriman, Shantanu Acharya, Dima Rekesh, Fei Jia, Yang Zhang, and Boris Ginsburg. 2024. RULER: What’s the real context size of your long-context language models? arXiv preprint arXiv:2404.06654 .Piotr Indyk and Haike Xu. 2023. Worst-case perfor-mance of popular approximate nearest neighbor search implementations: Guarantees and limita-tions. In Advances in Neural Information Pro-cessing Systems , volume 36. Pranab Islam, Anand Kannappan, Douwe Kiela, Rebecca Qian, Nino Scherrer, and Bertie Vid-gen. 2023. Financebench: A new benchmark for financial question answering. arXiv preprint arXiv:2311.11944 .Gautier Izacard, Mathilde Caron, Lucas Hosseini, Sebastian Riedel, Piotr Bojanowski, Armand Joulin, and Edouard Grave. 2022. Unsupervised dense information retrieval with contrastive learn-ing. Transactions on Machine Learning Research (TMLR) .Gautier Izacard, Patrick Lewis, Maria Lomeli, Lu-cas Hosseini, Fabio Petroni, Timo Schick, Jane Dwivedi-Yu, Armand Joulin, Sebastian Riedel, and Edouard Grave. 2023. Atlas: Few-shot learn-ing with retrieval augmented language models. 
+
+Journal of Machine Learning Research (JMLR) .Suhas Jayaram Subramanya, Fnu Devvrit, Har-sha Vardhan Simhadri, Ravishankar Krish-nawamy, and Rohan Kadekodi. 2019. DiskANN: Fast accurate billion-point nearest neighbor search on a single node. In Advances in Neural Information Processing Systems , volume 32. Ziyan Jiang, Xueguang Ma, and Wenhu Chen. 2024. LongRAG: Enhancing retrieval-augmented gen-eration with long-context LLMs. arXiv preprint arXiv:2406.15319 .Jiajie Jin, Xiaoxi Li, Guanting Dong, Yuyao Zhang, Yutao Zhu, Yongkang Wu, Zhonghua Li, Ye Qi, and Zhicheng Dou. 2025. Hierarchical document refinement for long-context retrieval-augmented generation. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics .Jiazheng Kang, Mingming Ji, Zhe Zhao, and Ting Bai. 2025. Memory OS of AI agent. In Pro-ceedings of the 2025 Conference on Empirical Methods in Natural Language Processing .Vladimir Karpukhin, Barlas Oğuz, Sewon Min, Patrick Lewis, Ledell Wu, Sergey Edunov, Danqi Chen, and Wen-tau Yih. 2020. Dense passage retrieval for open-domain question answering. 
+
+10 In Proceedings of the 2020 Conference on Em-pirical Methods in Natural Language Processing (EMNLP) .Quinn Leng, Jacob Portes, Sam Havens, Matei Zaharia, and Michael Carbin. 2024. Long con-text RAG performance of large language models. 
+
+Preprint , arXiv:2411.03538. Mosh Levy, Alon Jacoby, and Yoav Goldberg. 2024. Same task, more tokens: the impact of input length on the reasoning performance of large lan-guage models. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (ACL) .Shahar Levy, Nir Mazor, Lihi Shalmon, Michael Hassid, and Gabriel Stanovsky. 2025. More doc-uments, same length: Isolating the challenge of multiple documents in RAG. In Findings of the Association for Computational Linguistics: EMNLP 2025 , pages 19539–19547. Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. 2020. Retrieval-augmented gen-eration for knowledge-intensive NLP tasks. In 
+
+Advances in Neural Information Processing Sys-tems (NeurIPS) .Lingyuan Liu and Mengxiang Zhang. 2025. Exp4Fuse: A rank fusion framework for enhanced sparse retrieval using large language model-based query expansion. In Findings of the Association for Computational Linguistics: ACL 2025 , pages 163–173. Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 2023. Lost in the middle: How language models use long contexts. Transactions of the Association for Computational Linguistics (TACL) .Xinbei Ma, Yeyun Gong, Pengcheng He, Hai Zhao, and Nan Duan. 2023a. Query rewriting for retrieval-augmented large language models. In 
+
+Proceedings of the 2023 Conference on Empir-ical Methods in Natural Language Processing (EMNLP) .Xueguang Ma, Liang Wang, Nan Yang, Furu Wei, and Jimmy Lin. 2023b. Fine-tuning LLaMA for multi-stage text retrieval. arXiv preprint arXiv:2310.08319 .Adyasha Maharana, Dong-Ho Lee, Sergey Tulyakov, Mohit Bansal, Francesco Barbieri, and Yuwei Fang. 2024. Evaluating very long-term conversa-tional memory of llm agents. In Annual Meeting of the Association for Computational Linguistics (ACL) .Yuning Mao, Pengcheng He, Xiaodong Liu, Yelong Shen, Jianfeng Gao, Jiawei Han, and Weizhu Chen. 2021. Generation-augmented retrieval for open-domain question answering. arXiv preprint arXiv:2009.08553 .Sewon Min, Kalpesh Krishna, Xinxi Lyu, Mike Lewis, Wen-tau Yih, Pang Wei Koh, Mohit Iyyer, Luke Zettlemoyer, and Hannaneh Ha-jishirzi. 2023. FActScore: Fine-grained atomic evaluation of factual precision in long form text generation. In Proceedings of the 2023 Confer-ence on Empirical Methods in Natural Language Processing (EMNLP) .Rodrigo Nogueira and Kyunghyun Cho. 2019. Pas-sage re-ranking with BERT. arXiv preprint arXiv:1901.04085 .Rodrigo Nogueira, Zhiying Jiang, and Jimmy Lin. 2020. Document ranking with a pretrained sequence-to-sequence model. arXiv preprint arXiv:2003.06713 .OpenAI. 2024. New embedding models and API updates. https://openai.com/index/ new-embedding-models-and-api-updates/ . Ac-cessed 2026-08-02. OpenAI. 2026a. GPT-5.4 model. https: //developers.openai.com/api/docs/models/ gpt-5.4 . Accessed 2026-08-02. OpenAI. 2026b. Introducing GPT-5.4 mini and nano. https://openai.com/index/ introducing-gpt-5-4-mini-and-nano/ . Ac-cessed 2026-08-02. Charles Packer, Sarah Wooders, Kevin Lin, Vivian Fang, Shishir G. Patil, Ion Stoica, and Joseph E. Gonzalez. 2023. Memgpt: Towards llms as oper-ating systems. Preprint , arXiv:2310.08560. Jirui Qi, Gabriele Sarti, Raquel Fernández, and Arianna Bisazza. 2024. Model internals-based answer attribution for trustworthy retrieval-augmented generation. In Proceedings of the 2024 Conference on Empirical Methods in Natu-ral Language Processing , pages 6037–6053. Hongjin Qian, Zheng Liu, Peitian Zhang, Kelong Mao, Defu Lian, Zhicheng Dou, and Tiejun Huang. 2025. Memorag: Boosting long con-text processing with global memory-enhanced retrieval augmentation. In Proceedings of the ACM on Web Conference 2025 , pages 2366–2377. Stephen Robertson and Hugo Zaragoza. 2009. The probabilistic relevance framework: BM25 and beyond. Foundations and Trends in Information Retrieval , 3(4):333–389. Keshav Santhanam, Omar Khattab, Jon Saad-Falcon, Christopher Potts, and Matei Zaharia. 2022. ColBERTv2: Effective and efficient re-trieval via lightweight late interaction. In Pro-ceedings of the 2022 Conference of the North 
+
+11 American Chapter of the Association for Com-putational Linguistics: Human Language Tech-nologies (NAACL-HLT) .Parth Sarthi, Salman Abdullah, Aditi Tuli, Shubh Khanna, Anna Goldie, and Christopher D. Man-ning. 2024. Raptor: Recursive abstractive pro-cessing for tree-organized retrieval. In Interna-tional Conference on Learning Representations (ICLR) .Weijia Shi, Sewon Min, Michihiro Yasunaga, Min-joon Seo, Rich James, Mike Lewis, Luke Zettle-moyer, and Wen-tau Yih. 2024. REPLUG: Retrieval-augmented black-box language mod-els. In Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics (NAACL) .Yuhong Sun, Joachim Rahmfeld, Chris Weaver, Weijia Chen, Roshan Desai, Wenxi Huang, and Mark H. Butler. 2026. Enterpriserag-bench: A rag benchmark for company internal knowledge. 
+
+Preprint , arXiv:2605.05253. Nandan Thakur, Nils Reimers, Andreas Rücklé, Abhishek Srivastava, and Iryna Gurevych. 2021. BEIR: A heterogenous benchmark for zero-shot evaluation of information retrieval models. In Ad-vances in Neural Information Processing Systems (NeurIPS) Datasets and Benchmarks Track .Liang Wang, Nan Yang, and Furu Wei. 2023a. Query2doc: Query expansion with large language models. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Pro-cessing (EMNLP) .Weizhi Wang, Li Dong, Hao Cheng, Xiaodong Liu, Xifeng Yan, Jianfeng Gao, and Furu Wei. 2023b. Augmenting language models with long-term memory. arXiv preprint arXiv:2306.07174 .Di Wu, Hongwei Wang, Wenhao Yu, Yuwei Zhang, Kai-Wei Chang, and Dong Yu. 2025. Long-memeval: Benchmarking chat assistants on long-term interactive memory. In International Con-ference on Learning Representations (ICLR) .Peng Xu, Wei Ping, Xianchao Wu, Lawrence McAfee, Chen Zhu, Zihan Liu, Sandeep Subrama-nian, Evelina Bakhturina, Mohammad Shoeybi, and Bryan Catanzaro. 2024. Retrieval meets long context large language models. In The Twelfth International Conference on Learning Represen-tations .Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Ben-gio, William W. Cohen, Ruslan Salakhutdinov, and Christopher D. Manning. 2018. HotpotQA: A dataset for diverse, explainable multi-hop ques-tion answering. In Proceedings of the 2018 Con-ference on Empirical Methods in Natural Lan-guage Processing (EMNLP) .Tan Yu, Anbang Xu, and Rama Akkiraju. 2024. In defense of RAG in the era of long-context language models. Preprint , arXiv:2409.01666. Tan Yu, Wenfei Zhou, Lei Yang, Aaditya Shukla, Meenakshi Madugula, Pritam Gundecha, Nick Burnett, Anbang Xu, Vishal Seth, Tamar Bar, Rama Akkiraju, and Vivienne Zhang. 2025. EKRAG: Benchmark RAG for enterprise knowl-edge question answering. In Proceedings of the Fourth Workshop on Knowledge Augmented Methods for Natural Language Processing .Xinrong Zhang, Yingfa Chen, Shengding Hu, Zi-hang Xu, Junhao Chen, Moo Khai Hao, Xu Han, Zhen Leng Thai, Shuo Wang, Zhiyuan Liu, and Maosong Sun. 2024. ∞bench: Extending long context evaluation beyond 100k tokens. arXiv preprint arXiv:2402.13718 .Wanjun Zhong, Lianghong Guo, Qiqi Gao, He Ye, and Yanlin Wang. 2023. MemoryBank: Enhanc-ing large language models with long-term mem-ory. arXiv preprint arXiv:2305.10250 .
+
+12 A Related Work 
+
+Long context and persistent memory. 
+
+Recent language models support million-token context windows (Gemini Team, 2024), yet benchmarks such as ∞Bench, RULER, and LongBench v2 show that effective context utilization remains strongly task-dependent (Zhang et al., 2024; Hsieh et al., 2024; Bai et al., 2024). Position bias, distrac-tors, document multiplicity, and increasing in-put length can degrade performance well before the nominal context limit (Liu et al., 2023; Levy et al., 2024; Cuconasu et al., 2024; Levy et al., 2025; Du et al., 2025). Retrieval-augmented language models instead access external non-parametric memory at inference time (Lewis et al., 2020; Borgeaud et al., 2022; Izacard et al., 2023; Shi et al., 2024). Prior comparisons show that retrieval remains useful alongside long na-tive context windows, while LongRAG adjusts the retrieval unit to better balance retrieval and generation costs (Xu et al., 2024; Jiang et al., 2024; Leng et al., 2024; Yu et al., 2024). Persistent-memory systems extend this setting across interactions and sessions (Packer et al., 2023; Wu et al., 2025; Chhikara et al., 2025; Kang et al., 2025). MegaMem targets the same general problem at larger scale by sepa-rating the searchable persistent context from the bounded evidence context used for genera-tion. 
+
+Structured retrieval. Prior work improves retrieval through hierarchical summaries, graph structures, and memory-generated retrieval clues. RAPTOR organizes recursive summaries into a tree (Sarthi et al., 2024); GraphRAG, LightRAG, and HippoRAG use graph-based corpus representations (Edge et al., 2024; Guo et al., 2024; Gutiérrez et al., 2024); and Mem-oRAG uses global memory to generate retrieval clues (Qian et al., 2025). LongRefiner simi-larly exploits hierarchical structure to reduce redundant long-document context (Jin et al., 2025). Dense, sparse, and late-interaction re-trievers provide complementary matching sig-nals (Karpukhin et al., 2020; Formal et al., 2021; Santhanam et al., 2022; Thakur et al., 2021). Large-scale approximate-nearest-neighbor sys-tems make billion-point indexing practical, al-though their recall–latency trade-offs concern candidate access rather than downstream evi-dence sufficiency (Jayaram Subramanya et al., 2019; Indyk and Xu, 2023). MegaMem com-bines a distilled retrieval view with a detailed-evidence view and fuses their rankings using re-ciprocal rank fusion (Cormack et al., 2009). Un-like methods that directly expose summaries or graph nodes to the answer model, MegaMem 
+
+uses compressed objects only as retrieval keys and resolves them to detailed source evidence before candidate selection and generation. 
+
+Query transformation, reranking, and at-tribution. Query expansion and rewriting reduce vocabulary mismatch in both sparse and dense retrieval (Wang et al., 2023a; Mao et al., 2021; Ma et al., 2023a; Chuang et al., 2023; Liu and Zhang, 2025). Cross-encoders and sequence-to-sequence rerankers further re-fine broad first-stage candidate pools (Nogueira and Cho, 2019; Nogueira et al., 2020; Ma et al., 2023b). Attribution addresses a sep-arate problem: an answer may be correct while citing unsupported, unnecessary, or incomplete sources (Gao et al., 2023; Min et al., 2023; Es et al., 2024; Qi et al., 2024). MegaMem makes this distinction explicit: retrieval and reranking determine the evidence shown to the answer model, whereas post-answer attribution deter-mines which loaded sources are finally reported. 
+
+Heterogeneous and enterprise retrieval. 
+
+Enterprise corpora combine heterogeneous sources, private terminology, version conflicts, and unanswerable requests. EKRAG eval-uates retrieval over corporate reports and product knowledge (Yu et al., 2025); Deep Search covers linked repositories, meetings, messages, and answerability (Choubey et al., 2025); and EnterpriseRAG-Bench scales evalu-ation to roughly half a million artifacts across nine source types (Sun et al., 2026). We use EnterpriseRAG-Bench as the primary evalu-ation setting and further test FinanceBench, HotpotQA, LoCoMo, and UltraDomain to as-sess transfer across financial, multi-hop, conver-sational, and cross-domain retrieval regimes. 
+
+B Full Experimental Protocol 
+
+Table 7 summarizes the complete experimental design, including the question split, memory scale, extractor, evidence setting, answer model, and purpose of each analysis. Because these 13 protocols differ in data partition and system configuration, their absolute values should be interpreted only within the corresponding ex-periment. The system is developed on 100 questions and then frozen before evaluation on the disjoint 400-question validation split. The full-benchmark ablation, sampled evidence-efficiency study, mechanism diagnostics, and external transfer experiments are reported sep-arately and are not used as substitutes for the main validation results. EnterpriseRAG-Bench metrics follow the benchmark’s canonical gold-answer evaluation protocol. Query expansion recovers 13 of 33 targets missed by the base retriever, while post-answer attribution reduces the average reported source set from 5.00 to 2.31 documents. 
+
+Backend and vector storage. We imple-ment the retrieval backend with disk-persistent ChromaDB stores using PersistentClient ,with a separate persistence directory for each memory scale (Chroma, 2026a). The 60M, 100M, and 250M stores contain 49,528, 82,777, and approximately 190K documents, respec-tively, with the 250M store occupying approx-imately 60 GB on disk. Each store contains two independently embedded and queried col-lections: raw_chunks , which stores determinis-tic chunks of approximately 400 cl100k_base 
+
+tokens, and distilled_memory , which stores up to three typed memory entries derived from each chunk. Collections are created with 
+
+get_or_create_collection and reused in read-only mode during inference (Chroma, 2026b). Both collections use text-embedding-3-small 
+
+with 1,536-dimensional vectors (OpenAI, 2024) and ChromaDB’s HNSW approximate-nearest-neighbor index with cosine distance. The two collections are queried independently and fused after distilled hits are resolved to their source chunks, implementing the dual-index retrieval component evaluated in our ablation. 
+
+C Diagnosing Retrieval Degradation with Gold Evidence 
+
+We use a gold-evidence intervention to de-termine whether performance degradation at larger memory scales is caused primarily by retrieval or by answer generation. For each memory scale, GPT-5.4 answers either from the evidence retrieved by MegaMem or from the benchmark gold evidence. If generation were the main bottleneck, Correctness would decline similarly in both settings. Instead, performance remains nearly stable with gold evidence but drops substantially with retrieved evidence. 20M 60M 250M 
+
+> Persistent memory size
+> 60 70 80 90
+> Correctness (%)
+
+Gold versus retrieved evidence 
+
+> MiniExtractor · gold MiniExtractor · retrieved FullExtractor · gold FullExtractor · retrieved
+
+Figure 4: Separating retrieval failure from generation failure. Correctness remains stable when GPT-5.4 receives gold evidence, whereas it declines with retrieved evidence as persistent mem-ory grows. 
+
+From 20M to 250M tokens, gold-evidence Correctness changes by only 0.30% with MiniExtractor and 2.33% with FullExtractor, compared with 12 .50% and 19 .93% under re-trieved evidence. This contrast shows that most of the observed scaling loss arises from retriev-ing the right evidence from a larger corpus rather than from the answer model’s ability to use that evidence. 
+
+D From Compressed Memory to Source-Resolved Dual-View Retrieval 
+
+This section summarizes the architecture de-velopment that led to the final MegaMem 
+
+design. We first explored hierarchical and relation-based memory structures, which com-press the corpus into coarse summaries or se-mantic links. Although these representations reduced the search space, they did not reliably recover the exact source evidence required for answering. This limitation motivated the shift to dual-view retrieval, where compact memories support semantic access and detailed chunks preserve source-faithful evidence. 14 Table 7: Complete experimental protocol. The 100-question development split is used only for architecture, prompt, and hyperparameter selection. All remaining analyses preserve their own question sets, memory scales, and evaluation purposes.                                                 
+
+> Analysis Questions Memory scale Extraction Evidence setting Answer model Purpose Main comparison 400 validation 10M FullExtractor expansion + attribution GPT-5.4 end-to-end quality Scaling study 400 validation 20–250M MiniExtractor dual-view retrieval GPT-5.4 scalability Gold intervention 400 validation 20M, 60M, 250M both retrieved / gold GPT-5.4 failure localization Component ablation all 500 10M FullExtractor one component removed GPT-5.4 component contribution Evidence efficiency 100 per scale 10M, 20M retained stack depth 20 GPT-5.4 token–quality trade-off Mechanism diagnostics all 500 10M FullExtractor varies GPT-5.4 retrieval and attribution analysis External transfer task-specific task-specific FullExtractor task-specific GPT-5.4 cross-dataset transfer
+
+Table 8: Correctness with retrieved and gold evidence across memory scales. Both extractors use the 400-question validation split and GPT-5.4 answering. Change is measured from 20M to 250M tokens. 
+
+Extractor Evidence source 20M 60M 250M Change (%) MiniExtractor Gold 82.50 84.00 82.25 −0.30 
+
+MiniExtractor Retrieved 84.00 78.25 73.50 −12 .50 
+
+FullExtractor Gold 85.75 85.00 83.75 −2.33 
+
+FullExtractor Retrieved 70.25 66.00 56.25 −19 .93 
+
+Table 9 summarize the architecture devel-opment process. The first two variants orga-nize extracted concept memories through hi-erarchical or relational structure, while Cogni-tive Document Memory combines these forms of concept organization, following prior work on long-term conversational memory (Maha-rana et al., 2024). Dual-view memory then replaces concept-only retrieval with parallel distilled-memory and detailed-evidence indices. Later variants strengthen memory extraction and source resolution, add cross-encoder rerank-ing (Nogueira and Cho, 2019), and introduce query expansion (Wang et al., 2023a). The final attribution stage identifies the loaded sources supporting the fixed answer (Gao et al., 2023). Because several components change between successive rows, these results describe the ar-chitecture development trajectory rather than a controlled ablation. 
+
+Development stages. Hierarchy-only and relation-only memory use compressed represen-tations as the primary access structures. The initial dual-view system introduces separate detailed-evidence and typed-memory indices, while the improved variant refines source reso-lution and evidence construction. The reranked dual-view system adds cross-encoder ordering, and FullExtractor with query expansion further improves semantic recall. Post-answer attribu-tion is added last and improves source reporting 60 70 80 
+
+Overall score (%) 
+
+> Hierarchy Relations Combined Initial dual view Improved dual view Reranked dual view Failed branch FullExtractor + expansion FullExtractor + exp. + attr.
+> 60.5 59.2 65.1 67.4 72.4 74.5 66.4 82.3 82.3
+
+Architecture design study 
+
+Figure 5: Performance across successive archi-tecture designs. Dual-view retrieval provides the main improvement over compressed-only memory, while reranking, query expansion, and attribution further refine evidence selection and source report-ing. 
+
+without changing answer quality. Overall, the development path shows that the key architec-tural change is the transition from compressed-only memory to source-resolved dual-view re-trieval. 15 Table 9: Architecture development on EnterpriseRAG-Bench. Each system is selected using the fixed 100-question development split and evaluated on the disjoint 400-question validation split. The rows record successive architecture changes rather than leave-one-component-out effects. InvDocs is bounded in [0 , 1] , and lower is better.                                                        
+
+> System Overall Document Recall (%) Correctness (%) Completeness (%) InvDocs Hierarchy-only concept memory 60.48 68.59 73.00 64.19 0.818 Relation-only concept memory 59.16 66.74 72.50 63.02 0.828 Cognitive Document Memory 65.14 70.53 76.75 68.83 0.816 Cognitive Document Memory 66.03 70.53 78.25 69.50 0.816 Initial dual-view memory 67.42 74.80 78.00 71.21 0.804 Improved dual-view memory 72.44 76.03 83.25 76.35 0.802 Reranked dual-view memory 74.46 75.78 84.25 77.58 0.804 Expanded-control branch 66.40 74.69 85.50 69.63 0.806 FullExtractor + Expansion 82.26 81.90 86.50 86.98 0.774 FullExtractor + Expansion + Attribution 82.26 81.90 86.50 86.98 0.760
+
+E Offline Cost, Online Latency, and Evidence-Context Efficiency 
+
+This section analyzes the operational cost of 
+
+MegaMem and the trade-off between evidence-context size and answer quality. Table 10 sepa-rates one-time memory construction from on-line retrieval, answering, and evaluation. 
+
+Table 10: Offline construction, online serving, and evaluation cost. Build times are reported for 60M and 250M tokens, while serving latency is measured at 60M and 100M.             
+
+> Regime Measurement Value Offline construction 60M memory 9.3 h Offline construction 250M memory approximately 5.6 d Online retrieval 60M / 100M 0.30 s / 1.10 s End-to-end answering 60M / 100M 2.5 s / 3.3 s Evaluation 500 questions / per question $3.75 / $0.0075
+
+Although memory construction becomes more expensive as the corpus grows, it is per-formed offline. Online retrieval remains below 1.1 seconds at 100M tokens, and end-to-end answering remains below 3.3 seconds, show-ing that the bounded evidence context keeps inference practical. We next compare distilled-only evidence, se-lective detailed evidence used by MegaMem ,and full detailed evidence. All settings use the same 100 questions, candidate depth of 20, and GPT-5.4 answer model. At both memory scales, MegaMem reduces the answer context by approximately 69% rela-tive to full detailed evidence, while sacrificing only 1.5 Correctness points. Distilled-only ev-idence is shorter but performs substantially worse, confirming that compressed memories are effective retrieval keys but insufficient as 1k 2k 4k 6.5k 
+
+Input tokens per query (log scale) 
+
+20 40 60 80  
+
+> Correctness (%)
+> Distilled only Ours Full detail
+
+Quality--evidence-context trade-o ff 
+
+> 10M 20M
+
+Figure 6: Accuracy–context trade-off across evidence policies. MegaMem preserves nearly all of the Correctness of full detailed evidence while using approximately one third of the answer-model input. 
+
+generation evidence. Table 12 reports the per-query workload for the full 500-question diagnostic. Questions are short on average, while answer length is more variable; the system retrieves approximately 34 chunks before reranking and evidence packing. 
+
+F Cross-Dataset Transfer and Query-Expansion Diagnostics 
+
+This section analyzes two complementary ques-tions: how well MegaMem transfers across retrieval regimes, and how query expansion af-fects recall and abstention. 
+
+Cross-dataset transfer. Figure 7 visual-izes the results in Table 5. MegaMem per-forms strongly on FinanceBench and Hot-16 Table 11: Answer quality and context size under different evidence policies. Token counts are measured per question at 10M and 20M persistent-memory scales. 
+
+10M memory 20M memory Evidence policy Tokens/query Correctness Tokens/query Correctness Distilled only 1,013 21.00 1,020 17.00 Selective detail ( MegaMem ) 2,049 86.50 2,025 84.00 Detailed evidence only 6,532 88.00 6,497 85.50 Detailed/ MegaMem token ratio 3.19 × 3.21 ×
+
+Table 12: Per-query workload under the 500-question diagnostic protocol. 
+
+Component Mean Median P95 Question input tokens 37 34 63 Answer output tokens 439 221 1,622 Retrieved chunks 34.3 35 –
+
+potQA, where evidence is provided within a question-local corpus, but is less effective on LoCoMo and UltraDomain, which require re-trieval over broader conversational or cross-domain stores. This contrast indicates that the current document-oriented dual-view index transfers best when evidence units and corpus structure are well aligned with its memory rep-resentation. FinanceBench HotpotQA LoCoMo UltraDomain 
+
+025 50 75 100 
+
+> Score (%)
+
+Cross-dataset stress tests    
+
+> Overall Correct Complete
+> 0.0 0.4 0.8 1.0
+> InvDocs 0.879 0.910
+
+Figure 7: Transfer performance across ev-idence regimes. FullExtractor and GPT-5.4 are evaluated on 150 FinanceBench questions and 200 questions for each remaining bench-mark. Document-level metrics are undefined for FinanceBench and HotpotQA. 
+
+Retrieval and attribution effects. Query expansion recovers 13 of 33 targets missed by the base retriever, corresponding to a 39.4% recovery rate. Post-answer attribution reduces the average reported source set from 5.00 to 2.31 documents, removing 53.8% of retrieved sources without changing the answer. 
+
+Table 13: Mechanism-level retrieval and at-tribution diagnostics. Both analyses use all 500 EnterpriseRAG-Bench questions at 10M with FullExtractor.        
+
+> Diagnostic Result Query-expansion target recovery 13/33 (39.4%) Evidence pool →reported documents 5.00 →2.31 (53.8% removed)
+
+Query expansion and answerability. Ta-ble 14 shows that query expansion improves Correctness across all five answerable question categories, with relative gains ranging from 20.8% to 100.0%. The largest gains appear on project-related and high-level questions, where terminology mismatch and indirect references make direct retrieval difficult. 
+
+Table 14: Correctness by question type be-fore and after query expansion. All 500 EnterpriseRAG-Bench questions are evaluated at 10M with FullExtractor.                    
+
+> Question type Pre-exp. (%) Unconditional (%) Selective oracle (%) Project-related 53.10 96.90 96.90 High-level 37.50 75.00 75.00 Constrained 66.70 87.50 87.50 Conflict 81.20 100.00 100.00 Semantic 72.00 87.00 87.00 Info not found 100.00 68.80 100.00
+
+The main trade-off appears on information-not-found questions. Unconditional expansion answers five of the 16 unanswerable cases, re-ducing Correctness from 100.0% to 68.8%. A selective oracle preserves all gains on answer-able questions while restoring information-not-found Correctness to 100.0%. This result shows that query expansion and reliable abstention are compatible, but require an answerability-aware gate that decides when expansion should be applied. 17 G Memory Construction, Inference Order, and Reproducibility 
+
+Dual-view memory construction. Algo-rithm 2 gives the complete construction pro-cedure. Each distilled memory is stored with the immutable identifier of the detailed source chunk from which it is derived, ensuring that both indices refer to the same underlying evi-dence. 
+
+Algorithm 2 Construct source-resolved dual-view memory                            
+
+> Require: documents D, memory extractor Em, embed-ding function ϕ
+> 1: for all detailed source chunks xiin Ddo
+> 2: add (i, x i, ϕ (xi)) to the detailed index 3: for all distilled memory m∈ E m(xi)do
+> 4: add (m, ϕ (m), π (m) = i)to the distilled in-dex 5: end for
+> 6: end for
+> 7: return detailed index, distilled index, and source map π
+
+Inference and attribution. Figure 2 sum-marizes the online pipeline. Original and trans-formed queries first retrieve candidates from both indices. Distilled hits are then resolved to detailed source chunks before fusion, reranking, and evidence packing. The answer is generated from the resulting bounded evidence context, after which attribution selects only the loaded sources that support the fixed answer. 
+
+Algorithm 3 Generate an answer and at-tribute supporting sources                    
+
+> Require: question q, bounded detailed evidence E
+> 1: a←EvidenceOnlyAnswer (q, E )
+> 2: Z′←Attribute (a, E )
+> 3: Z←Z′∩docs( E)
+> 4: return answer aand supporting sources Z
+
+Reproducibility settings. All generative calls use temperature 0, and data splitting, sampling, and tie-breaking use seed 42. Each request has a 120-second timeout and at most two retries with provider backoff. The evidence context is capped at 4,096 tokens, the gener-ated answer at 800 tokens, and the reranked candidate set at five unique documents. RRF uses γ = 60 , while the context-packing study fixes the first-stage candidate depth at 20. 
+
+Models and failure handling. Atomic memory extraction uses gpt-5.4-mini (Ope-nAI, 2026b); higher-level abstraction, query transformation, answering, post-answer attri-bution, and EnterpriseRAG evaluation use 
+
+gpt-5.4 (OpenAI, 2026a); and all indices use 
+
+text-embedding-3-small (OpenAI, 2024). Ex-traction, query transformation, and attribution return schema-validated JSON. After all re-tries fail, extraction returns no memories, query transformation falls back to the original ques-tion, attribution returns an empty set, and answering returns the predefined abstention re-sponse. Parsed citations are finally intersected with the document identifiers included in the ev-idence context, preventing unsupported sources from being reported. 
+
+H Visualization of Main Results and Diagnostics 
+
+This section visualizes the main system com-parison, component ablation, query-expansion behavior, and token usage. Exact values are reported in the corresponding tables. Figure 8 summarizes end-to-end performance at the 10M memory scale. MegaMem achieves the strongest overall result among direct re-trieval baselines and compressed-memory vari-ants, while also maintaining competitive docu-ment recall and a lower invalid-document ratio. Figure 9 shows how each component con-tributes to the full system. Removing any ma-jor component reduces Overall, confirming that dual-view memory, reranking, query expansion, and attribution support complementary parts of the final pipeline. Figure 10 examines how query expansion affects different question types. Expansion improves performance across answerable cat-egories, but information-not-found questions require an answerability-aware gate to prevent expanded queries from retrieving plausible but unsupported evidence. 
+
+I Why Dual-View Retrieval Helps and Where Scaling Fails 
+
+This section provides a simple interpretation of the two main empirical findings: dual-view retrieval improves evidence recall, while perfor-mance degradation at larger memory scales is driven mainly by retrieval. Let A denote the event that relevant evidence is retrieved from the detailed index, M the 18 40 60 80 
+
+Overall score (%) 
+
+> Lexical RAG Dense RAG Hierarchy only Relation only Published leader Dual view + rerank FullExtractor + expansion FullExtractor + exp. + attr.
+> 40.3 43.0 60.5 59.2 68.2 74.5 82.3
+> 82.3
+
+(a) End-to-end quality 
+
+0.4 0.6 0.8 
+
+> InvDocs (lower is better)
+> Hierarchy only Relation only Published leader Dual view + rerank FullExtractor + expansion FullExtractor + exp. + attr. 0.818 0.828 0.470 0.804 0.774 0.760
+
+(b) Invalid-document score Figure 8: End-to-end performance at the 10M memory scale. The figure summarizes the 400-question validation results in Table 3, comparing direct retrieval baselines, compressed-memory vari-ants, and MegaMem . InvDocs is in [0 , 1] , and lower is better. −20 −10 0
+
+Relative change in Overall (%) 
+
+> No attribution gate No query expansion No reranker No distillation No dual index
+> +0.00% -3.55% -4.97% -14.15% -17.91%
+
+Leave-one-component-out ablation 
+
+Figure 9: Contribution of individual 
+
+MegaMem components. The figure shows the relative change in Overall after removing each component from the full system under the 500-question ablation protocol. 
+
+event that it is retrieved from the distilled index, and G the event that a distilled hit is correctly resolved to its detailed source chunk. The recall of dual-view retrieval is 
+
+Rdual = Pr ( A ∪ (M ∩ G)) = RA + Pr( M ∩ G ∩ Ac), (8) where the second term captures evidence recov-ered by the distilled route but missed by the 40 60 80 100 
+
+Correctness (%) 
+
+Project High-level Constrained Con fl ict Semantic Info not found 
+
+> +82.5% +100.0% +31.2% +23.2% +20.8% -31.2%
+
+Per-type e ff ect of query expansion   
+
+> Before expansion Unconditional Selective oracle
+
+Figure 10: Effect of query expansion across question types. Query expansion improves all answerable categories, while an answerability-aware gate is required to preserve performance on information-not-found questions. 
+
+detailed route. This term explains the comple-mentarity observed in the ablation study. To interpret scaling behavior, let SN denote the event that sufficient evidence is selected from a corpus of size N . Answer Correctness can be written as 
+
+Pr( Y = 1 | N ) = Pr( SN ) Pr( Y = 1 | SN ) (9) 
+
++ Pr( ¬SN ) Pr( Y = 1 | ¬ SN ).
+
+(10) As memory grows, the main changing term is 
+
+Pr( SN ), since relevant evidence must be identi-fied among more distractors. The gold-evidence experiment approximately controls for evidence sufficiency and shows that Correctness remains stable once the required evidence is provided. This supports the conclusion that the observed scaling loss is primarily caused by retrieval rather than answer generation. 
+
+J Prompt Templates 
+
+This section provides the prompt templates used for memory construction, query transfor-mation, candidate selection, answer generation, attribution, and evaluation. The prompts are reproduced in their original form for complete-ness and reproducibility. 19 Atomic typed-memory extraction System: Extract at most three atomic, retrieval-friendly memories entailed by the source chunk. Each memory must have a type from {fact, pro-cedure, definition, requirement, decision}, a short retrieval key, a concise value, and no outside knowl-edge. Skip filler. Return {"memories":[...]} ; re-turn an empty list when the chunk has no useful content. 
+
+User: Document chunk, preceded by its section path and immutable chunk identifier. 
+
+High-level memory abstraction System: Summarize the supplied typed memories into a compact search key for their shared topic. Preserve named entities, constraints, dates, excep-tions, and conflicts. Do not create a fact absent from the children. Return JSON containing search_key ,
+
+summary , and the unchanged list of child source iden-tifiers. 
+
+User: A bounded group of typed memories with their immutable document mappings. 
+
+Query transformation System: Preserve the user’s information need and named constraints. Produce a canonical rewrite and terminology-diverse alternatives; do not invent an answer, entity, or date. Return a JSON list. If no safe reformulation exists, return only the original query. 
+
+User: The original question. 
+
+Cross-route candidate selection System: Select only candidate identifiers that could answer the question under its stated entities, time range, and constraints. A typed-memory match is a search clue, not evidence; retain its linked detailed-evidence identifier. Return ranked identifiers and short selection reasons in JSON. Never invent or rewrite an identifier. 
+
+User: Question, fused detailed and typed candi-dates, route ranks, and source metadata. 
+
+Evidence-only answer System: Answer using only the supplied document evidence. Preserve qualifiers and conflicts. If the evidence is insufficient, reply exactly: I don’t have enough information to answer. 
+
+User: The question followed by evidence cards labeled with chunk identifier, document identifier, and section path. 
+
+Post-answer attribution System: The answer is fixed. Return only identi-fiers of supplied evidence cards that directly support a claim in that answer. Do not add a source, re-vise the answer, or cite topically related but unused evidence. Return {"document_ids":[...]} .
+
+User: Fixed answer plus the same evidence cards shown to the answer model. 
+
+EnterpriseRAG correctness evaluation System: Compare the candidate answer with the benchmark gold answer. Judge whether the candi-date preserves the required conclusion, scope, con-ditions, and conflicts. Do not reward unsupported details. Return schema-constrained JSON with 
+
+correct , validated_facts , and missing_facts ; do not expose or use any field outside the canonical gold-answer protocol. 
+
+User: Question, candidate answer, and canonical gold answer. 
+
+20

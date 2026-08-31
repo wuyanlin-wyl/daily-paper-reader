@@ -6,137 +6,98 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-30
-- 运行时间：2026-08-30 22:38:22 UTC
+- 最新运行日期：2026-08-31
+- 运行时间：2026-08-31 23:45:25 UTC
 - 运行状态：成功
-- 本次总论文数：39
-- 精读区：27
+- 本次总论文数：25
+- 精读区：13
 - 速读区：12
 
 ### 今日简报（AI）
-今日共处理39篇论文，精读27篇、速读12篇，其中两篇获得9.0高分。最值得关注的是视觉-语言模型中的损失差距监督路由机制，以及开放权重LLM的角色专业化多智能体临床预测。建议优先精读这两篇高分论文，并顺带关注多模态RAG的引用增强与证据生成等速读热点。
-- 详情：[/202608/30/README](/202608/30/README)
+- 今日共生成 25 篇推荐（精读 13 篇，速读 12 篇）
+- 精读：《Steer the Sampling, Not the Kernel Grid: Geometry-Guided Sampling Operator for Volumetric Segmentation》（10.0/10）, 《What's the Catch? Evaluating Temporal Consistency in Vision-Language Models》（9.0/10）
+- 速读：《Training-Free VLM Personalization via Calibrated Residual Decoding》（8.0/10）, 《Adapting Dense Vision-Language Relationships for Multi-label Classification with Partial Label》（8.0/10）, 《Think with Structured Grounding: Perceptual Reinforcement Learning for Chart and Visual-Tabular Understanding》（8.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202608/31/README](/202608/31/README)
 
 ### 精读区论文标签
-1. [Learning to Look Again: Loss-Gap Supervision for Free-form Crop Routing in Vision-Language Models](/202608/30/2608.21762v1-learning-to-look-again-loss-gap-supervision-for-free-form-crop-routing-in-vision-language-models)  
+1. [Steer the Sampling, Not the Kernel Grid: Geometry-Guided Sampling Operator for Volumetric Segmentation](/202608/31/2608.25819v1-steer-the-sampling-not-the-kernel-grid-geometry-guided-sampling-operator-for-volumetric-segmentation)  
+   标签：评分：10.0/10、query:vlmmed
+   evidence：用于医学图像分割的几何引导采样新机制
+2. [What's the Catch? Evaluating Temporal Consistency in Vision-Language Models](/202608/31/2608.23474v1-whats-the-catch-evaluating-temporal-consistency-in-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：提出GapSight视觉重读框架，直接涉及视觉语言模型研究。
-2. [Role-Specialized Mixture-of-Agents with Open-Weight LLMs for Clinical Prediction](/202608/30/2608.22176v1-role-specialized-mixture-of-agents-with-open-weight-llms-for-clinical-prediction)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：用于临床预测的混合智能体结合检索
-3. [Training-Free VLM Personalization via Calibrated Residual Decoding](/202608/30/2608.22263v1-training-free-vlm-personalization-via-calibrated-residual-decoding)  
+   evidence：提出TimeCatch基准，评估视觉语言模型的时间一致性
+3. [Investigating Relational Reasoning in VLMs](/202608/31/2608.23518v1-investigating-relational-reasoning-in-vlms)  
    标签：评分：9.0/10、query:vl
-   evidence：提出基于标定残差解码的免训练VLM个性化方法
-4. [DRAgent: Discriminative Reasoning Agent for Referring Expression Segmentation](/202608/30/2608.22885v1-dragent-discriminative-reasoning-agent-for-referring-expression-segmentation)  
+   evidence：直接研究视觉语言模型的推理与捷径
+4. [Multi-Stage Prompt-Guided Feature Modulation for Generalizable Brain Tumor Segmentation](/202608/31/2608.23745v1-multi-stage-prompt-guided-feature-modulation-for-generalizable-brain-tumor-segmentation)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：用于泛化脑肿瘤分割的多阶段提示引导特征调制
+5. [MoE-based Feature Adapter for Prompt-free Binary Coronary Artery Segmentation in X-ray Angiography](/202608/31/2608.24783v1-moe-based-feature-adapter-for-prompt-free-binary-coronary-artery-segmentation-in-x-ray-angiography)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：基于Transformer的冠状动脉分割及MoE特征适配器
+6. [Unsupervised Anatomical Feature Learning via Diffusion Models: Enhanced Medical Image Segmentation with Denoising Diffusion Probabilistic Models](/202608/31/2608.25693v1-unsupervised-anatomical-feature-learning-via-diffusion-models-enhanced-medical-image-segmentation-with-denoising-diffusion-probabilistic-models)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：通过无监督扩散特征学习实现创新的医学图像分割
+7. [G2D: Generative-to-Discriminative Collaborative Inference for Zero-Shot Image Classification](/202608/31/2608.26744v1-g2d-generative-to-discriminative-collaborative-inference-for-zero-shot-image-classification)  
    标签：评分：9.0/10、query:vl
-   evidence：基于MLLM的判别式推理指代表达分割
-5. [TSWAP: A Multilingual Retrieval-Augmented Thai Wellness Advisor](/202608/30/2608.22917v1-tswap-a-multilingual-retrieval-augmented-thai-wellness-advisor)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：基于泰国传统医学的多语言RAG健康顾问，符合医学分析RAG
-6. [E2S-Pruner: Progressive Two-Stage Evidence Fusion for Visual Token Pruning in Vision-Language Models](/202608/30/2608.23253v1-e2s-pruner-progressive-two-stage-evidence-fusion-for-visual-token-pruning-in-vision-language-models)  
+   evidence：结合生成式VLM与CLIP的免训练框架，用于零样本图像分类
+8. [MVC-Bench: Benchmarking Calibration of Medical Vision-Language Models](/202608/31/2608.27004v1-mvc-bench-benchmarking-calibration-of-medical-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：视觉语言模型中的视觉token剪枝
-7. [Can Coding Agents Build Robust Baselines? A Skill-Based Approach for Automating the Medical Imaging Model-Development Pipeline](/202608/30/2608.23336v1-can-coding-agents-build-robust-baselines-a-skill-based-approach-for-automating-the-medical-imaging-model-development-pipeline)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：自主智能体工作流自动化医学影像基线开发
-8. [What's the Catch? Evaluating Temporal Consistency in Vision-Language Models](/202608/30/2608.23474v2-whats-the-catch-evaluating-temporal-consistency-in-vision-language-models)  
+   evidence：医疗视觉语言模型校准基准
+9. [ReViCo: Unveiling the Limitations of VLMs in Visual Text Understanding via Error Correction](/202608/31/2608.27154v1-revico-unveiling-the-limitations-of-vlms-in-visual-text-understanding-via-error-correction)  
    标签：评分：9.0/10、query:vl
-   evidence：提出TimeCatch基准，评估视觉语言模型的时间一致性。
-9. [MC-CXR: A Multi-Context Chest X-ray Benchmark for Context-Induced Disruption in Vision-Language Models](/202608/30/2608.24118v1-mc-cxr-a-multi-context-chest-x-ray-benchmark-for-context-induced-disruption-in-vision-language-models)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：胸部X光视觉语言模型上下文干扰基准
-10. [Graph-Supervised Hierarchical Clinical Alignment for Radiology Report Generation with Large Language Models](/202608/30/2608.24121v1-graph-supervised-hierarchical-clinical-alignment-for-radiology-report-generation-with-large-language-models)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：利用LLM生成放射学报告，视觉语言医学应用；提出分层临床对齐
-11. [Example-based Robust Abnormality Detection with Minimal Annotations using Exemplar Med-DETR](/202608/30/2608.24281v1-example-based-robust-abnormality-detection-with-minimal-annotations-using-exemplar-med-detr)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：用于医学异常检测的视觉语言检测器，标注需求少
-12. [What Do Medical Vision-Language Models Learn in Radiology? Transfer, Alignment, and Source-Proxy Leakage Under Distribution Shift](/202608/30/2608.25251v1-what-do-medical-vision-language-models-learn-in-radiology-transfer-alignment-and-source-proxy-leakage-under-distribution-shift)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：分析医学视觉语言模型在分布偏移下的迁移与对齐
-13. [MLLMCLIP: Feature-Level Distillation of MLLM for Robust Vision-Language Representations](/202608/30/2608.25575v1-mllmclip-feature-level-distillation-of-mllm-for-robust-vision-language-representations)  
+   evidence：视觉语言模型基准，用于视觉文本纠错
+10. [PACE: A Unified Condense-and-Extract Paradigm for Fast VLM Inference](/202608/31/2608.27206v1-pace-a-unified-condense-and-extract-paradigm-for-fast-vlm-inference)  
    标签：评分：9.0/10、query:vl
-   evidence：利用多模态大模型蒸馏的图像-语言表示学习
-14. [AWM: Answerable Working Memory for Long-Document VQA Agents](/202608/30/2608.25618v1-awm-answerable-working-memory-for-long-document-vqa-agents)  
+   evidence：通过像素自适应压缩-提取视觉token剪枝加速VLM推理
+11. [Retrieval Heads Meet Vision: Uncovering How VLMs Locate and Extract Visual Information](/202608/31/2608.27417v1-retrieval-heads-meet-vision-uncovering-how-vlms-locate-and-extract-visual-information)  
    标签：评分：9.0/10、query:vl
-   evidence：面向长文档VQA的VLM智能体，提出可回答工作记忆
-15. [SeVeR: Selective Visual Exposure and Retrieval for 3D Medical Image Question Answering](/202608/30/2608.25630v1-sever-selective-visual-exposure-and-retrieval-for-3d-medical-image-question-answering)  
+   evidence：揭示视觉语言模型中的注意力头机制
+12. [Report Supervision](/202608/31/2608.27668v1-report-supervision)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：基于检索的选择性视觉暴露用于医学VQA
-16. [LUTSeg: A Longitudinal Multi-Expert Dataset for Ulcer Tissue Segmentation](/202608/30/2608.25866v1-lutseg-a-longitudinal-multi-expert-dataset-for-ulcer-tissue-segmentation)  
+   evidence：利用放射学报告作为肿瘤分割的大规模监督信号
+13. [ARC-CT: Anatomy-Routed Contrastive Vision-Language Learning for 3D Chest CT](/202608/31/2608.28455v1-arc-ct-anatomy-routed-contrastive-vision-language-learning-for-3d-chest-ct)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：使用冻结医学视觉语言模型进行组织分割
-17. [FAN-LoRA: A Fourier-Adaptive Nonlinear Low-Rank Adaptor for Medical Foundation Model Domain Adaptation](/202608/30/2608.26531v1-fan-lora-a-fourier-adaptive-nonlinear-low-rank-adaptor-for-medical-foundation-model-domain-adaptation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：医学基础模型域适应，用于SAM分割
-18. [FU-Mamba: A Frequency-Enhanced Dynamic Scanning Framework for Oralscan Image Segmentation](/202608/30/2608.26607v1-fu-mamba-a-frequency-enhanced-dynamic-scanning-framework-for-oralscan-image-segmentation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：医学图像分割中的创新频率增强动态扫描
-19. [Multi-Image Visual Token Pruning in Large Visual Language Models](/202608/30/2608.26806v1-multi-image-visual-token-pruning-in-large-visual-language-models)  
-   标签：评分：9.0/10、query:vl
-   evidence：大型视觉语言模型的自适应视觉令牌剪枝
-20. [MedFG-VQA: Low-Frequency Memory and Graph Attention for Lightweight Medical VQA](/202608/30/2608.26848v1-medfg-vqa-low-frequency-memory-and-graph-attention-for-lightweight-medical-vqa)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：医学视觉语言模型VQA；医疗应用中的视觉语言模型进展
-21. [From Reasoning to Pixels: Grounded Medical Multimodal LLMs for VQA and Segmentation](/202608/30/2608.26856v1-from-reasoning-to-pixels-grounded-medical-multimodal-llms-for-vqa-and-segmentation)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：统一医学多模态大模型用于VQA和分割，实现推理驱动的空间定位
-22. [MVC-Bench: Benchmarking Calibration of Medical Vision-Language Models](/202608/30/2608.27004v1-mvc-bench-benchmarking-calibration-of-medical-vision-language-models)  
-   标签：评分：9.0/10、query:vl
-   evidence：医学视觉语言模型校准基准
-23. [ReViCo: Unveiling the Limitations of VLMs in Visual Text Understanding via Error Correction](/202608/30/2608.27154v1-revico-unveiling-the-limitations-of-vlms-in-visual-text-understanding-via-error-correction)  
-   标签：评分：9.0/10、query:vl
-   evidence：通过错误纠正评估VLM视觉文本理解的基准
-24. [Parameter-Efficient pretrained-CT-to-MRI Transfer for Rectal Cancer Segmentation: Performance-Calibration Trade-offs](/202608/30/2608.27178v1-parameter-efficient-pretrained-ct-to-mri-transfer-for-rectal-cancer-segmentation-performance-calibration-trade-offs)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：基于Swin Transformer的直肠癌MRI分割，参数高效微调
-25. [PACE: A Unified Condense-and-Extract Paradigm for Fast VLM Inference](/202608/30/2608.27206v1-pace-a-unified-condense-and-extract-paradigm-for-fast-vlm-inference)  
-   标签：评分：9.0/10、query:vl
-   evidence：视觉语言大模型推理加速，基于视觉 token 剪枝
-26. [UniFLM: United Segmentation and Measurement on Fetal Limb Ultrasonic Image](/202608/30/2608.27240v1-uniflm-united-segmentation-and-measurement-on-fetal-limb-ultrasonic-image)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：用于医学超声分割的语义感知跳跃连接
-27. [Retrieval Heads Meet Vision: Uncovering How VLMs Locate and Extract Visual Information](/202608/30/2608.27417v1-retrieval-heads-meet-vision-uncovering-how-vlms-locate-and-extract-visual-information)  
-   标签：评分：9.0/10、query:vl
-   evidence：揭示VLM中注意头实现视觉定位与检索的内在机制
+   evidence：基于胸部CT和放射报告的视觉语言对比学习
 
 ### 速读区论文标签
-1. [ATHENA: Knowledge-guided agentic neural architecture search for AutoFormer-based electronic health record modeling](/202608/30/2608.21712v1-athena-knowledge-guided-agentic-neural-architecture-search-for-autoformer-based-electronic-health-record-modeling)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：面向基于Transformer的电子健康记录建模的知识引导智能体神经架构搜索
-2. [SAFE-G: Structure-aware Faithful Evidence-guided Generation for Knowledge-based Visual Question Answering](/202608/30/2608.21796v1-safe-g-structure-aware-faithful-evidence-guided-generation-for-knowledge-based-visual-question-answering)  
+1. [Training-Free VLM Personalization via Calibrated Residual Decoding](/202608/31/2608.22263v1-training-free-vlm-personalization-via-calibrated-residual-decoding)  
    标签：评分：8.0/10、query:vl
-   evidence：用于知识型视觉问答的多模态大语言模型，基于证据引导生成
-3. [MCite-RL: Towards Reliable Multimodal RAG via Citation-enhanced Agentic Reinforcement Learning](/202608/30/2608.21808v1-mcite-rl-towards-reliable-multimodal-rag-via-citation-enhanced-agentic-reinforcement-learning)  
+   evidence：视觉语言模型的免训练个性化
+2. [Adapting Dense Vision-Language Relationships for Multi-label Classification with Partial Label](/202608/31/2608.22313v1-adapting-dense-vision-language-relationships-for-multi-label-classification-with-partial-label)  
    标签：评分：8.0/10、query:vl
-   evidence：基于多模态RAG的视觉引用与agentic强化学习，是视觉语言模型研究核心
-4. [PatchGate: Narrowing the Verbalization Gap with Intrinsic Object Inventories in Frozen Vision-Language Models](/202608/30/2608.21819v1-patchgate-narrowing-the-verbalization-gap-with-intrinsic-object-inventories-in-frozen-vision-language-models)  
+   evidence：从CLIP适配密集视觉语言关系用于多标签分类
+3. [Think with Structured Grounding: Perceptual Reinforcement Learning for Chart and Visual-Tabular Understanding](/202608/31/2608.22429v1-think-with-structured-grounding-perceptual-reinforcement-learning-for-chart-and-visual-tabular-understanding)  
    标签：评分：8.0/10、query:vl
-   evidence：用于冷冻视觉语言模型字幕完整性的免训练框架
-5. [From Association to Causation: Improving Retrieval Precision of Retrieval-Augmented Generation via Causal Relations and an Attention Mechanism](/202608/30/2608.21702v1-from-association-to-causation-improving-retrieval-precision-of-retrieval-augmented-generation-via-causal-relations-and-an-attention-mechanism)  
+   evidence：多模态大语言模型框架，改善细粒度视觉感知
+4. [HeatTok: Enhancing Remote Sensing Image Understanding via Thermodiffusion-based Tokenization](/202608/31/2608.22485v1-heattok-enhancing-remote-sensing-image-understanding-via-thermodiffusion-based-tokenization)  
+   标签：评分：8.0/10、query:vl
+   evidence：面向多模态大模型的热扩散分词器，推进视觉语言模型
+5. [MegaMem: A Retrieval Solution for Ultra-Large Context Windows](/202608/31/2608.22137v1-megamem-a-retrieval-solution-for-ultra-large-context-windows)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：基于因果关系与注意力机制的RAG检索
-6. [ViSMoE: Visual-Aware Sparse Mixture-of-Experts for Embodied Referring Expression Grounding](/202608/30/2608.21878v1-vismoe-visual-aware-sparse-mixture-of-experts-for-embodied-referring-expression-grounding)  
+   evidence：面向大上下文LLM的通用检索与证据选择方法，可直接用于RAG流程
+6. [LiST: Local-Simplex Test-Time LoRA Fusion](/202608/31/2608.22370v1-list-local-simplex-test-time-lora-fusion)  
    标签：评分：7.0/10、query:vl
-   evidence：面向具身指代表达的视觉感知稀疏专家混合VLM方法
-7. [W-RAG: Source-Aware Retrieval for Enterprise Document Generation from Heterogeneous Knowledge Bases](/202608/30/2608.22081v1-w-rag-source-aware-retrieval-for-enterprise-document-generation-from-heterogeneous-knowledge-bases)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：面向异构知识库的源感知RAG
-8. [EndoNav: Semantic-to-Geometric Grounding for Language-Guided Robotic Endoscopic Examination](/202608/30/2608.22093v1-endonav-semantic-to-geometric-grounding-for-language-guided-robotic-endoscopic-examination)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：语言引导的机器人内窥镜，医学视觉语言基础
-9. [LëtzCross: A Cross-Lingual Page-Level Benchmark for Multimodal Retrieval over Luxembourgish Documents](/202608/30/2608.21714v1-ltzcross-a-cross-lingual-page-level-benchmark-for-multimodal-retrieval-over-luxembourgish-documents)  
+   evidence：面向视觉语言模型的测试时LoRA融合，无需标签即可组合适配器
+7. [MLLM-Assisted Audio VOS: A 3rd Place Report for the MeViS-Audio Track, 8th LSVOS Challenge](/202608/31/2608.23234v1-mllm-assisted-audio-vos-a-3rd-place-report-for-the-mevis-audio-track-8th-lsvos-challenge)  
+   标签：评分：7.0/10、query:vl
+   evidence：MLLM结合SAM进行音频引导视频分割，涉及视觉语言大模型
+8. [E2S-Pruner: Progressive Two-Stage Evidence Fusion for Visual Token Pruning in Vision-Language Models](/202608/31/2608.23253v1-e2s-pruner-progressive-two-stage-evidence-fusion-for-visual-token-pruning-in-vision-language-models)  
+   标签：评分：7.0/10、query:vl
+   evidence：提出基于注意力的视觉语言模型视觉令牌剪枝方法
+9. [Query-Driven Multimodal Information Extraction from Long Documents](/202608/31/2608.22214v1-query-driven-multimodal-information-extraction-from-long-documents)  
    标签：评分：6.0/10、query:vl
-   evidence：跨语言页面级多模态检索与RAG基准
-10. [FCPRAG: Fusion-Controller Parametric Retrieval-Augmented Generation for Stable Multi-Passage LoRA Injection](/202608/30/2608.21750v1-fcprag-fusion-controller-parametric-retrieval-augmented-generation-for-stable-multi-passage-lora-injection)  
+   evidence：利用视觉语言理解从长文档中进行查询驱动的图文联合抽取
+10. [Learning Sample-wise Rank-aware Interpolation Weights for Composed Visual Data Retrieval](/202608/31/2608.22500v1-learning-sample-wise-rank-aware-interpolation-weights-for-composed-visual-data-retrieval)  
+   标签：评分：6.0/10、query:vl
+   evidence：使用视觉语言模型融合的复合图像检索，提出高效插值方法
+11. [Contextrast++: Robust Multi-Scale Contextual Contrastive Learning for Semantic Segmentation](/202608/31/2608.22679v1-contextrast-robust-multi-scale-contextual-contrastive-learning-for-semantic-segmentation)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：提出融合控制的参数化RAG方法，可应用于医学分析等RAG场景
-11. [HIRA: A Human-in-the-Loop Retrieval-Augmented Cascade for Document Classification in Regulated Industries](/202608/30/2608.21792v1-hira-a-human-in-the-loop-retrieval-augmented-cascade-for-document-classification-in-regulated-industries)  
+   evidence：多尺度上下文对比学习新机制，可迁移至医学图像分割
+12. [Evaluating Modern RAG: Textual, Multimodal, Dense, and Late Interaction Pipelines](/202608/31/2608.23176v1-evaluating-modern-rag-textual-multimodal-dense-and-late-interaction-pipelines)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：提出检索增强级联HIRA及LLM验证器，方法可迁移至医学RAG分析。
-12. [OptiMAS: Automatically Optimize Multi-Agent System](/202608/30/2608.21918v1-optimas-automatically-optimize-multi-agent-system)  
-   标签：评分：6.0/10、query:vlmmed
-   evidence：任务无关的多智能体系统优化器，可应用于医学分析智能体
+   evidence：包含多模态VLM管道的RAG评估
 
 
 <div class="dpr-home-promo-card">
