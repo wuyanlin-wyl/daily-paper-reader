@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-15 <!--dpr-date:20260915-->
+    * <a class="dpr-sidebar-item-link" href="#/202609/15/innovation-brief">创新点总结</a>
+    * <a class="dpr-sidebar-item-link" href="#/202609/15/research-directions">研究方向与路线</a>
   * 2026-09-14 <!--dpr-date:20260914-->
     * <a class="dpr-sidebar-item-link" href="#/202609/14/innovation-brief">创新点总结</a>
     * <a class="dpr-sidebar-item-link" href="#/202609/14/research-directions">研究方向与路线</a>
