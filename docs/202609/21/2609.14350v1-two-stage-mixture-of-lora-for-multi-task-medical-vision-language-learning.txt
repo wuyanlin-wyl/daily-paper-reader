@@ -1,0 +1,313 @@
+Title: Two-Stage Mixture-of-LoRA for Multi-Task Medical Vision-Language Learning
+
+URL Source: https://arxiv.org/pdf/2609.14350v1
+
+Published Time: Tue, 15 Sep 2026 01:11:13 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Two-Stage Mixture-of-LoRA for Multi-Task Medical Vision-Language Learning 
+
+Zhanghao Chen [0009-0000-9249-5124] 1#, Yuanyuan Li [0009-0003-4469-2926] 1#, Zhenyu Lu [0009-0004-5954-2004] 1#, Shuo Gao [0009-0005-8844-4005] 2, Guangquan Zhou [0000-0002-6467-3592] 2*, and Yikun Zhang [0000-0002-4048-4869] 1* 
+
+> 1
+
+School of Computer Science and Engineering, Southeast University, Nanjing 211189, China  
+
+> 2
+
+School of Biological Science & Medical Engineering, Southeast University, Nanjing 211189, China 
+
+{guangquan.zhou,yikun}@seu.edu.cn 
+
+Abstract. Medical vision-language models (VLMs) allow a single model to perform clinical image analysis tasks ranging from diagnosis classi-fication to report generation. However, joint adaptation is challenged by heterogeneous output formats, conflicting task gradients, and imbal-anced training data. Hence, we present Two-Stage Mixture-of-LoRA ,a framework built on MedGemma-1.5-4B. The framework uses a shared-specific Mixture-of-LoRA architecture comprising one shared LoRA and six task-specific expert LoRAs, together with a two-stage training proce-dure. In Stage 1, we jointly train the shared LoRA and all task-specific expert LoRAs on all tasks. In Stage 2, we first freeze the backbone, the shared LoRA, and all non-target experts, and refine one task expert at a time. Classification and regression then receive an additional modality-balanced continuation, in which smaller modality groups are repeated to match the largest group. In the FLARE 2026 Task 3 test sets, the proposed method achieves 0.85 balanced accuracy for classification, 0.48 micro-F1 for multi-label classification, 0.79 detection F1, and 17.39 re-gression MAE. Code is available here. 
+
+Keywords: Medical vision-language models · Parameter-efficient fine-tuning · Medical image analysis · Mixture-of-LoRA 
+
+# 1 Introduction 
+
+Medical image analysis is a cornerstone of clinical diagnosis, yet traditional task-specific models suffer from limited scalability and high deployment costs in work-flows requiring diverse analytical capabilities. Vision-language models (VLMs) enable a unified autoregressive framework to handle tasks ranging from diagnos-tic classification to report generation. The FLARE 2026 Task 3 challenge formal-izes this setting as a standardized benchmark covering eight imaging modalities 
+
+# Equal Contribution * Corresponding authors arXiv:2609.14350v1 [cs.CV] 13 Sep 2026 2 Z. Chen, Y. Li & Z. Lu et al. 
+
+and six tasks: classification, multi-label classification, detection, counting, re-gression, and report generation, while exposing core challenges in adapting a single foundation model to heterogeneous tasks. The first challenge is imbal-anced data composition within individual tasks . Classification combines different imaging modalities, with modality-specific data groups ranging from 64 endoscopy records to 4,206 dental X-ray records; regression contains 5,150 ultrasound records and 702 dental X-ray records. Conventional random shuf-fling therefore gives larger modality groups more updates, leaving smaller groups under-adapted. The second challenge is heterogeneous and competing task optimization . Tasks differ drastically in output spaces and reasoning require-ments, and empirical results show cross-task trade-offs, e.g., gains in single-label classification often hurt multi-label performance. Forcing all tasks to share one adaptation space leads to conflicting gradients and insufficient specialization. To address these issues, a holistic solution spanning data sampling, architecture, and optimization strategy is needed. We propose Two-Stage Mixture-of-LoRA ,a framework for multi-task medical VLM learning. Our contributions are: 1. A simple within-task sampling scheme for classification and regression. Within either task, examples from smaller data modality groups are repeated to match the largest modality group. 2. A shared-specific Mixture-of-LoRA architecture . The shared LoRA learns universal representations from all six tasks, whereas each task-specific LoRA learns the visual cues and output format required by its own task. 3. A two-stage optimization pipeline that first jointly learns shared and task-specific knowledge, then independently refines every task expert with the shared LoRA and non-target experts frozen. Classification and regression receive an additional modality-balanced continuation. 
+
+# 2 Related Work 
+
+2.1 Medical Vision-Language Models 
+
+General-purpose VLMs such as CLIP [10], BLIP-2 [9], Qwen2.5-VL [3], and Qwen3.5 [13] have strong cross-modal capabilities but lack clinical domain knowl-edge. Domain-specific models such as LLaVA-Med [8], HuatuoGPT-Vision [4], and MedGemma [11] address this gap via medical pre-training and instruction tuning. However, most are optimized for open-ended text generation; structured perception tasks such as detection and regression remain underexplored, and few works systematically study multi-task joint-training challenges. 
+
+2.2 Parameter-Efficient Multi-Task Adaptation 
+
+LoRA [6] is a widely used PEFT method for adapting large VLMs efficiently. QLoRA [5] further reduces memory via 4-bit quantization, as applied in ME-VLIP [12] for medical image parsing. For multi-task settings, Mixture-of-LoRA [14] uses multiple expert adapters with learned routing, but routing networks add Two-Stage Mixture-of-LoRA for Medical VLMs 3
+
+overhead and are unnecessary when task identity is known. Existing Mixture-of-LoRA designs also do not explicitly separate shared and task-specific knowledge, limiting their ability to resolve optimization conflicts. 
+
+2.3 Data Balancing and Optimization in Multi-Task Learning 
+
+Data imbalance and gradient conflicts are longstanding multi-task challenges. Uniform sampling improves under-represented tasks but risks overfitting. Two-stage training alleviates interference by first learning shared representations and then fine-tuning task-specific components. In medical VLMs, existing works typ-ically use default sampling and single-stage training, which are ill-suited for the extreme modality disparity in benchmarks such as FLARE 2026 Task 3. There remains a gap in systematically designing sampling, architecture, and training strategies for multi-task medical vision-language learning. 
+
+# 3 Method 
+
+3.1 Preliminary Study 
+
+The challenge considered in this work consists of six heterogeneous medical vision-language tasks, including classification, multi-label classification, detection, counting, regression, and report generation. Although these tasks can be unified under an autoregressive vision-language formulation, our preliminary experiments reveal two practical challenges when jointly adapting a single multimodal foundation model to all tasks. 
+
+Within-task modality imbalance. The first challenge arises from im-balanced modality composition within individual tasks. Classification includes modality-specific data groups ranging from 64 endoscopy records to 4,206 dental X-ray records, while regression contains 5,150 ultrasound records and 702 den-tal X-ray records. Consequently, conventional random shuffling gives the larger modality groups substantially more updates during task-specific training, leav-ing smaller groups under-adapted. This motivates within-task balanced sampling during expert refinement. 
+
+Heterogeneous and competing task optimization. The second chal-lenge is that different tasks exhibit substantially different optimization behaviors. Despite sharing the same vision-language backbone, the six tasks differ consider-ably in their output spaces and reasoning requirements, ranging from short cat-egorical responses to numerical predictions, spatial localization, and long-form report generation. More importantly, we empirically observe cross-task compe-tition during joint training. For example, classification and multi-label classifi-cation may exhibit a trade-off in which improving one task is accompanied by degraded performance on the other. Such behavior suggests that forcing all tasks to rely on a single shared adaptation space may lead to conflicting parameter updates and insufficient task specialization. These observations motivate three components of our framework: (i) within-task sampling during the additional refinement of classification and regression, 4 Z. Chen, Y. Li & Z. Lu et al. 
+
+giving each modality group the same number of training samples; (ii) a shared-specific Mixture-of-LoRA architecture that explicitly separates transferable knowl-edge from task-specific adaptation; and (iii) a two-stage optimization strategy that first jointly learns shared and task-specific knowledge, then independently refines every task expert with the shared LoRA and non-target experts frozen. Classification and regression are subsequently continued with modality-balanced resampling. 
+
+3.2 Framework Overview 
+
+Figure 1 illustrates the overall framework. We adopt the instruction-tuned model MedGemma-1.5-4B [11] as the multimodal backbone. The pretrained MedGemma-1.5 parameters remain frozen throughout training, and only lightweight LoRA modules [6] are optimized. Let 
+
+T = {cls , mlcls , det , cnt , reg , rep }
+
+denote the set of six tasks. For each task t ∈ T , its training dataset is denoted by 
+
+Dt = {(Ii, qi, yi)}nt
+
+> i=1
+
+,
+
+where Ii denotes the medical image, qi denotes the corresponding task instruc-tion or question, and yi denotes the target response. We formulate all six tasks as autoregressive text generation. Different pre-diction targets, including class labels, multiple labels, bounding-box represen-tations, counts, continuous values, and reports, are converted into task-specific textual responses. Given a known task identity t, the model predicts 
+
+p(y | I, q, t ) = 
+
+> |y|
+
+Y
+
+> m=1
+
+p (ym | I, q, y <m , t ) .
+
+Accordingly, all tasks can be optimized using the same autoregressive language modeling objective: 
+
+Lt = −
+
+> |y|
+
+X
+
+> m=1
+
+log p (ym | I, q, y <m , t ) . (1) This unified formulation allows heterogeneous medical tasks to share the same backbone and training objective while relying on task-specific LoRA parameters to capture their distinct prediction behaviors. 
+
+3.3 Mixture-of-LoRA 
+
+A single LoRA adapter shared by all tasks provides parameter-efficient adapta-tion but requires the same low-rank parameter space to simultaneously repre-sent heterogeneous task behaviors. This can be suboptimal when tasks exhibit Two-Stage Mixture-of-LoRA for Medical VLMs 5Classification  Multi Lable      
+
+> Classification Detection Counting Regression Report
+> Generation
+> MedGemma1.5
+> Fronzen Trainable
+> Input Dataset
+> Mixture of LoRA
+> Shared LoRA
+> Task-Specific LoRA
+
+Fig. 1. Overview of the proposed Two-Stage Mixture-of-LoRA framework for medical vision-language tasks. The frozen MedGemma-1.5-4B backbone is augmented with one shared LoRA module and six task-specific LoRA experts. For each task, the shared module is jointly activated with its corresponding expert, enabling knowledge sharing across tasks while preserving task-specific adaptation. 
+
+conflicting optimization directions. On the other hand, assigning a completely independent adapter to every task prevents beneficial knowledge transfer across related medical tasks. To balance shared representation learning and task specialization, we intro-duce a shared-specific Mixture-of-LoRA architecture. The shared LoRA is opti-mized using samples from all six tasks and captures representations that can be reused across tasks. Each task-specific LoRA is optimized only using its corre-sponding task and learns the visual cues and output requirements of that task, including class labels, numerical values, bounding boxes, or free-text reports. For every adapted linear transformation in the frozen backbone, we instantiate one 
+
+shared LoRA that is accessible to all tasks and one task-specific LoRA for each task. Consider a frozen linear transformation with weight matrix W0. For task t,its effective transformation is 
+
+W(t) = W0 + ∆Wshared + ∆Wt, (2) where 
+
+∆Wshared = BsAs, ∆Wt = BtAt. (3) Here, ∆Wshared captures knowledge transferable across tasks, whereas ∆Wt
+
+provides task-specific adaptation capacity. The standard LoRA scaling factors are omitted from Eq. (3) for clarity. 6 Z. Chen, Y. Li & Z. Lu et al. 
+
+For an input representation x from task t, the corresponding layer therefore computes 
+
+h = W0x + ∆Wshared x + ∆Wtx. (4) Importantly, our Mixture-of-LoRA does not employ a learned routing net-work. Since the task identity is known for each training and inference example, adapter routing is deterministic. The shared LoRA is always activated, while only the task-specific LoRA associated with the current task is selected. All other task-specific LoRA modules remain inactive for that example. We insert the shared and task-specific LoRA modules into the same set of backbone transformations. Specifically, LoRA is applied to the query, key, value, and output projections ( q_proj , k_proj , v_proj , and o_proj ) in the attention modules, as well as the gate_proj , up_proj , and down_proj transformations in the feed-forward modules. The pretrained MedGemma-1.5 parameters remain frozen, making the proposed architecture parameter-efficient while retaining ex-plicit task specialization. 
+
+3.4 Within-Task Sampling 
+
+For classification and regression, we divide the training data of each task into predefined modality-specific data groups. Let Gh denote the groups in task h,and let Dh,g be the records in group g ∈ G h. Without additional balancing, the number of updates from a group is proportional to |D h,g |, allowing a large group to dominate the refinement of the corresponding expert. For these tasks, we define Mh = max g∈G h |D h,g | and construct a resampled continuation set 
+
+eDh = [
+
+> g∈G h
+
+Repeat( Dh,g , M h), (5) where Repeat( ·, M h) contains complete copies of a group plus a seeded shuf-fled remainder, giving exactly Mh records for every group. The resulting records are globally shuffled with a fixed seed and materialized as a training file. Thus, each group contributes equally in an epoch. Sampling is performed within an individual task: it neither mixes tasks nor makes the total sample counts of dif-ferent tasks equal. If a task contains only one group, its data remain unchanged. This is distinct from a stochastic weighted sampler and makes the effective data distribution reproducible. 
+
+3.5 Two-Stage Training 
+
+Although task-specific adapters alleviate parameter-level competition among heterogeneous tasks, different tasks may still exhibit different convergence rates. A fixed joint-training schedule can therefore terminate before some tasks are suf-ficiently optimized, while continuing joint optimization for substantially longer may degrade tasks that have already converged. We address this issue using the two-stage optimization strategy illustrated in Figure 2. Two-Stage Mixture-of-LoRA for Medical VLMs 7
+
+Fig. 2. Two-stage optimization strategy. In Stage 1, the shared LoRA and all task-specific LoRAs are jointly trained on the six tasks while the MedGemma-1.5 backbone remains frozen. In Stage 2, all six experts are independently refined while the backbone, shared LoRA, and non-target experts remain frozen. Classification and regression then receive an additional continuation using modality-balanced resampling. 
+
+Stage 1: Joint multi-task training. In the first stage, the shared LoRA and all six task-specific LoRAs are jointly optimized on all training tasks. The pretrained MedGemma-1.5 backbone remains frozen, whereas both the shared LoRA parameters and all task-specific LoRA parameters are trainable. Let ϕs denote the parameters of the shared LoRA and ϕt denote the task-specific LoRA parameters of task t. Let Dall = S 
+
+> t∈T
+
+Dt denote the union of all task-specific training sets. The Stage 1 objective can be written as 
+
+min 
+
+> ϕs,{ϕt}t∈T
+
+E(I,q,y)∼D all [Lt] . (6) This stage encourages the shared LoRA to capture basic transferable repre-sentations across heterogeneous medical tasks, while each task-specific LoRA simultaneously learns initial adaptation for its corresponding task. 
+
+Stage 2: Independent expert refinement. After the five epochs of Stage 1, every task expert is independently refined from the same Stage 1 endpoint. For each task t ∈ T , we freeze the MedGemma-1.5 backbone, the shared LoRA, and all task-specific LoRAs except ϕt. Thus, only the expert associated with task t is updated, using its original task-specific training data Dt. The initial refinement objective is 
+
+ϕref  
+
+> t
+
+= arg min 
+
+> ϕt
+
+E(I,q,y)∼D t [Lt] . (7) For classification and regression, we further continue from ϕref  
+
+> t
+
+for three epochs using the resampled set eDt from Eq. (5). The same parameters remain 8 Z. Chen, Y. Li & Z. Lu et al. 
+
+frozen, and only ϕt is updated: 
+
+ϕ∗ 
+
+> t
+
+= arg min 
+
+> ϕt
+
+E(I,q,y)∼ eDt [Lt] , t ∈ { cls , reg }, (8) where the optimization is initialized from ϕref  
+
+> t
+
+. For the other four tasks, we set ϕ∗ 
+
+> t
+
+= ϕref  
+
+> t
+
+. This additional continuation gives every modality-specific group equal exposure in an epoch. The other four tasks use only the initial refinement on their original task-specific training data. Freezing the shared LoRA preserves the task-general knowledge acquired during Stage 1, and freezing non-target experts prevents refinement of one task from modifying the adapters of other tasks. At inference time, a task activates the shared LoRA learned in Stage 1 together with its corresponding task-specific adapter. We select the final checkpoint independently for each task using the available validation evidence. This design preserves the benefits of joint multi-task learning while allowing every expert to adapt independently. 
+
+# 4 Experiments 
+
+4.1 Dataset and evaluation measures 
+
+We conduct all experiments on the official FLARE 2026 Task 3-2D dataset, which covers six tasks: disease diagnosis classification, multi-label classification, report generation, lesion detection, cell counting, and numerical regression. The training, public-validation, and hidden-validation splits contain 44,639, 5,577, and 1,783 examples, respectively. In Tables 3 and 4, each entry is reported as public validation | hidden validation, and N/A indicates that the corresponding validation split does not provide ground-truth labels for evaluation. Figures 3 and 4 summarize the composition of the three splits by imag-ing modality and task. The modality distribution differs across splits, and the task-level breakdown is also split dependent: regression is absent from public validation, whereas report generation and cell counting are absent from hidden validation. These differences make task-wise evaluation and checkpoint selection necessary rather than relying on a single aggregate score. We use the official metrics for each task. Disease diagnosis classification is evaluated by balanced accuracy, which averages the recall of all classes and is less sensitive to class imbalance. Multi-label classification uses micro-averaged F1, computed from the global numbers of true positives, false positives, and false negatives. Detection uses F1 at an intersection-over-union (IoU) threshold of 0.5. Report generation is evaluated with CRIMSON [1], while counting and regression use MAE, for which lower values indicate better performance. 
+
+4.2 Implementation details Environment settings We use MedGemma-1.5-4B as the multimodal back-bone and perform parameter-efficient adaptation with LoRA. The pretrained Two-Stage Mixture-of-LoRA for Medical VLMs 9 
+
+> Fig. 3. Distribution of imaging modalities across the training, public-validation, and hidden-validation splits. Each bar is stacked by modality and labeled with its total number of questions.
+
+backbone remains frozen throughout training, while LoRA modules are inserted into the specified attention and MLP projections. The resulting model contains one shared LoRA adapter and six task-specific experts. Given the task iden-tity, the shared adapter and the corresponding task expert are activated jointly during inference.          
+
+> Table 1. Development environments and requirements. System Ubuntu 22.04.3 LTS CPU Intel Xeon Platinum 8488C GPU 2×NVIDIA RTX PRO 6000 Blackwell (96 GiB each) CUDA version 13.0 Programming language Python 3.14.6 Deep learning framework PyTorch 2.13.0; Transformers 5.14.1 Specific dependencies PEFT 0.19.1; Accelerate 1.14.0; TRL 1.8.0
+
+Experiments are conducted on two NVIDIA RTX PRO 6000 Blackwell GPUs, each with 96 GiB of GPU memory. The development environment is summarized in Table 1, where TRL stands for Transformer Reinforcement Learning and PEFT denotes Parameter-Efficient Fine-Tuning. 
+
+Training protocols Our training procedure consists of two stages. In Stage 1, the shared LoRA adapter and six task-specific experts are jointly optimized for 10 Z. Chen, Y. Li & Z. Lu et al.  
+
+> Fig. 4. Task-wise modality distribution across the training, public-validation, and hidden-validation splits. The three panels use split-specific vertical scales.
+
+5 epochs using all training instances. In Stage 2, each task expert is indepen-dently refined from the Stage 1 endpoint with the backbone, shared LoRA, and non-target experts frozen. The initial refinement lasts 3, 5, 8, 3, 8, and 3 epochs for classification, detection, multi-label classification, report generation, count-ing, and regression, respectively. Classification and regression then receive an additional 3-epoch continuation using modality-balanced resampling. The core training and inference settings are summarized in Table 2.                  
+
+> Table 2. Core training and inference settings. Backbone MedGemma-1.5-4B LoRA Rank 16, α= 16
+> Input resolution 896 ×896
+> Precision BF16 Batch size 16 Optimizer Fused AdamW Learning rate 2×10 −4
+> Training strategy Two-stage task-specific refinement Inference Greedy decoding ( T= 0 )Training Time About 24 hours
+
+4.3 Compared methods 
+
+We compare our approach with Qwen2.5-VL-7B [3], Hulu-Med-7B [7], Lingshu-7B [15], InternVL3-8B [17], Qwen3.5-9B [13], Qwen3-VL-4B [2], and vanilla MedGemma-1.5-4B [11]. These models cover both general-purpose and medical-domain VLMs and provide a broad comparison across the six tasks. Two-Stage Mixture-of-LoRA for Medical VLMs 11 
+
+For our final MedGemma-based model, the reported results are obtained through task-wise checkpoint selection rather than a single common refinement checkpoint. For tasks with public-validation labels, we select the best-performing saved checkpoint according to the corresponding public-validation metric. Re-gression is absent from public validation; for this task, we use the endpoint of the modality-balanced continuation. 
+
+# 5 Results and discussion 
+
+5.1 Quantitative results on validation set Overall comparison Table 3 summarizes the performance of representative medical and general-purpose VLMs on the FLARE 2026 Task 3-2D dataset. Relative to vanilla MedGemma, our method improves classification, detection, report generation, regression, and counting, while public multi-label F1 decreases from 0.6075 to 0.5942.        
+
+> Table 3. Comparison with medical VLM baselines on FLARE-MLLM-2D. Values are public validation |hidden validation. ↑indicates higher is better, while ↓indicates lower is better.
+
+Method Task Classification Detection Multi-label 
+
+Balanced Acc. ↑ F1 ↑ Micro-F1 ↑
+
+Qwen2.5-VL-7B 0.3600 | 0.5100 0.6400 | N/A 0.3600 | 0.5300 Hulu-Med-7B 0.4413 | 0.6353 0.3666 | N/A 0.5523 | 0.4632 Lingshu-7B 0.5203 | 0.6528 0.3048 | N/A 0.5295 | 0.4756 InternVL3-8B 0.5200 | 0.7100 0.3700 | N/A 0.4600 | 0.5700 
+
+Qwen3.5-9B 0.5374 | 0.7161 0.6207 | N/A 0.5947 | 0.4824 Qwen3-VL-4B 0.5137 | 0.7200 0.3904 | N/A 0.5661 | 0.4800 MedGemma-1.5-4B 0.5547 | 0.7831 0.2005 | N/A 0.6075 | 0.4449 Ours 0.5656 | 0.8694 0.2727 | N/A 0.5942 | 0.4917 Method Task Report Generation Regression Counting 
+
+CRIMSON ↑ MAE ↓ MAE ↓
+
+Qwen2.5-VL-7B 0.8300 | N/A N/A | 15.7000 243.60 | N/A Hulu-Med-7B 0.3603 | N/A N/A | 13.8372 250.04 | N/A Lingshu-7B 0.8525 | N/A N/A | 12.6588 222.55 | N/A InternVL3-8B 0.7500 | N/A N/A | 18.6700 301.40 | N/A Qwen3.5-9B 0.8762 | N/A N/A | 16.2751 172.68 | N/A Qwen3-VL-4B 0.8765 | N/A N/A | 18.2900 262.06 | N/A MedGemma-1.5-4B 0.8561 | N/A N/A | 15.5031 275.64 | N/A Ours 0.8678 | N/A N/A | 12.8159 255.93 | N/A 
+
+For classification, our model achieves a hidden balanced accuracy of 0.8694, improving over vanilla MedGemma from 0.7831 by 0.0863 and obtaining the 12 Z. Chen, Y. Li & Z. Lu et al. 
+
+best reported result. For regression, our hidden MAE decreases from 15.5031 to 12.8159, corresponding to a 17.3% reduction and ranking second among the reported methods. The proposed expert-wise refinement improves detection and counting over the vanilla MedGemma baseline, increasing detection F1 from 0.2005 to 0.2727 and reducing counting MAE from 275.64 to 255.93. Meanwhile, our model re-mains competitive on multi-label classification and report generation. Among the external baselines, Qwen2.5-VL-7B achieves a higher detection F1 of 0.6400, while InternVL3-8B obtains the highest reported hidden multi-label F1 of 0.5700. Thus, our method does not lead on every task, but it provides competitive performance across the benchmark and is particularly strong on disease diagnosis classification, where it attains the highest hidden balanced accuracy of 0.8694. 
+
+Ablation study Table 4 separates the effects of the Stage 1 adapter design, expert-wise refinement, and modality-balanced resampling. The first three rows compare Shared LoRA, Expert LoRA, and Mixture-of-LoRA. The Expert-wise Refinement row updates one task expert at a time from the Mixture-of-LoRA checkpoint. The Modality-balanced Resampling row reports the final task-wise checkpoints, with additional resampling runs for classification and regression. The Stage 1 adapter configurations show different strengths across tasks. Shared LoRA obtains the highest public classification score of 0.5976 and the highest report-generation CRIMSON of 0.8704. Expert LoRA performs best on public multi-label classification with an F1 of 0.6075, and its detection F1 reaches 0.2005, compared with 0.1141 for shared LoRA. By combining shared and task-specific adapters, Mixture-of-LoRA achieves the best hidden classification bal-anced accuracy at 0.8683 and the lowest hidden regression MAE at 12.9630 among the Stage 1 variants. Its detection F1 is lower than that of Expert LoRA, at 0.1340, but the model provides the checkpoint used for the subsequent refine-ment. Compared with Mixture-of-LoRA, expert-wise refinement leaves classifica-tion unchanged at 0.5651 | 0.8683, but increases detection F1 from 0.1340 to 0.2727 and hidden multi-label F1 from 0.4214 to 0.4917. It also improves report-generation CRIMSON from 0.8633 to 0.8678, reduces regression MAE from 12.9630 to 12.8853, and reduces counting MAE from 279.06 to 255.93. The public multi-label score decreases from 0.6027 to 0.5942. Modality-balanced resampling provides additional gains for the two targeted tasks. Classification reaches 0.5656 | 0.8694 on the public and hidden splits, respectively, while regression MAE decreases from 12.8853 to 12.8159. The other tasks retain their expert-wise refinement results. 
+
+Task-wise analysis Figure 5 summarizes the effects of the two Stage 2 compo-nents. Expert-wise refinement increases detection F1 by 0.1387, decreases count-ing MAE by 23.13, raises hidden multi-label F1 by 0.0703, improves report-generation CRIMSON by 0.0045, and reduces regression MAE by 0.0777 (Table Two-Stage Mixture-of-LoRA for Medical VLMs 13 
+
+Table 4. Ablation of the proposed two-stage adaptation strategy. Values are public validation | hidden validation. ↑ indicates higher is better, while ↓ indicates lower is better. Method Task Classification Detection Multi-label 
+
+Balanced Acc. ↑ F1 ↑ Micro-F1 ↑
+
+Shared LoRA 0.5976 | 0.7571 0.1141 | N/A 0.5885 | 0.4484 Expert LoRA 0.5547 | 0.7831 0.2005 | N/A 0.6075 | 0.4449 Mixture-of-LoRA 0.5651 | 0.8683 0.1340 | N/A 0.6027 | 0.4214 Expert-wise Refinement 0.5651 | 0.8683 0.2727 | N/A 0.5942 | 0.4917 
+
+Modality-balanced Resampling 0.5656 | 0.8694 0.2727 | N/A 0.5942 | 0.4917                            
+
+> Method Task Report Generation Regression Counting
+> CRIMSON ↑MAE ↓MAE ↓
+> Shared LoRA 0.8704 | N/A N/A | 15.0879 286.98 | N/A Expert LoRA 0.8561 | N/A N/A | 15.5031 275.64 | N/A Mixture-of-LoRA 0.8633 | N/A N/A | 12.9630 279.06 | N/A Expert-wise Refinement 0.8678 | N/A N/A | 12.8853 255.93 | N/A Modality-balanced Resampling 0.8678 | N/A N/A | 12.8159 255.93 | N/A
+
+Fig. 5. Changes in validation performance from Mixture-of-LoRA to expert-wise refine-ment and modality-balanced resampling. Expert-wise refinement improves detection, counting, report generation, hidden multi-label classification, and regression, while pub-lic multi-label performance decreases slightly. Modality-balanced resampling provides additional gains for classification and regression (Table 4). 14 Z. Chen, Y. Li & Z. Lu et al. 
+
+4); public multi-label F1 decreases by 0.0085. Modality-balanced resampling fur-ther reduces regression MAE by 0.0694 (Table 4). Relative to Mixture-of-LoRA, the classification resampling branch improves public and hidden balanced Accu-racy by 0.0005 and 0.0011, respectively. 
+
+5.2 Qualitative results on validation set  
+
+> Fig. 6. Qualitative comparison on the public-validation split. From left to right, ex-amples cover classification, multi-label classification, detection, and report generation. Each example shows the input, task instruction, ground-truth, and our prediction.
+
+Figure 6 presents representative examples from the public-validation split across classification, multi-label classification, detection, and report generation. For each example, we show the input image, ground-truth answer, and our pre-diction. For classification, our task-specific expert generally follows the required an-swer format. The multi-label examples illustrate the completeness and precision of the predicted findings. For report generation, the refined expert is able to produce reports that more closely match the content and descriptions of the reference reports in representative cases. In detection, the predicted bounding boxes show good agreement with the reference annotations in representative Two-Stage Mixture-of-LoRA for Medical VLMs 15 
+
+cases, indicating that the model can achieve accurate localization of the target findings. 
+
+5.3 Results on final testing set 
+
+Table 5 summarizes the performance of our final model on the official testing set. The evaluation covers four tasks: detection, disease diagnosis classification, multi-label classification, and regression.                     
+
+> Table 5. Performance of the proposed method on the official final testing set. ↑indi-cates higher is better, while ↓indicates lower is better.
+> Task Detection Classification Multi-label Classification Regression
+> Metric F1 ↑Balanced Acc. ↑Micro-F1 ↑MAE ↓
+> Ours 0.7917 0.8507 0.4809 17.3954
+
+Our method achieves an F1 score of 0.7917 on detection and a balanced ac-curacy of 0.8507 on disease diagnosis classification. For multi-label classification, the model obtains a micro-F1 score of 0.4809, while regression achieves an MAE of 17.3954. 
+
+5.4 Limitations and future work 
+
+Fine-grained spatial perception remains the principal limitation of our method: although Stage 2 refinement improves detection, its F1 score remains below the strongest competing VLMs. Autoregressive coordinate generation is sensitive to small formatting and localization errors, which can invalidate an otherwise plau-sible box under an IoU threshold. The modality groups used for balanced resam-pling are benchmark-specific and may need to be redefined for a new dataset. Fu-ture work will investigate structured localization decoding, region-aware adapter designs, and more general sampling strategies for heterogeneous medical data. 
+
+# 6 Conclusion 
+
+We presented Two-Stage Mixture-of-LoRA, a parameter-efficient framework for multi-task medical vision-language learning. Stage 1 jointly trains a shared LoRA and task experts, while Stage 2 freezes the shared LoRA and all non-target ex-perts to independently refine every task expert. Classification and regression then receive an additional continuation with within-task modality-balanced resam-pling. Experiments on FLARE 2026 Task 3 show that the combination improves classification, regression, detection, and counting relative to vanilla MedGemma-1.5-4B, while the ablations demonstrate that the optimal degree of specialization is task dependent. The framework offers a practical single-backbone route to multi-task medical image understanding and motivates future work on balanced adaptation and structured perception decoding. 16 Z. Chen, Y. Li & Z. Lu et al. 
+
+# Acknowledgements 
+
+The authors declare that the proposed solution is fully automatic and does not require manual intervention. We thank all data owners and contributors for making the data publicly available and CodaLab [16] for hosting the challenge platform. 
+
+# Disclosure of Interests 
+
+The authors declare no competing interests. 
+
+# References 
+
+1. Baharoon, M., Heintz, T., Raissi, S., Alabbad, M., Alhammad, M., AlOmaish, H., Kim, S.E., Banerjee, O., Rajpurkar, P.: Crimson: A clinically-grounded llm-based metric for generative radiology report evaluation. arXiv preprint arXiv:2603.06183 (2026) 8 2. Bai, S., Cai, Y., Chen, R., Chen, K., Chen, X., Cheng, Z., Deng, L., Ding, W., Gao, C., Ge, C., et al.: Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 (2025) 10 3. Bai, S., Chen, K., Liu, X., Wang, J., Ge, W., Song, S., Dang, K., Wang, P., Wang, S., Tang, J., et al.: Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 (2025) 2, 10 4. Chen, J., Gui, C., Ouyang, R., Gao, A., Chen, S., Chen, G.H., Wang, X., Cai, Z., Ji, K., Wan, X., et al.: Towards injecting medical visual knowledge into multimodal llms at scale. In: Proceedings of the 2024 conference on empirical methods in natural language processing. pp. 7346–7370 (2024) 2 5. Dettmers, T., Pagnoni, A., Holtzman, A., Zettlemoyer, L.: Qlora: Efficient fine-tuning of quantized llms. In: Advances in Neural Information Processing Systems (NeurIPS). vol. 36, pp. 10088–10115 (2023) 2 6. Hu, E.J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., Chen, W.: Lora: Low-rank adaptation of large language models. In: International Conference on Learning Representations (ICLR) (2022) 2, 4 7. Jiang, S., Wang, Y., Song, S., Hu, T., Zhou, C., Pu, B., Zhang, Y., Yang, Z., Feng, Y., Zhou, J.T., et al.: Hulu-med: A transparent generalist model towards holistic medical vision-language understanding. arXiv preprint arXiv:2510.08668 (2025) 10 8. Li, C., Wong, C., Zhang, S., Usuyama, N., Liu, H., Yang, J., Naumann, T., Poon, H., Gao, J.: Llava-med: Training a large language-and-vision assistant for biomedicine in one day. In: Advances in Neural Information Processing Systems (NeurIPS). vol. 36, pp. 28541–28564. Curran Associates, Inc. (2023) 2 9. Li, J., Li, D., Savarese, S., Hoi, S.C.: Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In: International Conference on Machine Learning (ICML). pp. 19730–19742. PMLR (2023) 2 10. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al.: Learning transferable visual models from natural language supervision. In: International Conference on Machine Learning (ICML). pp. 8748–8763. PMLR (2021) 2 Two-Stage Mixture-of-LoRA for Medical VLMs 17 11. Sellergren, A., Gao, C., Mahvar, F., Kohlberger, T., Jamil, F., Traverse, M., Tono, A., Sadjad, B., Yang, L., Lau, C., et al.: Medgemma 1.5 technical report. arXiv preprint arXiv:2604.05081 (2026) 2, 4, 10 12. Shaaban, M.A., Saqib, A., Hardan, S., Taratynova, D., Saleem, T.J., Yaqub, M.: Me-vlip: A modular and efficient vision-language framework for generalizable med-ical image parsing. arXiv preprint arXiv:2507.05201 (2025) 2 13. Team, Q.: Qwen3. 5-omni technical report. arXiv preprint arXiv:2604.15804 (2026) 2, 10 14. Wu, X., Huang, S., Wei, F.: Mixture of lora experts. arXiv preprint arXiv:2404.13628 (2024) 2 15. Xu, W., Chan, H.P., Li, L., Aljunied, M., Yuan, R., Wang, J., Xiao, C., Chen, G., Liu, C., Li, Z., et al.: Lingshu: Generalist foundation model for unified multimodal medical understanding and reasoning. IEEE Transactions on Pattern Analysis and Machine Intelligence (2026) 10 16. Xu, Z., Escalera, S., Pavão, A., Richard, M., Tu, W.W., Yao, Q., Zhao, H., Guyon, I.: Codabench: Flexible, easy-to-use, and reproducible meta-benchmark platform. Patterns 3(7), 100543 (2022) 16 17. Zhu, J., Wang, W., Chen, Z., Liu, Z., Ye, S., Gu, L., Tian, H., Duan, Y., Su, W., Shao, J., et al.: Internvl3: Exploring advanced training and test-time recipes for open-source multimodal models. arXiv preprint arXiv:2504.10479 (2025) 10 18 Z. Chen, Y. Li & Z. Lu et al. 
+
+Table 6. Checklist Table. Please fill out this checklist table in the answer column. Requirements Answer A meaningful title Yes The number of authors ( ≤6) 6Author affiliations and ORCID Yes Corresponding author email is presented Yes Validation scores are presented in the abstract Yes Introduction includes at least three parts: background, related work, and motivation Yes A pipeline/network figure is provided Figure 1 The dataset and evaluation metric section are presented Page 8 Environment setting table is provided Table 1 Training protocol table is provided Table 2 Ablation study Page 12-13 Efficiency evaluation results are provided Table 3 Limitation and future work are presented Yes Reference format is consistent. Yes
