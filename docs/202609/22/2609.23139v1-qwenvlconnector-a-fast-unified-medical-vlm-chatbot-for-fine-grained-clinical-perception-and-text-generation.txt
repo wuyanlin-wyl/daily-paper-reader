@@ -1,0 +1,214 @@
+Title: QwenVLConnector: A Fast, Unified Medical VLM Chatbot for Fine-Grained Clinical Perception and Text Generation
+
+URL Source: https://arxiv.org/pdf/2609.23139v1
+
+Published Time: Tue, 22 Sep 2026 01:00:54 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# QwenVLConnector: A Fast, Unified Medical VLM Chatbot for Fine-Grained Clinical Perception and Text Generation 
+
+Le Thien Phuc Nguyen 1,3∗, Hoang-Thien Nguyen 2∗, Thanh-Huy Nguyen 6, Gia Minh Hoang 4, Mai-Anh Vu 5, and Ulas Bagci 6 
+
+> 1
+
+University of Wisconsin - Madison, USA  
+
+> 2
+
+Carnegie Mellon University, USA hoangthn@andrew.cmu.edu  
+
+> 3
+
+University of North Carolina - Chapel Hill 
+
+tphuc@cs.unc.edu  
+
+> 4
+
+Mayo Clinic, College of Medicine and Science, Scottsdale, USA  
+
+> 5
+
+University of Houston, USA  
+
+> 6
+
+Northwestern University, USA 
+
+thanhnguyen2031@u.northwestern.edu,ulas.bagci@northwestern.edu 
+
+Abstract. Most medical vision–language models (VLMs) excel at open-ended report generation and VQA but provide limited support for struc-tured, fine-grained clinical perception within a unified interface. We present QwenVLConnector, a Qwen2.5-VL–based medical chatbot that unifies classification, multi-label classification, textualized detection, counting, regression, and free-form report generation under a single next-token objective. Our key component is a lightweight dense multi-layer Con-nector that aggregates low- and high-level visual features, aligns them through the pretrained vision Merger, and fuses them with the final visual representation without increasing sequence length. This design enriches visual tokens with complementary spatial and semantic cues while preserving efficiency. On FLARE-2D, QwenVLConnector improves detection F1 from 0.55 to 0.85, raises single-label classification from 0.37 to 0.51, and boosts report-generation GREEN by up to 18.3 points over the Qwen2.5-VL baseline. We further explore multimodal in-context learning for report generation, showing additional improvements without updating model parameters. Overall, QwenVLConnector offers a uni-fied and efficient framework for combining structured medical percep-tion with open-ended clinical text generation. Our code is available at 
+
+https://github.com/plnguyen2908/QwenConnector .
+
+Keywords: Multimodal large language model · Medical VLM · Dense connector · FLARE 2D  
+
+> ⋆
+
+These authors contributed equally. arXiv:2609.23139v1 [cs.CV] 19 Sep 2026 2 Le Thien Phuc Nguyen & Hoang-Thien Nguyen et al. 
+
+## 1 Introduction 
+
+Medical vision–language chatbots have progressed rapidly from task-specific tools to assistants that can describe, reason about, and converse over clini-cal imagery. Systems such as LLaVA-Med [12] and HuatuoGPT-Vision [5] al-ready deliver strong open-ended report generation and VQA [2]; however, most models remain optimized for text generation. They answer fluently but provide limited support for the structured, fine-grained perception clinicians routinely need— detection , counting , and regression —within a single conversational inter-face. The FLARE 2D challenge [17], spanning diverse modalities and task types, makes this gap especially salient and provides a concrete, clinically meaningful testbed. LLM Decoder Connector      
+
+> Vision Encoder
+> Question: What is the correct . . . K: Acute lymphoblastic leukemia. Assistant: Question: What is the correct . . . K: Acute lymphoblastic leukemia. Assistant: J
+
+Fig. 1: High-level architecture of QwenVLConnector. A Vision Encoder extracts features from medical images; a lightweight dense multi-layer Connector 
+
+fuses low/high-level cues and projects them to the LLM without increasing se-quence length. The fused visual tokens (green) are prepended to the text tokens (pink), and a decoder-only LLM performs next-token generation for every task. Modern VLMs [3,14,6] typically couple a pretrained vision encoder to a decoder-only LLM via a lightweight connector and train the stack with next-token prediction over image/video–text corpora [19,9,29]. Variants explore stronger backbones, smarter adapters, and refined alignment/instruction curricula—e.g., PandaGPT aligns multiple perceptual encoders via small projections for uni-fied image/video QA [23]; Video-LLaMA extends to long-form video with tem-poral reasoning [30]; and Qwen2.5-VL enhances the vision stack with a ViT tower, a Merger to consolidate patch embeddings, and improved positional en-QwenVLConnector 3
+
+coding [3]. In medicine, 2D MLLMs (LLaVA-Med [12], HuatuoGPT [31]) adapt this recipe through domain alignment and medical instruction tuning, while 3D frameworks pair volumetric encoders with LLMs for CT/MRI dialogue and localization [12,5,11,26]. Building on these insights, we introduce QwenVLCon-nector, a clinical VLM chatbot that unifies classification [16], multi-label classi-fication [16,25], detection [32,18] (textualized outputs), counting , regression , and free-form report generation [13] under a single next-token interface. The key de-sign choice is a dense, multi-layer Connector that aggregates low- and high-level visual features before the LLM via channel-wise fusion, enriching tokens without increasing sequence length (Figure 1 and 2). 
+
+Contributions: (i) We create an unified medical VLM chatbot that executes both open-ended text generation and structured tasks (classification, multi-label clas-sification, detection, counting, regression). (ii) We introduce QwenVLConnector, a lightweight dense connector that enriches visual tokens with multi-layer cues, improving fine-grained performance while meeting the challenge’s fast and effi-cient requirement. (iii) We introduce an in-context learning strategy to improve report generation’s score. 
+
+## 2 QwenVLConnector 
+
+In this section, we first summarize preliminaries of our method and fix nota-tion (Section 2.1), grounding our setup in prior work [3]. Next, we present the proposed QwenVLConnector architecture that fuses high- and low-level visual features (Section 2.2). We then detail the training data (Section 2.3). Finally, we describe our multimodal in-context learning strategies for prompting and adaptation (Section 2.4). 
+
+2.1 Preliminaries 
+
+Our model builds on the Qwen2.5-VL [3] architecture, which employs a vision encoder fθ (ViT with windowed attention) to extract hierarchical visual fea-tures from an image or video xv . In Qwen2.5-VL [3], a Merger module aggre-gates patch-level embeddings into a sequence of high-level visual tokens. We introduce a QwenVLConnector module, a custom adapter, that fuses these high-level embeddings with selected low-level features from early encoder lay-ers, enriching the visual representation with fine-grained spatial detail before integration with the language model. Let V denote the LLM vocabulary and 
+
+w1: n = ( w1, . . . , w n) ∈ V n denote a length-n sequence of text tokens. The fused representation ˜Z is fed into a decoder-only LLM gϕ as an interleaved sequence 
+
+[ ˜Z, w 1: n] for autoregressive text generation. 
+
+2.2 QwenVLConnector Architecture 
+
+The vision encoder is a ViT [8] with L=32 blocks. After windowed attention, the hidden state from block ℓ is h(ℓ) ∈ RN ×dv where N is number of visual tokens, 4 Le Thien Phuc Nguyen & Hoang-Thien Nguyen et al. ViT Blocks x16 Merger ViT Blocks x16 Average Pooling Average Pooling Merger Merger Connector Linear GELU Linear Shared weight Vision Encoder Embedding Visual Embedding 
+
+Fig. 2: Dense multi-layer connector in QwenVLConnector. Early and late ViT features are depth-averaged, aligned via the backbone Merger , concatenated channel-wise with the encoder output, and projected by a lightweight MLP to LLM visual tokens. and dv is ViT width. The encoder’s built-in Merger produces output tokens 
+
+Z0 ∈ RN ×dm . We reuse that Merger as a mapping mμ : RN ×dv → RN ×dm to align intermediate features. P denotes the permutation induced by windowing; P −1
+
+restores the original token order. The connector MLP is cψ : RN ×3dm → RN ×dt ,where dt matches the LLM embedding size. 
+
+Computation. We average features over two depth groups to obtain comple-mentary summaries: G1={1, . . . , 16 } (edge/texture–heavy) and G2={17 , . . . , 32 }
+
+(semantic-heavy), 
+
+A1 = 1
+
+> |G1|
+
+X
+
+> ℓ∈G1
+
+h(ℓ), A2 = 1
+
+> |G2|
+
+X
+
+> ℓ∈G2
+
+h(ℓ) ∈ RN ×dv .
+
+Each is aligned by the Merger and de-permuted, then concatenated channel-wise with the encoder output and projected: 
+
+˜Z = cψ
+
+  [ Z0, P −1mμ(A1), P −1mμ(A2) ]  ,
+
+yielding visual tokens ˜Z ∈ RN ×dt at the same token length N . These tokens are prepended to the text tokens w1: n and consumed by the decoder-only LLM for next-token generation as mentioned in 2.1. Detailed visualization of our method is provided in Figure 2. QwenVLConnector 5
+
+2.3 Training Data 
+
+We use a two-stream mixture for both alignment and instruction tuning . For alignment, general LLaVA-style image–caption pairs (e.g., LAION [22,14]) are combined with the PubMedVision [5] alignment split of denoised PubMed im-age–text pairs [5], yielding ∼1.2M examples that stabilize open-domain ground-ing while injecting clinical vocabulary and fine-grained cues. For instruction tun-ing, we merge LLaVA-Instruct with PubMedVision’s medical instructions [14,5], formatting all samples in a unified chat-style template with interleaved image tokens and prompts ( ∼1.3M examples). As a final stage, we fine-tune on FLARE-2D Task 5 [17], a multimodal med-ical VQA corpus spanning 8 imaging modalities and 7 task types. We use the official training split (45k question–answer pairs aggregated from 19 datasets) and apply the same chat-style formatting. 
+
+2.4 In-Context Learning 
+
+Motivated by prior findings that in-context learning (ICL) improves domain use of LLMs without extra training [1,21], we apply ICL to the report-generation task. Concretely, we form a support pool S of N distinct training examples and, at inference, uniformly sample k demonstrations ( k ≪ N ). Each demonstration is an image–prompt–response triple formatted in our chat template and con-catenated before the user query inside a fixed instruction wrapper (Table 1). No model weights are updated; the LLM conditions on the k demonstrations plus the query to generate the final report. Table 1: Prompt template with ICL mechanism. 
+
+> Prompt Instruction: [Task Instruction] User: [Demonstration 1] Response: [Answer 1] ... User: [Demonstration k] Response: [Answer k] User: [Question] Response:
+
+## 3 Experimental Results 
+
+In this section, we present: (i) Hyperparameter setup (Section 3.1); (ii) Eval-uation protocol detailing splits, metrics, prompting templates, and evaluation procedure (Section 3.2); (iii) Validation results across classification, multi-label 6 Le Thien Phuc Nguyen & Hoang-Thien Nguyen et al. 
+
+classification, detection, counting, and regression (Section 3.3); (iv) In-context learning analyses with zero-/few-shot prompting and ablations (Section 3.4); and (v) Qualitative results including case studies and error analyses (Section 3.5). 
+
+3.1 Implementation details Training Protocols. We adopt a three-stage training pipeline: (i) Vision–language alignment using large-scale image-text corpora to map visual features into the LLM embedding space while stabilizing the language backbone; (ii) Visual in-struction tuning on curated multimodal dialogue datasets to elicit robust instruction-following behavior; (iii) Domain-specific finetuning on the FLARE dataset to adapt the model for specialized clinical image understanding tasks. 
+
+Environmental settings. We use AdamW 8-bit [7], bfloat16 precision, a cosine learning-rate scheduler with warmup ratio = 0.03 [15], and max sequence length = 2048. Also, we train our model under 8-bit quantization for memory efficient. Other hyperparameters follow Huggingface’s trainer library defaults unless spec-ified in Table 2. Other dependencies and code-related information are available in the codebase provided in the abstract. Table 2: Key hyperparameters per training stage.                         
+
+> Alignment Instruction FLARE tuning Epochs 113Learning rate 2e-3 2e-4 2e-4 Per-device batch 111Number of devices 888GPU type A40 A40 A40 Training Time 3 days 7 days 1 day Grad. accumulation 64 64 16 LoRA (rank, α)–(32, 32) (32, 64)
+
+3.2 Evaluation Protocol 
+
+We use the FLARE challenge’s two-track validation [17]: val-hidden (Codabench) for classification, multi-label, detection, instance detection, regression; and val-public (local) for counting and report generation. Metrics are Balanced Accu-racy [4] (classification), micro-F1 [10] (multi-label), F1 [10] at IoU>0.5 (de-tection/instance), MAE (regression/counting), and GREEN score [20] (report generation). QwenVLConnector 7
+
+Table 3: Classification evaluation. The result is reported on validiation-hidden subset on Codabench. All metrics are reported as fractions in [0,1].                
+
+> Model Classification ↑Multi-label classification ↑
+> 4-bit QwenVL 2.5 7B [28] 0.37 0.57 8-bit QwenVL 2.5 7B [28] 0.36 0.56 16-bit QwenVL 2.5 7B [28] 0.35 0.55 4-bit QwenVLConnector 7B (Ours) 0.51 0.49 8-bit QwenVLConnector 7B (Ours) 0.46 0.53 16-bit QwenVLConnector 7B (Ours) 0.50 0.54
+
+Table 4: Detection evaluation. The result is reported on validiation-hidden subset on Codabench. All metrics are reported as fractions in [0,1].                
+
+> Model Detection ↑Instance Detection ↑
+> 4-bit QwenVL 2.5 7B [28] 0.51 08-bit QwenVL 2.5 7B [28] 0.55 016-bit QwenVL 2.5 7B [28] 0.53 04-bit QwenVLConnector 7B (Ours) 0.76 08-bit QwenVLConnector 7B (Ours) 0.85 016-bit QwenVLConnector 7B (Ours) 0.81 0
+
+3.3 Validation Results 
+
+Classification evaluation. On the Codabench validation-hidden split (Table 3), QwenVLConnector surpasses the Qwen2.5-VL baseline in single-label classifica-tion at all bit-widths: +0.14 at 4-bit quantization (from 0.37 to 0.51), +0.1 at 8-bit quantization (from 0.36 to 0.46), and +0.15 at 16-bit quantization (from 0.35 to 0.50). For multi-label classification , as the Micro-averaged F1 increases with precision - 0.49 (4-bit quantization), 0.53 (8-bit), and 0.54 (16-bit) - Qwen-VLConnector approaches the baseline (0.57), reducing the gap from −0.08 to 
+
+−0.03 . Overall, 8-bit quantization offers a strong efficiency–accuracy trade-off (large single-label gains with competitive multi-label scores), while 16-bit quan-tization maximizes multi-label performance. 
+
+Detection evaluation. Using F1 as the metric, QwenVLConnector markedly out-performs the Qwen2.5-VL baseline on detection in Table 4: 0.76 at 4-bit quanti-zation ( +0 .25 , from 0.51 to 0.76), 0.85 at 8-bit quantization ( +0 .3, from 0.55 to 0.85), and 0.81 at 16-bit quantization ( +0 .28 , from 0.53 to 0.81). The best F1 is achieved at 8-bit quantization, suggesting an effective efficiency–accuracy sweet spot. Instance detection F1 is 0 across all settings, indicating that our current textualized detection output does not satisfy the instance-level scoring protocol; enabling structured instance outputs is left for future work. 8 Le Thien Phuc Nguyen & Hoang-Thien Nguyen et al. 
+
+Table 5: Regression, Counting, and Report Generation evaluation. The result of Regression is reported on validation-hidden subset on Codabench. The result of Counting and Report Generation is reported on validation-public sub-set. Report Generation is reported as decimal number in [0, 100].                        
+
+> Model Regression ↓Counting ↓Report Generation ↑
+> 4-bit QwenVL 2.5 7B [28] 15.51 287.3 65.74 8-bit QwenVL 2.5 7B [28] 15.19 276.77 55.77 16-bit QwenVL 2.5 7B [28] 15.43 268.24 74.78 4-bit QwenVLConnector 7B (Ours) 20.91 284.44 76.01 8-bit QwenVLConnector 7B (Ours) 21.13 275.81 74.05 16-bit QwenVLConnector 7B (Ours) 19.04 266.7 74.93
+
+Regression, counting, and report generation. From Table 5, counting decreases at all settings: from 287.30 to 284.44 ( −2.86 ) at 4-bit quantization, from 276.77 to 275.81 ( −0.96 ) at 8-bit quantization, and from 268.24 to 266.70 ( −1.54 ) at 16-bit quantization, with the best MAE at 16-bit. Report generation increases at 4-bit quantization from 65.74 to 76.01 ( +10 .27 ), at 8-bit quantization from 55.77 to 74.05 ( +18 .28 ), and at 16-bit quantization from 74.78 to 74.93 ( +0 .15 ), peaking at 4-bit. In contrast, regression increases—at 4-bit quantization from 15.51 to 20.91 ( +5 .40 ), at 8-bit quantization from 15.19 to 21.13 ( +5 .94 ), and at 16-bit quantization from 15.43 to 19.04 ( +3 .61 )—highlighting a remaining gap for purely numeric targets. 
+
+3.4 In-Context Learning Results 
+
+Figure 3 summarizes the effect of adding k in-context demonstrations for report generation on the validation-public split. Across all four metrics—BLEU [24], GREEN Clinical Significance, GREEN Entity Matching, and overall GREEN Score—ICL consistently improves performance compared with prompts without demonstrations. These gains indicate that brief, in-domain exemplars help the model follow radiology style and terminology more faithfully, complementing our connector-based improvements without additional finetuning. Due to com-pute/memory limits on the competition testing server and Docker submission constraints, ICL was not enabled in our container; the results in Figure 3 are from offline runs and are shown as a potential future direction. 
+
+3.5 Qualitative Result Qualitative results. Figure 4 showcases ultrasound images for two tasks. Left (classification): QwenVLConnector selects the correct option (A), whereas QwenVL 2.5 [28] predicts C. Right (detection): our textualized box (green) aligns more closely with the ground truth (blue), achieving IoU = 0.70, while QwenVL 2.5’s [28] QwenVLConnector 9
+
+Fig. 3: Effect of in-context learning (ICL) on QwenVLConnector for the report-generation task: BLEU, GREEN Clinical Significance, GREEN Entity Matching, and overall GREEN Score on the validation-public split. Incorporating k demon-strations consistently improves performance over no-ICL prompts. box (red) attains IoU = 0.25. These examples underscore QwenVLConnector’s stronger recognition and localization on ultrasound imagery. 
+
+## 4 Limitation and future work 
+
+Despite unifying open-ended and structured tasks, the system has several gaps: instance-level prediction is not realized because textualized detection cannot satisfy instance scoring; numeric grounding is weak, with regression lagging and counting improvements modest; performance is sensitive to precision/quantization and training remains compute-intensive; and safety/consistency checks remain limited relative to clinical requirements. In addition, the in-context learning (ICL) strategy substantially increases prompt length and inference memory/latency. Therefore, an in-depth, task-specific study of demonstration budgeting is needed to balance accuracy, cost, and latency. Future work will need to explore stronger connector architectures that more effectively fuse multi-layer visual cues, im-proving structured prediction while preserving efficiency. 10 Le Thien Phuc Nguyen & Hoang-Thien Nguyen et al. Question: After reviewing the scan, what is the radiologist’s assessment? Options: A) Benign lesion B) Malignant lesion C) No lesion Answer: A Ours: A QwenVL: C Describe the lesion positions in the ultrasound image with [x_min, y_min, x_max, y_max] coordinates, nesting results for multiple lesions. Answer: [[222, 59, 451, 253]] Ours: [[179, 62, 442, 225]] iou = 0.70 QwenVL: [[1, 51, 584, 353]] iou = 0.25 
+
+Fig. 4: Qualitative examples on Ultrasound images. Left: multiple-choice classification task. Right: lesion detection task where green is our detection, blueis ground truth, and red is QwenVL’s [28] detection. 
+
+## 5 Conclusion 
+
+QwenVLConnector advances medical VLMs by unifying open-ended report gen-eration with structured perception—classification, multi-label classification, de-tection, counting, and regression—within a single next-token interface. Built on Qwen2.5-VL with a lightweight dense multi-layer connector, the system improves fine-grained recognition while preserving efficiency and delivers consistent gains on FLARE 2D tasks, particularly for classification and detection. Nonetheless, gaps remain in instance-level prediction and numeric grounding. Future work will need to explore stronger connector architectures that fuse multi-layer visual cues more effectively to enhance structured prediction while maintaining speed and simplicity. 
+
+Acknowledgements This research is partially supported by the following NIH grants: R01-HL171376 and U01-CA268808. The authors of this paper declare that the proposed solution is fully automatic without any manual intervention. We thank all data owners and contributors for making the data publicly avail-able and CodaLab [27] for hosting the challenge platform. We also thank AI VIETNAM for supporting the GPU resource for conducting the experiments. 
+
+## Disclosure of Interests 
+
+The authors declare no competing interests. QwenVLConnector 11 
+
+## References 
+
+1. Agarwal, R., Singh, A., Zhang, L.M., Bohnet, B., Rosias, L., Chan, S.C., Zhang, B., Faust, A., Larochelle, H.: Many-shot in-context learning. In: ICML 2024 Workshop on In-Context Learning (2024), https://openreview.net/forum?id=goi7DFHlqS 
+
+52. Antol, S., Agrawal, A., Lu, J., Mitchell, M., Batra, D., Zitnick, C.L., Parikh, D.: Vqa: Visual question answering. In: Proceedings of the IEEE international confer-ence on computer vision. pp. 2425–2433 (2015) 2 3. Bai, S., Chen, K., Liu, X., Wang, J., Ge, W., Song, S., Dang, K., Wang, P., Wang, S., Tang, J., Zhong, H., Zhu, Y., Yang, M., Li, Z., Wan, J., Wang, P., Ding, W., Fu, Z., Xu, Y., Ye, J., Zhang, X., Xie, T., Cheng, Z., Zhang, H., Yang, Z., Xu, H., Lin, J.: Qwen2.5-vl technical report (2025), https://arxiv.org/abs/2502.13923 
+
+2, 3 4. Brodersen, K.H., Ong, C.S., Stephan, K.E., Buhmann, J.M.: The balanced ac-curacy and its posterior distribution. In: 2010 20th international conference on pattern recognition. pp. 3121–3124. IEEE (2010) 6 5. Chen, J., Gui, C., Ouyang, R., Gao, A., Chen, S., Chen, G.H., Wang, X., Zhang, R., Cai, Z., Ji, K., Yu, G., Wan, X., Wang, B.: Huatuogpt-vision, towards injecting medical visual knowledge into multimodal llms at scale (2024), https://arxiv. org/abs/2406.19280 2, 3, 5 6. Clark, C., Zhang, J., Ma, Z., Park, J.S., Tripathi, R., Lee, S., Salehi, M., Ren, J., Kim, C.D., Yang, Y., et al.: Molmo2: Open weights and data for vision-language models with video understanding and grounding. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 28652–28668 (2026) 27. Dettmers, T., Lewis, M., Shleifer, S., Zettlemoyer, L.: 8-bit optimizers via block-wise quantization. In: The Tenth International Conference on Learning Represen-tations, ICLR (2022), https://openreview.net/forum?id=shpkpVXzo3h 68. Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, T., Dehghani, M., Minderer, M., Heigold, G., Gelly, S., Uszkoreit, J., Houlsby, N.: An image is worth 16x16 words: Transformers for image recognition at scale. In: In-ternational Conference on Learning Representations (2021), https://openreview. net/forum?id=YicbFdNTTy 39. Fu, C., Chen, P., Shen, Y., Qin, Y., Zhang, M., Lin, X., Yang, J., Zheng, X., Li, K., Sun, X., et al.: Mme: A comprehensive evaluation benchmark for multimodal large language models. Advances in Neural Information Processing Systems 38 (2026) 2 10. Grandini, M., Bagli, E., Visani, G.: Metrics for multi-class classification: an overview. arXiv preprint arXiv:2008.05756 (2020) 6 11. Hamamci, I.E., Er, S., Almas, F., Simsek, A.G., Esirgun, S.N., Dogan, I., Dasdelen, M.F., Durugol, O.F., Wittmann, B., Amiranashvili, T., Simsar, E., Simsar, M., Erdemir, E.B., Alanbay, A., Sekuboyina, A., Lafci, B., Bluethgen, C., Ozdemir, M.K., Menze, B.: Developing generalist foundation models from a multimodal dataset for 3d computed tomography (2024), https://arxiv.org/abs/2403.17834 
+
+312. Li, C., Wong, C., Zhang, S., Usuyama, N., Liu, H., Yang, J., Naumann, T., Poon, H., Gao, J.: Llava-med: Training a large language-and-vision assistant for biomedicine in one day. In: Oh, A., Naumann, T., Globerson, A., Saenko, K., Hardt, M., Levine, S. (eds.) Advances in Neural Information Processing Systems. vol. 36, pp. 28541–28564. Curran Associates, Inc. (2023) 2, 3 12 Le Thien Phuc Nguyen & Hoang-Thien Nguyen et al. 13. Li, Y., Liang, X., Hu, Z., Xing, E.P.: Hybrid retrieval-generation reinforced agent for medical image report generation. Advances in neural information processing systems 31 (2018) 3 14. Liu, H., Li, C., Wu, Q., Lee, Y.J.: Visual instruction tuning. Advances in neural information processing systems 36 , 34892–34916 (2023) 2, 5 15. Loshchilov, I., Hutter, F.: SGDR: stochastic gradient descent with warm restarts. In: 5th International Conference on Learning Representations, ICLR (2017), 
+
+https://openreview.net/forum?id=Skq89Scxx 616. Lu, D., Weng, Q.: A survey of image classification methods and techniques for im-proving classification performance. International journal of Remote sensing 28 (5), 823–870 (2007) 3 17. Ma, J., Gu, S., Wang, B.: Fast, low-resource, accurate, robust, and effectual medical image analysis (flare) 2025 (Mar 27, 2025), doi:10.5281/zenodo.15094799 2, 5, 6 18. Nguyen, L.T.P., Yu, Z., Cao, K.Q.N., Guo, Y., Pham, T.H.M., Nguyen, T.T., Vo, T.N.D., Poon, L., Nguyen, T.K., Lee, S., et al.: Revisiting active speaker detec-tion: An in-the-wild benchmark for generalization and robustness. arXiv preprint arXiv:2505.21954 (2025) 3 19. Nguyen, L.T.P., Yu, Z., Hang, S.L.Y., An, S., Lee, J., Ban, Y., Chung, S., Nguyen, T.H., Maeng, J., Lee, S., Lee, Y.J.: See, hear, and understand: Benchmarking audiovisual human speech understanding in multimodal large language models. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Findings. pp. 2272–2283 (June 2026) 2 20. Ostmeier, S., Xu, J., Chen, Z., Varma, M., Blankemeier, L., Bluethgen, C., Md, A.E.M., Moseley, M., Langlotz, C., Chaudhari, A.S., et al.: Green: Generative radiology report evaluation and error notation. In: Findings of the association for computational linguistics: EMNLP 2024. pp. 374–390 (2024) 6 21. Qin, L., Chen, Q., Fei, H., Chen, Z., Li, M., Che, W.: What factors affect multi-modal in-context learning? an in-depth exploration. In: The Thirty-eighth Annual Conference on Neural Information Processing Systems (2024), https: //openreview.net/forum?id=REVdYKGcfb 522. Schuhmann, C., Vencu, R., Beaumont, R., Kaczmarczyk, R., Mullis, C., Katta, A., Coombes, T., Jitsev, J., Komatsuzaki, A.: Laion-400m: Open dataset of clip-filtered 400 million image-text pairs (2021), https://arxiv.org/abs/2111.02114 
+
+523. Su, Y., Lan, T., Li, H., Xu, J., Wang, Y., Cai, D.: PandaGPT: One model to instruction-follow them all. In: Proceedings of the 1st Workshop on Taming Large Language Models: Controllability in the era of Interactive Assistants! pp. 11–23. Association for Computational Linguistics, Prague, Czech Republic (Sep 2023), 
+
+https://aclanthology.org/2023.tllm-1.2/ 224. Tantug, A.C., Oflazer, K., El-Kahlout, I.D.: Bleu+: a tool for fine-grained bleu computation. In: LREC (2008) 8 25. Tsoumakas, G., Katakis, I.: Multi-label classification: An overview. International Journal of Data Warehousing and Mining (IJDWM) 3(3), 1–13 (2007) 3 26. Xin, Y., Ates, G.C., Gong, K., Shao, W.: Med3dvlm: An efficient vision-language model for 3d medical image analysis. arXiv preprint arXiv:2503.20047 (2025) 3 27. Xu, Z., Escalera, S., Pavão, A., Richard, M., Tu, W.W., Yao, Q., Zhao, H., Guyon, I.: Codabench: Flexible, easy-to-use, and reproducible meta-benchmark platform. Patterns 3(7), 100543 (2022) 10 28. Yin, S.: Qwen2.5vl fine-tuned for flare 2025 medical image analysis (2025), https: //huggingface.co/leoyinn/qwen2.5vl-flare2025 7, 8, 10 QwenVLConnector 13 29. Yu, Z., Nguyen, L.T.P., Park, J., Gu, X., He, Z., Lee, S., Feris, R., Lee, Y.J.: Dochop: Benchmarking out-of-domain multi-hop reasoning in information-dense documents. In: Forty-third International Conference on Machine Learning (2026), 
+
+https://openreview.net/forum?id=PQFkScoGqz 230. Zhang, H., Li, X., Bing, L.: Video-LLaMA: An instruction-tuned audio-visual language model for video understanding. In: Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing: System Demonstrations. pp. 543–553. Association for Computational Linguistics, Singa-pore (Dec 2023). https://doi.org/10.18653/v1/2023.emnlp-demo.49 , https: //aclanthology.org/2023.emnlp-demo.49/ 231. Zhang, H., Chen, J., Jiang, F., Yu, F., Chen, Z., Chen, G., Li, J., Wu, X., Zhiyi, Z., Xiao, Q., et al.: Huatuogpt, towards taming language model to be a doctor. In: Findings of the association for computational linguistics: EMNLP 2023. pp. 10859–10885 (2023) 3 32. Zhao, Z.Q., Zheng, P., Xu, S.t., Wu, X.: Object detection with deep learning: A review. IEEE transactions on neural networks and learning systems 30 (11), 3212– 3232 (2019) 3 14 Le Thien Phuc Nguyen & Hoang-Thien Nguyen et al. 
+
+Table 6: Checklist Table. Please fill out this checklist table in the answer column. 
+
+Requirements Answer A meaningful title Yes The number of authors ( ≤6) 6Author affiliations and ORCID Yes Corresponding author email is presented Yes Validation scores are presented in the abstract Yes Introduction includes at least three parts: background, related work, and motivation Yes A pipeline/network figure is provided Figure 1, 2 Pre-processing (Training data) Page 4 Strategies to improve model inference Page 4 The dataset and evaluation metric section are presented Page 5 Environment setting table is provided Table 2 Training protocol table is provided Page 5 Visualized example is provided Figure 4 Limitation and future work are presented Yes Reference format is consistent. Yes
