@@ -1,0 +1,607 @@
+Title: BrainIAC: Interactive 3D Brain Lesion Segmentation across Heterogeneous MRI Modalities with Online Adaptation
+
+URL Source: https://arxiv.org/pdf/2609.23026v1
+
+Published Time: Tue, 22 Sep 2026 01:10:49 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# BrainIAC: Interactive 3D Brain Lesion Segmentation across Heterogeneous MRI Modalities with Online Adaptation 
+
+## Wentian Xu a,1 , Anthony P Addison a,2 , Ziyun Liang a, Harry Anthony a, Guang Yang a and Konstantinos Kamnitsas a,∗
+
+> a
+
+Department of Engineering Science, University of Oxford, UK 
+
+A R T I C L E I N F O 
+
+Keywords :3D interactive segmentation brain lesion segmentation multi-modal MRI online adaptation distribution shift 
+
+A B S T R A C T 
+
+Brain lesion segmentation is a fundamental task in medical image analysis, playing a critical role in diagnosis, treatment planning, and longitudinal disease monitoring. Yet existing models still struggle to meet the demands of real clinical use, where deployments contain data distribution shifts, arising from differences in scanner hardware, imaging protocol (varying MRI modality sets), and new pathologies. To build a more robust 3D brain lesion segmentation model, we target three capabilities: 
+
+interactive segmentation , allowing clinicians to correct unreliable predictions through prompts such as bounding boxes and clicks; online adaptation , enabling the model to continuously learn from these interactions and adapt to new data distributions and even learn to segment previously unseen types of brain lesion; and native support for multiple MRI modalities . We present BrainIAC ( Brain 
+
+lesion Interactive Adaptive Continuously learning segmentation), a unified framework that integrates (i) a multi-modal backbone network trained to segment multiple types of brain lesions and handle heterogeneous sets of modalities via zero-filling and random modality dropping; (ii) 3D interactive segmentation with bounding-box and click prompts that preserves fully automatic prediction when no prompt is given; and (iii) an online adaptation mechanism combining Mid-Interaction adaptation and Post-Interaction adaptation, supervised by the network’s own predictions as pseudo labels and guided by an extra Click-Centered Gaussian loss. To our knowledge, this is one of the first 3D online adaptation methods for interactive segmentation, and the first to combine handling of heterogeneous modality sets with online adaptation. Experiments across seven brain MRI datasets demonstrate that the proposed components provide complementary and synergistic benefits. The method consistently outperforms existing approaches and generalizes well across heterogeneous imaging modalities, including those unseen during training, as well as previously unseen brain pathology types. The code and a 3D Slicer plug-in will be released at https://github.com/WenTXuL/BrainIAC upon publication. 
+
+## 1. Introduction 
+
+Segmentation of brain lesions in Magnetic Resonance Imaging (MRI) is essential for diagnosis, treatment plan-ning, and disease monitoring. Deep learning has achieved strong results on this task (Kamnitsas et al., 2017; Isensee et al., 2021; Azad et al., 2024), yet building a segmentation model that is truly effective across diverse clinical settings requires addressing several challenges. First, automated segmentation remains unreliable in many clinical scenarios: models may miss lesion compo-nents, produce false positives from artifacts, or over/under predict lesions. Radiologists have the expertise to identify and correct such errors, however, manually editing the segmentation mask is inefficient. Interactive segmentation methods formalize this workflow by allowing clinicians to provide spatial prompts, such as clicks indicating missed or falsely detected regions, or bounding boxes localizing the area of interest. These prompts serve as extra input and help to iteratively refine predictions with the model (Sakinis et al., 2019; Wang et al., 2018). Transformer based foundation models, notably SAM (Kirillov et al., 2023), have popularized this paradigm, with medical adaptations including MedSAM (Ma et al., 2024) and MedSAM2 (Ma 
+
+> ∗
+
+Corresponding author 
+
+> ORCID
+
+(s): https://orcid.org/0000-0003-3281-6509 (K. Kamnitsas) 
+
+> 1
+
+Lead author 
+
+> 2
+
+Key contributor 
+
+et al., 2025). CNN-based foundation models, exemplified by nnInteractive (Isensee et al., 2025), have demonstrated strong performance on a range of image segmentation tasks. These foundation models provide strong evidence for the benefits of using interactive segmentation and training on multiple databases together. In our work, we trained a 3D interactive brain lesion segmentation model on multiple brain MRI databases. Our model retains the ability to perform fully automatic segmentation when no prompts are provided, making it well aligned with real clinical workflows in which clinician prompts may not always be available. Second, distribution shift remains a pervasive chal-lenge in medical image segmentation . Model performance often degrades when test data differ from the training distri-bution due to different scanners, pathologies, or acquisition protocols and such shifts are inevitable in clinical deploy-ment .Leveraging multiple datasets during training can in-crease data diversity and improve the model’s ability to gen-eralize across domains. However, it is impossible to cover all diversity of real-world scenarios. Interactive segmentation partially alleviates this issue: even when the test distribution differs, the model can use prompts to improve individual predictions. However, the model parameters remain frozen, consequently the same errors recur on subsequent images, requiring repeated corrections. It is therefore not sufficient to use interactions only to guide individual segmentations; Page 1 of 17 arXiv:2609.23026v1 [cs.CV] 19 Sep 2026 Interactive 3D brain lesion segmentation with online adaptation 
+
+the model should also learn from predictions and adapt its parameters to the new distribution. This motivates online adaptation, whereby the model is updated as images arrive sequentially, similar to online learning (Hoi et al., 2021). Our prior OAIMS framework (Xu et al., 2026) established state-of-the-art online adaptation for interactive segmenta-tion. It includes Post-Interaction and Mid-Interaction adap-tation with a Click-Centered Gaussian (CCG) loss. However, OAIMS operates in 2D; here we extend it to 3D volumetric segmentation and demonstrate its benefits. Third, the model should be able to handle multiple sets of modalities. Brain MRI typically comprises a variety of imaging sequences, which often provide complementary diagnostic information. Hence, using multiple modalities together can improve segmentation quality. In practice, dif-ferent clinical protocol, pathology and/or scanner type may result in the acquisition of unique sets of modalities. Conse-quently, a robust brain MRI segmentation model should be able to accommodate varying modality sets, from multiple data domains, during both training and inference. Typical segmentation models are usually trained either to segment a specific pathology, using a database acquired with a prede-fined set of imaging modalities determined by a protocol for the specific disease (Kamnitsas et al., 2017; Isensee et al., 2021), or to segment multiple pathologies across different modalities while each sample contains a single modality (Ma et al., 2024). Our prior work on Multi-Unet (Xu et al., 2024) was the first to enable joint training and inference on hetero-geneous modality sets, by zero-filling absent modalities and randomly dropping modalities during training. Furthermore, in our previous work, (Addison et al. (2025) we show that integrating a modality-agnostic channel allows the model to process both modalities seen during training, new modalities not seen during training, and heterogenous combinations of both. This capability of processing new modalities at inference is absent from our previous Multi-UNet method. Motivated by these three considerations, we introduce BrainIAC ( Brain lesion Interactive Adaptive Continuously learning segmentation), a unified framework that addresses all of them simultaneously. BrainIAC combines a Multi-Unet backbone (Xu et al., 2024) for heterogeneous modal-ities, 3D interactive segmentation with bounding-box and click prompts, and an online adaptation mechanism (Xu et al., 2026) that leverages user interactions to continuously adapt to new data distributions. These three components are synergistic: multi-modal joint training enriches the model’s feature representations and provides a strong initialization for diverse modality combinations; interactive prompts in-corporate expert knowledge to improve individual predic-tions; and online adaptation enables the model to learn from these interactions, progressively improving its performance on new distributions. This work extends our prior Multi-Unet (Xu et al., 2024) (MIDL 2024) and OAIMS (Xu et al., 2026) (ICLR 2026) frameworks, and demonstrates that integrating modality flexibility, interactive segmentation, and online adaptation demonstrates significant benefits. Our key contributions are: • We propose a unified framework for 3D interac-tive brain lesion segmentation across heterogeneous modality combinations, with online adaptation and support for both fully automatic segmentation and prompt-based segmentation using bounding boxes and clicks. • Our interactive model can process multiple modality combinations , which is closer to real-world clinical cases. Combined with an agnostic channel and online adaptation, the framework can generalize to combina-tions which include previously unseen modalities. • We propose a 3D online adaptation method for in-teractive segmentation, yielding substantial improve-ments under distribution shift without requiring addi-tional annotation effort. • We extensively evaluate our framework on seven brain MRI databases spanning diverse pathologies and modality combinations demonstrating the effec-tiveness of our method. Additional studies, including multi-modal fusion with nnInteractive and compar-isons with other online adaptation methods, further highlight the importance of our overall design. 
+
+## 2. Related Work 
+
+Our work lies at the intersection of three active research areas: interactive medical image segmentation, brain MRI segmentation with heterogeneous modality combinations, and online adaptation for interactive segmentation under distribution shift. We briefly review each area below. 
+
+2.1. Interactive Medical Image Segmentation 
+
+Interactive segmentation allows users to provide spa-tial prompts to guide model predictions. Early interactive medical image segmentation methods directly combine in-put images with user prompts. DeepIGeoS (Wang et al., 2018) incorporates user clicks through geodesic distance transforms, while Interactive FCNN (IFCNN) (Sakinis et al., 2019) encodes clicks as Gaussian guidance maps in addi-tional input channels. More recently, the Segment Anything Model (SAM) (Kir-illov et al., 2023) introduced a large-scale foundation model for prompt-based segmentation using a vision transformer backbone, which strongly influenced subsequent work in medical imaging. MedSAM (Ma et al., 2024) adapts SAM to medical images through large-scale fine-tuning, while Medical SAM Adapter (Wu et al., 2025) introduces adapter modules for efficient domain adaptation to medical data. Extensions to 3D medical imaging have also been explored. For example, SAM-Med3D (Wang et al., 2025) develops a 3D foundation model inspired by SAM and trained on a large collection of medical datasets. MedSAM2 (Ma et al., 2025), motivated by the video-capable SAM2 architecture 
+
+> Page 2 of 17 Interactive 3D brain lesion segmentation with online adaptation
+
+(Ravi et al., 2025), further extends this line of work to 3D medical images. In parallel, nnInteractive (Isensee et al., 2025) proposes a strong 3D interactive segmentation framework built on nnU-Net (Isensee et al., 2021) and trained on more than 120 diverse 3D datasets spanning different medical imaging modalities and anatomies. The model supports a variety of prompt types, including points, scribbles, bounding boxes, and lasso prompts, and demonstrates strong performance through large-scale training. Despite their success, these methods process a single modality at a time and therefore cannot leverage multiple complementary modalities available in a given brain MRI case. Moreover, their parameters remain fixed during de-ployment, so they cannot adapt to new data distribution shift. Our framework addresses both limitations: it supports arbitrary modality combinations within a single model and continuously adapts to the new distribution through user interactions. 
+
+2.2. Segmentation with Heterogeneous MRI Modalities 
+
+Brain MRI commonly includes multiple imaging modal-ities, such as FLAIR, T1, T2, T1c, DWI, and PD, which provide complementary diagnostic information. Most exist-ing brain MRI segmentation methods, however, are trained on a single dataset with a fixed modality set (Kamnitsas et al., 2017; Isensee et al., 2021). This assumption is restric-tive in practice, where modality availability varies across datasets, scanners, and clinical protocols. This motivates the development of a model capable of handling multiple sets of modalities during training and consequentially during inference. Related work investigates segmentation with missing modalities, where the model is trained on a set of modalities but must remain robust when some are absent at test time. Representative approaches include HeMIS (Havaei et al., 2016) and later methods based on modality synthesis or aux-iliary generative components (Hu et al., 2020; Islam et al., 2021; Zhou et al., 2021). These methods improve flexibility at inference time, but focus on robustness to missing inputs within a fixed training setting, rather than joint training across multiple databases with different modality sets and inference with arbitrary combinations. Our prior work (Xu et al., 2024) investigate joint train-ing on multiple brain MRI databases with heterogeneous modality sets. That framework uses the union of all modality channels across databases, zero-fills absent modalities, and applies random modality dropping during training, enabling a single model to learn from heterogeneous inputs and to exploit multiple modalities jointly when they are available for a given case. In this work, we extend this idea to the interactive segmentation setting and further investigate its interaction with online adaptation. 
+
+2.3. Online Adaptation for Interactive Segmentation 
+
+Online adaptation methods for interactive segmentation update model parameters during deployment by utilising information provided through user interactions. The setting is closely related to online learning (Hoi et al., 2021), where data arrive sequentially and the model is adapted as new test samples are processed. An early representative method, IA+SA (Kontogianni et al., 2020), combines independent image-level adaptation (IA) with sequence-level adaptation (SA), guided by user corrections together with cross-entropy and focal losses to update model parameters online. More recently, TSCA (Atanyan et al., 2024) reported further improvements in this setting. Our prior OAIMS framework (Xu et al., 2026) is, to our knowledge, the current state of the art. It uses predic-tions as pseudo labels and includes Post-Interaction and Mid-Interaction adaptation mechanisms, together with a Click-Centered Gaussian (CCG) loss that emphasizes the neighborhood around each user click. OAIMS consistently outperformed IA+SA and TSCA across diverse distribution-shift scenarios on 2D fundus images and brain MRI slices. However, prior online adaptation methods for interactive segmentation have been limited to 2D. We extend online adaptation to 3D volumetric brain MRI segmentation and integrate it with a multi-modal backbone. To our knowledge, this is the first framework to combine 3D interactive online adaptation with joint handling of heterogeneous MRI modal-ity combinations. 
+
+## 3. Methods 
+
+BrainIAC is a unified framework for 3D interactive brain lesion segmentation across different sets of MRI modalities, with online adaptation serving as a key component for handling distribution shift. The framework builds on our previous work on methodology for learning from data with heterogeneous imaging modalities and the Multi-Unet (Xu et al., 2024), a method for training a modality-agnostic input channel (Addison et al., 2025), and the OAIMS framework for online learning from user interactions (Xu et al., 2026). Figure 1 summarizes the overall framework. In this sec-tion, we first introduce the 3D interactive model architec-ture and describe how it supports diverse input modali-ties (Sec. 3.1, Sec. 3.2). We next present the training and inference pipelines (Sec. 3.3), including a Click-Centered Gaussian (CCG) loss (Sec. 3.4) and the 3D online adaptation mechanism (Sec. 3.5), that allows the model to update itself during inference 
+
+3.1. Handling Heterogeneous MRI Modality Sets 
+
+Different databases often contain different combinations of MRI modalities, reflecting variations in clinical proto-cols and the pathologies under investigation. For example, glioma in BraTS is imaged with FLAIR, T1, T1c, and T2, whereas stroke in ATLAS uses only T1. To enable a single model to train jointly on databases with different modality 
+
+> Page 3 of 17
+
+Interactive 3D brain lesion segmentation with online adaptation Inference Overview 
+
+> UNET
+
+Pretraining                    
+
+> Ground
+> Truth
+> Input Images (multiple modalities)
+> 𝐼
+> Generate synthetic clicks and bboxes
+> 𝐼
+> 𝐿 fg
+> 𝐿 bg UNET
+> +
+> Dice + CE Loss
+> compared to 𝑃 𝐺𝑇
+> Foreground map
+> Background map
+> Input Images
+> CCG Loss
+> Randomly drop modalities
+> BBoxes
+> map
+> 1st to T th iterations
+> (1 prompt/iter)
+> During the interactive process for one sample:
+> 𝐵
+> 𝐼
+> 𝐶𝐿 fg
+> 𝐺 bg UNET
+> 𝐵𝐵
+> 𝐼
+> 𝐶𝐿 fg
+> 𝐺 bg UNET
+> 𝐵𝐵
+> Dice + CE Loss
+> +CCG Loss on new
+> click
+> Prediction from (t-1) iteration
+> Give a new corrective click
+> to fix error in prediction. Repeat step 2
+> Obtain prediction from updated model ( with already given clicks)
+> 𝐼
+> 𝐶𝐿 fg
+> 𝐺 bg UNET
+> 𝐵𝐵
+> 𝐼
+> 𝐶𝐿 fg
+> 𝐺 bg UNET
+> 𝐵𝐵
+> Satisfied
+> With
+> Mask?
+> Ptbecomes the final
+> prediction mask Pfinal
+> Start post -interaction
+> adaptation
+> Pseudo
+> Ground Truth
+> Prediction
+> Mask
+> Foreground click
+> Background click
+> Loss applied in clicked regions
+
+Click-Centred 
+
+Gaussian 
+
+(CCG) Loss   
+
+> 𝐼
+> 𝐿 fg
+> 𝐿 bg UNET
+> 𝐵
+> No
+> Pt-1
+> P′ t
+> Pt
+> P′ t+1
+> Yes
+> Repeat step 3
+> This process updates the model after all corrections are done for one image:
+> Pfinal
+> Final prediction
+> after MI adaptation
+
+Stage 1: Fine -tune with the initial prediction  Stage 2: Fine -tune with multiple correction clicks   
+
+> Dice + CE Loss
+> Pinitial
+> False
+> Negative (FN)
+> False
+> Positive
+> (FP)
+> 𝐼
+> 𝐿 fg
+> 𝐿 bg UNET
+> 𝐵
+> After Stage 2,
+> start MI adaptation
+> on the next image.
+> Dice + CE Loss
+> +CCG Loss
+
+Mid-Interaction Adaptation 
+
+Post-Interaction Adaptation 
+
+> 𝑃 𝐺𝑇
+
+Figure 1: Overview of BrainIAC.Pretraining : Simulated clicks and BBoxes are encoded in channels concatenated with the image for model training. Each modality is placed in its corresponding channel, and during training, modalities are randomly dropped to improve robustness across modality combinations. Inference and adaptation operate on a sequence of samples. Each sample includes multiple modalities. For each sample, the user iteratively provides one BBox for initialization and multiple clicks to correct the segmentation (one prompt per iteration), until the user is satisfied and the final prediction 𝑃 final is obtained. In our experiments, the number of clicks 𝑇 is fixed for simplicity. The adaptation procedures follow our previous work (Xu et al., 2026), applied here to 3D segmentation. In mid-interaction adaptation , the prediction 𝑃 ′ 
+
+> 𝑡
+
+obtained with the new corrective click 𝑙 𝑡 supplies pseudo supervision for the pre-correction prediction 𝑃 𝑡 −1 . In post-interaction adaptation , the final corrected segmentation 𝑃 final supervises two fine-tuning stages. 
+
+sets 𝕄 𝑖 and to generalize to arbitrary modality combinations at test time, we adopt the Multi-Unet strategy from our prior work (Xu et al., 2024). The model input has 𝐶 channels, where 𝐶 = |𝕄 1 ∪ … ∪ 
+
+𝕄 𝑁 |, and is equal to the number of unique modalities across all 𝑁 training databases. When processing a sample from database 𝐷 𝑖 , only the channels corresponding to 𝕄 𝑖 (the set of modalities of 𝐷 𝑖 ) contain image data; all other channels are zero-filled. This design allows a standard architecture to process inputs from any database regardless of which modal-ities are available, and to perform inference with arbitrary subsets of the modalities seen during training. 
+
+Random modality dropping: To prevent the model from associating specific modality combinations with spe-cific pathologies, and to encourage generalization to ar-bitrary modality subsets at test time, we randomly drop modalities during training (Xu et al., 2024). For each training sample from database 𝐷 𝑖 with 𝐶 𝑖 = |𝕄 𝑖 | modalities, we sample an integer 𝑛 uniformly from [0 , 𝐶 𝑖 − 1] and ran-domly select 𝑛 modalities to replace with zeros. This also encourages the model to extract useful information from all available modalities rather than relying excessively on a single dominant modality. 
+
+Dynamic channel addition for unseen modalities: Alimitation of the original Multi-UNet strategy is that it cannot directly handle imaging modalities absent from the training set. To address this limitation, we incorporate a 
+
+Page 4 of 17 Interactive 3D brain lesion segmentation with online adaptation 
+
+modality-agnostic channel following our prior work (Addi-son et al. (2025)). In this approach, a dedicated modality-agnostic channel is trained alongside modality-specific input channels using synthetically generated modality variations of both healthy and pathological tissue, augmented with information from other modalities available for the same scan. This encourages the model to learn modality-agnostic representations. When encountering a modality not seen during training (e.g., SWI in TBI), the new modality is assigned to this modality-agnostic channel. Guided by interactive prompts, the model can immediately utilize information from the unseen modality alongside input to modality specific chan-nels. Furthermore, through online adaptation (Sec. 3.5), the model progressively learns to better incorporate information from the new modality during inference. This process is driven entirely by user interactions at test time, without requiring fine-tuning on the target dataset. The synergy between the multi-modal backbone and on-line adaptation further enables the framework to generalize beyond the modality combinations observed during training. 
+
+3.2. 3D Interactive Segmentation Model 
+
+The backbone of BrainIAC is a 3D Residual Encoder U-Net, following the nnU-Net architecture (Isensee et al., 2021). The network takes as input a tensor of size (𝐶 +3) × 𝐻 × 𝑊 × 𝐷 , where 𝐶 denotes the number of imaging modality channels, and the additional three channels encode user prompts: (1) a bounding-box mask, (2) a foreground click guidance map, and (3) a background click guidance map. The network outputs a single-channel segmentation map with the same spatial dimensions as the input. The final prediction is a binary mask, where lesion voxels are assigned label 1 and background voxels are assigned label 0. For the prompt channels, each foreground or background click sets the corresponding voxel in the foreground or back-ground click guidance map channel to 1. For the bounding-box prompt, all voxels inside the box are set to 1 in the bounding-box channel. The method handles 2D bounding boxes as they are easier to "draw" for a human user. In the mask, the 2D box is extended (duplicated) to the 2 adjacent slices along the depth dimension, for a total area of (𝑤, ℎ, 3) ,where 𝑤 and ℎ are width and height. This allows the 3D convolutional kernels of the model to better capture the box, for improved spatial guidance in 3D. When no prompt is provided, the corresponding prompt channels are zero-filled, allowing the model to operate in a fully automatic mode when all three prompt channels are empty. This provides a native formulation for automatic segmentation, in contrast to methods such as SAM-based (Kirillov et al., 2023) approaches that require generated prompts even for automatic segmentation. 
+
+3.3. Training 
+
+The model is trained jointly on multiple databases with the Dice cross-entropy (DCE) loss combined with the Click-Centered Gaussian (CCG) loss (detailed in Sec. 3.4): 
+
+train = DCE + 𝛽 CCG , (1) where DCE = Dice + CE , and Dice and CE denote the Dice loss (Milletari et al., 2016) and cross-entropy loss, respectively, and 𝛽 is a weighting hyperparameter. The CCG loss is applied whenever clicks are used as prompts, reinforc-ing the model’s responsiveness to user corrections. Our prior work (Xu et al., 2026) demonstrated the effectiveness of this loss. 
+
+Prompt sampling strategy. For each training sample, a bounding box is included with 70% probability, and clicks are included independently with 70% probability. This yields four possible prompt configurations: both bounding box and clicks (49%), bounding box only (21%), clicks only (21%), and no prompts (9%). This design serves two purposes: it enables the model to handle any prompt combination at test time, and it preserves fully automatic segmentation ability—unlike nnInteractive (Isensee et al., 2025) and Med-SAM2 (Ma et al., 2025), which require prompts at inference. For click prompts, we simulate correction clicks to mimic user behavior. The model first produces an initial prediction (using the bounding box if present) without any clicks. This prediction is compared to the ground truth to identify false negatives (missed foreground) and false positives (incorrectly predicted foreground). To ensure the model is sufficiently exposed to both types of clicks, we randomly draw clicks, with equal probability, entirely from false negatives, entirely from false positives, or from a mixture of both. To keep training efficient, we do not adopt a more complex strategy. The number of clicks 𝐿 is sampled uniformly from [1 , 10] at each training iteration. For bounding-box prompts, the bounding box is drawn to cover foreground components, with random padding of 0–10%. During training, we randomly select a subset of foreground connected components (up to 6). For each com-ponent, we generate 1–4 2D bounding boxes. Each box is sampled along a random orthogonal plane ( 𝑥𝑦 , 𝑦𝑧 , or 𝑥𝑧 ), providing diverse bounding-box configurations. 
+
+3.4. Click-Centered Gaussian (CCG) Loss 
+
+An effective interactive model should react to user clicks and update the segmentation of surrounding region accord-ingly. For this, we employ the Click-Centered Gaussian (CCG) loss, introduced in our previous study (Xu et al., 2026). Optimizing model parameters with the CCG loss improves the model’s ability to react to user clicks and make appropriate corrections of its prediction, by penalizing incorrect predictions near each click, weighted by a Gaussian kernel. The CCG loss is used both during training and during online adaptation. Here, we adapt the formulation of the CCG loss to be amenable for 3D models, extending the original 2D version. Let 𝐯 𝑙 = ( 𝑖 ′, 𝑗 ′, 𝑘 ′) denote a voxel where a click 𝑙 was given, with class label 𝑦 𝑙 ∈ {0 , 1} , and let 
+
+> Page 5 of 17 Interactive 3D brain lesion segmentation with online adaptation
+
+𝑑 𝑙 (𝐯 ) = ‖𝐯 − 𝐯 𝑙 ‖2 be the Euclidean distance from voxel 
+
+𝐯 = ( 𝑖, 𝑗, 𝑘 ) to the click. We define a 3D Gaussian weight: 
+
+𝐺 𝑙 (𝐯 ) = 
+
+{
+
+exp (−𝑑 𝑙 (𝐯 )2∕2 𝜎 2), if 𝑑 𝑙 (𝐯 ) ≤ 3𝜎, 
+
+0, otherwise, (2) and a class-limited indicator: 
+
+𝐼 𝑙 (𝐯 ) = 
+
+{
+
+1, if 𝑃 (𝐯 ) = 𝑦 𝑙 ,
+
+0, otherwise . (3) Here, 𝑃 denotes the ground-truth mask during training, or the pseudo ground-truth during adaptation. Let 𝑤 𝑙 (𝐯 ) = 𝐺 𝑙 (𝐯 ) 𝐼 𝑙 (𝐯 ). The CCG loss is: 
+
+CCG = 1
+
+|𝐿 | 𝑁 
+
+∑ 
+
+> 𝑙, 𝐯
+
+𝑤 𝑙 (𝐯 ) CE (̂ 𝑃 (𝐯 ), 𝑃 (𝐯 )), (4) where 𝑁 = 𝐻 ×𝑊 ×𝐷 is the number of voxels, ̂ 𝑃 is the model prediction, 𝐿 is the set of clicks, and CE denotes cross-entropy. The weight 𝑤 𝑙 combines the Gaussian proximity and class indicator, so the penalty is applied only to voxels near the click that share the same class. For example, for a foreground click, the loss acts only on nearby foreground voxels. 
+
+3.5. Inference and Online Adaptation 
+
+During inference, the model processes images sequen-tially and responds to the clinician after each new prompt. Our method supports multiple different interactive strate-gies; however, here we define a default strategy to allow for simple comparison. The interaction strategy is as follows: for each image, the model first produces an initial automated prediction, optionally using a clinician-provided bounding box for localization. The clinician then reviews the result and provides correction clicks. After each new click, the model generates an updated prediction using all the prompts accumulated so far for the current image and displays the result, allowing the clinician to decide whether further cor-rections are needed. By default, the bounding box is placed on the 𝑥𝑦 plane over the largest foreground component, with a randomly chosen 𝑧 index, and each correction click is randomly generated within the largest connected component of the erroneous region. For simplicity in our experiments, we assume that the clinician stops after 𝑇 interactions on each image, although in real-world practice the number of interactions may vary between cases. Instead of freezing the model at test time, we leverage the clinician’s interactions and corrected predictions to perform online adaptation. The adaptation consists of two comple-mentary mechanisms. Mid-Interaction (MI) adaptation up-dates the model after each correction click, improving both the segmentation and subsequent predictions for the current image. Post-Interaction (PI) adaptation further updates the model after the clinician completes all interactions for an image, improving future predictions on later images. This framework extends our previous OAIMS method (Xu et al., 2026) from 2D to 3D interactive segmentation. In princi-ple, MI adaptation can also be applied after introducing a bounding box. However, in our method we primarily focus on correction clicks, which are the most direct and common form of iterative user feedback. 
+
+3.5.1. Mid-Interaction (MI) Adaptation 
+
+At interaction step 𝑡 , let 𝑃 𝑡 −1 = 𝑓 (𝐼, 𝐿 𝑡 −1 ; 𝜃 ) and 𝑃 ′ 
+
+> 𝑡
+
+=
+
+𝑓 (𝐼, 𝐿 𝑡 ; 𝜃 ) denote the predictions before and after adding the corrective click 𝑙 𝑡 , respectively, where 𝐿 𝑡 = 𝐿 𝑡 −1 ∪ { 𝑙 𝑡 }.Both predictions use the same parameters 𝜃 . We use 𝑃 ′ 
+
+> 𝑡
+
+as a pseudo target for 𝑃 𝑡 −1 :
+
+MI = DCE (𝑃 𝑡 −1 , 𝑃 ′ 
+
+> 𝑡
+
+) + 𝛽 CCG (𝑃 𝑡 −1 , 𝑃 ′ 
+
+> 𝑡
+
+, 𝑙 𝑡 ). (5) The CCG loss is only applied to the latest click 𝑙 𝑡 to empha-size supervision near the user’s correction. After updating the parameters to 𝜃 new , we compute 𝑃 𝑡 = 𝑓 (𝐼, 𝐿 𝑡 ; 𝜃 new )
+
+and display it to the user. This output becomes the pre-correction prediction for the next interaction, and the up-dated parameters are retained for subsequent cases. For simplicity, we omit the localization bounding-box prompt from the equations, but it is always used as part of the input. 
+
+3.5.2. Post-Interaction (PI) Adaptation 
+
+After 𝑇 interactions, the final corrected segmentation 
+
+𝑃 final = 𝑃 𝑇 provides pseudo supervision for two adaptation stages. As in OAIMS (Xu et al., 2026), this assumes that the user’s corrections yield a sufficiently high quality target mask to serve as a supervision signal. 
+
+Stage 1 – Fine-tuning for initial prediction. We obtain 
+
+𝑃 initial = 𝑓 (𝐼 ; 𝜃 ) using the original initialization setting: no prompts or the initial bounding box, without correction clicks. With 𝑃 final as the target, we perform one gradient descent update per image using DCE .
+
+Stage 2 – Fine-tuning for correction clicks. Following OAIMS, we generate a fresh click set ̂ 𝐿 rather than reuse the clicks that produced 𝑃 final , which could yield weak or trivial updates. We compare the Stage 1 prediction 𝑃 initial with 𝑃 final 
+
+to identify false-positive and false-negative regions, placing one click in each erroneous connected component, up to 𝑇 
+
+clicks in total. The resulting prediction ̂ 𝑃 = 𝑓 (𝐼,̂ 𝐿 ; 𝜃 ) is optimized against 𝑃 final using the combined DCE and CCG losses in Eq. 1. If a bounding box was used in the original interaction, it is retained as an input in Stage 2, although it is omitted from the notation above for simplicity. 
+
+## 4. Experiments and Results 
+
+4.1. Datasets 
+
+The proposed method was assessed across seven brain MRI datasets spanning multiple pathologies and MRI modal-ity combinations, thereby capturing substantial clinical and imaging heterogeneity: BraTS 2016 (Bakas et al., 2017): brain tumour (FLAIR, T1, T1c, T2; 444/40 train/test); 
+
+ATLAS (Liew et al., 2022): stroke (T1; 459/195 train/test); 
+
+MSSEG (Commowick et al., 2018): multiple sclerosis 
+
+> Page 6 of 17 Interactive 3D brain lesion segmentation with online adaptation
+
+(FLAIR, T1, T1c, T2, PD; 37/16 train/test); WMH (Kuijf et al., 2019): white matter hyperintensities (FLAIR, T1; 42/18 train/test); TBI : database of patients with traumatic brain injury, collected at Addenbrookes Hospital, Cam-bridge, UK (FLAIR, T1, T2, SWI; 156/125 train/test); VES-SEG (Shapey et al., 2021b,a): vestibular schwannoma (T1c, T2; 242 test-only cases); ISLES (Maier et al., 2017): stroke (FLAIR, T1, T2, DWI; 28 test-only cases). TBI is the only database collected at our institution; all other databases are publicly available. All 3D scans were resampled to an isotropic resolution of 1 × 1 × 1 mm and standardized to a uniform size of 192×192×192 voxels. Intensity values were subsequently normalized using Z-score normalization. We consider three training configurations: (i) 4-DB MSSEG ,in which the model was jointly trained on BraTS, ATLAS, WMH, and TBI, and evaluated on the held-out MSSEG dataset; (ii) 4-DB TBI , in which the model was jointly trained on BraTS, ATLAS, WMH, and MSSEG, and evaluated on the held-out TBI dataset; and (iii) 5-DB , in which the model was jointly trained on all five datasets used in the main training pool (BraTS, ATLAS, WMH, MSSEG, and TBI), and evaluated on VES-SEG and ISLES. For the evaluation of a held-out dataset, we tested a combined set of samples from the original training and test splits, since the entire dataset was excluded from model training and used only for out-of-distribution evaluation and online adaptation. 
+
+4.2. Implementation Details 
+
+The input to the model consists of 𝐶 imaging modality channels and 3 prompt channels, corresponding to one bounding-box channel and two click guidance channels (foreground and background). The number of modality channels 𝐶 is determined by the number of unique modali-ties across the training datasets. In the 5-DB configuration, the union of modalities is {FLAIR, T1, T1c, T2, PD, SWI}, resulting in 𝐶 = 6 and 9 total input channels. In the 4-DB 
+
+configurations, one dataset is held out, reducing the modality union accordingly: when MSSEG is held out, PD is absent (𝐶 = 5 , 8 total channels), and when TBI is held out, SWI is absent ( 𝐶 = 5 , 8 total channels). All volumes are processed as full volumes. The model is trained with batch size 1 and a learning rate of 10 −3 . Up to 𝐾 = 10 clicks are simulated in each training iteration. The loss weight is set to 𝛽 = 10000 ,and the CCG Gaussian uses 𝜎 = 2. 𝛽 is large because the CCG loss is normalized by the full-volume voxel count 
+
+𝑁 = 192 3, while the Gaussian is nonzero only within a small region. For online adaptation, both Mid-Interaction (MI) and Post-Interaction (PI) updates use the Adam optimizer with a learning rate of 5 × 10 −5 , performing a single gradient descent step at each update. 
+
+4.3. Evaluation Protocol 
+
+By default, we evaluate the model under multiple in-teraction settings: No Prompt (fully automatic, with no bounding box or clicks), BBox (bounding box provided on the largest foreground components, with no clicks), and 
+
+BBox+ 𝑘 (bounding box plus 𝑘 iterative correction clicks, where 𝑘 ∈ {1 , 6} ). For online adaptation experiments, metrics are computed over the full sequential adaptation process. Test images are processed one by one in sequence. For each image, the model undergoes Mid-Interaction (MI) adaptation after each click interaction and Post-Interaction (PI) adaptation after all interactions are completed. The Dice score is recorded after each interaction step, and we report the average Dice over all test images. Unless otherwise specified, each image receives one bounding box and 6 correction clicks. We also conduct experiments that aim to reach a target Dice score rather than performing a fixed number of clicks. 
+
+4.4. Baselines 
+
+We compare against two categories of baselines. 3D Interactive Segmentation Foundation Models: nnInterac-tive (Isensee et al., 2025): an interactive segmentation framework trained on over 120 datasets, which processes a single modality as input and does not perform online adaptation. MedSAM2 (Ma et al., 2025): a 3D adaptation of SAM2 (Ravi et al., 2025) fine-tuned on large-scale medical data, supporting bounding-box prompts. This method also processes a single modality as input and does not perform online adaptation. 
+
+Online Adaptation Methods: IA+SA (Kontogianni et al., 2020): the first online adaptation method for interactive segmentation, combining image-level and sequence-level adaptation. TSCA (Atanyan et al., 2024): the previous state-of-the-art method for online adaptation in interactive seg-mentation. For fair comparison, IA+SA and TSCA use the same backbone architecture as our method. As a result, they can also handle multiple modality combinations, allowing the comparison to focus on the online adaptation strategy. The original IA+SA and TSCA were applied to 2D images; we extend them to 3D. The backbone architecture alone, without online adaptation, corresponds to the No Online results in the present experiments. 
+
+4.5. Evaluation on Unseen Pathologies 
+
+We primarily evaluate our method on datasets unseen during training, as this setting is more challenging and reflects real-world deployment. In these experiments, the target pathology and dataset are excluded entirely from training. 
+
+4.5.1. MSSEG – Multiple Sclerosis 
+
+Using the 4-DB MSSEG configuration, and evaluated on the held-out MSSEG dataset. None of the compared methods in this setting, including the foundation models, are trained on MSSEG. Results are shown in Table 1. BrainIAC can operate in a fully automatic mode ( No Prompt ), whereas MedSAM2 and nnInteractive require user prompts. Even without on-line adaptation, BrainIAC already performs strongly on this unseen pathology. Using only FLAIR, BrainIAC outper-forms nnInteractive and MedSAM2 across all comparable        
+
+> Page 7 of 17 Interactive 3D brain lesion segmentation with online adaptation VES-SEG Automated GT ISLES BBOX BBOX+1 Clicks BBOX+6 Clicks Final Prediction MSSEG TBI
+> Figure 2: Illustration of how the predicted segmentation from BrainIAC evolves as the BBox and interaction clicks are provided.The examples are, from top to bottom, MSSEG, TBI, ISLES and VES-SEG. From left to right: ground truth, automated prediction, BBox only, BBox+1 click, BBox+6 click, and the final prediction. Positive clicks are shown in yellow, negative clicks in purple, and clicks are accumulated across interactions. Regions in red denote the current prediction, while regions highlighted in green
+> indicate improvements resulting from the current prompt. The results demonstrate progressive refinement of the segmentation as more prompts are provided.
+
+settings. Following the bounding-box prompting protocol described in the MedSAM2 paper, we evaluate MedSAM2 with bounding boxes and do not include it in the point-based comparisons. Adding T1 further improves the performance of BrainIAC, demonstrating the benefit of jointly exploiting multiple modalities. Online adaptation yields further consistent improve-ments in all modality settings. In particular, our online adaptation version outperforms both IA+SA and TSCA, the two online adaptation baselines, which is consistent with the findings of our previous work on 2D online adaptation for interactive segmentation. Under online adaptation, adding T1 still improves the result, but not as much as without online adaptation. Each subject in MSSEG may contain many small and scattered lesions. In such cases, a single bounding box provides only limited information. This helps explain the weaker performance of MedSAM2, which relies on bounding-box prompting. To investigate this further, we evaluated the interactive segmentation methods under a Top-5 BBox 
+
+prompt setting, in which the five largest connected lesion components are each given a bounding box at initialization (lower block of Table 1). For a fair comparison with the baseline, we use only the FLAIR modality. All methods ben-efit from the additional BBoxes prior to clicks: nnInteractive improves from 34.6 to 42.8 at the BBox stage, however, a slight decrease from 52.0 to 50.5 at BBox+6 (additional clicks appear to help less when the model already has multi-box initialization). MedSAM2 also improves under 5 BBoxes. BrainIAC improves from 66.2 to 72.8 (single BBox) and from 69.8 to 75.2 (Top-5 BBox) for BBox and BBox+6 respectively. Even with five boxes, MedSAM2 and nnInteractive results remain substantially below our method, and providing one box per lesion is impractical in realistic clinical scenarios. In addition, we also test the setting without any bound-ing boxes, since click-based interaction is more flexible. We report click-only experiments on MSSEG ( Pts-1 , Pts-6 columns). Compared with nnInteractive, our method per-forms substantially better both with and without online adaptation. For fair comparison, the first click is randomly generated on the biggest lesion for all of the click-only experiments, since nnInteractive requires an initial click to start segmentation, even though our method does not. 
+
+4.5.2. TBI – Traumatic Brain Injury 
+
+TBI is unique as different lesion components are visible on FLAIR and SWI respectively. Consequentially, clinicians 
+
+> Page 8 of 17
+
+Interactive 3D brain lesion segmentation with online adaptation 
+
+Table 1 
+
+Results on MSSEG in the held-out setting, where MSSEG is excluded from training. Dice score (%). The main interaction setting starts from automatic prediction and is followed by bounding-box initialization and iterative correction ( No Prompt , BBox ,
+
+BBox+1 , BBox+6 ). Click-only results ( Pts-1 , Pts-6 ) are also reported for comparison with methods that require click-based initialization. “BrainIAC (ours) - No Online” refers to the backbone 3D interactive model which does not include online adaptation, while “BrainIAC (ours) - Online” includes online adaptation. The lower block reports the Top-5 BBox setting, in which the five largest lesion components are each given a bounding box at initialization. Best result in each column is shown in bold .                                                                                                          
+
+> Main settings Click-only Method Modalities No Prompt BBox BBox+1 BBox+6 Pts-1 Pts-6 BrainIAC (ours) - No Online FLAIR 53.6 57.3 60.7 68.5 56.2 67.5 BrainIAC (ours) - Online FLAIR 64.7 66.2 68.1 72.8 66.3 72.5 BrainIAC (ours) - No Online FLAIR, T1 55.0 59.1 62.0 69.6 57.3 68.2 BrainIAC (ours) - Online FLAIR, T1 66.1 66.9 68.7 73.3 67.2 72.9
+> TSCA FLAIR 60.8 63.1 66.0 72.0 63.8 71.5 TSCA FLAIR, T1 62.4 63.8 66.2 71.8 64.1 72.2 IA+SA FLAIR 58.4 61.5 64.8 71.1 61.8 70.1 IA+SA FLAIR, T1 60.0 62.8 65.8 71.9 63.0 70.8 nnInter. FLAIR –34.6 41.8 52.0 16.8 47.0 MedSAM2 FLAIR –40.9 ––––
+> Top-5 BBox prompting (5 largest-component bounding boxes provided at initialization)
+> BrainIAC (ours) - No Online (5 BBox) FLAIR –65.0 66.9 71.9 ––BrainIAC (ours) - Online (5 BBox) FLAIR –69.8 71.3 75.2 ––nnInter. (5 BBox) FLAIR –42.8 44.5 50.5 ––MedSAM2 (5 BBox) FLAIR –46.8 ––––
+
+annotated each case with separate segmentation masks for FLAIR and SWI. We therefore report two evaluation settings: one restricted to FLAIR-visible lesions, which provides the fairest comparison for methods that use only FLAIR as an input, and one using the merged annotations that include all lesion components (SWI and FLAIR). The second one is useful for showing the model’s ability to utilise additional diagnostic information from modalities unseen during training. In this section, we first focus on FLAIR-visible lesions (Table 2), with all experiments performed using the 4-DB TBI 
+
+configuration. None of the compared methods including the foundation models are trained on TBI. In this setting, our model without online adaptation is weaker than nnInterac-tive and MedSAM2. This is not unexpected, since nnInter-active and MedSAM2 are pretrained on large datasets and therefore, may achieve stronger initial performance on some target datasets. However, once online adaptation is enabled, our method surpasses nnInteractive and achieves the best performance when using FLAIR alone or FLAIR together with T1 and T2. This shows that in some cases where the initial segmentation is not as strong, online adaptation can still effectively adapt the model to a new target distribution and exceed the performance of strong pretrained models. In previous experiments, we already showed cases in which our pretraining was stronger; here, we highlight the complemen-tary case in which the initial model is weaker, but online adaptation still achieves the best final performance. The benefit of online adaptation is even more pro-nounced on TBI than on MSSEG. The same overall trend observed on MSSEG is also present here: our continual ver-sion consistently outperforms the previous online adaptation baselines TSCA and IA+SA. We also observe that adding modalities improves performance both with and without online adaptation. In addition, we report results evaluated against labels that include all lesion segments, including those visible only on SWI. However, SWI is not used as an input modality in these experiments, and consequently the overall Dice scores are lower. One advantage of BrainIAC is that it is designed to support different modality combinations within a single model. However, a modality not seen during training cannot be directly exploited. In the next section (Sec. 4.6) we demonstrate that an additional modality-agnostic channel 
+
+and interactive segmentation enable our framework to learn to use such unseen modalities. 
+
+4.6. Evaluation on Unseen Modalities 
+
+A key advantage of BrainIAC is its ability to handle arbitrary combinations of imaging modalities within a sin-gle model. However, the original Multi-UNet architecture cannot directly process modalities absent from the training set. To address this limitation, We investigate two separate strategies: randomly initializing an additional channel and utilizing a pretrained modality-agnostic channel. 
+
+Additional channel: a new input channel is appended to the pretrained model with randomly initialized weights, and the SWI modality is assigned to this new channel. Although online adaptation is applied during interactive segmentation, this strategy provides limited improvement compared to the model without the additional channel. A randomly initial-ized channel creates a large distribution mismatch, prevent-ing the model from learning meaningful representations of the unseen modality from limited user interactions. As a 
+
+Page 9 of 17 Interactive 3D brain lesion segmentation with online adaptation 
+
+Table 2 
+
+Results on TBI. Dice score (%). FLAIR-visible lesions : only lesions visible on FLAIR are evaluated, providing the fairest comparison since all methods receive FLAIR as input. All lesions : lesions visible on SWI are also included, although SWI is not provided as an input modality, making the task more challenging. Best result in each column (within each setting) is shown in bold .                                                                           
+
+> Method Modalities No Prompt BBox BBox+1 BBox+6
+> FLAIR-visible lesions:
+> BrainIAC (ours) – No Online FLAIR 37.9 39.5 41.1 47.9 BrainIAC (ours) – Online FLAIR 44.3 50.5 54.3 62.2 BrainIAC (ours) – No Online FLAIR, T1, T2 41.5 43.7 46.1 52.4 BrainIAC (ours) – Online FLAIR, T1, T2 46.6 52.6 55.8 62.7
+> TSCA FLAIR 37.3 41.3 45.2 55.3 TSCA FLAIR, T1, T2 41.7 45.1 48.5 58.1 IA+SA FLAIR 37.8 40.2 43.4 51.8 IA+SA FLAIR, T1, T2 41.8 44.6 48.1 57.0 nnInter. FLAIR –43.7 51.1 60.1 MedSAM2 FLAIR –47.9 ––
+> All lesions (including SWI-visible lesions):
+> BrainIAC (ours) – No Online FLAIR 36.7 36.8 38.5 44.0 BrainIAC (ours) – Online FLAIR 42.0 46.9 50.6 58.0 BrainIAC (ours) – No Online FLAIR, T1, T2 38.4 38.5 40.5 46.4 BrainIAC (ours) – Online FLAIR, T1, T2 43.6 49.2 52.2 58.7
+
+result, it provides little benefit during inference. Motivated by this limitation, we instead utilise a modality-agnostic channel. 
+
+Pretrained Agnostic Channel : We adapted our model us-ing the modality-agnostic path framework we previously proposed (Addison et al. (2025)). Additionally, a Bézier-curve-based non-linear intensity remapping augmentation was employed, similar to Zhou et al. (2022). The model was initialised from a pretrained model ( 4-DB TBI ) while the modality-agnostic channel was randomly initialised prior to training. As shown in Table 3, incorporating SWI through this channel improves performance after continual learning achieving a BBox+6 Dice score of 61.0 compared to 58.7 from our original model which cannot process SWI. Further-more, when the agnostic channel is zero-filled, performance (58.6) remains comparable to that of our original model with FLAIR only, demonstrating that the improvements observed with SWI input are attributable to the additional diagnostic information provided by the new modality. We further investigated alternative click strategies for continual learning to better exploit the SWI modality, as summarized in Table 4. Specifically, we evaluated a strategy that alternates user clicks between the largest segmentation error and largest undetected SWI lesion component, for a total of 12 clicks (a representative example can be seen in figure 3). This resulted in a much higher percentage of SWI connect components being detected when using the agnostic channel (68.9%) compared to our original set up with no place to process SWI (53.1%), however, we still click where the largest undetected SWI lesions would be using our SWI ground truth. This lesion-type-specific clicking strat-egy improves the detection rate of SWI lesion components compared with our standard click strategy: BBox + 6 largest error clicks for the agnostic channel with SWI (49.8%) and ours without SWI (38.6%) and is more representative of how a clinician would use this tool in practice. The randomly initialized channel provided limited improvements under both click strategies. 
+
+Baseline - process extra modality: A natural question is whether single-modality methods such as nnInteractive could benefit from multiple modalities by combining pre-dictions from separate inference passes, without the added effort of learning joint multi-modal representations. Table 3 compares two such strategies: UNION , which takes the union of lesion predictions from all modalities, and LOG-ITS , which averages prediction logits across modalities be-fore applying the final softmax. Both strategies show incon-sistent or degraded performance as additional modalities are introduced. In particular, UNION degrades monotonically: its BBox+6 Dice decreases from 54.8 using FLAIR alone to 46.8 when all channels are combined. This suggests that independently processed modalities often produce conflict-ing rather than complementary predictions. LOGITS per-forms better in some cases, for example on FLAIR+SWI at BBox+6, indicating that it can capture some useful com-plementary information across modalities. However, its per-formance remains unstable overall and does not achieve the same level of performance as our agnostic channel method. 
+
+4.7. Evaluation on Other Pathologies 
+
+To further evaluate the effectiveness of online adap-tation, we also test on VES-SEG and ISLES. For these experiments, we use the 5-DB model. These datasets are less suitable for direct comparison with foundation-model baselines such as nnInteractive and MedSAM2, since these models were trained on related databases. Therefore, in this section, we focus primarily on the improvement brought by interactive and online adaptation strategies. 
+
+Page 10 of 17 Interactive 3D brain lesion segmentation with online adaptation Automatic BBox 12 clicks Final Prediction Ground Truth Input Modalities   
+
+> T2 FLAIR T1 SWI T2 FLAIR T1
+
+Figure 3: TBI sample and three-dimensional visualisation of the progressive refinement of the predicted segmentation with a BBox and 12 subsequent interaction clicks, which alternate between the largest global segmentation error and the largest remaining unsegmented SWI lesion component. The top row shows results obtained with our model using T1, T2, and FLAIR as inputs during online adaptation. The bottom row shows the corresponding results when SWI (highlighted as blue in ground truth) is additionally incorporated through an agnostic input channel. Positive clicks in yellow, negative clicks in purple, clicks accumulated across interactions. Red denotes current prediction. Blue highlights correctly predicted SWI components. Green 
+
+highlights correction of predicted FLAIR label at current interaction step. This iterative interaction strategy progressively refines the segmentation and improves lesion segmentation. 
+
+Table 3 
+
+Evaluation on unseen modalities for TBI. Dice score (%). This table reports results evaluated with labels containing both lesions visible on FLAIR and lesions visible on SWI, while using SWI as an extra input to the model. It also reports results from using multiple nnInteractive models for different modalities and combining the result. Best result in each section is shown in bold .(Extra Ch.: Extra channel initiated, Agn.: Agnostic channel initiated)                                                                                           
+
+> Method Channels Auto BBox BBox+1 BBox+6 BrainIAC (ours) – Online FLAIR 42.0 46.9 50.6 58.0 BrainIAC (ours) – No Online FLAIR, T1, T2 38.4 38.5 40.5 46.4 BrainIAC (ours) – Online FLAIR, T1, T2 43.6 49.2 52.2 58.7 BrainIAC (ours) + Extra Ch. – Online FLAIR,SWI 43.7 44.0 49.0 57.7 BrainIAC (ours) + Extra Ch. – Online FLAIR,T1,T2,SWI 44.1 49.2 52.5 58.7 BrainIAC (ours) + Agn. – Online FLAIR,SWI 44.6 49.4 53.8 61.0
+> BrainIAC (ours) + Agn. – No Online FLAIR,T1,T2,SWI 37.0 40.1 43.8 50.6 BrainIAC (ours) + Agn. – Online FLAIR,T1,T2, Zero 44.6 48.9 52.6 58.6 BrainIAC (ours) + Agn. – Online FLAIR,T1,T2,SWI 46.3 50.4 53.5 61.0
+> nnInter. (UNION) FLAIR –42.3 48.6 54.8 nnInter. (UNION) FLAIR,SWI –40.2 43.1 50.2 nnInter. (UNION) FLAIR,T1,T2 –39.9 44.1 48.3 nnInter. (UNION) FLAIR,T1,T2,SWI –38.3 41.5 46.8 nnInter. (LOGITS) FLAIR –42.3 48.6 54.8 nnInter. (LOGITS) FLAIR,SWI –38.0 45.8 55.9 nnInter. (LOGITS) FLAIR,T1,T2 –39.1 46.6 53.7 nnInter. (LOGITS) FLAIR,T1,T2,SWI –37.4 45.8 54.7
+
+4.7.1. VES-SEG - Vestibular Schwannoma 
+
+Results on VES-SEG T1C are shown in Fig. 4. On this dataset, online adaptation leads to dramatic improvements. Without online adaptation, the interactive process improves the dice score from 6.5 to 51.9, and with online adaptation it reaches 83.8. This demonstrates strong anatomical out-of-domain performance, as these tumours originate from the vestibulocochlear nerve rather than within the brain tissue on which the model is trained. 
+
+4.7.2. ISLES - Ischemic Stroke 
+
+The model was previously trained on ATLAS and is now evaluated on ISLES. Results can be seen in Fig. 5. The interactive process successfully improves the result, and our online adaptation mechanism further enhances performance consistently surpassing the baseline methods. 
+
+4.8. Qualitative Results 
+
+Figure 2 illustrates in 3D how the predicted segmen-tation evolves as the user applies an initial bounding box followed by multiple corrective clicks. We present exam-ples of four distinct pathologies from different databases: 
+
+Page 11 of 17 Interactive 3D brain lesion segmentation with online adaptation 
+
+Table 4 
+
+Percentage of detected SWI components across the entire TBI dataset for different click strategies (Overall Dice score (%) in bracket). All experiments used T1, T2 and FLAIR. SWI was included in experiments involving the additional channel or the pretrained modality-agnostic channel. Best results highlighted in bold for each click strategy. (Extra Ch.: Extra channel initiated, Agn.: Agnostic channel initiated)                                          
+
+> Method Automated BBox BBox+1 BBox+6 BBox+12
+> Standard 1 BBox+6 clicks (largest error)
+> BrainIAC (ours) – Online 35.4(43.6) 36.3(49.2) 37.5(52.2) 38.6(58.7) -BrainIAC (ours) + Extra Ch. – Online 35.9(44.1) 36.5(49.2) 37.3(52.5) 38.8(58.7) -BrainIAC (ours) + Agn. – Online 47.9 (46.3) 48.0 (50.4) 48.4 (53.5) 49.8 (61.0) -
+> 1 BBox+12 alternate clicks (largest error then largest unpredicted SWI only lesion)
+> BrainIAC (ours) – Online 46.5(45.8) 47.3(50.4) 47.6(52.5) 50.5(56.6) 53.1(59.2) BrainIAC (ours) + Extra Ch. – Online 47.5(45.7) 48.7(51.2) 49.0(53.3) 51.6(57.0) 54.1(59.7) BrainIAC (ours) + Agn. – Online 63.6 (47.5) 64.1 (51.3) 64.4 (53.7) 66.7 (58.3) 68.9 (61.2) No Prompt BBox +1 +2 +3 +4 +5 +6
+> Interaction step
+> 020 40 60 80
+> Dice (%)
+> VES-SEG
+> Ours (online) Ours (no online) TSCA IA+SA
+
+Figure 4: Results on VES-SEG T1C (Dice %) along the inter-action protocol: automatic prediction (No Prompt), bounding-box initialisation (BBox), and one to six correction clicks (BBox +1 to BBox +6 ). Online adaptation lifts the entire trajectory far above the no-adaptation variant and the TSCA and IA+SA online-adaptation baselines. 
+
+TBI, MSSEG, ISLES and VES-SEG. For VES-SEG, the automated prediction produces a false positive and misses one lesion. Bounding-box prompting eliminates the false positive and enables accurate segmentation of the vestibular schwannoma, resulting in a substantial improvement in the dice score as seen in Figure 4. For ISLES the bounding box similarly removed false positives outside of the BBox. Overall, for each task the results demonstrate progressive refinement of the segmentation mask. 
+
+4.9. In-Distribution Results 
+
+For completeness, Table 5 reports in-distribution results in the 5-DB setting ( 𝐶 = 6 modality channels, correspond-ing to 9 total input channels), without online adaptation. This is not the main focus of our study, since deployment on the same databases used for training is less challenging, and can often be better addressed by models trained for a specific task. No Prompt BBox +1 +2 +3 +4 +5 +6 
+
+> Interaction step
+> 56 58 60 62 64 66 68 70 72
+> Dice (%)
+> ISLES
+> Ours (online) Ours (no online) TSCA IA+SA
+
+Figure 5: Results on ISLES (Dice %, FLAIR) along the interaction protocol (No Prompt, BBox, and BBox +1 to BBox +6 correction clicks). BrainIAC with online adaptation consistently surpasses the no-adaptation variant and the TSCA and IA+SA baselines across the whole trajectory. 
+
+BrainIAC achieves automatic segmentation performance comparable or better to database-specific nnU-Net mod-els for 3 of the 5 databases. Interactive prompts progres-sively improve performance. Compared with nnInteractive, BrainIAC with BBox+6 substantially improves performance on both the WMH and ATLAS datasets (79.6 vs. 56.9 on WMH, and 75.1 vs. 71.5 on ATLAS). For ATLAS the single BBox improves the Dice from 58.2 to 68.0. We didn’t apply online adaptation to BrainIAC because these experiments are in-distribution. In addition, nnInteractive was trained on the same versions of WMH and ATLAS as we use. We do not report a comparison on BraTS, as we use a different version of the dataset. 
+
+4.10. Online Adaptation Ablation Study 
+
+Here, we conduct an ablation study to assess the contri-butions of the MI and PI adaptation components and evaluate their impact on the overall performance of the proposed framework. As shown in Table 6, both adaptation processes are important, and the best performance is obtained when 
+
+Page 12 of 17 Interactive 3D brain lesion segmentation with online adaptation 
+
+Table 5 
+
+In-distribution results (5-DB training, 𝐶 =6 modality channels, no online adaptation). Dice (%). Best results for each database in bold .                                      
+
+> Method Interact. MSSEG TBI WMH ATLAS BraTS Ours No Prompt 74.4 59.9 78.0 58.2 92.5 BBox 74.3 63.6 78.1 68.0 92.6 BBox+1 75.0 64.5 78.4 70.5 92.7 BBox+6 77.7 66.9 79.6 75.1 93.2
+> nnU-Net No Prompt 74.2 59.0 81.0 60.8 92.4 nnInter. BBox+6 ––56.9 71.5 –
+
+Table 6 
+
+Ablation study of online adaptation components on TBI (FLAIR-visible lesions). MI = Mid-Interaction adaptation, PI = Post-Interaction adaptation. Dice score (%). Best result in 
+
+bold .                         
+
+> MI PI No Prompt BBox BBox+1 BBox+6
+> ✗✗37.9 39.5 41.1 47.9
+> ✓✗43.9 49.1 53.2 61.6
+> ✗✓42.2 46.8 50.9 59.1
+> ✓✓44.3 50.5 54.3 62.2
+
+they are utilised together. We also have a comprehensive ablation study in our previous 2D interactive work (Xu et al., 2026). 
+
+4.11. Efficiency Analysis 
+
+In this section, we assess the efficiency of online adap-tation by examining both its computational overhead and interaction requirements. We quantify the additional run-time introduced by the adaptation process and evaluate the amount of user input required to attain an acceptable Dice score. 
+
+4.11.1. Per-click Latency 
+
+We measure runtime on the VES-SEG dataset (242 samples). After each click, the mid-interaction adaptation takes about 1.19 s ; after each sample, the post-interaction adaptation takes about 3.54 s . The per-click cost is small relative to the time a clinician spends placing the click itself, and the once-per-sample update adds only a few seconds, hence, the additional latency introduced by online adaptation is acceptable and the method remains efficient for interactive clinical use. Furthermore, when efficiency is critical, clinicians can rely on post-interaction adaptation alone, which still signifi-cantly improves the result without adding any latency to the interactive process itself. 
+
+4.11.2. Click Efficiency 
+
+To quantify how much user effort is saved by online adaptation, we measure the number of correction clicks re-quired to reach a target Dice on each case (up to a maximum of 15 clicks per case); cases that never reach the threshold are counted as 15 clicks. We evaluate on four databases and set the target Dice according to the difficulty of each pathology: 0.70 on MSSEG, 0.80 on VES-SEG, and 0.65 on 
+
+Table 7 
+
+Click efficiency at fixed Dice thresholds. For each database we report the fraction of cases that reach the target Dice within a 15-click budget and the average number of correction clicks per case (cases that never reach the threshold are counted as 15 clicks). Thresholds: MSSEG = 0.70, VES-SEG T1C = 0.80, ISLES = 0.65, TBI FLAIR = 0.65. Best result in each row is shown in bold .                     
+
+> Avg clicks Reached threshold (%) Dataset w/ Online w/o Online w/ Online w/o Online MSSEG 3.81 6.66 96.2 71.7 VES-SEG 2.67 12.81 90.1 31.8 ISLES 3.43 5.46 85.7 64.3 TBI 6.78 10.35 69.8 39.9
+
+the more challenging ISLES and TBI datasets. Alongside the average number of clicks, we also report the fraction of cases that actually reach the threshold within the 15-click budget. Table 7 summarizes the results. Online adaptation reduces the number of clicks re-quired on every database while simultaneously enabling more cases to reach the target Dice. The effect is largest on VES-SEG, where adaptation cuts the average from 12.81 to 2.67 clicks and raises the fraction of cases reach-ing 0.80 Dice from 31.8% to 90.1%. It is also substan-tial on TBI (10.35 →6.78 clicks; 39.9% →69.8%), MSSEG (6.66 →3.81 clicks; 71.7% →96.2%), and ISLES (5.46 →3.43 clicks; 64.3% →85.7%). Across all four databases, adapta-tion therefore delivers acceptable segmentations with fewer interactions on a substantially greater proportion of cases. 
+
+Click efficiency on recovering undetected lesion com-ponents: As discussed in section 4.5.1, MSSEG subjects typically contain a large number of small, scattered lesions, hence, a common failure mode is that entire lesion compo-nents are missed. To probe this behaviour directly and to test how efficiently clicks can recover these components, we design a component-oriented interaction protocol that differs from the protocol used above. For each case, no bounding box is provided, and every correction click is placed (at a random location) inside a ground-truth component that the current prediction has failed to detect. If at any step no undetected component remains to be clicked, the case is stopped early. We consider two variants: a 10-click bud-get , which stops each case after at most 10 clicks, and an 
+
+unlimited setting, which keeps clicking until no undetected component remains. These experiments isolate the model’s ability to recover missed components and let us track how many components remain undetected as clicks accumulate. We run this protocol on the MSSEG dataset (53 subjects), comparing the model with and without online adaptation. Table 8 reports the results. For the limited click set-ting, with online adaptation, far fewer lesion components remain undetected both before and after the interaction steps. The ‘before’ count refers only to the current sample; because the online-adapted model also retains information from previously seen samples, it starts each case with fewer 
+
+Page 13 of 17 Interactive 3D brain lesion segmentation with online adaptation 
+
+Table 8 
+
+Undetected lesion-component analysis on the held-out MSSEG dataset (53 subjects). Each correction click is placed inside a currently undetected ground-truth component. We report the average number of undetected lesion components pre and post-clicks, together with the average clicks used under both a 10-click budget and under an unlimited-click setting. With unlimited clicks every component is eventually recovered (zero undetected) for both models, but online adaptation reaches this with far fewer clicks.               
+
+> Metric w/ Online w/o Online
+> 10-click budget (max 10 clicks/case)
+> Avg. undetected – pre-clicks 8.26 23.75 Avg. undetected – post-clicks 2.51 13.87 Avg. clicks used 4.00 7.96
+> Unlimited clicks (until all detected)
+> Avg. undetected – pre-clicks 5.75 23.75 Avg. undetected – post-clicks 00Avg. clicks used 3.15 20.94
+
+undetected components. Given enough clicks, every ground-truth component can eventually be recovered, so under the unlimited setting, both models reach zero undetected com-ponents. The difference is the effort required: without online adaptation, the model does not improve, so almost every missed component must be clicked individually, needing 20.94 clicks per case on average. With online adaptation, only 3.15 clicks per case are needed — even fewer than under the 10-click budget (4.00). This happens because removing the max click budget allows the model to receive all the corrective clicks it requires from the early cases, and strong early adaptation carries over to later images, which then start with far fewer undetected components and require almost no clicks. In summary, the improvement obtained on the first several images has a strong positive influence on all subsequent images, so the clinician does not need to click on every missed component: online adaptation trains the model to find the remaining ones on its own. 
+
+4.11.3. Data Efficiency 
+
+To analyse how efficiently our online adaptation im-proves on an unseen pathology, we follow a held-out pro-tocol on VES-SEG and TBI. For each database the data is split into an adaptation split and a held-out evaluation split, and online adaptation is performed only on the adaptation split. The VES-SEG splits contain 150 adaptation and 92 held-out images, and the TBI splits contain 181 adaptation and 100 held-out images. The model is adapted sequentially on the adaptation split (one image at a time), and after every five adaptation images we evaluate it on the entire held-out split, providing a bounding box and six correction clicks (BBox+6) per held-out image without adapting to them. Figure 6 plots the average Dice for BBox+6 interaction, over the held-out set against the number of adaptation images processed so far. On both databases the held-out Dice improves contin-ually as more adaptation images are processed and then 0 30 60 90 120 150       
+
+> Adapted images
+> 50 60 70 80 90
+> Dice (%) (a) VES-SEG
+> 030 60 90 120 150 180
+> Adapted images
+> 45 50 55 60 65
+> Dice (%) (b) TBI
+
+Figure 6: Online-adaptation trajectory on (a) VES-SEG and (b) TBI. The 𝑥 -axis is the number of adaptation images processed so far, and the 𝑦 -axis is the average Dice on the held-out evaluation split 
+
+converges to a stable level. On VES-SEG, the Dice climbs steeply from about 52% to 77% after around 30 adaptation images, reflecting how quickly adaptation recalibrates the model to this new distribution. On TBI, which is harder and shifts more gradually, the improvement is slower but steady: the Dice keeps rising from about 47% to roughly 60% after around 70 adaptation images. In both cases, the model continues to improve well beyond the first few images, confirming that the benefit of online adaptation accumulates with continued deployment rather than saturating after a small number of images. 
+
+## 5. Discussion 
+
+In this work we developed a single 3D framework for interactive brain lesion segmentation that unifies three capa-bilities: (i) Handling heterogeneous modality sets, including new modalities at inference; (ii) 3D interactive segmentation with bounding-box and click prompts that preserves fully automatic prediction when no prompt is given; and (iii) an online adaptation mechanism combining Mid-Interaction adaptation and Post-Interaction adaptation. We evaluated it on seven brain MRI databases that span multiple pathologies and modality configurations. We proceeded to analyse a variety of metrics including the final accuracy, interaction effort, data efficiency of adaptation, and the ability to recover missing lesion components with a focus on out of distribu-tion testing. In this section we discuss these results. 
+
+Interactive prompting is effective on every database. A single bounding box already significantly assists in pre-dicting a focal (often undetected) lesion as exemplified on VES-SEG, which represents a novel pathology not encoun-tered by the model during training, the interactive process improves Dice from 6.5 to 33.8 even prior to adaptation and subsequent correction clicks add further gains. To better reflect real-world clinical practice, we also evaluated other interaction strategies for different types of lesion. For MSSEG, these included multiple bounding boxes for scattered lesions. For TBI, we evaluated selecting com-ponents seen on different modalities, SWI and FLAIR. These experiments demonstrate benefits in different aspects of segmentation performance, including overall Dice and the detection of SWI-visible lesion components.Unlike founda-tion models such as MedSAM2 and nnInteractive, our model 
+
+Page 14 of 17 Interactive 3D brain lesion segmentation with online adaptation 
+
+retains a fully automatic mode (No Prompt); combined with online adaptation, this means that after several images some cases already satisfy the clinician without a single click. 
+
+Online adaptation has a strong influence on perfor-mance. This is one of our main contributions. Adaptation improves the BBox+6 Dice on every held-out database, +4 .3
+
+on MSSEG FLAIR ( 68 .5 → 72 .8), +14 .3 on TBI FLAIR (47 .9 → 62 .2), +5 .7 on ISLES FLAIR ( 65 .2 →70.9) , and 
+
++31 .9 on VES-SEG ( 51 .9 → 83 .8). To our knowledge, this is one of the first online adaptation methods for 3D inter-active segmentation; prior online adaptation for interactive segmentation, including our own, was restricted to 2D (Xu et al., 2026), and existing medical 3D interactive methods keep the model frozen at test time (Isensee et al., 2025; Ma et al., 2025). User prompts combined with online adaptation sub-stantially improve performance through two mechanisms. First, corrected predictions are used as pseudo-labels to update the model immediately, reducing the likelihood of repeating similar errors on subsequent cases. Second, the update absorbs the correction into the weights, as a result, the spatially local click can produce a relative global influence. Consequently, online adaptation improves both segmenta-tion accuracy and annotation efficiency for current and future images, as demonstrated by the results. 
+
+Efficiency is what makes this improvement clinically usable. Online adaptation adds extra time to the interactive process. In interactive segmentation, the true cost is clinician time, dominated by the number of prompts needed and the latency of each response. Online adaptation reduces the number of prompts needed to reach a relatively good performance (for example 2.67 vs. 12.81 clicks on VES-SEG and 3.81 vs. 6.66 on MSSEG). The natural concern is added latency, but our updates are light, 1.2 s for the per-click mid-interaction update and a few seconds for the once-per-case post-interaction update, which are negligible beside the time a clinician spends placing a prompt and far cheaper than heavier adaptation schemes such as IA+SA (Kontogianni et al., 2020). 
+
+Handling multiple modalities is likewise essential for brain MRI, where the available sequences vary across sites and protocols, and our results show that they should be fused inside the model rather than after it. The Multi-Unet backbone ingests all available modalities jointly and can benefit from extra channels, especially at the start of each case before any prompt (adding T1 to FLAIR on MSSEG improves the No-Prompt Dice from 64.7 to 66.1). In con-trast, the simpler alternative of keeping a single-modality model and combining its per-modality predictions post hoc proves unreliable: with nnInteractive, the LOGITS strategy degrades from 54.8 (FLAIR) to 53.7 (FLAIR, T1, T2) at BBox+6. The size of the multi-modal gain depends on how much genuinely complementary information a modality car-ries, and sometimes one sequence is already near-sufficient, but joint modeling gives the clinician the option to utilise all available diagnostic information, something previous in-teractive methods, such as nnInteractive and MedSAM2, cannot do. A static model, including our previous Multi-UNet work (Xu et al., 2024), cannot easily exploit information from an unseen modality. By initiating the modality-agnostic channel (Addison et al., 2025), BrainIAC can incorporate modalities that were never observed during training. This is exemplified in TBI, where BrainIAC achieves an improved dice score alongside a substantial improvement in detecting SWI-only lesion components under online adaptation when incorporating SWI. In contrast, simply adding a new channel with randomly initialized weights does not provide meaning-ful improvement. The large representation gap introduced by random initialization prevents the model from effectively utilizing the unseen modality, even with online adaptation and interactive guidance. These results highlight the importance of a properly ini-tialized modality-agnostic representation for incorporating unseen modalities alongside modalities seen during training at inference. These three mechanisms point towards a single robust model that can be placed in an unfamiliar clinical environment, with an unfamiliar modality set, and improve itself with with online learning via user interaction.. 
+
+Study limitations: Our study has several limitations. Processing full 192 × 192 × 192 volumes is well suited to segmentation of brain lesions, as brain volumes are of a similar size; applying the method to other anatomies may require methods such as sliding window inference. The large 
+
+192 volume also affects training efficiency. Our evaluation uses simulated clicks and boxes; although the simulation fol-lows common protocols, a user study with radiologists would better capture the variability of real interaction. Finally, the proposed framework is designed for binary lesion segmen-tation. Extending it to multi-class tasks, such as delineating tumour sub-regions or classifying distinct connected tumour components arising from different pathological processes, longitudinal tracking, and additional prompt types such as scribbles, are all natural next steps. 
+
+## 6. Conclusion 
+
+We presented BrainIAC, a unified framework for 3D interactive brain lesion segmentation that can handle het-erogeneous MRI modalities, support different interaction strategies (bounding boxes, clicks, and fully automatic pre-diction), and perform online adaptation that learns from user interactions to continuously adapt to new data distributions. A single model can thus be deployed across diverse clinical settings with varying modalities including imaging modali-ties not encountered during training and a range of patholo-gies, including previously unseen pathologies.Experiments on seven brain MRI databases demonstrate that the three components produce synergistic benefits, offering insights for building 3D segmentation models in medical imaging. 
+
+> Page 15 of 17
+
+Interactive 3D brain lesion segmentation with online adaptation 
+
+Future work will explore parameter-efficient adaptation, ad-ditional prompt types such as scribbles, and other online adaptation methods. 
+
+## CRediT authorship contribution statement 
+
+Wentian Xu: Conceptualization, Methodology, Soft-ware, Investigation, Data Curation, Writing - Original Draft, Visualization. Anthony P Addison: Conceptualization, Method-ology, Software, Validation, Investigation, Writing - Origi-nal Draft, Visualization. Ziyun Liang: Conceptualization, Validation, Writing, Visualization. Harry Anthony: Con-ceptualization, Validation, Writing, Visualization. Guang Yang: Conceptualization, Validation, Writing. Konstanti-nos Kamnitsas: Conceptualization, Supervision, Writing -Review & Editing. 
+
+## Acknowledgements 
+
+APA is supported by the Oxford-Bellhouse Graduate Scholarship, jointly funded by Magdalen College and the University of Oxford. ZL is supported by scholarship pro-vided by the EPSRC Doctoral Training Partnerships pro-gramme [EP/W524311/1]. HA is supported by a scholarship via the EPSRC Doctoral Training Partnerships programme [EP/W524311/1, EP/T517811/1]. 
+
+## References 
+
+Addison, A.P., Wagner, F., Xu, W., Voets, N., Kamnitsas, K., 2025. Modality-agnostic input channels enable segmentation of brain lesions in multimodal mri with sequences unavailable during training. MICCAI - Multimodal Learning and Fusion Across Scales for Clinical Decision Support (ML-CDS) . Atanyan, B., Khachatryan, L., Navasardyan, S., Wei, Y., Shi, H., 2024. Con-tinuous adaptation for interactive segmentation using teacher-student architecture, in: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision, pp. 789–799. Azad, R., Aghdam, E.K., Rauland, A., Jia, Y., Avval, A.H., Bozorgpour, A., Karimijafarbigloo, S., Cohen, J.P., Adeli, E., Merhof, D., 2024. Medical image segmentation review: The success of u-net. IEEE Transactions on Pattern Analysis and Machine Intelligence 46, 10076–10095. Bakas, S., Akbari, H., Sotiras, A., Bilello, M., Rozycki, M., Kirby, J.S., Freymann, J.B., Farahani, K., Davatzikos, C., 2017. Advancing the cancer genome atlas glioma mri collections with expert segmentation labels and radiomic features. Scientific data 4, 170117. Commowick, O., Istace, A., Kain, M., Laurent, B., Leray, F., Simon, M., Pop, S.C., Girard, P., Ameli, R., Ferré, J.C., et al., 2018. Objective evalu-ation of multiple sclerosis lesion segmentation using a data management and processing infrastructure. Scientific reports 8, 13650. Havaei, M., Guizard, N., Chapados, N., Bengio, Y., 2016. Hemis: Hetero-modal image segmentation, in: International conference on medical image computing and computer-assisted intervention, Springer. pp. 469– 477. Hoi, S.C., Sahoo, D., Lu, J., Zhao, P., 2021. Online learning: A compre-hensive survey. Neurocomputing 459, 249–289. Hu, M., Maillard, M., Zhang, Y., Ciceri, T., La Barbera, G., Bloch, I., Gori, P., 2020. Knowledge distillation from multi-modal to mono-modal segmentation networks, in: International Conference on Medical Image Computing and Computer-Assisted Intervention, Springer. pp. 772–781. Isensee, F., Jaeger, P.F., Kohl, S.A., Petersen, J., Maier-Hein, K.H., 2021. nnu-net: a self-configuring method for deep learning-based biomedical image segmentation. Nature methods 18, 203–211. Isensee, F., Rokuss, M., Krämer, L., Dinkelacker, S., Ravindran, A., Stritzke, F., Hamm, B., Wald, T., Langenberg, M., Ulrich, C., et al., 2025. nninteractive: Redefining 3d promptable segmentation. arXiv preprint arXiv:2503.08373 . Islam, M., Wijethilake, N., Ren, H., 2021. Glioblastoma multiforme prog-nosis: Mri missing modality generation, segmentation and radiogenomic survival prediction. Computerized Medical Imaging and Graphics 91, 101906. Kamnitsas, K., Ledig, C., Newcombe, V.F., Simpson, J.P., Kane, A.D., Menon, D.K., Rueckert, D., Glocker, B., 2017. Efficient multi-scale 3d cnn with fully connected crf for accurate brain lesion segmentation. Medical image analysis 36, 61–78. Kirillov, A., Mintun, E., Ravi, N., Mao, H., Rolland, C., Gustafson, L., Xiao, T., Whitehead, S., Berg, A.C., Lo, W.Y., et al., 2023. Segment anything, in: Proceedings of the IEEE/CVF international conference on computer vision, pp. 4015–4026. Kontogianni, T., Gygli, M., Uijlings, J., Ferrari, V., 2020. Continuous adap-tation for interactive object segmentation by learning from corrections, in: European Conference on Computer Vision, Springer. pp. 579–596. Kuijf, H.J., Biesbroek, J.M., De Bresser, J., Heinen, R., Andermatt, S., Bento, M., Berseth, M., Belyaev, M., Cardoso, M.J., Casamitjana, A., et al., 2019. Standardized assessment of automatic segmentation of white matter hyperintensities and results of the wmh segmentation challenge. IEEE transactions on medical imaging 38, 2556–2568. Liew, S.L., Lo, B.P., Donnelly, M.R., Zavaliangos-Petropulu, A., Jeong, J.N., Barisano, G., Hutton, A., Simon, J.P., Juliano, J.M., Suri, A., et al., 2022. A large, curated, open-source stroke neuroimaging dataset to improve lesion segmentation algorithms. Scientific data 9, 320. Ma, J., He, Y., Li, F., Han, L., You, C., Wang, B., 2024. Segment anything in medical images. Nature communications 15, 654. Ma, J., Yang, Z., Kim, S., Chen, B., Baharoon, M., Fallahpour, A., Asak-ereh, R., Lyu, H., Wang, B., 2025. Medsam2: Segment anything in 3d medical images and videos. arXiv preprint arXiv:2504.03600 . Maier, O., Menze, B.H., Von der Gablentz, J., Häni, L., Heinrich, M.P., Liebrand, M., Winzeck, S., Basit, A., Bentley, P., Chen, L., et al., 2017. Isles 2015-a public evaluation benchmark for ischemic stroke lesion segmentation from multispectral mri. Medical image analysis 35, 250– 269. Milletari, F., Navab, N., Ahmadi, S.A., 2016. V-net: Fully convolutional neural networks for volumetric medical image segmentation, in: 2016 fourth international conference on 3D vision (3DV), Ieee. pp. 565–571. Ravi, N., Gabeur, V., Hu, Y.T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle, R., Rolland, C., Gustafson, L., et al., 2025. Sam 2: Segment anything in images and videos, in: International Conference on Learning Representations, pp. 28085–28128. Sakinis, T., Milletari, F., Roth, H., Korfiatis, P., Kostandy, P., Philbrick, K., Akkus, Z., Xu, Z., Xu, D., Erickson, B.J., 2019. Interactive segmentation of medical images through fully convolutional neural networks. arXiv preprint arXiv:1903.08205 . Shapey, J., Kujawa, A., Dorent, R., Wang, G., Bisdas, S., Dimitriadis, A., Grishchuck, D., Paddick, I., Kitchen, N., Bradford, R., Saeed, S., Ourselin, S., Vercauteren, T., 2021a. Segmentation of vestibular schwan-noma from magnetic resonance imaging: An open annotated dataset and baseline algorithm (version 2). URL: https://doi.org/10.7937/TCIA. 9YTJ-5Q73 , doi: 10.7937/TCIA.9YTJ-5Q73 . [Data set]. Shapey, J., Kujawa, A., Dorent, R., Wang, G., Dimitriadis, A., Grishchuk, D., Paddick, I., Kitchen, N., Bradford, R., Saeed, S.R., et al., 2021b. Segmentation of vestibular schwannoma from mri, an open annotated dataset and baseline algorithm. Scientific Data 8, 286. Wang, G., Zuluaga, M.A., Li, W., Pratt, R., Patel, P.A., Aertsen, M., Doel, T., David, A.L., Deprest, J., Ourselin, S., et al., 2018. Deepigeos: a deep interactive geodesic framework for medical image segmentation. IEEE transactions on pattern analysis and machine intelligence 41, 1559– 1572. Wang, H., Guo, S., Ye, J., Deng, Z., Cheng, J., Li, T., Chen, J., Su, Y., Huang, Z., Shen, Y., et al., 2025. Sam-med3d: a vision foundation model for general-purpose segmentation on volumetric medical images. IEEE Transactions on Neural Networks and Learning Systems . 
+
+Page 16 of 17 Interactive 3D brain lesion segmentation with online adaptation 
+
+Wu, J., Wang, Z., Hong, M., Ji, W., Fu, H., Xu, Y., Xu, M., Jin, Y., 2025. Medical sam adapter: Adapting segment anything model for medical image segmentation. Medical image analysis 102, 103547. Xu, W., Liang, Z., Anthony, H., Ibrahim, Y., Cohen, F., Yang, G., Kam-nitsas, K., 2026. You point, I learn: Online adaptation of interactive segmentation models for handling distribution shifts in medical imaging, in: Proceedings of the International Conference on Learning Represen-tations (ICLR). Xu, W., Moffat, M., Seale, T., Liang, Z., Wagner, F., Whitehouse, D., Menon, D., Newcombe, V., Voets, N., Banerjee, A., et al., 2024. Feasi-bility and benefits of joint learning from mri databases with different brain diseases and modalities for segmentation, in: Medical Imaging with Deep Learning, PMLR. pp. 1771–1784. Zhou, T., Canu, S., Vera, P., Ruan, S., 2021. Feature-enhanced generation and multi-modality fusion based deep neural network for brain tumor segmentation with missing mr modalities. Neurocomputing 466, 102– 112. 
+
+Page 17 of 17

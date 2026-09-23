@@ -1,0 +1,204 @@
+Title: A Dual-Stream Regulated Reconstruction and Segmentation Network with Hierarchical Artifact-Prior Modeling for Ultra-Low-Field Pediatric Neuroimaging
+
+URL Source: https://arxiv.org/pdf/2609.20562v1
+
+Published Time: Fri, 18 Sep 2026 01:46:03 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# A Dual-Stream Regulated Reconstruction and Segmentation Network with Hierarchical Artifact-Prior Modeling for Ultra-Low-Field Pediatric Neuroimaging 
+
+Bahram Jafrasteh 1, Leo Milecki 1, and Qingyu Zhao 1
+
+Department of Radiology, Weill Cornell Medicine, New York, NY, USA 
+
+baj4003@med.cornell.edu 
+
+Abstract. Automated quality assessment, enhancement, and segmen-tation of multiple structures in 0.064 T ultra-low-field pediatric MRI are limited by a low signal-to-noise ratio, weak anatomical boundaries, and frequent artifacts. We present a unified framework for the LISA 2026 Challenge that performs all three tasks together within one inference pipeline. A network with two coupled streams, built on a 3D U-Net, first reconstructs an enhanced uLF volume and then combines the original and enhanced images for subcortical segmentation. To improve bound-ary stability, we add an auxiliary class covering brain tissue outside the target structures, derived from whole brain masks. A head conditioned on an artifact graph predicts the seven artifact ratings from reconstruc-tion residuals and frozen segmentation features. We address the scarcity of dense annotations using diffeomorphic registration from atlas to tar-get for label propagation and to regularize anatomical reconstruction. We report validation results across all three tasks. 
+
+Keywords: Ultra-Low-Field MRI · Multi-Task Learning · Image Re-construction · Subcortical Segmentation · Quality Assessment 
+
+## 1 Introduction 
+
+During the first years of life, the brain undergoes rapid morphological and tissue changes. Accurate magnetic resonance imaging (MRI) is therefore essential for characterizing healthy neurodevelopment and enabling the early identification of neurodevelopmental disorders [12]. While quality assessment and segmenta-tion methods perform well on adult MRI, they often fail on pediatric scans because of reduced contrast between gray and white matter and rapidly chang-ing anatomy [12,15]. These challenges are further amplified at low field strength. Portable ultra-low-field (uLF) systems such as the 0.064 T Hyperfine SWOOP scanner improve accessibility in low- and middle-income settings [3,11], but their lower spatial resolution, reduced signal-to-noise ratio (SNR), and frequent ac-quisition artifacts make quality assessment and anatomical segmentation con-siderably more difficult [12,15]. arXiv:2609.20562v1 [cs.CV] 17 Sep 2026 2 B. Jafrasteh et al. 
+
+The LISA 2026 Challenge addresses these limitations through three comple-mentary tasks on pediatric uLF MRI acquired across three international sites: 
+
+Task 1a predicts the severity of seven artifact types (Noise, Zipper, Position-ing, Banding, Motion, Contrast, and Distortion); Task 1b enhances uLF images by reducing noise and motion artifacts; and Task 2 segments eleven clinically relevant subcortical structures. Although these tasks are inherently related, existing challenge solutions treat them independently using separate models [12,15]. We instead propose a unified 
+
+framework that jointly performs quality assessment, image enhancement, and anatomical segmentation through a shared representation while still allowing each task to be optimized on its own terms. Our contributions are: i) A 3D U-Net with two coupled streams, linking reconstruction and segmen-tation through an operator that isolates gradients between them, stabilizing joint optimization while sharing parameters. ii) A semi-supervised strategy driven by registration that fine-tunes a pretrained diffeomorphic network to propagate atlas labels onto unlabeled scans while regularizing anatomical consistency during reconstruction. iii) A head for quality prediction, conditioned on a graph, exploiting correlations among the seven artifact attributes through an ordinal loss that accounts for distance between severity levels, operating on detached embeddings from residuals and skip connections. iv) An auxiliary class covering brain foreground outside the target structures, which regularizes subcortical segmentation by separating target structures, remaining brain tissue, and extracranial background. v) A training strategy with three stages: a reconstruction warm-up, joint train-ing of reconstruction and segmentation with registration-driven augmenta-tion, and a final quality-head optimization, yielding one deployable model for all tasks. 
+
+## 2 Methods 
+
+Overview. Our framework jointly addresses image enhancement (reconstruc-tion, Task 1b), anatomical segmentation (Task 2), and quality assessment (Task 1a) within one unified architecture (Figure 1). The framework consists of a shared backbone for reconstruction and segmentation, followed by a lightweight quality assessment head. For stability, training is performed sequentially, where the joint reconstruction and segmentation backbone is first trained (Section 2.1). Then, the quality assessment head is trained on the frozen backbone features. The seg-mentation head predicts 13 mutually exclusive classes: the eleven official LISA structures, an auxiliary class for brain foreground outside those structures, and background. The auxiliary class contains only voxels from the brain mask that lie outside the target structures. To enlarge the pool of densely annotated anatomy, we additionally incorporate high-field neonatal scans from the developing Hu-man Connectome Project (dHCP) [9]. Fully labeled LISA and dHCP samples Dual-Stream Regulated Network for Low-Field Pediatric MRI 3Stage 1 — Reconstruction 3D U-Net Stage 2 — Segmentation 3D U-Net uLF Input   
+
+> bneck encoder decoder
+> recon
+> α= 0.3 13 classes
+> 11 target + brain foreground + background forward (data path) Residual quality head parent log-odds dependency skip connection
+> QualityPrediction
+> Noise Motion Positioning
+> Layer 1 (roots)
+> Contrast Zipper
+> Layer 2
+> Banding Distortion
+> Layer 3 (leaves) 7 ordinal ratings {0,1,2} — L_ord
+> 012
+> Skip Features Residual Encoder
+
+Fig. 1. Overview of the proposed framework. Stage 1 reconstructs an enhanced volume from the degraded uLF input; the enhanced volume is concatenated with the raw input (through the operator Sα that scales gradients, α=0 .3) and fed to the Stage 2 segmentation encoder-decoder. In a final stage, the hierarchical quality head is trained on embeddings from two sources: a residual encoder processes the artifact residual map (xraw − xrec ), and the detached features from the segmentation encoder’s skip connections provide anatomy-aware context (gradient stopped, dashed). 
+
+supervise segmentation directly, while unlabeled uLF scans serve as registra-tion targets to generate warped pairs of atlas images and labels that augment segmentation training. Throughout the paper, we use degradation to denote the seven LISA artifact types: Noise, Zipper, Positioning, Banding, Motion, Contrast, and Distortion. Each image is associated with a vector of artifact severities mi ∈ { 0, 1, 2}7,where entries denote absent, mild, or severe artifacts. For real LISA scans, this vector is derived from expert quality ratings when available. To augment the data for training quality assessment, we also synthetically degraded scans by a degradation pipeline (Section 3.1). 
+
+2.1 Joint Reconstruction–Segmentation 
+
+Enhancement and segmentation are complementary objectives but require dif-ferent optimization goals. We therefore use a 3D U-Net with two coupled streams and controlled gradient flow. The backbone is a pair of 3D U-Nets [2] operating on the same input size. 
+
+Reconstruction. Reconstruction aims not only to denoise uLF MRI, but to suppress artifact patterns while preserving anatomical structure. Because sev-eral uLF artifacts have strong signatures in the frequency domain, we combine spatial, spectral, structural, and smoothness constraints. Stage 1 (reconstruc-tion) maps the single-channel uLF input xraw to an enhanced volume xrec us-4 B. Jafrasteh et al. 
+
+ing isotropic 3×3×3 convolutions, four levels of down-sampling, and dedicated adapters on the skip connections that decouple encoder features from the decoder path. Losses computed pixel by pixel are insufficient for ultra-low-field MRI be-cause several artifacts (e.g., banding and zipper artifacts) exhibit characteris-tic patterns in the frequency domain that are only weakly penalized by spa-tial losses. We therefore define a reconstruction loss combining a spatial MSE with a term in the frequency domain that matches magnitude spectra from the Fourier transform. Let F denote the orthonormal 3D Fourier transform, 
+
+Lspatial = ∥xrec − xclean ∥22 and Lfreq = |F (xrec )| − |F (xclean )| 22. From the metadata on artifact severity, we define an indicator of periodic artifacts that comes either from expert ratings for real LISA scans or from the simulator log for synthetically degraded scans. For synthetically degraded scans, the degrada-tion pipeline records the applied corruption types and relative magnitudes; these metadata are used only for reconstruction training and loss weighting, and are not treated as Task 1a true quality labels. The reconstruction fidelity term is then 
+
+Lfidelity = (1 − wf ) Lspatial + wf Lfreq (1) The frequency weight wf is set from the metadata on artifact severity: wf = 0 .4
+
+when banding or zipper artifacts are present, and wf = 0 .15 otherwise. This gives stronger spectral supervision to artifacts with periodic structure in the fre-quency domain, while keeping the spatial term dominant for other samples. This adaptive fidelity term is combined with structural and smoothness regularizers, 
+
+Lrec = 1 .5 Lfidelity + 1 .5 LSSIM + 0 .5 LTV , (2) where LSSIM [14] preserves local structure and LTV suppresses residual noise at high frequencies. Reconstruction supervision comes from paired clean and degraded data, including synthetically degraded volumes whose clean targets are known by construction. 
+
+Segmentation. Stage 2 receives a two-channel volume formed by concatenating the raw input with the Stage 1 output, so that the segmentation encoder can use both the original signal and its enhanced counterpart. In uLF pediatric MRI, poor contrast between gray and white matter makes subcortical boundaries dif-ficult to delineate. We therefore introduce an auxiliary class for brain foreground to provide coarse anatomical context and to discourage target structures from leaking into the extracranial background. Stage 2 predicts the eleven LISA tar-get structures, i.e., left/right hippocampus, ventricle, caudate, lentiform, and thalamus, plus the corpus callosum. To stabilize boundaries under poor contrast between gray and white matter, we add an auxiliary class for brain foreground outside the target structures and train the decoder with nclasses =13 : eleven tar-get structures, non-target brain foreground, and background. The auxiliary class is derived from the whole brain mask after removing the eleven target structures. Dual-Stream Regulated Network for Low-Field Pediatric MRI 5
+
+Target voxels retain their anatomical labels, remaining voxels inside the brain are assigned to the auxiliary class, and voxels outside the brain are assigned to the background. This yields a mutually exclusive label map with 13 classes that can be trained with standard cross-entropy and Dice losses over multiple classes. This design is consistent with recent evidence that subdividing hetero-geneous background regions can improve biomedical segmentation by providing more informative contextual supervision [10]. Rather than annotating this foreground prior manually, we obtain the whole brain mask by applying the pretrained MGA-Net neonatal model for brain ex-traction [6], designed for MRI data of low quality, to each uLF volume. All gen-erated masks were visually inspected; fewer than 20 cases showed minor errors, which were manually corrected using MELAGE [5,6]. The resulting auxiliary class serves as a coarse spatial anchor, discouraging subcortical labels from leak-ing into the background outside the brain. The segmentation objective combines weighted cross-entropy, a soft Dice loss over multiple classes, and a smoothness penalty based on total variation: 
+
+Lseg = LCE + LDice + 0 .03 LTV . (3) 
+
+Registration-Driven Learning. Dense manual labels are limited in the LISA training set. We therefore use registration to propagate atlas labels to unlabeled uLF scans to enlarge the training pool for segmentation. In addition, since image enhancement should not modify the underlying anatomy, registration is used to regularize enhancement by penalizing anatomically implausible reconstructions. We use a pretrained diffeomorphic registration network, in the style of Vox-elMorph [1], for two complementary purposes. First, it is fine-tuned during joint training to propagate labels from atlas to target: for uLF scans without dense subcortical labels, a labeled atlas (xs, ys) matched in orientation is registered to the Stage 1 reconstruction xrec , producing a warped pair of image and la-bel (Tϕ(xs), Tϕ(ys)) which is added to the segmentation training batch as an augmented supervised sample. Second, a registration branch with gradients stopped serves as an evaluator of anatomical consistency for the reconstruction stream: for samples with a clean reference, large deformations required to align xrec to xclean indicate structural distortion and are penalized using 
+
+Lanat = LNCC 
+
+ Tϕ(xrec ), xclean 
+
+ + ∥∇ ϕ∥22. (4) where LNCC denotes the normalized cross-correlation loss, and ϕ is the deforma-tion field estimated by the frozen registration branch. The atlas pool includes labels from the LISA training set and 100 compatible dHCP samples. For both sources, we retain the eleven LISA target structures and the auxiliary mask for brain foreground outside the target structures. 
+
+Overall Objective. To stabilize training on unlabeled or weakly labeled sam-ples, we maintain a copy of the network, updated as an exponential moving 6 B. Jafrasteh et al. 
+
+average (EMA) of the trainable weights, that serves as a mean teacher [13] pro-viding consistency targets for the student. During joint training of reconstruction and segmentation, the main network minimizes a weighted sum of the per-task terms, 
+
+Ljoint = Lseg + Lcons + Lrec + 0 .2 Lanat , (5) where Lcons is the mean squared error between the student’s and the EMA teacher’s segmentation probabilities. A key challenge when optimizing for multiple tasks is preventing the segmen-tation objective from interfering with the reconstruction network. We therefore insert an operator Sα that scales gradients on the reconstructed branch before concatenation. Sα is an identity map on the forward pass and multiplies incoming gradients by a constant α on the backward pass: 
+
+xseg =  xraw ∥ S α(xrec ) , ∂Sα(x)
+
+∂x = α I, α = 0 .3. (6) This attenuates the segmentation gradient flowing back into the reconstruction stream, letting Stage 1 specialize in artifact suppression while still providing a useful enhanced input to Stage 2. The quality head is not coupled by gradi-ents at all: it is trained in a separate final phase using detached embeddings, from the residual and from skip features, taken from the frozen backbone for reconstruction and segmentation (Section 2.2). 
+
+2.2 Quality Head 
+
+Quality assessment differs from enhancement and segmentation because it re-quires explicit recognition of artifact type and severity. We therefore train a dedicated quality prediction head after freezing the backbone for reconstruction and segmentation, preventing the quality objective from perturbing the shared image representation. The quality head predicts the seven ordinal artifact ratings using a dependency graph learned from statistics on how artifacts co-occur in the training set. Noise, Motion, and Positioning are treated as root attributes; Con-trast and Zipper are conditioned on the root predictions; Banding and Distortion are conditioned on their respective parent nodes in the estimated dependency graph. Parent logits are detached before being passed to child predictors, so the child losses do not alter the parent classifiers. The head uses two detached inputs: an embedding of the residual xraw − xrec 
+
+and an embedding that captures anatomical context, obtained by globally pool-ing skip features from the frozen segmentation encoder. These embeddings are concatenated with an embedding of acquisition orientation and passed through small MLP classifiers arranged according to the artifact graph. Because sever-ities are ordered ( 0<1<2), we use an ordinal loss that accounts for distance between severity levels. For artifact a with logits la, target ya, and probabilities 
+
+paj = softmax( la)j ,
+
+Lord = 17
+
+> 7
+
+X
+
+> a=1
+
+βaLCE (la, y a)
+
+1 + 
+
+> 2
+
+X
+
+> j=0
+
+j p aj − ya
+
+ , (7) Dual-Stream Regulated Network for Low-Field Pediatric MRI 7
+
+where βa are weights for each artifact, normalized to sum to seven. These weights are used as a term that balances the tasks. 
+
+## 3 Experimental Setup 
+
+3.1 Data, Preprocessing, and Validation Challenge data. The LISA challenge provides more than 500 pediatric T2-weighted scans acquired on 0.064 T Hyperfine SWOOP scanners across three sites, with expert quality ratings for the seven Task 1 artifact domains and subcortical segmentations registered to uLF space for Task 2 [12,7]. All LISA uLF volumes were processed in the geometry specific to their acquisition. To avoid introducing unrealistic spatial assumptions, external scans were not treated as native isotropic inputs; instead, they were converted into orientation-specific geometries that resemble uLF acquisitions. External data were used only during training and were excluded from validation and test evaluation. 
+
+External high-field data. To increase anatomical supervision, we incorpo-rated 100 compatible neonatal MRI samples from the developing Human Con-nectome Project (dHCP). Only labels corresponding to the eleven LISA target structures and the class for non-target brain foreground were retained; all other tissue labels were discarded. To reduce the domain gap, dHCP images and la-bels were resampled into geometries compatible with LISA and synthetically degraded online during training. 
+
+Synthetic degradation. Synthetic degradation was used to expose the model to a broader range of artifacts resembling uLF while preserving known clean targets. Degradation was applied online to the dHCP variants specific to each orientation and, with probability 0.5, to clean LISA scans, defined as uLF scans with expert QC ratings of 0 for all seven artifact attributes. The degra-dation pipeline stochastically composed physics corruptions resembling uLF, periodic artifacts, and effects on resolution and intensity, while recording the corresponding synthetic severity vector. Thus, dHCP contributed anatomical structure and clean references at high field strength, whereas the appearance of uLF and artifact severity were generated dynamically during training. Because synthetic corruption levels are not calibrated to the LISA ordinal QA scale, they were used only for reconstruction training; Task 1a was supervised only by expert ratings. 
+
+Validation protocol. All validation splits were defined at the patient level to avoid leakage across original scans, synthetic degradations, variants specific to each orientation, and samples derived from atlases. Because more expert-rated samples were available for Task 1a, quality assessment used a validation split of 20%, whereas reconstruction and segmentation used validation splits of 10%, also defined at the patient level. Splits were stratified by labels specific to each task when available, with Task 1a stratified by the profile across all seven artifacts. 8 B. Jafrasteh et al. 
+
+3.2 Training Schedule Overview. Training proceeded in three phases designed to stabilize the depen-dencies between tasks: reconstruction was first initialized independently, then reconstruction and segmentation were jointly optimized, and the quality head was finally trained on frozen backbone features. 
+
+Phase 1: reconstruction warm-up. The network received degraded inputs and was trained to recover the corresponding clean targets using Lrec , with Lanat 
+
+added when a clean reference was available. The segmentation stage and quality head were not trained in this phase. This warm-up stabilized the enhanced image 
+
+xrec before it was used as an input to the segmentation network. 
+
+Phase 2: joint training of reconstruction and segmentation. Stage 1 and Stage 2 were optimized jointly using Ljoint . The segmentation network re-ceived an input with two channels, [xraw ∥ S α(xrec )] , where Sα attenuated seg-mentation gradients flowing back into Stage 1. Fully labeled LISA and dHCP samples supervised Lseg directly. For uLF samples without dense labels, the reg-istration network aligned a labeled atlas matched in orientation to the target and added the resulting warped pair of atlas image and label to the segmen-tation batch as an augmented supervised sample. In parallel, we maintained a copy of the trainable network for reconstruction and segmentation, updated as an exponential moving average, that served as the mean teacher [13]. During training, this teacher provided consistency targets for unlabeled or weakly la-beled samples. After training, the EMA teacher weights were used as the final model for reconstruction and segmentation at inference. 
+
+Phase 3: training the quality head. After Phase 2, the EMA teacher was retained as the final backbone for reconstruction and segmentation, and frozen. The hierarchical quality head was then trained on LISA samples using only expert artifact ratings. Its input was a detached embedding from two sources: the residual artifact representation from xraw − xrec and pooled skip features from the frozen segmentation encoder. This separation prevented the quality objective from altering reconstruction or segmentation features and avoided the degenerate case, observed under joint training, in which every quality prediction collapsed to “absent”. 
+
+Implementation details. All networks were trained with Adam using an initial learning rate of 10 −3 and a polynomial schedule for decaying the learning rate, ηt = η0(1 − t/T )0.9, where T = 50 ,000 iterations. Training used a batch size of 4, and the EMA teacher used a decay of 0.999. Volumes were processed as full 
+
+160 × 192 × 128 inputs after preprocessing, without additional patch sampling. 
+
+3.3 Evaluation Metrics 
+
+Evaluation followed the LISA challenge protocol [12,8]. Task 1a was assessed us-ing accuracy, precision, recall, and F1/F2 scores for artifact severity prediction. Task 1b was evaluated using PSNR, FID [4], LPIPS [16], BRISQUE ∆, CLIP-IQA, and FRD. Task 2 was evaluated using Dice similarity coefficient (DSC), Hausdorff distance (HD), 95th-percentile Hausdorff distance (HD95), average symmetric surface distance (ASSD), and relative volume error (RVE). Dual-Stream Regulated Network for Low-Field Pediatric MRI 9
+
+Table 1. Internal validation results. Segmentation: 7 volumes; enhancement: 12 vol-umes; quality assessment: 106 volumes. Distances in mm; RVE is absolute relative volume error. 
+
+Task 2: Segmentation 
+
+Structure DSC HD HD95 ASSD RVE Hippocampus L/R .818/.830 2.51/2.79 1.70/1.46 .37/.35 .085/.056 Ventricle L/R .858/.872 2.27/2.50 1.14/1.10 .36/.34 .044/.102 Caudate L/R .887/.910 2.24/2.00 1.06/1.00 .33/.28 .071/.052 Lentiform L/R .911/.919 1.88/1.70 1.14/1.06 .36/.35 .071/.063 Thalamus L/R .935/.934 1.78/1.53 1.06/1.06 .34/.34 .024/.045 Corpus callosum .817 2.87 1.14 .34 .079 Mean .881 2.19 1.18 .34 .063 
+
+Task 1b: Enhancement 
+
+PSNR: 34.17 LPIPS: .160 FID: 2.6×10 −5 BRISQUE ∆: 4.23 CLIPIQA: .257 FRD: .174 
+
+Task 1a: Quality Assessment 
+
+Accuracy Precision Recall F1 F2 Weighted .829 .682 .633 .638 .632 Noise .877 .739 .862 .784 .825 Zipper .811 .773 .748 .760 .752 Positioning .877 .713 .487 .541 .502 Banding .972 .660 .663 .662 .663 Motion .774 .645 .551 .561 .552 Contrast .783 .748 .635 .669 .646 Distortion .708 .494 .483 .487 .484 
+
+Table 2. Compact ablation summary (7 segmentation / 12 enhancement volumes). Distances in mm.                                          
+
+> Model DSC ↑HD95 ↓ASSD ↓RVE ↓PSNR ↑LPIPS ↓FID ↓BRISQUE ∆↓CLIPIQA ↑FRD ↓
+> Seg./Recon. only .763 1.91 .74 .136 32.11 .183 5.2×10 −51.71 .226 .201 Detached .824 1.47 .54 .123 33.17 .164 1.1×10 −43.23 .242 .193 Proposed .881 1.18 .34 .063 34.17 .160 2.6×10 −54.23 .257 .174
+
+## 4 Results 
+
+We report internal validation results across all three challenge tasks. Table 1 sum-marizes the performance of the final integrated model that performs all tasks, while Table 2 presents a compact ablation of the main architectural and training components. Figure 2 shows qualitative examples for Task 1b and Task 2. The ablation demonstrates the benefit of the proposed coupled framework: compared with the baselines that handle only one task (segmentation or reconstruction alone) and the detached baseline, the full model improves 9 of the 10 metrics in Table 2, with DSC increasing monotonically across variants (.763 → .824 →
+
+.881). The BRISQUE ∆ exception reflects a tradeoff between perception and dis-tortion: the strongest denoiser is also the smoothest, which BRISQUE penalizes more than PSNR, LPIPS, FID, or CLIPIQA do. Removing a component de-grades the quality head the same way: dropping the residual between raw and reconstructed inputs and using a simpler QC head decreases the macro-F1 score from 0.64 to 0.54 and the macro recall from 0.63 to 0.55. Finally, the official LISA validation leaderboard shows only small performance differences among the top methods across all three tasks, highlighting the challenge’s competitive-ness. We therefore emphasize the proposed framework’s consistent performance 10 B. Jafrasteh et al. 
+
+across enhancement, quality assessment, and segmentation, aside from the ex-plainable BRISQUE ∆ exception noted above. Task 1b Enhancement (a)         
+
+> Nois 2, Zipp 1 Input uLF (b) Enhanced (c) |Enhanced −Input|
+> Task 2 Segmentation (d)
+> uLF input ( ciso )(e) Reference (f) DSC 0.89 Prediction vs reference
+> 0.02 0.04 0.06 0.08 0.10 Hippocampus L Hippocampus R Ventricle L Ventricle R Caudate L Caudate R Lentiform L Lentiform R Thalamus L Thalamus R Corpus callosum boundary
+
+Fig. 2. Qualitative examples. Top (Task 1b): input, enhanced output, and residual map for a Noise =2, Zipper =1 case. Bottom (Task 2): input, reference, and predicted overlay (dashed reference boundary). 
+
+## 5 Discussion 
+
+Decoupling reconstruction and segmentation into a regulated dual stream lets one network serve all three LISA tracks without a single objective dominat-ing shared features, and label propagation driven by registration is what makes segmentation feasible under sparse annotation. Conditioning each artifact pre-diction on detached parent logits is more expressive than independent classifiers, and the auxiliary class for brain foreground outside the target structures limits label bleeding by explicitly separating target structures, remaining brain tissue, and extracranial background. Several limitations remain. The training pairs augmented from atlases and the anatomical consistency term both depend on a registration network applied to noisy uLF data, though atlases matched in geometry and histogram matching mitigate this; the anatomical consistency term itself also penalizes how smooth the deformation is ( ∥∇ ϕ∥22) rather than its magnitude directly, so adding an explicit penalty on magnitude is a natural extension. The artifact dependency graph is derived from cohort-level correlations and may not transfer to unseen Dual-Stream Regulated Network for Low-Field Pediatric MRI 11 
+
+sites, and strong label imbalance makes F1/F2 sensitive to weighting and thresh-old choices, so per-attribute reporting matters (Table 1). Finally, given the num-ber of proposed components, Table 2 spans broad configurations rather than a full leave-one-out study, and omits comparison against single-task baselines; both are left for future work. 
+
+## 6 Conclusion 
+
+We presented a unified 3D framework for artifact quality assessment, image en-hancement, and segmentation of multiple subcortical structures in 0.064 T pedi-atric MRI for the LISA 2026 Challenge. The framework combines reconstruction that is aware of frequency content, regulated coupling between reconstruction and segmentation, propagation of atlas labels driven by registration, an auxil-iary class for brain foreground outside the target structures, and a quality head conditioned on a graph and trained on detached reconstruction residuals and seg-mentation features. The deployed model performs reconstruction, segmentation, and quality assessment in a single inference pipeline; the registration network is used only during training, for supervision based on atlases and for anatomical regularization. Internal validation and ablation results support the feasibility of the integrated design. 
+
+Disclosure of Interests. The authors have no competing interests to declare that are relevant to the content of this article. 
+
+## References 
+
+1. Balakrishnan, G., Zhao, A., Sabuncu, M.R., Guttag, J., Dalca, A.V.: Voxelmorph: a learning framework for deformable medical image registration. IEEE transactions on medical imaging 38 (8), 1788–1800 (2019) 2. Çiçek, Ö., Abdulkadir, A., Lienkamp, S.S., Brox, T., Ronneberger, O.: 3D U-Net: Learning dense volumetric segmentation from sparse annotation. In: Medical Im-age Computing and Computer-Assisted Intervention (MICCAI). Lecture Notes in Computer Science, vol. 9901, pp. 424–432. Springer (2016). https://doi.org/10. 1007/978-3-319-46723-8_49 3. Deoni, S.C., Bruchhage, M.M., Beauchemin, J., Volpe, A., D’Sa, V., Huentelman, M., Williams, S.C.: Accessible pediatric neuroimaging using a low field strength mri scanner. Neuroimage 238 , 118273 (2021) 4. Heusel, M., Ramsauer, H., Unterthiner, T., Nessler, B., Hochreiter, S.: Gans trained by a two time-scale update rule converge to a local nash equilibrium. Advances in neural information processing systems 30 (2017) 5. Jafrasteh, B., López, S.P.L., Fernández, I.B.: Melage: A purely python based neu-roimaging software (neonatal). arXiv preprint arXiv:2309.07175 (2023) 6. Jafrasteh, B., Lubián-López, S.P., Trimarco, E., Ruiz, M.R., Barrios, C.R., Al-magro, Y.M., Benavente-Fernández, I.: Mga-net: A novel mask-guided attention neural network for precision neonatal brain imaging. NeuroImage 300 , 120872 (2024) 12 B. Jafrasteh et al. 7. Lepore, N., Linguraru, M.G.: Low Field Pediatric Brain Magnetic Resonance Im-age Segmentation and Quality Assurance: First MICCAI Challenge, LISA 2024, Held in Conjunction with MICCAI 2024, Marrakesh, Morocco, October 10, 2024, Proceedings. Springer (2025) 8. Maier-Hein, L., Reinke, A., Kozubek, M., Martel, A.L., Arbel, T., Eisenmann, M., Hanbury, A., Jannin, P., Müller, H., Onogur, S., et al.: Bias: Transparent reporting of biomedical image analysis challenges. Medical image analysis 66 , 101796 (2020) 9. Makropoulos, A., Robinson, E.C., Schuh, A., Wright, R., Fitzgibbon, S., Bozek, J., Counsell, S.J., Steinweg, J., Vecchiato, K., Passerat-Palmbach, J., et al.: The developing human connectome project: A minimal processing pipeline for neonatal cortical surface reconstruction. Neuroimage 173 , 88–112 (2018) 10. Saluja, R., Cihangir, A., Deng, R., Paetzold, J.C., Liu, F., Sabuncu, M.R.: Back-split: The importance of sub-dividing the background in biomedical lesion segmen-tation. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 8492–8502 (2026) 11. Sheth, K.N., Mazurek, M.H., Yuen, M.M., Cahn, B.A., Shah, J.T., Ward, A., Kim, J.A., Gilmore, E.J., Falcone, G.J., Petersen, N., et al.: Assessment of brain injury using portable, low-field magnetic resonance imaging at the bedside of critically ill patients. JAMA neurology 78 (1) (2021) 12. Tapp, A., et al.: Quality assurance and hippocampal segmentation on low-field pediatric magnetic resonance images. In: Low Field Pediatric Brain Magnetic Res-onance Image Segmentation and Quality Assurance (LISA 2024). Lecture Notes in Computer Science, vol. 15515, pp. 56–66. Springer Nature Switzerland, Cham (2025). https://doi.org/10.1007/978-3-031-83008-2_6 13. Tarvainen, A., Valpola, H.: Mean teachers are better role models: Weight-averaged consistency targets improve semi-supervised deep learning results. Advances in Neural Information Processing Systems (NeurIPS) 30 , 1195–1204 (2017) 14. Wang, Z., Bovik, A.C., Sheikh, H.R., Simoncelli, E.P.: Image quality assessment: from error visibility to structural similarity. IEEE Transactions on Image Process-ing 13 (4), 600–612 (2004). https://doi.org/10.1109/TIP.2003.819861 15. Zalevskyi, V., Bulut, D.B., Sanchez, T., Bach Cuadra, M.: Segmenting infant brains across magnetic fields: Domain randomization and annotation curation in ultra-low field mri. In: MICCAI Challenge on Low Field Pediatric Brain Magnetic Resonance Image Segmentation and Quality Assurance, pp. 50–62. Springer (2025) 16. Zhang, R., Isola, P., Efros, A.A., Shechtman, E., Wang, O.: The unreasonable effectiveness of deep features as a perceptual metric. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 586–595 (2018)

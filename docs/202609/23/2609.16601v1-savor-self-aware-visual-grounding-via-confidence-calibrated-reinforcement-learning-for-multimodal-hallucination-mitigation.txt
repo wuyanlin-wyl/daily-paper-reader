@@ -1,0 +1,516 @@
+Title: SAVOR: Self-Aware Visual Grounding via Confidence-Calibrated Reinforcement Learning for Multimodal Hallucination Mitigation
+
+URL Source: https://arxiv.org/pdf/2609.16601v1
+
+Published Time: Wed, 16 Sep 2026 00:45:57 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# SAVOR: Self-Aware Visual Grounding via Confidence-Calibrated Reinforcement Learning for Multimodal Hallucination Mitigation 
+
+Zixiu Ding 1,2, Zilin Zhao 2, Yingjie He 2, Xinlang Kang 2, Guansu Wang 2, and Wei Zhang B 
+
+> 1
+
+Central South University  
+
+> 2
+
+Peking University 
+
+Abstract. Multimodal large language models (MLLMs) have made strong progress on visual question answering and image captioning, yet they still produce fluent claims about objects, attributes, or relations that are not grounded in the image. Many remedies either modify decoding at test time, which adds latency, or fine tune with preferences such as DPO vari-ants, which teach which answer is preferred but not when the model’s own answer is unreliable. We argue that calibrated self assessment is the missing signal. We introduce Savor , a training framework that (i) augments the output schema with token and answer confidence, (ii) op-timises the policy with a Group Relative Policy Optimisation (GRPO) objective that penalises calibration error and poor abstention decisions, and (iii) uses the learned confidence at inference time to revisit visual evidence only when the model is uncertain. Experiments on POPE, Hal-lusionBench, AMBER and MMHal-Bench across two recent backbones (InternVL3-8B and Qwen3-VL-8B) show that Savor reduces hallucina-tion while preserving general capability on MME and MMBench, with lower Expected Calibration Error than DPO and decoding baselines. 
+
+Keywords: Multimodal Large Language Models · Hallucination Mitiga-tion · Reinforcement Learning · Confidence Calibration · Self Correction. 
+
+1 Introduction 
+
+Multimodal large language models (MLLMs) such as InternVL3 [56], Qwen3-VL [2] and LLaVA-OneVision-1.5 [1] have narrowed the gap between vision and language, and now perform well on many visual question answering and cap-tioning benchmarks [16,26]. A persistent obstacle, however, is that these models still produce fluent and confident claims about objects, attributes, counts, or relations that are not supported by the image [21,8,41,19]. Such errors are es-pecially problematic because hallucinated answers often carry the same surface certainty as correct ones, leaving users with little signal for when an answer should be trusted [49,25]. In practice, the model may fail twice: it gives an un-supported visual statement, then presents it with enough confidence that a user or downstream system has no clear reason to reject it. arXiv:2609.16601v1 [cs.CV] 15 Sep 2026 2 Z. Ding et al. 
+
+Existing mitigation methods mostly follow one of two routes. Test-time meth-ods, including contrastive decoding [20], attention reallocation [13], and verifier-style correction [3], intervene during generation without changing the model parameters. They can reduce hallucination, but they add latency and do not change the policy that produced the error. Preference tuning methods such as RLHF-V [50], HA-DPO [52], HALVA [33], and mDPO [39] instead train on hallucination-oriented preference pairs. These methods internalise part of the correction, but their supervision is still comparative: the model learns which answer is preferred, not how reliable its own answer is. As a result, a policy can become more accurate on average while remaining poorly calibrated. This distinction matters because a model that hallucinates less can still be risky if it is most confident exactly when it is wrong. This paper studies hallucination mitigation through calibrated self assess-ment. The idea is motivated by work on textual LLMs showing that models can express meaningful uncertainty and that explicit supervision of uncertainty can improve truthfulness [22,15,38,46]. The multimodal setting makes this direction natural. Visual hallucinations can often be checked against the input image, giving a relatively clean correctness signal, and current MLLMs already sup-port structured reasoning traces in which a confidence channel can be inserted without architectural changes. The key question is how to make the accuracy of the model’s own self assessment part of the optimisation target, instead of treating confidence as a diagnostic added after generation. In other words, the model should not only learn to give a better answer; it should also learn when its answer is visually supported, when it is uncertain, and when abstention is safer than a guess. We introduce Savor , a training and inference framework for making an MLLM both more grounded and better calibrated. During a short supervised ini-tialisation stage, the model learns to emit confidence values for visually grounded spans, together with a single confidence score for the whole answer. The policy is then optimised with Group Relative Policy Optimisation (GRPO) [35]. In addi-tion to answer correctness, the reward includes a calibration term that compares confidence with empirical rollout accuracy, and an abstention term that discour-ages confident guesses when the visual evidence is weak. At inference time, the same answer confidence triggers a lightweight visual re-attention step: when con-fidence is below a threshold, the model crops the most attended region, queries itself again, and either returns the revised answer or abstains. This keeps the correction loop inside the same policy, instead of relying on a separate verifier or applying an expensive decoding strategy to every prompt. Our experiments are designed to test both hallucination reduction and the quality of the learned confidence signal. Across POPE, HallusionBench, AM-BER and MMHal-Bench, Savor consistently improves over preference-tuning and standard GRPO baselines on two recent 8B-scale backbones. The gains are most visible in calibration: on the adversarial split of POPE, for instance, Ex-pected Calibration Error is reduced from 0.272 with vanilla GRPO to 0.085 
+
+with Savor . At the same time, general visual-language ability, as measured by SAVOR: Self-Aware Visual Grounding via Calibrated RL 3
+
+MME and MMBench, remains essentially unchanged. These results suggest that the calibration objective improves reliability without turning the method into a narrow trade-off against general capability. The main contributions are summarised as follows: 
+
+– We formulate MLLM hallucination mitigation as a calibration problem, rather than only a preference ranking problem, and use calibration error as a direct reward signal in multimodal RL. 
+
+– We develop Savor , a unified pipeline that learns to answer, report visual confidence, abstain under weak evidence, and revisit visual evidence within the same policy. 
+
+– We evaluate the approach on InternVL3-8B and Qwen3-VL-8B across hallu-cination, calibration and general capability benchmarks, showing consistent hallucination reduction and substantially lower ECE while preserving overall capability. 
+
+2 Related Work 
+
+2.1 Hallucination Diagnosis and Correction at Inference 
+
+Object, attribute and relational hallucinations in MLLMs are commonly mea-sured by POPE [21], HallusionBench [8], AMBER [41] and MMHal-Bench [37]. These benchmarks cover object existence, counting, attributes, spatial relations and visually grounded commonsense; related suites probe cross-modal ambi-guity [43], context dependence [26], cross-view spatial reasoning [6], temporal grounding [54] and robustness to structural corruption [19]. Diagnostic studies further connect such errors to language priors and attention concentration [13,24]. This line of work establishes our evaluation setting, but mostly measures hallu-cination after generation; it does not teach the model to recognise when its own visual claims are unreliable. Correction methods used at inference can intervene without updating the model: VCD [20] uses visual contrastive logits, OPERA [13] adjusts attention, and HALC [3] adds verification. Although these methods can improve frozen MLLMs, the correction remains external to the policy and adds decoding or verification cost at deployment time. Savor keeps a lightweight correction loop, but triggers it only when the learned confidence signal indicates uncertainty. 
+
+2.2 Preference and Reinforcement Learning for Multimodal Alignment 
+
+Hallucination-aware alignment methods update the model with preference or RL signals. RLHF-V [50], HA-DPO [52], HALVA [33] and mDPO [39] use human or synthetic preference data to make visual instruction tuning less prone to hallucination. Their supervision, however, is comparative: the model learns that one answer is better than another, not that its reported confidence should match the probability of being correct. Thus preference tuned policies may become 4 Z. Ding et al. 
+
+more accurate while remaining overconfident on ambiguous prompts. A parallel line reshapes the reward itself, aligning updates with gradient evidence [53], spreading group relative credit over intermediate steps [36], or replacing surface overlap scores with hierarchical task aware rewards for grounded generation [44]. GRPO, introduced in DeepSeekMath [35] and scaled in DeepSeek-R1, re-moves the critic by normalising rewards within a rollout group. Recent multi-modal variants apply similar ideas to visual reasoning [40] and hallucination sup-pression [42]. We also use GRPO, but the rollout group serves an additional role: it supplies an empirical accuracy estimate against which the model’s verbalised confidence can be calibrated. Because the group mixes agreeing and conflict-ing rollouts, weighting signals by their mutual consistency rather than summing them is the same principle used to reconcile conflicting updates in distributed training [11]. 
+
+2.3 Calibration, Verbalised Uncertainty and Self-aware Policies 
+
+Textual LLM studies show that models can verbalise useful uncertainty [22], encode known/unknown signals [15], and be improved by prompting or super-vised calibration [38,46]. Related diagnostics read reliability off internal dynamics rather than stated confidence, for instance through entropy trajectories [55], the spread of competing solutions [14], sensitivity to input order [18], or explicit rea-soning pathways [4]. Work on self-rewarding models further suggests that model judgements can enter the optimisation loop [51]. These results motivate a read-able confidence channel that requires no architectural change and can directly control inference decisions. For MLLMs, calibration must be tied to visual grounding: a model may be confident because of language priors even when the image contradicts them. Ex-isting calibration work rarely targets this visual failure mode, while hallucination mitigation rarely optimises calibration as a first-class objective. Savor connects the two by rewarding visually grounded confidence and using that confidence to decide when self-correction should be attempted. 
+
+3 Method 
+
+3.1 Overview 
+
+Savor starts from an MLLM πθ (y | I, x ), where I is an image and x a textual prompt, and turns it into a policy πθ (y, c | I, x ) that emits both an answer y
+
+and a structured confidence object c. Training proceeds in two stages (Fig. 1): a brief supervised stage that teaches the output schema, followed by GRPO with a calibration reward that optimises both the answer and the confidence under image grounded rewards. At inference time, a low confidence score gates an optional visual re-attention step (§3.4). SAVOR: Self-Aware Visual Grounding via Calibrated RL 5Calibration aware GRPO 
+
+Image I + prompt x “Describe the scene” 
+
+Off the shelf MMLM SAVOR Output Schema 
+
+Confidence augmented output                    
+
+> <think> ... </think> <answer> a[red:0.92] umbrella [under:0.61] atree </answer> <confidence> 0.78 </confidence> object ared umbrella under atree Current policy G rollouts Reward Design
+> （y(𝑮) , 𝒄 (𝑮) ）
+> 𝑹 𝒎𝒂𝒙 𝑹 𝒄𝒂𝒍 𝑹 𝒂𝒃𝒔 𝑹 𝒄𝒐𝒔𝒕
+
+𝑹 (𝒈) = 𝑹 𝒂𝒄𝒄 (𝒈) + 𝝀 𝟏 𝑹 𝒄𝒂𝒍 (𝒈) + 𝝀 𝟐 𝑹 𝒂𝒃𝒔 (𝒈) − 𝝀 𝟐 𝑹 𝒄𝒐𝒔𝒕 (𝒈) 
+
+> Jointly optimizes accuracy, calibration, abstention, and brevity
+
+20 11 
+
+> acc conf acc conf Group level ECE bonus Abstention reward Brier style penalty
+
+− 𝒄 𝒈 − 𝒂 (𝒈) 𝟐 
+
+𝒂 (𝒈) =1[y(𝑮) correct ]   
+
+> No Yes
+> return
+> (y 𝟏 , 𝑐 .)TopAttendedRegion
+
+𝑨 𝟏 
+
+> If still
+
+𝒄 𝟏 < 𝝉 ?  
+
+> No
+> 𝒄 /< 𝝉
+> CropAndZoom “not sure” return
+> (y 𝟐 , 𝑐 1)
+
+outputs 
+
+𝝅 𝜽 (𝒚, 𝒄|𝑰, 𝒙) 
+
+Answer y + structured confidence object c 
+
+> y=“I am not sure”
+
+abstention   
+
+> Learn when to say ”not sure” (optimized by 𝑅 !"# )
+> Localize evidence region Zoom into top-attended region
+> Re-query model Confidence re-check
+> (y 𝟐 , 𝑐 1) ← 𝜋 $（𝐼 %, 𝑥 ）
+
+𝝅 𝜽 (𝒚, 𝒄|𝑰, 𝒙) 
+
+Schema SFT/Warm-up 
+
+> Short SFT warm-up on automatically annotated traces
+
+SAVOR Output Schema   
+
+> attribute relation other
+
+0.78 0 0.25 0.50 0.75 1.00 0.80 0.92 0.95 0.61 0.97 0.90 Uncertain + 𝝆 𝟏  
+
+> answerable -𝝆 𝟐
+> other 0
+
+Advantage    
+
+> 𝑨 (𝒈) = 𝑹 𝒈 4𝝁 𝑹
+> 𝝈 𝑹 + 𝜺
+> reduce variance with within-group normalization
+
+Initial answer  
+
+> (y 𝟏 , 𝑐 ., 𝐴 .) ← 𝜋 7(𝐼, 𝑥)
+> Inference trigger
+> 𝒄 𝟐 < 𝝉 ?
+> Repeat until confidence Improves or max iter
+
+Calibration-aware components Policy update 
+
+𝝅 𝜽 𝒐𝒍𝒅 𝝅 𝜽 update Group relative policy improvement with optimization clipped objective 
+
+calibrated self awareness self aware behavior after training 
+
+> Confidence channels Selective behavior Calibration quality Hallucination mitigation
+
+Self aware policy Confidence-triggered attention 
+
+Fig. 1. Overview of Savor . The model learns confidence outputs, is optimised with a calibration reward in GRPO, and uses low confidence to run one crop-and-zoom query before answering or abstaining. 
+
+3.2 Output Schema with Visual Confidence 
+
+For an image–prompt pair (I, x ), the original MLLM defines a policy πθ (y | I, x )
+
+over textual answers. We augment the output space so that the policy produces not only an answer sequence y = ( w1, . . . , w T ), but also a structured confidence object 
+
+c =  cans , {(sm, c m)}Mm=1 
+
+, cans , c m ∈ [0 , 1] , (1) where cans is the confidence of the whole answer and each (sm, c m) pairs a visually grounded span sm ⊆ y with its visual confidence. The spans cover objects, attributes, counts and spatial relations that should be checkable from the image. The resulting policy is therefore 
+
+πθ (o | I, x ) = πθ (y, c ans , {(sm, c m)}Mm=1 | I, x ), o = ( y, c ), (2) which makes answer generation and confidence estimation part of the same se-quence decision, rather than two separate steps after decoding. The concrete text serialisation is illustrated in Fig. 1; we do not require any additional confidence head or modification to the vision encoder. The first training stage teaches this augmented output space with supervised fine tuning. Let Dsft = {(Ii, x i, y ⋆i , c ⋆i )}Ni=1 be the initialisation set, where c⋆i con-tains pseudo labelled span and answer confidences. Given K stochastic responses from an ensemble or from repeated sampling, a span pseudo label is estimated as 
+
+c⋆i,m = 1
+
+K
+
+KX
+
+k=1 
+
+⊮si,m is supported in y(k)
+
+i
+
+, (3) and the answer target is computed analogously from answer agreement or task correctness when available. The SFT objective combines standard response like-6 Z. Ding et al. 
+
+lihood with confidence regression after parsing the verbalised confidence values: 
+
+Lsft = −
+
+> Ti
+
+X
+
+> t=1
+
+log πθ (w⋆i,t | Ii, x i, w ⋆i,<t )+ α cans ,i −c⋆
+
+> ans ,i
+
+2 +γ 1
+
+MiMiX
+
+> m=1
+
+(ci,m −c⋆i,m )2.
+
+(4) This stage does not aim to solve hallucination by itself; it only makes the output format stable enough for the subsequent RL stage to optimise confidence as a behavioural signal. 
+
+3.3 GRPO with a Calibration Reward 
+
+Policy and rollout. After schema initialisation, we optimise the augmented policy with GRPO and a calibration reward. For each prompt (I, x ), the frozen reference policy πref and the previous policy πθold are kept fixed during one update. We sample a group of G rollouts G = {o(g)}Gg=1 , where o(g) = ( y(g), c (g)) ∼ πθold (· | 
+
+I, x ). Each rollout is parsed into an answer y(g), an answer confidence c(g)ans , span confidences {c(g) 
+
+> m
+
+}, and a task correctness signal a(g) ∈ [0 , 1] . The group mean and standard deviation of rewards are used to form the relative advantage 
+
+A(g) = R(g) − μR
+
+σR + ϵ , μR = 1
+
+G
+
+> G
+
+X
+
+> j=1
+
+R(j), σ2 
+
+> R
+
+= 1
+
+G
+
+> G
+
+X
+
+> j=1
+
+(R(j) − μR)2. (5) This relative normalisation is important in our setting because prompts vary substantially in difficulty: a hard visual reasoning prompt should not be com-pared directly with an easy object query, but its rollouts can still be ranked against each other. The policy update uses the GRPO clipped objective [34] with a KL penalty to the reference model: 
+
+Jgrpo (θ) = 1
+
+G
+
+> G
+
+X
+
+> g=1
+
+min 
+
+
+
+r(g) 
+
+> θ
+
+A(g), clip( r(g) 
+
+> θ
+
+, 1 − ϵc, 1 + ϵc)A(g)
+
+− ηkl DKL 
+
+ πθ (· | I, x ) ∥ πref (· | I, x ),
+
+(6) where 
+
+r(g) 
+
+> θ
+
+= πθ (o(g) | I, x )
+
+πθold (o(g) | I, x ) . (7) The KL term prevents the confidence objective from drifting into a narrow pol-icy tuned only for hallucination benchmarks, while the clipped ratio stabilises updates when a rollout receives a large calibration or abstention reward. 
+
+Reward design. The total reward for each rollout is 
+
+R(g) = R(g) 
+
+> acc
+
++ λ1 R(g) 
+
+> cal
+
++ λ2 R(g) 
+
+> abs
+
++ λ3 R(g) 
+
+> span
+
+− λ4 R(g)
+
+> cost
+
+, (8) with the five terms defined as follows. SAVOR: Self-Aware Visual Grounding via Calibrated RL 7
+
+Accuracy reward. R(g) 
+
+> acc
+
+= ⊮[correct (y(g))] for discriminative tasks such as POPE yes/no and VQA exact match, and a normalised generative score for open answer tasks, where higher AMBER F1 and lower CHAIR both receive larger rewards. 
+
+Calibration reward. Each rollout’s answer confidence c(g)ans is matched against the realised correctness a(g) ∈ { 0, 1} via a Brier penalty, augmented by an Ex-pected Calibration Error (ECE) bonus at the group level: 
+
+R(g) 
+
+> cal
+
+= −  c(g)ans − a(g)2 + β  ECE group,prev − ECE group 
+
+, (9) where ECE group is computed over the G rollouts of the current prompt by binning 
+
+c(g)ans into K buckets and comparing accuracy and mean confidence in each bucket. The first term shapes individual rollouts; the bracketed difference gives group credit to updates that reduce calibration error compared with the previous group. 
+
+Abstention reward. We also allow the policy to emit a designated abstention answer y∅ = “I am not sure.”. We define 
+
+R(g) 
+
+> abs
+
+=
+
+
+
++ρ1, if y(g) = y∅ and the prompt is intrinsically uncertain ,
+
+−ρ2, if y(g) = y∅ but the prompt is answerable ,
+
+0, otherwise ,
+
+(10) where “intrinsically uncertain” means that most rollouts in the group are incor-rect and the group accuracy is below a threshold τu. The abstention reward is therefore supervised by the rollout group itself, removing the need for explicit “unanswerable” labels. 
+
+Span grounding reward. Confidence values attached to generated spans should also reflect whether those spans are visually supported. Let v(g) 
+
+> m
+
+∈ { 0, 1} denote whether span s(g) 
+
+> m
+
+is verified by the available training annotations, object tags, OCR evidence, or lightweight grounding heuristics. We define 
+
+R(g) 
+
+> span
+
+= − 1
+
+MgMg
+
+X
+
+> m=1
+
+ c(g) 
+
+> m
+
+− v(g)
+
+> m
+
+2, (11) so that unsupported visual spans are penalised when assigned high confidence, while genuinely grounded spans are not discouraged. This term connects an-swer calibration with the local visual grounding signal used by the re-attention module. 
+
+Length cost. R(g) 
+
+> cost
+
+= |y(g)|/L max discourages reward hacking via verbosity. 
+
+Why calibration as a direct reward? Standard RLHF [29] / DPO [31] objectives are rank based: they tell the model that answer A should beat answer B, but never that the model’s own internal scoring of A should be numerically cor-rect. As a result, policies after training are often more accurate but also more overconfident [15]. The Brier term in Eq. (9) penalises both directions of miscal-ibration symmetrically, while the ECE bonus aggregates the signal at the group 8 Z. Ding et al. 
+
+level and damps the variance of individual Brier estimates. We show in §4.3 that removing either subterm visibly degrades calibration without changing accuracy much, isolating the contribution of this design. 
+
+3.4 Visual Re-Attention Triggered by Confidence 
+
+After RL training, cans is a usable scalar in [0 , 1] at inference time. We use it to decide whether one extra correction pass is needed. The decision rule is 
+
+ˆo =
+
+
+
+(y1, c 1), c1 ≥ τ, 
+
+(y2, c 2), c1 < τ and c2 ≥ τ, 
+
+(y∅, min( c1, c 2)) , c1 < τ and c2 < τ, 
+
+(12) where (y1, c 1) is the initial output and (y2, c 2) is generated after re-attending to the most relevant visual region. Let A1 ∈ RH×W be the cross-attention map aggregated over answer tokens. The crop region is selected as 
+
+R⋆ = argmin 
+
+> R
+
+|R| s.t. X
+
+> (u,v )∈R
+
+A1(u, v ) ≥ κ X
+
+> u,v
+
+A1(u, v ), (13) with κ = 0 .10 by default. The cropped image I′ = CropZoom( I, R⋆) is then passed to the same policy; no external verifier or second model is introduced. The module adds at most one extra forward pass and only when the confidence trigger fires. Since cans is trained to be calibrated, cases with low confidence are concentrated among hard or ambiguous prompts, so re-attention is rarely spent on already reliable answers. 
+
+3.5 Training Pipeline Summary 
+
+Training first performs schema SFT on ∼50K samples for one epoch to initialise 
+
+o = ( y, c ans , {(sm, c m)}) with pseudo labelled confidences. It then runs GRPO with the calibration reward on ∼100K prompts from standard VQA datasets and RLHF-V [50], using G=8 rollouts, (λ1, λ 2, λ 3, λ 4)=(1 .0, 0.5, 0.2, 0.05) and β=0 .5.At inference, the parsed cans either returns the answer directly or triggers one visual re-query when cans < τ ; we set τ =0 .5 by default. 
+
+4 Experiments 
+
+We organise the study around four questions, one per subsection: Q1 Does Sa-vor reduce hallucinations across benchmarks and backbones? (§4.1); Q2 Are its confidences calibrated enough to support abstention? (§4.2); Q3 How much does each component contribute? (§4.3); Q4 Does it preserve general capability at acceptable inference cost? (§4.4). SAVOR: Self-Aware Visual Grounding via Calibrated RL 9
+
+Backbones. We train and evaluate Savor on two open source ∼8B instruct MLLMs: InternVL3-8B [56] as the primary backbone and Qwen3-VL-8B-Instruct [2] for generalisation across architectures, plus LLaVA-OneVision-1.5-8B [1] and MiniCPM-V 4.0 in a reduced transfer experiment (§4.4). 
+
+Training data. The SFT initialisation uses 50K LLaVA-Instruct samples re-formatted with our <think>/<answer>/<confidence> schema. Span confidences are pseudo labelled from five stochastic decodes at T =1 .0: a span scores high when consistently supported across responses or matched by object/OCR an-notations, and low when it appears only in unsupported generations. Answer targets come from answer agreement, or ground-truth correctness when avail-able. The RL stage uses ∼100K prompts: about 90K from VQAv2, GQA and A-OKVQA plus 10K hallucination-targeted prompts from M-HalDetect [9] and RLHF-V [50]. To avoid leakage we remove images overlapping any reported test set, and no benchmark question or caption is used for pseudo labelling or re-wards. 
+
+Hallucination benchmarks. We use four widely adopted suites. POPE [21] re-ports F1 over yes/no object queries in three sampling regimes (random, popular, adversarial). HallusionBench [8] stresses entangled language and visual illu-sions (aAcc, fAcc). AMBER [41] gives generative metrics, of which we report AMBER-S F1 and CHAIR [32]. MMHal-Bench [37] reports an overall score (0–6) and a hallucination rate, judged by GPT-4. 
+
+General capability and calibration metrics. To check that hallucination reduction does not cost overall ability, we also evaluate MME, MMBench, MMStar and SEED-Bench. For every benchmark with binary correctness we report ECE (15 bins) [10], Brier score [7], the AUROC of 1−c as a hallucination detector, and 
+
+Selective-Risk@90 , the error rate when the model abstains on the 10% least confident prompts. 
+
+Evaluation protocol. All calibration metrics use the parsed confidence cans ; if an output omits the field we set cans =1 .0 and mark a format error, penalising uncalibrated overconfidence rather than silently dropping the sample. For open generation we follow the official AMBER and MMHal-Bench scripts, using GPT-4 judging only for MMHal-Bench. 
+
+Baselines. We compare against the unmodified backbone, parameter tuning baselines (SFT, HA-DPO, RLHF-V, mDPO, HALVA, POVID and vanilla GRPO without our calibration reward), and inference baselines (VCD, OPERA, HALC and Woodpecker [48]). All parameter tuning baselines are re-trained on the same 100K prompt mix using their official hyperparameters. 
+
+Implementation details. We apply LoRA [12] of rank 64 to the language tower while freezing the vision encoder; the connector is unfrozen during RL only. Op-timisation uses DeepSpeed ZeRO-3 + AdamW with learning rate η=1 × 10 −510 Z. Ding et al. 
+
+Table 1. Main results across hallucination, calibration and general capability bench-marks. Higher is better except for CHAIR and ECE. Bold = best in column; underline = second best.                                                                                                                                                                       
+
+> POPE HalBench AMBER MMHal MME ECE Method F1 ↑adv ↑aAcc ↑F1 ↑CHAIR ↓Score ↑P+C ↑↓
+> Backbone: InternVL3-8B
+> Base 85.2 82.1 56.4 71.5 18.2 3.65 1554.2 0.175 +SFT (instruct) 86.0 82.8 57.4 72.3 16.9 3.74 1548.5 0.183 +VCD 87.6 84.7 58.8 74.9 14.8 3.82 1554.2 0.175 +OPERA 87.1 85.0 60.2 74.1 13.7 3.96 1554.2 0.175 +HALC 88.4 85.5 61.4 75.0 12.4 4.15 1554.2 0.175 +Woodpecker 88.1 86.3 60.9 75.7 12.9 4.08 1554.2 0.175 +POVID 88.9 86.5 62.0 76.2 11.6 4.21 1545.3 0.216 +HALVA 89.7 87.4 62.5 76.0 10.9 4.34 1542.8 0.221 +mDPO 89.3 87.9 63.4 77.1 10.6 4.27 1540.5 0.236 +HA-DPO 90.4 88.1 63.1 77.6 9.1 4.48 1538.2 0.242 +RLHF-V 90.5 88.7 64.6 77.9 8.8 4.52 1535.6 0.258 +GRPO (w/o calib) 90.9 89.2 65.3 78.2 8.3 4.59 1550.4 0.272
+> +Savor (Ours) 92.4 91.1 68.7 80.5 6.2 4.85 1552.8 0.085
+> Backbone: Qwen3-VL-8B-Instruct
+> Base 86.5 83.8 58.5 73.2 16.4 3.82 1580.5 0.162 +HA-DPO 91.4 89.7 66.0 78.9 8.4 4.58 1565.2 0.238 +RLHF-V 91.6 90.4 65.7 79.3 7.9 4.66 1562.8 0.251 +GRPO (w/o calib) 92.1 90.8 66.8 79.5 7.2 4.72 1578.4 0.265
+> +Savor (Ours) 93.6 92.5 70.4 82.1 5.1 5.05 1581.1 0.078
+
+for one epoch of schema SFT and 5 × 10 −6 for two epochs of GRPO. We set 
+
+(α, γ )=(0 .5, 0.5) in Eq. (4), group size G=8 , KL coefficient 0.04 , clip ϵ=0 .2,and K=15 calibration bins for the ECE bonus within each group. The re-ward weights are (λ1, λ 2, λ 3, λ 4)=(1 .0, 0.5, 0.2, 0.05) , with abstention parame-ters (τu, ρ 1, ρ 2)=(0 .4, 0.5, 0.3) and length normalisation Lmax =512 . Training is performed on 8× NVIDIA H800 (80 GB) for ∼36 hours per backbone. The re-attention threshold is fixed to τ =0 .5 unless otherwise specified; the crop is the smallest axis aligned box covering the most attended region that contains at least 10% of the cross-attention mass. For reproducibility we fix three random seeds and report the mean. 
+
+4.1 Main Hallucination Results 
+
+Table 1 answers Q1 . Across all four hallucination benchmarks and both back-bones, Savor gives the best hallucination suppression results among the pa-rameter tuning methods in our comparison. On InternVL3-8B, Savor improves POPE F1 by 1.9 points over RLHF-V and by 1.5 points over vanilla GRPO. It also raises the MMHal-Bench score from 4.59 to 4.85 over GRPO while reducing AMBER CHAIR from 8.3 to 6.2. The gains transfer cleanly to Qwen3-VL-8B, indicating that the calibration reward is not tied to a particular backbone family. Decoding baselines used at inference (VCD, OPERA) improve the base model without additional training but plateau below Savor , and—unlike Savor —incur their latency overhead at every deployment. SAVOR: Self-Aware Visual Grounding via Calibrated RL 11 
+
+Table 2. Calibration metrics on POPE-adv (left block) and HallusionBench (right block). Lower is better for ECE/Brier/SR@90, higher is better for AUROC.                                                          
+
+> POPE-adv HallusionBench Method ECE ↓Brier ↓AUROC ↑SR@90 ↓ECE ↓Brier ↓AUROC ↑SR@90 ↓
+> Base 0.175 0.142 0.645 12.8 0.192 0.165 0.621 18.5 +HA-DPO 0.239 0.160 0.618 11.7 0.271 0.184 0.602 16.5 +RLHF-V 0.258 0.164 0.605 11.1 0.268 0.190 0.589 16.9 +GRPO (w/o calib) 0.272 0.171 0.588 10.8 0.288 0.195 0.565 15.7
+> +Savor 0.085 0.105 0.864 6.2 0.094 0.122 0.845 9.4
+
+4.2 Calibration and Selective Prediction 
+
+Table 2 answers Q2 by isolating calibration quality from raw accuracy. GRPO without calibration improves accuracy over the backbone but, consistent with prior observations on RLHF-trained policies [15,38], degrades ECE: rewards push the policy toward sharper, more overconfident outputs. Savor reverses this trend—ECE drops from 0.272 to 0.085 on POPE-adv and from 0.288 to 
+
+0.094 on HallusionBench relative to GRPO without calibration, while Brier and AUROC also improve. Selective-Risk@90 confirms practical utility: at the same coverage, Savor ’s residual error rate is the lowest among all baselines, including DPO methods that do not expose any usable confidence signal at all. 
+
+4.3 Ablation Study 
+
+Table 3 answers Q3 on InternVL3-8B. The most diagnostic finding is the gap between rows “Full Savor ” and “w/o Rcal ”: removing the calibration reward leaves the accuracy metrics largely unchanged but increases ECE from 0.085 
+
+to 0.268 . This isolates the contribution of Eq. (9) from the standard accuracy signal: the calibration term is responsible for the calibration gains rather than for the accuracy gains. Dropping the abstention reward Rabs damages MMHal-Bench (where many prompts admit “unknown” as the right answer) but barely affects POPE. Dropping the span confidence stream is harmless for closed form QA but hurts AMBER-F1, indicating that local span confidences matter most for generative hallucination metrics. Replacing the verbalised confidence with a learned scalar head trades a small improvement in raw ECE for a noticeable accuracy regression, which supports keeping confidence in plain text. Fig. 2(a) further examines reward weight sensitivity by sweeping the calibra-tion weight λ1 ∈ { 0, 0.25 , 0.5, 1, 2} while keeping the other reward weights fixed. Increasing the calibration weight sharply reduces ECE at first, but an overly large weight starts to trade away a small amount of POPE F1. The best trade-off is therefore obtained around λ1=1 .0, with nearby settings showing similar behaviour. 
+
+4.4 General Capability, Cost and Qualitative Analysis 
+
+Table 4 reports MME, MMBench, MMStar and SEED-Bench before and after 
+
+Savor . Across four backbone families the changes are small with no systematic 12 Z. Ding et al. 
+
+Table 3. Component-level ablation on InternVL3-8B.                                                                        
+
+> Variant POPE F1 ↑AMBER F1 ↑MMHal ↑MME ↑ECE ↓
+> Full Savor 92.4 80.5 4.85 1552.8 0.085 w/o span confidence 92.2 77.4 4.73 1551.0 0.096 w/o Rcal (Eq. 9) 91.8 80.1 4.82 1554.1 0.268 w/o Brier sub-term only 92.1 80.0 4.79 1553.7 0.188 w/o group-ECE bonus only 91.9 80.6 4.84 1552.9 0.139 w/o Rabs 92.3 80.2 4.35 1552.4 0.088 w/o re-attention 90.5 78.6 4.62 1552.8 0.085 verbalised →confidence head 90.8 78.3 4.64 1541.9 0.081 group size G: 8 →491.6 79.1 4.76 1548.6 0.119 group size G: 8 →16 92.6 80.7 4.88 1553.5 0.082
+> 00.25 0 .51290 91 92 93 94
+
+λ1 (Calibration Reward Weight) POPE F1 (%) POPE F1 0.10.20.3     
+
+> ECE ( ↓)ECE
+> 00.20.40.60.8100.20.40.60.81
+
+Confidence Empirical Accuracy Perfect Calibration GRPO (w/o calib)  
+
+> Savor (Ours)
+
+Fig. 2. (a) Sensitivity to the calibration weight λ1: moderate weighting best balances accuracy and calibration. (b) Reliability diagram on POPE-adv; Savor tracks the ideal diagonal more closely than standard GRPO. 
+
+downward trend: some metrics improve slightly, others drop by less than the usual across-seed variance. This follows from the design, as the RL stage keeps a small KL coefficient against the initialised policy, preventing capability loss while still allowing large calibration shifts. Fig. 2(b) plots predicted against empirical accuracy in 15 confidence bins. Sa-vor tracks the diagonal closely, while the base model and uncalibrated GRPO are systematically overconfident in the [0 .7, 1.0] range, the regime where hallu-cinations are most damaging. 
+
+Inference cost and analysis. With τ =0 .5, re-attention fires on 14 .2% of prompts and raises latency by 16 .5% , far below VCD ( ∼2×) and OPERA ( ∼1.7×), since the extra pass runs only on uncertain cases; it is thus complementary to work that prunes multimodal inference cost [45]. Confidence also predicts correctness: on POPE-adv and AMBER, Spearman ρ rises from 0.24 /0.21 for prompted base confidence to 0.67 /0.63 . Remaining failures involve extra-image world knowl-edge [49], compositional spatial reasoning that crop-and-zoom cannot resolve [6], or adversarial language priors contradicting the image [30]. SAVOR: Self-Aware Visual Grounding via Calibrated RL 13 
+
+Table 4. General capability benchmarks before / after Savor .                                        
+
+> Backbone MME P+C ↑MMBench ↑MMStar ↑SEED ↑
+> InternVL3-8B (base) 1554.2 78.5 58.2 73.4 +Savor 1552.8 78.7 58.0 73.6 Qwen3-VL-8B (base) 1580.5 80.2 61.5 75.1 +Savor 1581.1 80.0 61.8 74.8 LLaVA-OneVision-1.5-8B (base) 1520.4 76.3 55.8 71.2 +Savor 1519.2 76.6 55.7 71.4 MiniCPM-V 4.0 (base) 1565.8 79.1 59.4 74.5 +Savor 1564.7 78.9 59.6 74.6
+
+5 Conclusion 
+
+We presented Savor , a calibration centred view of MLLM hallucination miti-gation. Rather than asking only which answer is preferred, we train the model to estimate how reliable its own answer is and reward that estimate inside a GRPO loop; the same confidence channel powers a re-attention step at inference, closing a detect–correct loop within one policy. Across two backbones and four benchmarks, Savor cuts hallucinations and calibration error together without sacrificing general capability. Next steps are richer fusion and in-context align-ment [27,47], progressively trained smaller backbones [23], multi-agent settings where confidence gates delegation [28,17], and stable calibration under continual learning [5]. 
+
+References 
+
+1. An, X., Xie, Y., et al.: Llava-onevision-1.5: Fully open framework for democratized multimodal training. arXiv:2509.23661 (2025) 2. Bai, S., Cai, Y., et al.: Qwen3-vl technical report. arXiv:2511.21631 (2025) 3. Chen, Z., Zhao, Z., et al.: Halc: Object hallucination reduction via adaptive focal-contrast decoding. arXiv:2403.00425 (2024) 4. Dong, H., Jiang, K., et al.: Neureasoner: Towards explainable, controllable, and unified reasoning via mixture-of-neurons. In: Proc. ACL (2026) 5. Feng, Y., Wang, H., et al.: Forever: Forgetting curve-inspired memory replay for language model continual learning. In: Proc. ACL (2026) 6. Feng, Z., Kang, Z., et al.: Seeing across views: Benchmarking spatial reasoning of vision-language models in robotic scenes. In: Proc. ICLR (2026) 7. Glenn, W.B., et al.: Verification of forecasts expressed in terms of probability. Monthly weather review 78 (1), 1–3 (1950) 8. Guan, T., Liu, F., et al.: Hallusionbench: an advanced diagnostic suite for entangled language hallucination and visual illusion in large vision-language models. In: Proc. CVPR (2024) 9. Gunjal, A., Yin, J., et al.: Detecting and preventing hallucinations in large vision language models. In: Proc. AAAI (2024) 10. Guo, C., Pleiss, G., et al.: On calibration of modern neural networks. In: Proc. ICML (2017) 11. Hong, M., Lin, Z., et al.: Conflict-aware client selection for multi-server federated learning. In: Proc. ICASSP (2026) 14 Z. Ding et al. 12. Hu, E.J., Shen, Y., et al.: Lora: Low-rank adaptation of large language models. Proc. ICLR (2022) 13. Huang, Q., Dong, X., et al.: Opera: Alleviating hallucination in multi-modal large language models via over-trust penalty and retrospection-allocation. In: Proc. CVPR (2024) 14. Jiang, K., Dong, H., et al.: Foe: Forest of errors makes the first solution the best in large reasoning models. In: Proc. ACL (2026) 15. Kadavath, S., Conerly, T., et al.: Language models (mostly) know what they know. arXiv:2207.05221 (2022) 16. Kang, Z., Gong, J., et al.: Hssbench: Benchmarking humanities and social sciences ability for multimodal large language models. In: Proc. ICLR (2026) 17. Kang, Z., Gong, J., et al.: Multimodal multi-agent empowered legal judgment prediction. In: Proc. ICASSP (2026) 18. Kang, Z., He, Y., et al.: How order-sensitive are llms? orderprobe for deterministic structural reconstruction. In: Findings of EMNLP (2026) 19. Kang, Z., Wu, M., et al.: Modality fault lines: Structural corruptions reveal fragile omni-modal reasoning. In: Findings of EMNLP (2026) 20. Leng, S., Zhang, H., et al.: Mitigating object hallucinations in large vision-language models through visual contrastive decoding. In: Proc. CVPR (2024) 21. Li, Y., Du, Y., et al.: Evaluating object hallucination in large vision-language models. In: Proc. EMNLP (2023) 22. Lin, S., Hilton, J., et al.: Teaching models to express their uncertainty in words. arXiv:2205.14334 (2022) 23. Liu, J., Kang, Z.: Reasonact: Progressive training for fine-grained video reasoning in small models. In: Proc. AAAI (2026) 24. Liu, S., Ye, H., et al.: Reducing hallucinations in vision-language models via latent space steering. arXiv:2410.15778 (2024) 25. Lou, X., Xu, J., et al.: When helpers become hazards: A benchmark for analyzing multimodal llm-powered safety in daily life. In: Findings of ACL (2026) 26. Luo, F., Chen, C., et al.: Codis: Benchmarking context-dependent visual compre-hension for multimodal large language models. In: Proc. ACL (2024) 27. Meng, C., Feng, P., et al.: Adaptive hierarchical representation alliance for multi-modal learning. In: Findings of EMNLP (2026) 28. Meng, C., Feng, P., et al.: Group cognition learning: Making everything better through governed two-stage agents collaboration. In: Proc. ICML (2026) 29. Ouyang, L., Wu, J., et al.: Training language models to follow instructions with human feedback. NeurIPS 35 , 27730–27744 (2022) 30. Qian, J., Kang, Z.: Penny wise, pixel foolish: Bypassing price constraints in multi-modal agents via visual adversarial perturbations. In: Findings of ACL (2026) 31. Rafailov, R., Sharma, A., et al.: Direct preference optimization: Your language model is secretly a reward model. NeurIPS 36 , 53728–53741 (2023) 32. Rohrbach, A., Hendricks, L.A., et al.: Object hallucination in image captioning. In: Proc. EMNLP (2018) 33. Sarkar, P., Ebrahimi, S., et al.: Mitigating object hallucination via data augmented contrastive tuning. arXiv:2405.18654 (2024) 34. Schulman, J., Wolski, F., et al.: Proximal policy optimization algorithms. arXiv:1707.06347 (2017) 35. Shao, Z., Wang, P., et al.: Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv:2402.03300 (2024) 36. Shi, Q., Kang, Z., et al.: Spader: Step-wise peer advantage with diversity-aware exploration rewards for multi-answer question answering. In: Proc. EMNLP (2026) SAVOR: Self-Aware Visual Grounding via Calibrated RL 15 37. Sun, Z., Shen, S., et al.: Aligning large multimodal models with factually aug-mented rlhf. In: Findings of ACL (2024) 38. Tian, K., Mitchell, E., et al.: Just ask for calibration: Strategies for eliciting cal-ibrated confidence scores from language models fine-tuned with human feedback. In: Proc. EMNLP (2023) 39. Wang, F., Zhou, W., et al.: mdpo: Conditional preference optimization for multi-modal large language models. In: Proc. EMNLP (2024) 40. Wang, H., Qu, C., et al.: Vl-rethinker: Incentivizing self-reflection of vision-language models with reinforcement learning. NeurIPS 38 , 30865–30891 (2026) 41. Wang, J., Wang, Y., et al.: Amber: An llm-free multi-dimensional benchmark for mllms hallucination evaluation. arXiv:2311.07397 (2023) 42. Wang, S., Shen, M., et al.: Mitigating multimodal hallucinations via gradient-based self-reflection. arXiv:2509.03113 (2025) 43. Wang, X., Kang, Z., et al.: Mucar: Benchmarking multilingual cross-modal ambi-guity resolution for multimodal large language models. In: Proc. EMNLP (2025) 44. Wang, Y., Gao, S., et al.: Beyond n-grams: A hierarchical reward learning frame-work for clinically-aware medical report generation. In: Proc. AAAI (2026) 45. Wu, G., Zhang, Z., et al.: Vision meets language: Adaptive joint pruning for efficient multimodal models. In: Proc. ICASSP (2026) 46. Xu, T., Wu, S., et al.: Sayself: Teaching llms to express confidence with self-reflective rationales. In: Proc. EMNLP (2024) 47. Yang, M., Wang, W., et al.: Beyond surface imitation: Contrastive modeling for reasoning path alignment in multimodal in-context learning. In: Proc. ACM MM (2026) 48. Yin, S., Fu, C., et al.: Woodpecker: Hallucination correction for multimodal large language models. Sci. China Inf. Sci. 67 (12), 220105 (2024) 49. Yu, T., Yang, Y., et al.: When seeing is not believing: A benchmark for search-grounded video misinformation detection. In: Findings of EMNLP (2026) 50. Yu, T., Yao, Y., et al.: Rlhf-v: Towards trustworthy mllms via behavior alignment from fine-grained correctional human feedback. In: Proc. CVPR (2024) 51. Yuan, W., Pang, R.Y., et al.: Self-rewarding language models. arXiv:2401.10020 (2024) 52. Zhao, Z., Wang, B., et al.: Beyond hallucinations: Enhancing lvlms through hallucination-aware direct preference optimization. arXiv:2311.16839 (2023) 53. Zheng, L., Su, J., et al.: Gradients know what outcomes don’t: Unlocking reinforce-ment learning for llm reasoning with gradient-aligned rewards. In: Proc. EMNLP (2026) 54. Zhu, C., Kang, Z., et al.: Comet: Contrastive motion-enhanced temporal reasoning for video multimodal large language models. In: Proc. ACM MM (2026) 55. Zhu, C., Wu, S., et al.: Edis: Diagnosing llm reasoning via entropy dynamics. arXiv:2602.01288 (2026) 56. Zhu, J., Wang, W., et al.: Internvl3: Exploring advanced training and test-time recipes for open-source multimodal models. arXiv:2504.10479 (2025)
