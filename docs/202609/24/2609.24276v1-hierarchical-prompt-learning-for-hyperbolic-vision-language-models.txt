@@ -1,0 +1,1718 @@
+Title: Hierarchical Prompt Learning for Hyperbolic Vision-Language Models
+
+URL Source: https://arxiv.org/pdf/2609.24276v1
+
+Published Time: Tue, 22 Sep 2026 02:20:29 GMT
+
+Number of Pages: 35
+
+Markdown Content:
+# Hierarchical Prompt Learning for Hyperbolic Vision-Language Models 
+
+Andro Erdelez aer@ece.au.dk Aarhus University 
+
+Pascal Mettes P.S.M.Mettes@uva.nl University of Amsterdam 
+
+Behzad Bozorgtabar behzad@ece.au.dk Aarhus University 
+
+## Abstract 
+
+Hyperbolic vision-language models (VLMs) represent image and text features in a geometry naturally suited to hierarchy, but their adaptation to downstream tasks has largely relied on fixed prompts. Existing prompt learning methods, meanwhile, treat class labels as a flat set and do not exploit available taxonomic structure. We address this gap with a hierarchical prompt learning plug-in for frozen hyperbolic VLMs. Given a fixed offline parent-class hierarchy, it augments a class prompt learner with a separate parent prompt learner, parent-level supervision, hyperbolic entailment regularization, and parent-feedback logit fusion. We instantiate the method with CoOp, CoCoOp and MaPLe, yielding HyPLO, CoHyPLO and MaHyPLO. Across the standard 11-dataset benchmark, all variants improve base-to-new generalization and cross-dataset transfer, and remain comparable to their prompt learning baselines under domain shift. Six hierarchical metrics and embedding analyses show that the method produces more taxonomically consistent predictions and induces a hierarchy-consistent organization of parent, class, and image embeddings in hyperbolic space. Its gains are largest when novel classes must be placed within a fixed taxonomy, and smallest for fine-grained confusions among sibling classes or shifts affecting only the image distribution. 
+
+## 1 Introduction 
+
+Hyperbolic geometry has emerged in recent years as a compelling alternative inductive bias for representation learning. Its exponential volume growth with distance can represent hierarchical relations compactly, often with lower distortion than Euclidean embeddings of comparable dimension (Nickel & Kiela, 2017; 2018; Sala et al., 2018). This connection has motivated work on hyperbolic graph learning, language modeling, computer vision, and foundation models (Mettes et al., 2024; He et al., 2025a). Vision-language models (VLMs) are a particularly natural setting for this perspective. The concepts they align ( words, objects, scenes ) are themselves organized into rich semantic hierarchies: a golden retriever is a 
+
+dog that is an animal ; an image of a kitchen is also an image of an indoor space . A recent line of work has begun to bring hyperbolic geometry to vision-language alignment, lifting image and text representations from CLIP-style encoders (Radford et al., 2021) into the Poincaré or Lorentz model and reporting encouraging results in hierarchical retrieval, compositional reasoning, and uncertainty-aware classification (Desai et al., 2023; Mandica et al., 2024; Pal et al., 2025; Poppi et al., 2025). The picture that emerges is one in which hyperbolic representations offer a valuable complement to the Euclidean default in vision-language learning, particularly where hierarchy is a part of the signal. In parallel, prompt learning has become a widely used approach for adapting large VLMs to downstream tasks without updating the backbone parameters. Methods such as CoOp and CoCoOp (Zhou et al., 2022b;a) replace hand-written templates (Radford et al., 2021) with continuous prompt vectors optimized through a 1arXiv:2609.24276v1 [cs.CV] 21 Sep 2026 frozen text encoder. Subsequent methods have extended this paradigm by, for example, adapting prompts to individual images or coupling textual prompts with visual prompting (Khattak et al., 2023a;b; Roy & Etemad, 2024). Although recent work has explored hyperbolic prompting for VLMs (Peng et al., 2026), the integration of hyperbolic geometry with general-purpose hierarchical prompt learning for frozen vision-language adaptation remains underexplored. A second observation concerns the data side. Many prompt learning benchmarks come with, or naturally admit, semantic hierarchies, such as WordNet hypernyms for ImageNet (Miller, 1995; Deng et al., 2009) and scene-type groupings for SUN397 (Xiao et al., 2010). Standard prompt learners nevertheless predict over a flat vocabulary of leaf classes, leaving this supervisory signal unused. Prior work has incorporated hierarchy through multimodal coupling or dedicated graph-based components (Khattak et al., 2023a; Zheng et al., 2025; Xia et al., 2025). In contrast, we encode a fixed parent-class hierarchy directly through parallel class and parent prompt learners, hyperbolic entailment regularization, and hierarchy-aware inference. In this work, we propose a prompt-learner-agnostic hyperbolic hierarchical plug-in for frozen hyperbolic VLMs. Given a fixed parent-class hierarchy, it augments an existing prompt learner with: (i) a separate prompt learner for parent labels, (ii) class and parent classification in hyperbolic space, (iii) entailment-based regularization of parent-class-image relations, and (iv) parent-feedback logit fusion at inference. Applied to CoOp, CoCoOp, and MaPLe, the framework yields HyPLO , CoHyPLO , and MaHyPLO respectively. For ImageNet, the fixed hierarchy is derived from WordNet. For datasets without a suitable native taxonomy, we construct a fixed four-level (root-grandparent-parent-class) taxonomy offline by grouping fine-grained classes into coarse semantic parent categories through a structured and validated LLM-assisted procedure. The hierarchy remains fixed throughout training and inference, and training uses only direct parent-class relations. We evaluate the proposed methods on the standard 11-dataset CoOp benchmark, including base-to-new generalization, cross-dataset transfer, and domain generalization. Across these settings, hierarchical prompt learning improves or matches the underlying prompt learners while yielding predictions that better respect the supplied taxonomy, as measured by six hierarchical metrics. Our analyses further identify settings in which the benefits are limited, including fine-grained confusions among sibling classes and the variable-depth WordNet structure of ImageNet. 
+
+Contributions. We summarize our contributions as follows: • We introduce a prompt-learner-agnostic hyperbolic hierarchical plug-in for frozen hyperbolic VLMs. It augments an existing prompt learner with parent prompts, hyperbolic class and parent supervision, entailment-based geometric regularization, and hierarchy-aware inference. • We instantiate the framework for CoOp, CoCoOp, and MaPLe, yielding HyPLO , CoHyPLO , and 
+
+MaHyPLO . We evaluate these variants on the 11-dataset CoOp benchmark, including base-to-new generalization, cross-dataset transfer, and domain generalization. • We provide an offline hierarchy construction protocol that combines native taxonomies where avail-able with LLM-assisted generation, structural constraints, and validation otherwise. The resulting fixed hierarchy supplies parent targets, parent-class entailment relations, and inference-time parent indices. • Beyond classification accuracy, we evaluate six hierarchical metrics and analyze the learned hy-perbolic geometry. The analyses suggest that the learned embeddings exhibit the radial ordering induced by the supplied hierarchy, placing parent classes closer to the origin than their child classes and associated images. 22 Related work 
+
+2.1 Prompt Learning 
+
+Prompt Learning for Vision-Language Models. The success of CLIP-style VLMs (Radford et al., 2021) established prompting as a flexible interface for downstream adaptation, complementing fully su-pervised fine-tuning with task-specific textual templates. Prompt learning extends this idea by replacing hand-written templates with continuous, optimizable tokens. CoOp (Zhou et al., 2022b) introduces learnable context vectors that are concatenated with class names and passed through the frozen text encoder. These vectors are optimized end-to-end with a cross-entropy objective. CoCoOp (Zhou et al., 2022a) makes the con-text vectors instance-conditional through a lightweight meta-network, mitigating overfitting to base classes. Subsequent work has refined this paradigm along complementary axes. MaPLe (Khattak et al., 2023a) in-troduces joint vision-language prompting with a learnable coupling between the two branches. PromptSRC (Khattak et al., 2023b) improves generalization through self-regularization, prompt self-ensembling, and tex-tual diversity. CoPrompt (Roy & Etemad, 2024) adds a consistency constraint between learned prompts and the frozen CLIP backbone, supplemented by output adapters. More recent efforts have explored interpretable (Du et al., 2024) and structured (Zheng et al., 2025) variants of prompt optimization. Most prompt learning methods are developed with Euclidean CLIP representations and predict over a flat vocabulary of class labels. Our method is complementary to these approaches: it preserves the underly-ing class prompt learner while adding a separate parent prompt learner and hierarchical supervision in a shared hyperbolic representation space. Because the framework does not depend on a particular prompt parameterization, it can be instantiated with global, image-conditional, or multimodal prompt learners. 
+
+Hierarchy in Prompt Learning. A small but growing line of work considers structured prompting beyond a flat class vocabulary. MaPLe (Khattak et al., 2023a) couples textual and visual prompts, while HiCroPL (Zheng et al., 2025) introduces bidirectional knowledge flow across the text and image branches through layer-specific proxies and direction-switched mappers. These methods impose structure on the interaction between modalities or network layers, rather than modeling explicit taxonomic relations among class labels. HGCLIP (Xia et al., 2025) is more closely related to taxonomic prompt learning. It adapts CLIP to hierar-chical image classification by combining hierarchical prompts with a class hierarchy graph that propagates structural information into text and image features. Our approach differs in how it represents and uses this structure. Rather than introducing a graph encoder, we use a fixed direct parent-class mapping to train parallel class and parent prompt learners in a shared hyperbolic space. Parent-class relations are regularized with entailment cones and incorporated at inference through parent-feedback logit fusion. 
+
+2.2 Hyperbolic Deep Learning 
+
+Hyperbolic Representation Learning for Vision. Hyperbolic representation learning provides a nat-ural geometric framework for data with hierarchical structure (Nickel & Kiela, 2017; 2018; Sala et al., 2018). Hyperbolic neural networks and entailment cones (Ganea et al., 2018a;b) enable hierarchical relations to be represented through manifold-aware operations and directional "is-a" constraints. These ideas have been incorporated into visual recognition models, including hyperbolic vision transformers (Ermolov et al., 2022; Fein-Ashley et al., 2024), prototype-based classifiers (Khrulkov et al., 2020), and more recently hyperbolic approaches to continual test-time and open-vocabulary semantic segmentation (Gole et al., 2026; Truong et al., 2026). A related line of work uses known taxonomies to structure hyperbolic class representations. Long et al. (2020) and Dhall et al. (2020) encode action and image hierarchies with entailment cones, while later work considers hierarchical or boundary-based prototypes for classification and segmentation (Liu et al., 2020; Ghadimi Atigh et al., 2021; 2022). Complementarily, Wang et al. (2025) study the learning of multi-level visual hierarchies in hyperbolic space for image retrieval. 3Together, these methods motivate hyperbolic geometry when semantic class structure is available. Our set-ting differs in that the learnable objects are prompt representations of labels rather than conventional class prototypes, and the hierarchy is modeled through entailment relations between learned parent and class em-beddings. We retain the frozen hyperbolic vision-language backbone and use learned parent representations for both training-time supervision and inference-time logit fusion. 
+
+Hyperbolic Vision-Language Models. Hyperbolic geometry has recently been incorporated into joint vision-language representation learning. MERU (Desai et al., 2023) maps image and text representations to the Lorentz model and combines hyperbolic contrastive learning with an entailment objective. HyCoCLIP (Pal et al., 2025) extends this formulation with compositional supervision over image regions and textual concepts. Other work has explored hyperbolic vision-language modeling for large-scale multimodal genera-tion, safety-aware learning, fully hyperbolic encoders, and hierarchy-aware retrieval (Mandica et al., 2024; Poppi et al., 2025; He et al., 2025b; Srivastava & Wu, 2025). PHyCLIP (Yoshikawa & Matsubara, 2026) further models hierarchy and compositionality in a product of hyperbolic factors. These methods primarily introduce hyperbolic geometry through the representation space, encoder architec-ture, or pretraining objective. In contrast, we study hierarchical prompt learning for downstream adaptation with frozen hyperbolic VLM encoders. Our framework adds a parent prompt learner alongside the class prompt learner and uses the resulting parent representations for parent-level supervision, entailment-cone regularization, and inference-time logit fusion. We instantiate this framework with both MERU and HyCo-CLIP. HPL-CLIP (Peng et al., 2026) more directly studies hyperbolic prompt learning, but for CLIP-based zero-shot anomaly detection through multi-level visual feature alignment. Chen et al. (2024) similarly investigate hyperbolic prompting for frozen language models by projecting prefix prompts and token representations into the Poincaré disk. Unlike these settings, our method uses a supplied semantic parent-class hierarchy for hierarchical adaptation of frozen hyperbolic VLMs. 
+
+## 3 Methodology 
+
+3.1 Preliminaries 
+
+We use the Lorentz (hyperboloid) model of hyperbolic space, which provides stable closed-form expressions for hyperbolic distance and mappings from tangent spaces to the manifold (Nickel & Kiela, 2018). We denote the curvature by −κ, where κ > 0. 
+
+3.1.1 The Lorentz Model 
+
+The n-dimensional Lorentz model is the upper sheet of a hyperboloid in Rn+1 :
+
+Ln = {p = ( p0, ˜p) ∈ Rn+1 : ⟨p, p⟩L = − 1 
+
+> κ
+
+, p 0 > 0} , (1) where ˜ p ∈ Rn denotes the spatial coordinates and 
+
+⟨p, q⟩L = −p0q0 + ⟨˜p, ˜q⟩E (2) is the Lorentzian inner product. The origin is 0 = ( √1/κ, 0, . . . , 0) ⊤. Hyperbolic space provides a geometric inductive bias in which general concepts can be represented nearer the origin and specific concepts farther away. The geodesic distance between p, q ∈ Ln is 
+
+dL(p, q) = 
+
+√ 1 
+
+> κ
+
+cosh −1(−κ⟨p, q⟩L) . (3) We use this distance to construct hyperbolic classification logits. 43.1.2 Exponential Map 
+
+Euclidean encoder outputs are lifted to Ln through the exponential map. For v ∈ TpLn,exp κ
+
+> p
+
+(v) = cosh (√κ∥v∥L
+
+)p + sinh (√κ∥v∥L
+
+)
+
+√κ∥v∥L
+
+v, (4) where ∥v∥L = √⟨v, v⟩L. In practice, we apply exp κ 
+
+> 0
+
+to image, class, and parent features, treating the Euclidean encoder outputs as tangent vectors at the origin (Khrulkov et al., 2020). 
+
+3.1.3 Entailment Cones 
+
+Entailment cones encode a partial-order inductive bias in hyperbolic space: a candidate descendant embed-ding p is geometrically consistent with an ancestor embedding q when it lies inside the cone rooted at q
+
+(Ganea et al., 2018a). The cone half-aperture is 
+
+ω(q) = sin −1
+
+( 2K
+
+√κ∥˜q∥
+
+)
+
+, (5) where K = 0 .1 follows Ganea et al. (2018a). This expression is defined for ∥˜q∥ ≥ 2K/ √κ. Under this parameterization, embeddings nearer the origin have wider cones, whereas embeddings farther from the origin have narrower cones. For candidate child p and parent q, the exterior angle is 
+
+ϕ(p, q) = cos −1
+
+ p0 + q0κ⟨p, q⟩L
+
+∥˜q∥
+
+√
+
+(κ⟨p, q⟩L)2 − 1
+
+ . (6) The relation ϕ(p, q) ≤ ω(q) indicates that p lies inside q’s cone and is therefore geometrically consistent with being its descendant. Section 3.2.2 uses this relation to regularize parent-class, class-image, and parent-image relations. 
+
+3.2 Method 
+
+We introduce a hyperbolic hierarchical prompt learning plug-in that augments an existing prompt learner with parent-level supervision and hierarchical geometry while preserving class-level prediction. Given a fixed parent-class hierarchy, the plug-in adds a parallel parent prompt learner and a hierarchical training and inference procedure that combines hyperbolic class and parent classification, entailment-based geometric regularization, and parent-feedback logit fusion. The hierarchy is constructed offline and remains fixed throughout training and inference; its construction procedure is described in Section 3.3. The framework is agnostic to the parameterization of the underlying prompt learner. Applied to CoOp (Zhou et al., 2022b), it yields HyPLO ; applied to CoCoOp (Zhou et al., 2022a), it yields CoHyPLO ; and applied to MaPLe (Khattak et al., 2023a), it yields MaHyPLO . All three instantiations share the same fixed hierarchy, hyperbolic representation space, hierarchical loss framework, and inference rule. They differ in their prompt parameterization and in the entailment terms activated by default. We first describe the prompt learning architecture, then the training objective, hierarchy-aware inference and fixed hierarchy. 
+
+3.2.1 Architecture 
+
+We assume a hyperbolic CLIP-style backbone with frozen image and text encoders, EI and ET . Given an image x, the image encoder produces an image feature fimg = EI (x). A prompt learner constructs text prompts by concatenating learnable context tokens with a label-name embedding and passes the resulting prompt through ET to obtain a label text feature. In CoOp, the context tokens are global and shared 5Figure 1: Overview of the hyperbolic hierarchical prompt learning plug-in. A learnable parent prompt learner is added alongside the class prompt learner. The fixed dataset hierarchy provides the parent vocabulary P
+
+and class-to-parent mapping π. Frozen text and image encoders produce features that are lifted to the Lorentz manifold through exp κ
+
+> 0
+
+, yielding class, parent, and image embeddings zc, zp, and zimg . Locks denote frozen encoder parameters; prompt learning modules are optimized. The framework yields HyPLO, CoHyPLO, and MaHyPLO when instantiated with CoOp, CoCoOp, and MaPLe respectively. In MaHyPLO, visual prompts from the class learner adapt the image encoder output, whereas parent predictions use parent text embeddings and the resulting shared image embedding. The Poincaré disk is shown only for visualization of hierarchical relations. across images. In CoCoOp, they are adapted to each image by an offset predicted from fimg by a lightweight meta-network. In MaPLe, text-side prompts are coupled with visual prompts that adapt the image encoder. Our method adds a separate parent prompt learner over the parent vocabulary P induced by the fixed class-to-parent mapping π (Figure 1). The original learner produces one class embedding for each class 
+
+c ∈ C , while the parent learner produces one parent embedding for each parent p ∈ P . The two learners use separate prompt parameters and are coupled through the hierarchical training objective. Both class and parent embeddings are compared with the same image embedding. For HyPLO, the parent learner consists of separate global text context tokens. For CoHyPLO, it additionally has a separate meta-network that produces image-conditional parent context tokens. For MaHyPLO, the parent learner is instantiated using MaPLe’s prompt parameterization; however, only its text prompts are used to compute parent embeddings. The image embedding is produced by the class learner’s visual prompt pathway, and MaHyPLO does not perform a separate parent-conditioned image encoder forward pass. 
+
+Hyperbolic projection. Following Section 3.1.2, we lift the image, class, and parent features to the Lorentz manifold through the exponential map at the origin. This yields the hyperbolic image embedding 
+
+zimg , class embeddings {zc}c∈C , and parent embeddings {zp}p∈P . We use the curvature κ inherited from the HyCoCLIP backbone (Pal et al., 2025), and perform all subsequent classification and geometric operations in Ln. We use HyCoCLIP’s numerically stabilized Lorentz operations. 6Figure 2: Illustration of the restricted hierarchical objective used by HyPLO and CoHyPLO. The parent embedding zp and class embedding zc are trainable through their respective prompt learners, whereas the image embedding zimg is generated by the frozen backbone. Parent and class cross-entropy increase relative compatibility with the ground-truth image, while parent-to-class entailment encourages the class embedding to lie inside the parent’s entailment cone. MaHyPLO additionally applies class-to-image and parent-to-image entailment regularization, as defined below. 
+
+3.2.2 Hierarchical Training Objective 
+
+For a labeled example ( x, y ), the objective combines class-level classification, parent-level classification, and entailment regularization along the ground-truth hierarchy path π(y) → y → x. The class and parent classification losses compare every image in a mini-batch with the complete class and parent vocabularies respectively. The entailment terms are evaluated on the ground-truth parent-class-image relations for each mini-batch example and then averaged over the mini-batch. The full objective is depicted in Figure 2. 
+
+Class cross-entropy. For an image with ground-truth class y, we score every class c ∈ C by its scaled negative Lorentzian distance from the image embedding: scls (c) = −γ d L (zimg , zc) , where γ = exp( ℓ) is the frozen exponentiated logit scale. 
+
+Lcls = − log exp (scls (y))∑ 
+
+> c∈C
+
+exp (scls (c)) . (7) This loss increases the relative similarity of the image to its ground-truth class while decreasing its similarity to incorrect class labels. 
+
+Parent cross-entropy. Each class c has a unique direct parent π(c) ∈ P specified by the fixed hierarchy. We score each parent p ∈ P using spar (p) = −γ d L (zimg , zp) , and supervise the parent learner with 
+
+Lpar = − log exp (spar (π(y)) )∑ 
+
+> p∈P
+
+exp (spar (p)) . (8) This objective aligns image embeddings with their ground-truth parent embeddings relative to competing parents. It also trains the parent logits used by the inference rule in Section 3.2.3. 
+
+Entailment regularizer. Classification alone does not explicitly constrain the parent-class geometry. We therefore regularize ground-truth ancestor-descendant relations using the entailment cones from Section 3.1.3. For a descendant embedding zdesc and ancestor embedding zanc , we define 
+
+Lanc →desc ent = max(0 , ϕ (zdesc , zanc ) − η ω (zanc )) . (9) The residual is zero when the descendant lies within the η-scaled cone of the ancestor. Thus, η controls the strictness of the constraint: smaller values impose a narrower admissible cone. For each example ( x, y ), we instantiate this loss for the class-image, parent-class, and parent-image relations by setting the descendant and ancestor embeddings to ( zimg , zy ), ( zy , zπ(y)), and ( zimg , zπ(y)) respectively. We use fixed aperture factors ηcls →img = 0 .3, ηpar →cls = 0 .6, and ηpar →img = 0 .6. The factors reflect the 7intended specificity ordering: the same wider scaled parent cone is used for both parent-class and parent-image relations, while the class-image relation uses a stricter scaled cone. We follow HyCoCLIP’s relative aperture ratio of 2:1 between the broader and narrower constraints. We regularize observed hierarchy-consistent relations only. Non-descendant pairs are distinguished indirectly through the class-level and parent-level cross-entropy losses rather than through an explicit cone exclusion loss. 
+
+Composite objective. The training objective is 
+
+L = Lcls + wpar Lpar + wcls →img Lcls →img ent + wpar →cls Lpar →cls ent + wpar →img Lpar →img ent 
+
+︸ ︷︷ ︸
+
+> Lent
+
+. (10) HyPLO and CoHyPLO activate only parent-to-class entailment, with entailment weights (0 , 0.2, 0) for class-to-image, parent-to-class, and parent-to-image regularization, respectively. In these variants, image embed-dings are produced by a frozen visual encoder. We therefore omit image-related entailment terms to avoid forcing the trainable class and parent prompts to conform to potentially imperfect fixed image representa-tions. MaHyPLO, in contrast, uses all three terms, with weights (0 .1, 0.2, 0.1), because its visual prompt pathway can jointly adapt the image embedding and text-side prompt representations. We use wpar = 0 .5by default and average all loss terms over the mini-batch. HyPLO and CoHyPLO optimize separate class and parent text-prompt learners while keeping the image embeddings fixed. Their class and parent classification losses update the corresponding prompt learner, and parent-to-class entailment updates both learners through their text embeddings. In MaHyPLO, the class learner additionally contains visual prompts that produce the shared image embedding. Consequently, the class classification loss and all image-related terms update the class learner’s visual prompt pathway. The parent classification loss and parent-to-image entailment also update this pathway through their dependence on the shared image embedding, while updating the parent text prompts. Although the MaHyPLO parent learner uses MaPLe’s prompt parameterization, its visual prompts are not used to encode images. 
+
+3.2.3 Hierarchical Inference 
+
+At inference time, predictions remain class-level, while the parent learner provides an auxiliary parent-level signal. Let ℓcls and ℓpar denote the scaled negative hyperbolic distance logits over classes and parents, respectively. We broadcast each parent logit to all of its child classes and compute 
+
+sfinal (c) = [ℓcls 
+
+] 
+
+> c
+
++ λpar 
+
+[ℓpar 
+
+]
+
+> π(c)
+
+, ˆy = arg max  
+
+> c
+
+sfinal (c). (11) The weight λpar controls the influence of this parent-level signal relative to the class-level logits. Sibling classes receive the same parent contribution, so fusion does not directly distinguish siblings. Instead, it can resolve confusions between classes assigned to different parents when the class-level evidence is ambiguous. Setting λpar = 0 recovers class-only inference. 8Algorithm 1 Hierarchy construction for a class set C.
+
+Require: class names C; optional native taxonomy T ; structural constraints S
+
+Ensure: validated hierarchy H = ( P, π ) 
+
+> 1:
+
+if T is available then  
+
+> 2:
+
+H ← T  
+
+> 3:
+
+resolve any multi-parent leaf to its most specific parent  
+
+> 4:
+
+else  
+
+> 5:
+
+prompt an LLM for H given C and S 
+
+> 6:
+
+end if  
+
+> 7:
+
+repeat  
+
+> 8:
+
+V ← constraints in S violated by H 
+
+> 9:
+
+for all violation v ∈ V do  
+
+> 10:
+
+if v is a singleton parent then  
+
+> 11:
+
+merge it into a related parent  
+
+> 12:
+
+else if v is an oversized parent then  
+
+> 13:
+
+split it along natural visual sub-groupings  
+
+> 14:
+
+else if v is a label collision then  
+
+> 15:
+
+rename the offending node  
+
+> 16:
+
+else if v is a verbose parent name then  
+
+> 17:
+
+shorten it to a CLIP-compatible noun phrase  
+
+> 18:
+
+end if  
+
+> 19:
+
+end for  
+
+> 20:
+
+until V = ∅ 
+
+> 21:
+
+return H
+
+3.3 Hierarchy Construction 
+
+The preceding architecture, objective, and inference rule require a fixed parent vocabulary P and a unique direct-parent mapping π : C → P . We construct these structures offline before training and keep them fixed throughout optimization and inference. The hierarchy supplies parent targets for parent-level classification, parent-class relations for entailment regularization, and parent indices for logit fusion. We require each hierarchy to provide a unique direct parent for every class, to avoid singleton parent groups where possible, and to use distinct, concise parent labels that can be inserted naturally into CLIP-style prompts. These conditions are intended to ensure that parent supervision is informative and that the class-to-parent lookup is unambiguous. Although a source taxonomy may contain multiple levels, the proposed method uses only the direct parent assignment π(c) for each class c.For datasets with an appropriate native taxonomy, we derive direct parent assignments from that taxonomy and post-process them to satisfy the above criteria. For datasets without a suitable taxonomy, we use an LLM-assisted construction procedure followed by validation and refinement. The LLM, Claude Opus 4.7, is provided with the class vocabulary and structural criteria, after which the proposed hierarchy is checked and corrected as necessary. Algorithm 1 summarizes this offline procedure. The validation criteria are directly checkable from the resulting hierarchy. The final parent vocabularies and class-to-parent mappings are reported in Appendix A. The hierarchy construction procedure is not a learned component of the model; it is an offline annotation protocol that supplies the fixed supervision structure used by the proposed framework. 
+
+## 4 Experiments 
+
+Setup. We evaluate on the standard 11-dataset benchmark introduced by CoOp (Zhou et al., 2022b): Im-ageNet (Deng et al., 2009), Caltech101 (Fei-Fei et al., 2004), OxfordPets (Parkhi et al., 2012), StanfordCars (Krause et al., 2013), Flowers102 (Nilsback & Zisserman, 2008), Food101 (Bossard et al., 2014), FGVCAir-9craft (Maji et al., 2013), SUN397 (Xiao et al., 2010), DTD (Cimpoi et al., 2014), EuroSAT (Helber et al., 2019), and UCF101 (Soomro et al., 2012). We consider three evaluation settings following CoCoOp (Zhou et al., 2022a): base-to-new generalization , cross-dataset transfer , and domain generalization . In base-to-new generalization, prompts are trained on the base class split of each dataset and evaluated on both base and novel classes; we report base class accuracy, novel class accuracy, and their harmonic mean (H). For cross-dataset transfer, prompts are trained on ImageNet and evaluated without further adaptation on the remaining ten datasets. For domain generalization, the same ImageNet-trained prompt learners are evalu-ated on ImageNetV2, ImageNet-Sketch, ImageNet-A, and ImageNet-R. All results are averaged over three random seeds and their standard deviations are shown in Appendix E. Unless stated otherwise, we use frozen HyCoCLIP (Pal et al., 2025) with a ViT-B/16 backbone in the 16-shot setting. HyPLO, CoHyPLO, and MaHyPLO extend CoOp (Zhou et al., 2022b), CoCoOp (Zhou et al., 2022a), and MaPLe (Khattak et al., 2023a), respectively, using the corresponding training protocols. The offline parent-class hierarchies remain fixed throughout training and inference; ImageNet uses its native WordNet hierarchy. We use a parent-fusion weight of λpar = 0 .25, selected in the ablation in Section 4.5.2. We compare with zero-shot HyCoCLIP, its hierarchical template variant HyCoCLIP † (explained in Ap-pendix B), and the prompt learners extended by our method. In addition to classification accuracy, we report six hierarchical metrics: tree-induced error (TIE), lowest common ancestor distance (LCA), Jaccard similarity, hierarchical F1, sibling accuracy, and cousin accuracy (explained in Appendix C). We report these metrics for base-to-new generalization, first averaging results over three random seeds within each dataset and then macro-averaging across all 11 datasets. 
+
+4.1 Base-to-New Generalization 
+
+Table 1 reports base-to-new generalization across the 11 datasets. The hierarchy-aware variants generally improve the prompt learners they extend. HyPLO improves the harmonic mean over CoOp on 9 of 11 datasets, while CoHyPLO and MaHyPLO improve over CoCoOp and MaPLe on all 11 datasets respectively. On the 11-dataset macro-average, HyPLO improves the harmonic mean from 52.29 to 53.19, and CoHyPLO improves it from 53.35 to 54.66. MaHyPLO achieves the strongest average result, improving MaPLe from 55.21 to 57.18. The results preserve the characteristic trade-off between static and image-conditional prompting. HyPLO tends to favor base class accuracy, whereas CoHyPLO more consistently improves the balance between base and novel classes. This difference is reflected in their macro-averaged results: HyPLO improves base accuracy more strongly than novel class accuracy, while CoHyPLO yields a larger relative improvement on novel classes. MaHyPLO provides the strongest aggregate performance, improving both base and novel accuracy over MaPLe. The hierarchy is most useful when it helps distinguish candidate classes from different parent groups. Its limitations are most visible for fine-grained within-parent confusions, where the parent signal is shared by competing classes and therefore cannot resolve their distinction. Thus, parent feedback complements class-level prediction most directly when the main ambiguity crosses parent boundaries. We examine this behavior further through hierarchical metrics and qualitative examples below. 
+
+Failure case. HyPLO underperforms CoOp on Flowers102 because its novel class accuracy decreases de-spite comparable base class accuracy. CoHyPLO and MaHyPLO, in contrast, improve over CoCoOp and MaPLe on Flowers102, suggesting that including images in prompt learning can transfer hierarchical infor-mation to unseen classes more effectively than static parent prompts in this setting. Overall, CoHyPLO and MaHyPLO provide the more reliable improvement when novel class generalization is the primary objective. 
+
+4.2 Cross-Dataset Transfer 
+
+We train prompts on ImageNet and evaluate them on the remaining ten datasets without further adaptation (Table 2). This setting assesses whether prompt representations learned on the ImageNet label space and visual domain transfer to previously unseen label spaces and domains. 10 (a) ImageNet 
+
+Method Base New H
+
+HyCoCLIP 46.40 52.10 49.09 + CoOp 48.90 49.17 49.03 
+
++ HyPLO 49.07 50.47 49.76 
+
++ CoCoOp 48.90 50.47 49.67 
+
++ CoHyPLO 48.47 52.03 50.19 
+
++ MaPLe 50.27 50.97 50.62 
+
++ MaHyPLO 50.50 52.33 51.40 
+
++ PromptSRC 52.77 51.30 52.02 + CoPrompt 50.17 50.90 50.53 
+
+(b) Caltech101 
+
+Method Base New H
+
+HyCoCLIP 92.90 91.00 91.94 + CoOp 95.53 83.07 88.87 
+
++ HyPLO 95.37 84.20 89.44 
+
++ CoCoOp 95.10 88.13 91.43 
+
++ CoHyPLO 95.23 89.20 92.12 
+
++ MaPLe 95.57 90.40 92.91 
+
++ MaHyPLO 95.83 90.30 92.98 
+
++ PromptSRC 96.13 85.30 90.39 + CoPrompt 96.03 88.47 92.10 
+
+(c) OxfordPets 
+
+Method Base New H
+
+HyCoCLIP 57.50 74.30 64.83 + CoOp 76.60 61.83 68.43 
+
++ HyPLO 78.63 61.83 69.23 
+
++ CoCoOp 75.8 66.77 70.95 
+
++ CoHyPLO 76.40 68.47 72.22 
+
++ MaPLe 74.60 70.97 72.74 
+
++ MaHyPLO 77.73 73.13 75.36 
+
++ PromptSRC 79.90 71.33 75.37 + CoPrompt 76.93 69.07 72.79 
+
+(d) StanfordCars 
+
+Method Base New H
+
+HyCoCLIP 14.40 19.50 16.57 + CoOp 27.47 15.60 19.90 
+
++ HyPLO 26.20 16.90 20.55 
+
++ CoCoOp 20.57 20.10 20.33 
+
++ CoHyPLO 19.83 20.97 20.38 
+
++ MaPLe 22.77 19.73 21.14 
+
++ MaHyPLO 23.70 20.53 22.00 
+
++ PromptSRC 31.07 20.93 25.01 + CoPrompt 25.37 20.97 22.96 
+
+(e) Flowers102 
+
+Method Base New H
+
+HyCoCLIP 36.80 38.10 37.44 + CoOp 78.80 22.00 34.40 + HyPLO 78.73 19.67 31.48 + CoCoOp 59.63 26.77 36.96 
+
++ CoHyPLO 59.03 29.70 39.52 
+
++ MaPLe 63.97 32.20 42.84 
+
++ MaHyPLO 65.80 34.80 45.52 
+
++ PromptSRC 85.77 29.27 43.65 + CoPrompt 70.27 27.37 39.40 
+
+(f) Food101 
+
+Method Base New H
+
+HyCoCLIP 66.90 71.20 68.98 + CoOp 72.20 60.47 65.82 
+
++ HyPLO 73.37 61.90 67.15 
+
++ CoCoOp 72.30 66.43 69.24 
+
++ CoHyPLO 72.60 69.50 71.02 
+
++ MaPLe 73.20 70.27 71.71 
+
++ MaHyPLO 73.57 71.00 72.26 
+
++ PromptSRC 74.57 69.67 72.04 + CoPrompt 73.20 69.77 71.44 
+
+(g) FGVCAircraft 
+
+Method Base New H
+
+HyCoCLIP 2.80 6.60 3.94 + CoOp 14.20 5.57 8.00 
+
++ HyPLO 15.30 6.30 8.93 
+
++ CoCoOp 10.33 5.90 7.51 
+
++ CoHyPLO 10.33 7.17 8.46 
+
++ MaPLe 8.07 6.13 6.97 
+
++ MaHyPLO 11.63 7.93 9.43 
+
++ PromptSRC 12.73 5.30 7.48 + CoPrompt 10.40 4.10 5.88 
+
+(h) SUN397 
+
+Method Base New H
+
+HyCoCLIP 64.10 69.70 66.78 + CoOp 71.43 61.47 66.08 
+
++ HyPLO 71.63 63.47 67.30 
+
++ CoCoOp 68.90 66.33 67.59 
+
++ CoHyPLO 69.57 68.00 68.78 
+
++ MaPLe 70.30 67.07 68.65 
+
++ MaHyPLO 71.00 68.50 69.73 
+
++ PromptSRC 73.13 68.73 70.86 + CoPrompt 70.37 66.90 68.59 
+
+(i) DTD 
+
+Method Base New H
+
+HyCoCLIP 32.90 37.40 35.01 + CoOp 68.10 27.93 39.61 + HyPLO 70.3 27.57 39.61 
+
++ CoCoOp 60.00 33.87 43.30 
+
++ CoHyPLO 62.70 35.40 45.25 
+
++ MaPLe 64.33 38.23 47.96 
+
++ MaHyPLO 67.73 37.87 48.58 
+
++ PromptSRC 71.63 36.63 48.47 + CoPrompt 68.83 39.30 50.03 
+
+(j) EuroSAT 
+
+Method Base New H
+
+HyCoCLIP 45.90 55.60 50.29 + CoOp 91.07 46.60 61.65 
+
++ HyPLO 91.70 51.83 66.23 
+
++ CoCoOp 86.53 49.13 62.67 
+
++ CoHyPLO 87.33 52.60 65.66 
+
++ MaPLe 86.57 51.70 64.74 
+
++ MaHyPLO 88.73 59.90 71.52 
+
++ PromptSRC 87.23 43.87 58.38 + CoPrompt 86.10 47.20 60.97 
+
+(k) UCF101 
+
+Method Base New H
+
+HyCoCLIP 55.00 58.90 56.88 + CoOp 72.20 46.63 56.66 
+
++ HyPLO 72.33 47.50 57.34 
+
++ CoCoOp 65.17 52.37 58.07 
+
++ CoHyPLO 65.57 54.27 59.39 
+
++ MaPLe 67.03 53.20 59.32 
+
++ MaHyPLO 69.00 57.87 62.95 
+
++ PromptSRC 73.67 55.90 63.57 + CoPrompt 69.77 52.23 59.74 
+
+(l) Average 
+
+Method Base New H
+
+HyCoCLIP 46.87 52.22 49.40 + CoOp 65.14 43.67 52.29 
+
++ HyPLO 65.69 44.69 53.19 
+
++ CoCoOp 60.29 47.84 53.35 
+
++ CoHyPLO 60.64 49.76 54.66 
+
++ MaPLe 61.52 50.08 55.21 
+
++ MaHyPLO 63.20 52.20 57.18 
+
++ PromptSRC 67.15 48.93 56.61 + CoPrompt 63.40 50.35 56.13 
+
+Table 1: Base-to-new generalization accuracy (%) across 11 datasets. Each subtable reports base class accuracy ( Base ), novel class accuracy ( New ), and their harmonic mean ( H). Results for each dataset are averaged over three random seeds. The Average subtable reports a macro-average across datasets; Average 
+
+H is a harmonic mean of Average Base and Average New . HyPLO, CoHyPLO, and MaHyPLO are the hierarchical extensions of CoOp, CoCoOp, and MaPLe, respectively. Bold indicates the better result between each baseline and its hierarchical extension. Underlining indicates the best result in each column across all methods. 11 Source Target Method                                                                                                 
+
+> ImageNet Caltech101 OxfordPets StanfordCars Flowers102 Food101 Aircraft SUN397 DTD EuroSAT UCF101
+> Average
+> CoOp 47.23 86.17 54.80 10.27 29.10 56.40 3.70 51.33 27.10 33.43 45.03 39.73
+> HyPLO 47.53 86.80 55.27 11.83 30.10 58.20 3.33 52.83 27.17 34.90 46.63 40.71
+> CoCoOp 46.90 85.90 53.70 11.33 28.77 56.70 3.27 52.30 27.23 35.67 45.90 40.08
+> CoHyPLO 47.60 86.90 55.97 11.93 30.17 58.57 3.23 54.30 26.87 34.97 47.10 41.00
+> MaPLe 46.57 86.43 55.10 10.40 26.77 54.55 3.53 51.73 27.40 35.83 45.50 39.72
+> MaHyPLO 47.37 88.03 55.90 11.27 30.70 59.00 3.93 54.93 27.97 35.77 47.20 41.47
+> PromptSRC 48.63 87.40 56.80 10.57 29.00 55.67 3.70 52.70 26.73 34.20 46.43 40.34 CoPrompt 48.63 88.80 57.20 10.83 28.27 57.37 4.53 53.43 25.93 22.43 48.57 39.74
+
+Table 2: Cross-dataset transfer accuracy (%). All methods are trained on ImageNet (source) and evaluated on 10 target datasets without further adaptation. Results are averaged over three random seeds, and Average 
+
+denotes the mean across the 10 target datasets. HyPLO, CoHyPLO, and MaHyPLO are the hierarchical extensions of CoOp, CoCoOp, and MaPLe respectively. Bold indicates the better result among each baseline and its hierarchical extension. Underlining indicates the best result in each column across all methods. Across the ten target datasets, the hierarchy-aware variants improve their corresponding prompt-learning baselines by 0.92-1.75% in average accuracy. HyPLO improves over CoOp on 9 of 10 targets, CoHyPLO improves over CoCoOp on 7 of 10 targets, and MaHyPLO improves over MaPLe on 9 of 10 targets. MaHyPLO achieves the strongest target average, improving over MaPLe by 1.75%. Thus, while the aggregate gains are moderate, they are generally distributed across target datasets rather than driven by a single transfer setting. These results indicate that parent-level supervision learned on the source domain can provide a transferable semantic prior. At the same time, transfer occurs across datasets with distinct, independently constructed hierarchies: the WordNet-derived ImageNet hierarchy differs from the hierarchy used for each target dataset. Consequently, source-learned parent relations need not correspond directly to the semantic organization of target labels, which may limit the extent of hierarchical transfer. 
+
+4.3 Domain Generalization 
+
+Finally, we evaluate domain generalization by training prompts on ImageNet and testing them on Ima-geNetV2, ImageNet-Sketch, ImageNet-A, and ImageNet-R (Table 3). In this setting, the label space is fixed while the image distribution changes. The hierarchy-aware variants perform comparably to their underlying prompt learners under distribution shift. Their average differences are small, indicating that the hierarchy module neither materially improves nor degrades robustness across these four target distributions. This outcome is consistent with the role of the method: parent supervision structures the label space, whereas the main challenge in this setting is a shift in visual appearance. 
+
+4.4 Hierarchy-awareness Metrics 
+
+Beyond classification accuracy, we evaluate whether predictions respect the supplied taxonomy. Figure 3 visualizes the radial organization of the learned embeddings, and Table 4 reports six hierarchical metrics. 
+
+Embedding geometry. The entailment objective encourages a radial ordering by specificity: parent embeddings should lie closer to the origin than class embeddings, which should in turn lie closer than image 12 (a) CoOp (b) HyPLO   
+
+> (c) CoCoOp (d) CoHyPLO
+> (e) MaPLe (f) MaHyPLO
+
+Figure 3: Distributions of hyperbolic embedding norms, i.e., distances from the origin, for parent, class, and image representations on OxfordPets. The proposed methods (b) HyPLO, (d) CoHyPLO, and (f) MaHyPLO learn a consistent radial ordering, parent → class → image, with parent concepts closest to the origin and image embeddings farthest away. In contrast, their respective non-hierarchical baselines (a) CoOp, (c) CoCoOp, and (e) MaPLe place parent and class text embeddings at similar radii (parent labels were fed to the class prompt learner to generate parent embeddings), while primarily separating image and text embeddings due to inherent capabilities of HyCoCLIP. embeddings. Figure 3 shows this ordering on OxfordPets. HyPLO, CoHyPLO, and MaHyPLO separate the parent, class, and image distributions, whereas the non-hierarchical prompt learning baselines place parent and class representations at similar radii. This result indicates that the proposed objective induces parent-class organization beyond that provided by the frozen hyperbolic backbone alone. 13 Source Target Method ImageNet -V2 -S -A -R Avg.                                                             
+
+> HyCoCLIP 45.10 39.20 26.60 14.00 47.90 31.93 HyCoCLIP †44.90 38.80 26.10 14.60 47.40 31.74 + CoOp 47.23 40.83 26.80 15.63 47.63 32.73
+> + HyPLO 47.53 41.47 27.07 15.67 48.10 33.08
+> + CoCoOp 46.90 40.93 26.40 16.03 47.80 32.79
+> + CoHyPLO 47.60 41.67 26.77 15.83 47.93 33.05
+> + MaPLe 46.57 40.50 26.20 15.40 47.97 32.52 + MaHyPLO 47.37 41.13 26.17 15.30 47.40 32.50 + PromptSRC 48.63 41.97 28.00 14.77 49.70 33.61 + CoPrompt 48.63 42.40 27.87 14.87 49.00 33.54
+
+Table 3: Domain generalization accuracy in %. All methods are trained on ImageNet (source) and evalu-ated on four out-of-distribution variants: ImageNetV2 (-V2), ImageNet-Sketch (-S), ImageNet-A (-A), and ImageNet-R (-R). Avg. is the mean over the four target variants. HyPLO, CoHyPLO and MaHyPLO are our hierarchical versions of CoOp, CoCoOp and MaPLe respectively. Bold indicates the better result between each baseline and its hierarchical extension. Underlining indicates the best result in each column across all methods. 
+
+Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+2.155 2.110 1.549 1.578 0.779 0.775 0.835 0.828 0.623 0.646 0.834 0.803 HyCoCLIP † ✓
+
+2.234 2.017 1.573 1.536 0.769 0.789 0.826 0.840 0.614 0.662 0.814 0.823 + CoOp –
+
+1.348 2.479 1.326 1.676 0.872 0.731 0.907 0.795 0.767 0.574 0.908 0.775 
+
++ HyPLO ✓
+
+1.292 2.391 1.303 1.646 0.882 0.745 0.914 0.806 0.783 0.598 0.914 0.784 
+
++ CoCoOp –
+
+1.548 2.282 1.377 1.620 0.849 0.756 0.890 0.813 0.732 0.618 0.892 0.788 
+
++ CoHyPLO ✓
+
+1.489 2.156 1.352 1.579 0.861 0.773 0.899 0.827 0.749 0.638 0.900 0.810 
+
++ MaPLe –
+
+1.481 2.173 1.356 1.587 0.858 0.769 0.896 0.824 0.744 0.636 0.900 0.801 
+
++ MaHyPLO ✓
+
+1.382 2.020 1.324 1.535 0.872 0.791 0.907 0.842 0.769 0.663 0.907 0.827 
+
+Table 4: Hierarchical evaluation metrics macro-averaged over 11 datasets for different prompt learning methods. For each dataset and metric, results are first averaged over three random seeds; the resulting dataset-level values (shown in Appendix D) are then macro-averaged. Each cell reports Base (top) and 
+
+New (bottom) class results. Lower values are better for TIE and LCA; higher values are better for Jaccard similarity (J), hierarchical F1 (F1 H), sibling accuracy (S-Acc), and cousin accuracy (C-Acc). Bold marks the best result among each baseline and its hierarchical extension. Underline marks the best value in each column. 
+
+Hierarchical metrics. Table 4 reports hierarchical distance (TIE and LCA), ancestor set overlap (Jaccard and hierarchical F1), and local error placement (sibling and cousin accuracy), macro-averaged over the 11 datasets with constructed hierarchies. HyPLO attains the strongest base class scores among the learned prompt methods across the reported metrics. On novel classes, MaHyPLO is strongest among the learned 14 Lcls Lpar Lent H                                     
+
+> ✓––56.45
+> ✓✓–57.21
+> ✓–✓56.45
+> ✓✓✓57.18
+> (a) Loss-component ablation on base-to-new generalization.
+> Lcls Lpar Lent B2N XDT DG
+> ✓✓–57.21 41.49 32.44
+> ✓✓✓57.18 41.47 32.50
+> (b) Effect of entailment regularization across main experiments.
+> λpar 0.0 0.25 0.5 0.75 1.0
+> Base 63.00 63.26 63.06 62.63 62.25
+> (c) Inference-time parent-fusion ablation.
+
+Table 5: Ablations of hierarchical loss components and inference-time parent fusion. (a) Comparison of loss combinations on base-to-new harmonic mean (H). (b) Comparison between parent supervision alone and the full method across base-to-new generalization (B2N), cross-dataset transfer (XDT), and domain gener-alization (DG). (c) Validation ablation of the inference-time parent-fusion weight. Scores are percentages and macro-averaged over datasets after averaging three seeds within each dataset, following the protocol of each experiment. Gray rows denote the full model; gray cells in (c) denote the fusion weight used in the main experiments. prompt methods, consistent with its best aggregate base-to-new performance. Thus, the hierarchy-aware variants improve not only classification performance in the relevant settings but are also more consistent with the supplied hierarchy. 
+
+4.5 Ablation Study 
+
+We ablate parent supervision, entailment regularization, inference-time parent fusion, and backbone choice. Unless stated otherwise, ablation results are calculated like the Average harmonic mean from Table 1. Ablation study was done on the best performing model, MaHyPLO, and, unless stated otherwise, setup from Section 4 is used. 
+
+4.5.1 Loss Terms 
+
+Table 5a and 5b isolate the contributions of the class loss, parent supervision, and entailment regularization. Parent supervision provides the main improvement over class-only prompt learning on base-to-new general-ization. Entailment regularization yields only small accuracy differences across the main experiments, while inducing the desired radial organization of the hierarchy. Figure 4 illustrates its structural effect. Without entailment regularization, parent and class embeddings occupy similar radii. With it, they separate into the intended parent →class →image ordering. We therefore retain the entailment term because it induces the desired hierarchical geometry while preserving the overall performance. 
+
+4.5.2 Inference Fusion 
+
+Table 5c evaluates the inference-time parent-fusion weight on base class validation accuracy across 11 datasets. Parent feedback improves over class-only inference, and the selected weight attains the highest macro-average validation accuracy. Larger weights gradually reduce performance, indicating that excessive parent feedback can override class-level evidence. We use λpar = 0 .25 in all main experiments. 
+
+4.5.3 Vision-Language Model Backbone Choice 
+
+Our experiments use HyCoCLIP. To assess backbone portability, we repeat the selected base-to-new exper-iment with MERU (Desai et al., 2023) while keeping the prompt learning protocol fixed (Table 6). 15 (a) Lcls + Lpar (b) Lcls + Lpar + Lent (our model) 
+
+Figure 4: Effect of the entailment term on embedding geometry (MaHyPLO on OxfordPets; 9 parents, 37 classes, 3669 images). (a) Without Lent , the parent and class norm distributions sit at nearly the same radius. (b) With Lent , the parent is drawn toward the origin and the class outward, recovering the parent 
+
+→ class → image ordering. The entailment term induces the radial separation between parent and class at negligible cost to accuracy (Table 5). 
+
+Method MERU HyCoCLIP 
+
+Backbone 45.27 49.40 
+
++ CoOp 47.92 52.29 + HyPLO 49.00 53.19 
+
++ CoCoOp 48.73 53.35 + CoHyPLO 49.69 54.66 
+
++ MaPLe 50.35 55.21 + MaHyPLO 51.88 57.18 
+
+Table 6: VLM backbone ablation. Tested on base-to-new generalization, reporting the harmonic mean H accuracy in %. HyCoCLIP provides stronger absolute performance in this comparison. However, the hierarchy-aware vari-ants improve over their corresponding prompt learners on both MERU and HyCoCLIP. This result supports the claim that the proposed plug-in is not specific to HyCoCLIP. 
+
+4.6 Qualitative Analysis 
+
+Figure 5 illustrates when parent-feedback fusion helps. In the EuroSAT example, the class head predicts a class from the wrong parent, while the parent head correctly identifies the broader category. Fusion then shifts the final prediction to the correct class. This is the intended role of parent feedback: resolving errors that cross parent boundaries. The FGVCAircraft example shows the complementary limitation. The parent head correctly identifies the broad aircraft category, but the competing classes are siblings under that parent. Because parent feedback affects both candidates similarly, it cannot resolve their fine-grained distinction. Parent fusion is therefore most useful for cross-parent ambiguity, not for within-parent confusions. 
+
+## 5 Conclusion 
+
+We introduced a prompt-learner-agnostic hyperbolic hierarchical plug-in for frozen hyperbolic VLMs. The method preserves the original class prompt learner and adds a separate parent prompt learner. Given a fixed offline parent-class hierarchy, it combines class and parent supervision with hyperbolic entailment regular-16 Ground Truth Class Class + Parent (Ours) 
+
+GOOD EXAMPLE 
+
+True class: residential buildings 
+
+True parent: built-up area 
+
+Pred. class: pasture land 
+
+Pred. parent: -
+
+Test Fusion: pasture land 
+
+Pred. class: pasture land 
+
+Pred. parent: built-up area 
+
+Test Fusion: residential buildings         
+
+> BAD EXAMPLE
+> True class: MD-87
+> True parent: narrow-body airliner
+> Pred. class: MD-90
+> Pred. parent: -
+> Test Fusion: MD-90
+> Pred. class: MD-90
+> Pred. parent: narrow-body airliner
+> Test Fusion: MD-90
+
+Figure 5: Qualitative results showing where our method succeeds (above) and where our method fails (below). Left column are ground-truth images; middle column are images predicted by class-only prompt learner; right column are images predicted by our method. ization and parent-feedback logit fusion. This incorporates taxonomic information into prompt adaptation without modifying the frozen backbone or requiring an auxiliary graph encoder. Across base-to-new generalization, the hierarchy-aware variants improve the prompt learning methods they extend. HyPLO, CoHyPLO, and MaHyPLO preserve the characteristic behavior of their respective CoOp, CoCoOp, and MaPLe baselines while improving their overall balance between base and novel classes. The hi-erarchical metrics and embedding analysis further show that the learned representations exhibit the intended parent → class → image organization in hyperbolic space. These results indicate that hierarchical struc-ture available in hyperbolic vision-language representations can also be exploited effectively at the prompt learning interface. Our analysis also identifies the scope of these benefits. The method is most helpful when prediction requires positioning unseen classes within a meaningful and stable taxonomy. Its gains are slightly smaller under cross-dataset transfer, where source and target label hierarchies may align only partially, and limited under domain generalization, where the label space is fixed and the main challenge is visual distribution shift. Likewise, parent-level information is less informative for fine-grained confusions among sibling classes. The entailment 17 regularizer consistently improves geometric organization, whereas parent-level supervision accounts for most of the accuracy gains. Future work should consider variable-depth, incomplete, or noisy taxonomies; additional prompt learning baselines; and Euclidean vision-language backbones mapped into hyperbolic space at adaptation time. Learn-ing the loss weights, parent-fusion weight, and hyperbolic softmax temperature could also reduce manual tuning and adapt the strength of hierarchical supervision to each dataset. 
+
+## References 
+
+Lukas Bossard, Matthieu Guillaumin, and Luc Van Gool. Food-101–mining discriminative components with random forests. In European conference on computer vision , pp. 446–461, 2014. Nan Chen, Xiangdong Su, and Feilong Bao. Hyperbolic representations for prompt learning. In Proceed-ings of the 2024 Joint International Conference on Computational Linguistics, Language Resources and Evaluation (LREC-COLING 2024) , pp. 8487–8492, 2024. Mircea Cimpoi, Subhransu Maji, Iasonas Kokkinos, Sammy Mohamed, and Andrea Vedaldi. Describing textures in the wild. In Proceedings of the IEEE conference on computer vision and pattern recognition ,pp. 3606–3613, 2014. Ofer Dekel, Joseph Keshet, and Yoram Singer. Large margin hierarchical classification. In Proceedings of the twenty-first international conference on Machine learning , pp. 27, 2004. Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. ImageNet: A large-scale hierarchical image database. In 2009 IEEE conference on computer vision and pattern recognition , pp. 248–255, 2009. Karan Desai, Maximilian Nickel, Tanmay Rajpurohit, Justin Johnson, and Shanmukha Ramakrishna Vedan-tam. Hyperbolic image-text representations. In International Conference on Machine Learning , pp. 7694– 7731, 2023. Ankit Dhall, Anastasia Makarova, Octavian Ganea, Dario Pavllo, Michael Greeff, and Andreas Krause. Hierarchical image classification using entailment cone embeddings. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops , pp. 836–837, 2020. Yingjun Du, Wenfang Sun, and Cees G. M. Snoek. IPO: Interpretable prompt optimization for vision-language models, 2024. URL https://arxiv.org/abs/2410.15397 .Aleksandr Ermolov, Leyla Mirvakhabova, Valentin Khrulkov, Nicu Sebe, and Ivan Oseledets. Hyperbolic vision transformers: Combining improvements in metric learning. In Proceedings of the IEEE/CVF con-ference on computer vision and pattern recognition , pp. 7409–7419, 2022. Li Fei-Fei, Rob Fergus, and Pietro Perona. Learning generative visual models from few training examples: An incremental bayesian approach tested on 101 object categories. In 2004 conference on computer vision and pattern recognition workshop , pp. 178–178, 2004. Jacob Fein-Ashley, Ethan Feng, and Minh Pham. HVT: A comprehensive vision framework for learning in non-euclidean space, 2024. Octavian Ganea, Gary Bécigneul, and Thomas Hofmann. Hyperbolic entailment cones for learning hierar-chical embeddings. In International conference on machine learning , pp. 1646–1655, 2018a. Octavian Ganea, Gary Bécigneul, and Thomas Hofmann. Hyperbolic neural networks. Advances in neural information processing systems , 31, 2018b. Mina Ghadimi Atigh, Martin Keller-Ressel, and Pascal Mettes. Hyperbolic busemann learning with ideal prototypes. Advances in neural information processing systems , 34:103–115, 2021. 18 Mina Ghadimi Atigh, Julian Schoep, Erman Acar, Nanne Van Noord, and Pascal Mettes. Hyperbolic image segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition ,pp. 4453–4462, 2022. Siddhant Gole, Akash Pal, Amit More, S Divakar Bhat, Subhasis Chaudhuri, and Biplab Banerjee. Hy-perbolic prototype learning with uncertainty-aware consistency for continual test-time segmentation. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 34694–34703, 2026. Neil He, Hiren Madhu, Ngoc Bui, Menglin Yang, and Rex Ying. Hyperbolic deep learning for foundation models: A survey. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 , pp. 6021–6031, 2025a. Neil He, Menglin Yang, and Rex Ying. HyperCore: The core framework for building hyperbolic foundation models with comprehensive modules, 2025b. Patrick Helber, Benjamin Bischke, Andreas Dengel, and Damian Borth. Eurosat: A novel dataset and deep learning benchmark for land use and land cover classification. IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing , 12(7):2217–2226, 2019. Muhammad Uzair Khattak, Hanoona Rasheed, Muhammad Maaz, Salman Khan, and Fahad Shahbaz Khan. MaPLe: Multi-modal prompt learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 19113–19122, 2023a. Muhammad Uzair Khattak, Syed Talal Wasim, Muzammal Naseer, Salman Khan, Ming-Hsuan Yang, and Fahad Shahbaz Khan. Self-regulating prompts: Foundational model adaptation without forgetting. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 15190–15200, 2023b. Valentin Khrulkov, Leyla Mirvakhabova, Evgeniya Ustinova, Ivan Oseledets, and Victor Lempitsky. Hy-perbolic image embeddings. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 6418–6428, 2020. Aris Kosmopoulos, Ioannis Partalas, Eric Gaussier, Georgios Paliouras, and Ion Androutsopoulos. Evaluation measures for hierarchical classification: a unified view and novel approaches. Data Mining and Knowledge Discovery , 29(3):820–865, 2015. Jonathan Krause, Michael Stark, Jia Deng, and Li Fei-Fei. 3d object representations for fine-grained catego-rization. In Proceedings of the IEEE international conference on computer vision workshops , pp. 554–561, 2013. Shaoteng Liu, Jingjing Chen, Liangming Pan, Chong-Wah Ngo, Tat-Seng Chua, and Yu-Gang Jiang. Hy-perbolic visual embedding learning for zero-shot recognition. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 9273–9281, 2020. Teng Long, Pascal Mettes, Heng Tao Shen, and Cees GM Snoek. Searching for actions on the hyperbole. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 1141–1150, 2020. Subhransu Maji, Esa Rahtu, Juho Kannala, Matthew Blaschko, and Andrea Vedaldi. Fine-grained visual classification of aircraft, 2013. Paolo Mandica, Luca Franco, Konstantinos Kallidromitis, Suzanne Petryk, and Fabio Galasso. Hyperbolic learning with multimodal large language models. In European Conference on Computer Vision , pp. 382– 398, 2024. Pascal Mettes, Mina Ghadimi Atigh, Martin Keller-Ressel, Jeffrey Gu, and Serena Yeung. Hyperbolic deep learning in computer vision: A survey. International Journal of Computer Vision , 132(9):3484–3508, 2024. George A Miller. Wordnet: a lexical database for english. Communications of the ACM , 38(11):39–41, 1995. 19 Maximillian Nickel and Douwe Kiela. Poincaré embeddings for learning hierarchical representations. Ad-vances in Neural Information Processing Systems , 30, 2017. Maximillian Nickel and Douwe Kiela. Learning continuous hierarchies in the lorentz model of hyperbolic geometry. In International Conference on Machine Learning , pp. 3779–3788, 2018. Maria-Elena Nilsback and Andrew Zisserman. Automated flower classification over a large number of classes. In 2008 Sixth Indian conference on computer vision, graphics & image processing , pp. 722–729, 2008. Avik Pal, Max Van Spengler, Guido D’Amely di Melendugno, Alessandro Flaborea, Fabio Galasso, and Pascal Mettes. Compositional entailment learning for hyperbolic vision-language models. In International Conference on Learning Representations , volume 2025, pp. 87371–87399, 2025. Omkar M Parkhi, Andrea Vedaldi, Andrew Zisserman, and CV Jawahar. Cats and dogs. In 2012 IEEE conference on computer vision and pattern recognition , pp. 3498–3505, 2012. Mingjv Peng, Xin Song, Qiyue Zuo, Siyang Xu, and Yang Yue. HPL-CLIP: Hyperbolic prompt learning for zero-shot anomaly detection. Measurement Science and Technology , 2026. Tobia Poppi, Tejaswi Kasarla, Pascal Mettes, Lorenzo Baraldi, and Rita Cucchiara. Hyperbolic safety-aware vision-language models. In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 4222–4232, 2025. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International Conference on Machine Learning , pp. 8748–8763, 2021. Shuvendu Roy and Ali Etemad. Consistency-guided prompt learning for vision-language models. In Inter-national Conference on Learning Representations , volume 2024, pp. 6485–6498, 2024. Frederic Sala, Chris De Sa, Albert Gu, and Christopher Ré. Representation tradeoffs for hyperbolic embed-dings. In International Conference on Machine Learning , pp. 4460–4469, 2018. Khurram Soomro, Amir Roshan Zamir, and Mubarak Shah. Ucf101: A dataset of 101 human actions classes from videos in the wild, 2012. Sarthak Srivastava and Kathy Wu. HyperVLM: Hyperbolic space guided vision-language modeling for hierarchical multi-modal understanding. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 2347–2358, 2025. Hoang M Truong, Hai Nguyen-Truong, and Dang Huynh. Semantic alignment in hyperbolic space for open-vocabulary semantic segmentation, 2026. Ziwei Wang, Sameera Ramasinghe, Chenchen Xu, Julien Monteil, Loris Bazzani, and Thalaiyasingam Ajan-than. Learning visual hierarchies in hyperbolic space for image retrieval. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 9924–9934, 2025. Peng Xia, Xingtong Yu, Ming Hu, Lie Ju, Zhiyong Wang, Peibo Duan, and Zongyuan Ge. HGCLIP: Exploring vision-language models with graph representations for hierarchical understanding. In Proceedings of the 31st International Conference on Computational Linguistics , pp. 269–280, 2025. Jianxiong Xiao, James Hays, Krista A Ehinger, Aude Oliva, and Antonio Torralba. Sun database: Large-scale scene recognition from abbey to zoo. In 2010 IEEE Computer Society Conference on Computer Vision and Pattern Recognition , pp. 3485–3492, 2010. Daiki Yoshikawa and Takashi Matsubara. PHyCLIP: ℓ1-product of hyperbolic factors unifies hierarchy and compositionality in vision-language representation learning. In International Conference on Learning Representations , volume 2026, pp. 118056–118079, 2026. 20 Hao Zheng, Shunzhi Yang, Zhuoxin He, Jinfeng Yang, and Zhenhua Huang. Hierarchical cross-modal prompt learning for vision-language models. In Proceedings of the IEEE/CVF International Conference on Com-puter Vision , pp. 1891–1901, 2025. Kaiyang Zhou, Jingkang Yang, Chen Change Loy, and Ziwei Liu. Conditional prompt learning for vision-language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recog-nition , pp. 16816–16825, 2022a. Kaiyang Zhou, Jingkang Yang, Chen Change Loy, and Ziwei Liu. Learning to prompt for vision-language models. International Journal of Computer Vision , 130(9):2337–2348, 2022b. 21 A Hierarchies 
+
+This appendix lists the class and parent labels used to construct the semantic hierarchies for each dataset in our experiments. Following the process described in Algorithm 1, the hierarchies were curated to group semantically related classes under higher-level parent categories, providing the class-parent relationships required for hierarchical evaluation. Due to space limitations, the complete hierarchies for SUN397 and ImageNet are not included in this docu-ment. Both datasets contain substantially larger label sets (397 and 1000 classes, respectively), making their full mappings impractical to reproduce. 
+
+Parent Classes anatomy face, brain 
+
+feline leopard, cougar body, cougar face, wild cat 
+
+vehicle motorbike, airplane, car side, ferry, helicopter, ketch, schooner 
+
+musical instrument accordion, electric guitar, euphonium, gramophone, grand piano, mandolin, metronome, saxophone 
+
+tool anchor, scissors, stapler, umbrella, wrench 
+
+arthropod ant, butterfly, dragonfly, mayfly, scorpion, tick 
+
+container barrel, cup, ewer 
+
+aquatic vertebrate bass, dolphin, sea horse 
+
+small mammal beaver, dalmatian, hedgehog, kangaroo, panda, platypus 
+
+electronic device binocular, camera, cellphone, headphone, laptop, watch 
+
+tree bonsai, joshua tree 
+
+prehistoric animal brontosaurus, stegosaurus, trilobite 
+
+symbolic object buddha, dollar bill, menorah, stop sign, yin yang 
+
+weapon cannon, revolver 
+
+home furnishing ceiling fan, chair, chandelier, lamp, wheelchair, windsor chair 
+
+marine invertebrate crab, crayfish, lobster, nautilus, octopus, starfish 
+
+reptile crocodile, crocodile head, hawksbill 
+
+large herbivore elephant, gerenuk, llama, okapi, rhino 
+
+bird emu, flamingo, flamingo head, ibis, pigeon, rooster 
+
+cartoon character garfield, snoopy 
+
+sports equipment inline skate, soccer ball 
+
+flower lotus, sunflower, water lilly 
+
+building minaret, pagoda, pyramid 
+
+food pizza, strawberry 
+
+Table 7: Caltech101 hierarchy: 100 classes grouped under 24 parents (mean 4.2 children per parent). 
+
+Parent Classes cropland Annual Crop Land, Permanent Crop Land 
+
+natural vegetation Forest, Herbaceous Vegetation Land, Pasture Land 
+
+built-up area Highway or Road, Industrial Buildings, Residential Buildings 
+
+water body River, Sea or Lake 
+
+Table 8: EuroSAT hierarchy: 10 classes grouped under 4 parents (mean 2.5 children per parent). 22 Parent Classes layered texture banded, crystalline, scaly, stratified 
+
+spotted pattern blotchy, dotted, flecked, freckled, polka-dotted, sprinkled 
+
+woven texture braided, fibrous, gauzy, interlaced, knitted, lacelike, matted, woven 
+
+bumpy surface bubbly, bumpy, grooved, studded 
+
+lattice pattern chequered, crosshatched, grid, waffled 
+
+porous texture cobwebbed, honeycombed, meshed, perforated, pitted, porous 
+
+damaged surface cracked, potholed 
+
+wrinkled surface frilly, pleated, wrinkled 
+
+linear pattern lined, striped, veined, zigzagged 
+
+wavy pattern marbled, paisley, spiralled, swirly 
+
+stained surface smeared, stained 
+
+Table 9: DTD hierarchy: 47 classes grouped under 11 parents (mean 4.3 children per parent). 
+
+Parent Classes spotted cat abyssinian, bengal, egyptian mau 
+
+bulldog american bulldog, american pit bull terrier, boxer 
+
+hunting dog basset hound, beagle, english cocker spaniel, english setter, german shorthaired 
+
+longhair cat birman, maine coon, persian, ragdoll 
+
+shorthair cat bombay, british shorthair, russian blue, siamese, sphynx 
+
+toy dog chihuahua, havanese, japanese chin, miniature pinscher, pug, yorkshire terrier 
+
+large dog great pyrenees, leonberger, newfoundland, saint bernard 
+
+spitz dog keeshond, pomeranian, samoyed, shiba inu 
+
+terrier scottish terrier, staffordshire bull terrier, wheaten terrier 
+
+Table 10: OxfordPets hierarchy: 37 classes grouped under 9 parents (mean 4.1 children per parent). 
+
+Parent Classes classic long-range airliner 707-320, 727-200, A340-200, A340-300, A340-500, A340-600, DC-10, DC-8, L-1011, MD-11 
+
+narrow-body airliner 737-200, 737-300, 737-400, 737-500, 737-600, 737-700, 737-800, 737-900, 757-200, 757-300, A318, A319, A320, A321, Boeing 717, Fokker 100, MD-80, MD-87, MD-90 
+
+wide-body airliner 747-100, 747-200, 747-300, 747-400, 767-200, 767-300, 767-400, 777-200, 777-300, A300B4, A310, A330-200, A330-300, A380 
+
+regional turboprop ATR-42, ATR-72, Beechcraft 1900, DHC-8-100, DHC-8-300, Dornier 328, EMB-120, Fokker 50, Metroliner, Saab 2000, Saab 340 
+
+military transport An-12, C-130, C-47, Il-76 
+
+regional jet BAE 146-200, BAE 146-300, CRJ-200, CRJ-700, CRJ-900, DC-9-30, E-170, E-190, E-195, ERJ 135, ERJ 145, Fokker 70, Tu-134, Tu-154, Yak-42 
+
+business jet BAE-125, Cessna 525, Cessna 560, Challenger 600, Embraer Legacy 600, Falcon 2000, Falcon 900, Global Express, Gulfstream IV, Gulfstream V 
+
+light propeller plane Cessna 172, Cessna 208, DHC-6, DR-400, Model B200, PA-28, SR-20 
+
+vintage propeller plane DC-3, DC-6, DH-82, DHC-1, Spitfire 
+
+military jet Eurofighter Typhoon, F-16A/B, F/A-18, Hawk T1, Tornado 
+
+Table 11: FGVCAircraft hierarchy: 100 classes grouped under 10 parents (mean 10.0 children per parent). 23 Parent Classes baked dessert apple pie, baklava, bread pudding, carrot cake, cheesecake, chocolate cake, cup cakes, red velvet cake, strawberry shortcake, tiramisu 
+
+meat dish baby back ribs, beef carpaccio, beef tartare, chicken curry, chicken quesadilla, chicken wings, filet mignon, foie gras, peking duck, pork chop, prime rib, steak 
+
+salad beet salad, caesar salad, caprese salad, ceviche, greek salad, seaweed salad 
+
+fried pastry beignets, cannoli, churros, donuts, macarons, waffles 
+
+noodle and rice bibimbap, fried rice, pad thai, paella, pho, ramen, risotto 
+
+sandwich breakfast burrito, club sandwich, croque madame, grilled cheese sandwich, hamburger, hot dog, lobster roll sandwich, pulled pork sandwich, tacos 
+
+dip or spread bruschetta, cheese plate, escargots, guacamole, hummus 
+
+frozen dessert chocolate mousse, creme brulee, frozen yogurt, ice cream, panna cotta 
+
+soup or stew clam chowder, french onion soup, hot and sour soup, lobster bisque, miso soup 
+
+seafood dish crab cakes, fish and chips, grilled salmon, mussels, oysters, sashimi, scallops, shrimp and grits, sushi, tuna tartare 
+
+small bite deviled eggs, edamame 
+
+dumpling or roll dumplings, gyoza, spring rolls, takoyaki 
+
+breakfast dish eggs benedict, french toast, huevos rancheros, omelette, pancakes 
+
+fried bite falafel, fried calamari, nachos, samosa 
+
+fried side french fries, garlic bread, onion rings, poutine 
+
+pasta and pizza gnocchi, lasagna, macaroni and cheese, pizza, ravioli, spaghetti bolognese, spaghetti car-bonara 
+
+Table 12: Food101 hierarchy: 101 classes grouped under 16 parents (mean 6.3 children per parent). 
+
+Parent Classes perennial flower pink primrose, monkshood, balloon flower, pincushion flower, lenten rose, gaura, japanese anemone, windflower, columbine, cyclamen, bee balm, foxglove, mallow 
+
+orchid hard-leaved pocket orchid, moon orchid, king protea, ruby-lipped cattleya, cape flower 
+
+annual flower canterbury bells, snapdragon, sweet william, carnation, garden phlox, love in the mist, bolero deep blue, wallflower, petunia, wild pansy, primula, pelargonium, geranium 
+
+climbing flower sweet pea, morning glory, passion flower, clematis, bougainvillea, mexican petunia, trumpet creeper 
+
+dahlia or sunflower english marigold, globe-flower, purple coneflower, marigold, sunflower, bishop of llandaff, orange dahlia, pink-yellow dahlia, blanket flower 
+
+lily tiger lily, giant white arum lily, fire lily, toad lily, blackberry lily 
+
+tropical flower bird of paradise, red ginger, siam tulip, anthurium, frangipani, hibiscus, canna lily, ball moss, bromelia 
+
+thistle or spiky flower globe thistle, spear thistle, prince of wales feathers, artichoke, alpine sea holly, great mas-terwort 
+
+meadow flower colt’s foot, corn poppy, stemless gentian, buttercup, silverbush, californian poppy, tree poppy, thorn apple 
+
+bulb flower yellow iris, peruvian lily, fritillary, grape hyacinth, daffodil, sword lily, cautleya spicata, spring crocus, bearded iris, hippeastrum 
+
+daisy-like flower mexican aster, barbeton daisy, oxeye daisy, common dandelion, black-eyed susan, osteosper-mum, gazania 
+
+flowering shrub poinsettia, azalea, rose, desert-rose, tree mallow, magnolia, camellia 
+
+aquatic flower water lily, lotus, watercress 
+
+Table 13: OxfordFlowers hierarchy: 102 classes grouped under 13 parents (mean 7.8 children per parent). 24 Parent Classes midsize suv 2000 AM General Hummer SUV, 2007 Buick Rainier SUV, 2012 Chevrolet Traverse SUV, 2012 Chevrolet Tahoe Hybrid SUV, 2009 Chevrolet TrailBlazer SS, 2009 Chrysler Aspen SUV, 2012 Dodge Durango SUV, 2007 Dodge Durango SUV, 2009 Ford Expedition EL SUV, 2012 GMC Yukon Hybrid SUV, 2012 GMC Acadia SUV, 2012 Hyundai Veracruz SUV, 2008 Isuzu Ascender SUV, 2012 Jeep Grand Cherokee SUV, 2012 Toyota Sequoia SUV, 2012 Toyota 4Runner SUV 
+
+luxury sedan 2012 Acura RL Sedan, 1994 Audi V8 Sedan, 1994 Audi 100 Sedan, 2011 Audi S6 Sedan, 2010 BMW M5 Sedan, 2009 Bentley Arnage Sedan, 2011 Bentley Mulsanne Sedan, 2007 Bentley Continental Flying Spur Sedan, 2012 Cadillac CTS-V Sedan, 2010 Chrysler 300 SRT-8, 2011 Lincoln Town Car Sedan, 2012 Mercedes-Benz E-Class Sedan, 2012 Mercedes-Benz S-Class Sedan, 2012 Porsche Panamera Sedan, 2012 Rolls-Royce Ghost Sedan, 2012 Rolls-Royce Phantom Sedan 
+
+midsize sedan 2012 Acura TL Sedan, 2008 Acura TL Type-S, 2012 Audi S4 Sedan, 2007 Audi S4 Sedan, 2012 BMW ActiveHybrid 5 Sedan, 2012 BMW 3 Series Sedan, 2012 Buick Regal GS, 2007 Chevrolet Impala Sedan, 2010 Chevrolet Malibu Hybrid Sedan, 2007 Chevrolet Malibu Sedan, 2012 Dodge Charger Sedan, 2009 Dodge Charger SRT-8, 2012 Fisker Karma Sedan, 2012 Honda Accord Sedan, 2012 Hyundai Sonata Hybrid Sedan, 2012 Hyundai Genesis Sedan, 2012 Hyundai Sonata Sedan, 2012 Hyundai Azera Sedan, 2012 Tesla Model S Sedan, 2012 Toyota Camry Sedan 
+
+compact sedan 2012 Acura TSX Sedan, 2012 Buick Verano Sedan, 2012 Chevrolet Sonic Sedan, 2007 Ford Focus Sedan, 2012 Ford Fiesta Sedan, 2007 Hyundai Elantra Sedan, 2012 Hyundai Accent Sedan, 2012 Mercedes-Benz C-Class Sedan, 2012 Mitsubishi Lancer Sedan, 2007 Suzuki Aerio Sedan, 2012 Suzuki Kizashi Sedan, 2012 Suzuki SX4 Sedan, 2012 Toyota Corolla Sedan, 1993 Volvo 240 Sedan 
+
+sports coupe 2001 Acura Integra Type R, 2012 Audi A5 Coupe, 2012 Audi TTS Coupe, 2012 Audi R8 Coupe, 2012 Audi S5 Coupe, 2012 Audi TT RS Coupe, 2012 BMW 1 Series Coupe, 2012 BMW M3 Coupe, 2012 Chevrolet Corvette ZR1, 2007 Chevrolet Corvette Ron Fellows Edition Z06, 2010 Chevrolet Cobalt SS, 2011 Dodge Challenger SRT8, 2012 Infiniti G Coupe IPL, 2012 Jaguar XK XKR, 2009 Mercedes-Benz SL-Class Coupe 
+
+sport hatchback 2012 Acura ZDX Hatchback, 2011 Audi TT Hatchback, 2012 Nissan Juke Hatchback 
+
+luxury convertible 2012 Aston Martin V8 Vantage Convertible, 2012 Aston Martin Virage Convertible, 2012 Bentley Con-tinental Supersports Conv. Convertible, 2012 Maybach Landaulet Convertible, 1993 Mercedes-Benz 300-Class Convertible, 2012 Rolls-Royce Phantom Drophead Coupe Convertible 
+
+exotic coupe 2012 Aston Martin V8 Vantage Coupe, 2012 Aston Martin Virage Coupe, 2012 Bentley Continental GT Coupe, 2007 Bentley Continental GT Coupe, 2009 Bugatti Veyron 16.4 Coupe, 2012 Ferrari FF Coupe, 2012 Ferrari 458 Italia Coupe, 2006 Ford GT Coupe, 2008 Lamborghini Reventon Coupe, 2012 Lamborghini Aventador Coupe, 2012 Lamborghini Gallardo LP 570-4 Superleggera, 2001 Lamborghini Diablo Coupe, 2012 McLaren MP4-12C Coupe, 2009 Spyker C8 Coupe 
+
+sports convertible 2008 Audi RS 4 Convertible, 2012 Audi S5 Convertible, 2007 BMW 6 Series Convertible, 2010 BMW M6 Convertible, 2012 BMW Z4 Convertible, 2009 Bugatti Veyron 16.4 Convertible, 2012 Chevrolet Corvette Convertible, 2012 Chevrolet Camaro Convertible, 2012 Ferrari California Convertible, 2012 Ferrari 458 Italia Convertible, 2007 Ford Mustang Convertible, 2009 Spyker C8 Convertible 
+
+wagon 1994 Audi 100 Wagon, 2012 BMW 3 Series Wagon, 2002 Daewoo Nubira Wagon, 2012 Dodge Caliber Wagon, 2007 Dodge Caliber Wagon, 2008 Dodge Magnum Wagon, 2012 Ford E-Series Wagon Van 
+
+compact convertible 2012 BMW 1 Series Convertible, 2010 Chrysler Sebring Convertible, 2008 Chrysler Crossfire Convertible, 2008 Chrysler PT Cruiser Convertible, 2012 FIAT 500 Convertible, 1993 Geo Metro Convertible, 2012 MINI Cooper Roadster Convertible, 2012 smart fortwo Convertible 
+
+luxury suv 2007 BMW X5 SUV, 2012 BMW X6 SUV, 2012 BMW X3 SUV, 2012 Buick Enclave SUV, 2012 Cadillac SRX SUV, 2011 Infiniti QX56 SUV, 2012 Land Rover Range Rover SUV, 2012 Land Rover LR2 SUV, 2007 Volvo XC90 SUV 
+
+full-size pickup 2007 Cadillac Escalade EXT Crew Cab, 2012 Chevrolet Silverado 1500 Hybrid Crew Cab, 2012 Chevrolet Avalanche Crew Cab, 2012 Chevrolet Silverado 2500HD Regular Cab, 2007 Chevrolet Silverado 1500 Classic Extended Cab, 2012 Chevrolet Silverado 1500 Extended Cab, 2012 Chevrolet Silverado 1500 Regular Cab, 2010 Dodge Ram Pickup 3500 Crew Cab, 2009 Dodge Ram Pickup 3500 Quad Cab, 2012 Ford F-450 Super Duty Crew Cab, 2012 Ford F-150 Regular Cab, 2007 Ford F-150 Regular Cab 
+
+minivan 2010 Chevrolet HHR SS, 2012 Chrysler Town and Country Minivan, 1997 Dodge Caravan Minivan, 2007 Ford Freestar Minivan, 2012 Honda Odyssey Minivan, 2007 Honda Odyssey Minivan, 2012 Ram C/V Cargo Van Minivan 
+
+van 2007 Chevrolet Express Cargo Van, 2007 Chevrolet Express Van, 2009 Dodge Sprinter Cargo Van, 2012 GMC Savana Van, 2012 Mercedes-Benz Sprinter Van, 2012 Nissan NV Passenger Van 
+
+standard coupe 2007 Chevrolet Monte Carlo Coupe, 2012 FIAT 500 Abarth, 2012 Honda Accord Coupe, 1998 Nissan 240SX Coupe, 1999 Plymouth Neon Coupe 
+
+compact suv 2012 Dodge Journey SUV, 2012 Ford Edge SUV, 2012 GMC Terrain SUV, 2012 Hyundai Santa Fe SUV, 2012 Hyundai Tucson SUV, 2012 Jeep Patriot SUV, 2012 Jeep Wrangler SUV, 2012 Jeep Liberty SUV, 2012 Jeep Compass SUV, 2011 Mazda Tribute SUV 
+
+midsize pickup 2010 Dodge Dakota Crew Cab, 2007 Dodge Dakota Club Cab, 2011 Ford Ranger SuperCab, 2012 GMC Canyon Extended Cab, 2010 HUMMER H3T Crew Cab, 2009 HUMMER H2 SUT Crew Cab 
+
+compact hatchback 1998 Eagle Talon Hatchback, 2012 Hyundai Veloster Hatchback, 2012 Hyundai Elantra Touring Hatchback, 2012 Nissan Leaf Hatchback, 2012 Scion xD Hatchback, 2012 Suzuki SX4 Hatchback, 2012 Volkswagen Golf Hatchback, 1991 Volkswagen Golf Hatchback, 2012 Volkswagen Beetle Hatchback, 2012 Volvo C30 Hatchback 
+
+Table 14: StanfordCars hierarchy: 196 classes grouped under 19 parents (mean 10.3 children per parent). 25 Parent Classes grooming Apply Eye Makeup, Apply Lipstick, Blow Dry Hair, Brushing Teeth, Haircut, Head Massage, Shaving Beard 
+
+target and aim sport Archery, Billiards, Bowling, Frisbee Catch, Golf Swing 
+
+hobby Baby Crawling, Knitting 
+
+gymnastics apparatus Balance Beam, Floor Gymnastics, Handstand Pushups, Handstand Walking, Parallel Bars, Pommel Horse, Still Rings, Trampoline Jumping, Uneven Bars 
+
+dance or parade Band Marching, Hula Hoop, Ice Dancing, Military Parade, Salsa Spin 
+
+racket and bat sport Baseball Pitch, Cricket Bowling, Cricket Shot, Table Tennis Shot, Tennis Swing 
+
+team ball sport Basketball, Basketball Dunk, Field Hockey Penalty, Soccer Juggling, Soccer Penalty, Vol-leyball Spiking 
+
+bodyweight exercise Bench Press, Body Weight Squats, Clean And Jerk, Jumping Jack, Jump Rope, Lunges, Pull Ups, Push Ups, Tai Chi, Wall Pushups 
+
+outdoor adventure Biking, Rock Climbing Indoor, Rope Climbing, Skate Boarding, Swing 
+
+cooking Blowing Candles, Cutting In Kitchen, Mixing, Pizza Tossing 
+
+combat sport Boxing Punching Bag, Boxing Speed Bag, Fencing, Nunchucks, Punch, Sumo Wrestling 
+
+water or snow sport Breast Stroke, Cliff Diving, Diving, Front Crawl, Kayaking, Rafting, Rowing, Skiing, Skijet, Sky Diving, Surfing 
+
+musical performance Drumming, Playing Cello, Playing Daf, Playing Dhol, Playing Flute, Playing Guitar, Play-ing Piano, Playing Sitar, Playing Tabla, Playing Violin 
+
+cleaning task Hammering, Mopping Floor 
+
+track and field Hammer Throw, High Jump, Javelin Throw, Long Jump, Pole Vault, Shotput, Throw Discus 
+
+equestrian sport Horse Race, Horse Riding, Walking With Dog 
+
+skill toy Juggling Balls, Yo Yo 
+
+writing Typing, Writing On Board 
+
+Table 15: UCF101 hierarchy: 101 classes grouped under 18 parents (mean 5.6 children per parent). 
+
+## B HyCoCLIP †
+
+HyCoCLIP † is the zero-shot HyCoCLIP backbone augmented with fixed, hand-written templates that inject the parent name directly into the text prompt, rather than learning it. For each class we encode all four templates in Figure 6 and average the resulting text embeddings before computing similarity with the image. This gives the backbone access to the same parent-class hierarchy used by HyPLO, CoHyPLO and MaHyPLO, isolating whether the gains observed in Section 4.4 require learned, optimized prompts or can be obtained from hierarchy alone, expressed through static text.       
+
+> 1. a photo of a {class}.
+> 2. a photo of a {class}, a {parent} .
+> 3. {parent} : a photo of a {class}.
+> 4. a photo of a {class}, a type of {parent} .
+> Instance Instance + Parent
+
+Figure 6: The four hand-written templates instantiated for HyCoCLIP †. Template 1 is the standard instance-only prompt used by the zero-shot HyCoCLIP backbone. Templates 2-4 additionally insert the ground-truth parent name ( highlighted ) in three syntactic positions, giving HyCoCLIP † access to the same hierarchy as our learned methods, but through fixed text rather than optimization. 26 C Hierarchical Metrics 
+
+This section details the hierarchical evaluation metrics used in our classification experiments. Given a predicted class ˆ y and its ground-truth class y, the Tree-Induced Error (TIE) (Dekel et al., 2004) measures their graph distance: TIE(ˆ y, y ) = ∑
+
+> e∈E(ˆ y,y )
+
+we, (12) where E(i, j ) denotes the set of edges along the path between nodes i and j, and we is the weight of edge e.We assign unit weight to all edges in every hierarchy, i.e., we = 1. The Lowest Common Ancestor (LCA) error measures the distance from the predicted and ground-truth classes to their deepest shared ancestor in the hierarchy. It thus captures the extent to which a prediction departs from the correct branch of the taxonomy. For set-based metrics, let ˆYanc and Yanc denote the sets of ancestor nodes of ˆ y and y respectively. We compute the Jaccard similarity J, hierarchical precision PH , hierarchical recall RH , and hierarchical F1 score F 1H
+
+(Kosmopoulos et al., 2015) as 
+
+J =
+
+∣∣∣ ˆYanc ∩ Yanc 
+
+∣∣∣∣∣∣ ˆYanc ∪ Yanc 
+
+∣∣∣
+
+, PH =
+
+∣∣∣ ˆYanc ∩ Yanc 
+
+∣∣∣∣∣∣ ˆYanc 
+
+∣∣∣
+
+,RH =
+
+∣∣∣ ˆYanc ∩ Yanc 
+
+∣∣∣
+
+|Yanc | , F 1H = 2PH RH
+
+PH + RH
+
+.
+
+(13) We additionally report sibling and cousin accuracy, which assess whether the predicted and ground-truth classes share an ancestor at a fixed hierarchical level. Sibling accuracy measures the proportion of predictions that share at least one direct parent with the ground-truth class. Cousin accuracy measures the proportion of predictions that share at least one grandparent with the ground-truth class. Exact predictions are included in both metrics. 
+
+## D Per-Dataset Hierarchical Metrics 
+
+Section 4.4 averages the six hierarchical metrics across eleven datasets. Tables 17-26 give the per-dataset breakdown. Marking conventions match the main text: underline is the best value per column, bold is the better method within each baseline/extension pair. 27 Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+2.682 3.191 1.840 2.119 0.871 0.783 0.920 0.849 0.584 0.577 0.644 0.596 HyCoCLIP † ✓
+
+2.645 3.065 1.784 2.041 0.874 0.792 0.922 0.857 0.585 0.583 0.643 0.604 + CoOp –
+
+2.485 3.302 1.731 2.144 0.882 0.776 0.927 0.844 0.608 0.557 0.666 0.579 
+
++ HyPLO ✓
+
+2.427 3.199 1.719 2.139 0.886 0.785 0.930 0.850 0.616 0.571 0.674 0.591 
+
++ CoCoOp –
+
+2.491 3.225 1.737 2.124 0.881 0.782 0.927 0.847 0.608 0.570 0.665 0.592 
+
++ CoHyPLO ✓
+
+2.459 3.091 1.730 2.100 0.885 0.792 0.929 0.856 0.613 0.586 0.671 0.608 
+
++ MaPLe –
+
+2.412 3.187 1.709 2.102 0.885 0.783 0.929 0.849 0.617 0.571 0.674 0.592 
+
++ MaHyPLO ✓
+
+2.349 3.051 1.686 2.079 0.890 0.795 0.932 0.858 0.629 0.589 0.684 0.610 
+
+Table 16: Hierarchical evaluation metrics on ImageNet. Each cell reports Base (top) and New (bottom), averaged over three seeds. Hierarchical F1 is computed as the harmonic mean of hierarchical precision and hierarchical recall for each dataset. Underline: best in column. Bold : best within each baseline/extension pair (CoOp vs. HyPLO; CoCoOp vs. CoHyPLO; MaPLe vs. MaHyPLO). ↓ lower is better; ↑ higher is better. 
+
+Hier. : explicitly hierarchy-aware. 
+
+Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+0.240 0.303 1.049 1.062 0.978 0.971 0.990 0.979 0.964 0.949 0.994 0.989 HyCoCLIP † ✓
+
+0.234 0.341 1.049 1.068 0.978 0.968 0.984 0.977 0.963 0.943 0.988 0.989 + CoOp –0.148 
+
+0.545 
+
+1.030 
+
+1.103 
+
+0.986 
+
+0.952 
+
+0.990 
+
+0.966 0.976 0.915 
+
+0.994 
+
+0.982 
+
++ HyPLO ✓
+
+0.153 
+
+0.491 1.030 1.088 0.986 0.958 0.990 0.971 0.977 0.923 
+
+0.993 
+
+0.990 
+
++ CoCoOp –
+
+0.163 0.387 1.032 
+
+1.075 
+
+0.985 
+
+0.965 
+
+0.989 
+
+0.975 
+
+0.975 
+
+0.937 0.993 0.989 + CoHyPLO ✓
+
+0.157 0.367 1.031 
+
+1.076 
+
+0.986 
+
+0.964 
+
+0.990 0.975 0.976 
+
+0.935 
+
+0.993 0.989 
+
++ MaPLe –
+
+0.145 
+
+0.307 
+
+1.028 
+
+1.058 
+
+0.987 
+
+0.973 0.991 0.981 
+
+0.979 
+
+0.950 
+
+0.993 
+
+0.992 + MaHyPLO ✓
+
+0.135 
+
+0.331 
+
+1.026 
+
+1.068 
+
+0.988 
+
+0.967 
+
+0.991 
+
+0.977 
+
+0.980 
+
+0.939 
+
+0.995 0.992 
+
+Table 17: Hierarchical evaluation metrics on Caltech101. Each cell reports Base (top) and New (bottom), averaged over three seeds. Hierarchical F1 is computed as the harmonic mean of hierarchical precision and hierarchical recall for each dataset. Underline: best in column. Bold : best within each baseline/extension pair (CoOp vs. HyPLO; CoCoOp vs. CoHyPLO; MaPLe vs. MaHyPLO). ↓ lower is better; ↑ higher is better. 
+
+Hier. : explicitly hierarchy-aware. 28 Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+1.427 0.713 1.289 1.100 0.867 0.952 0.904 0.967 0.770 0.908 0.941 0.993 HyCoCLIP † ✓
+
+1.147 0.694 1.178 1.096 0.912 0.953 0.941 0.968 0.825 0.907 0.997 0.998 + CoOp –
+
+0.671 1.116 1.101 1.176 0.950 
+
+0.914 
+
+0.966 0.941 0.903 
+
+0.833 
+
+0.996 0.991 
+
++ HyPLO ✓
+
+0.606 1.110 1.089 1.173 0.956 0.914 0.970 0.942 0.914 
+
+0.831 
+
+0.997 0.996 
+
++ CoCoOp –
+
+0.693 1.043 1.104 1.189 0.949 0.911 0.965 0.937 0.901 0.836 0.995 0.975 
+
++ CoHyPLO ✓
+
+0.660 0.902 1.094 1.136 0.954 0.933 0.969 0.955 0.910 0.870 0.996 0.994 
+
++ MaPLe –
+
+0.734 0.830 1.114 1.125 0.944 0.939 0.962 0.958 0.891 0.883 
+
+0.996 
+
+0.992 
+
++ MaHyPLO ✓
+
+0.650 0.720 1.102 1.091 0.951 0.955 0.966 0.970 0.906 0.910 
+
+0.992 
+
+0.998 
+
+Table 18: Hierarchical evaluation metrics on OxfordPets. Each cell reports Base (top) and New (bottom), averaged over three seeds. Hierarchical F1 is computed as the harmonic mean of hierarchical precision and hierarchical recall for each dataset. Underline: best in column. Bold : best within each baseline/extension pair (CoOp vs. HyPLO; CoCoOp vs. CoHyPLO; MaPLe vs. MaHyPLO). ↓ lower is better; ↑ higher is better. 
+
+Hier. : explicitly hierarchy-aware. 
+
+Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+3.223 3.132 1.756 1.761 0.649 0.651 0.748 0.746 0.380 0.398 0.865 0.841 HyCoCLIP † ✓
+
+3.157 3.075 1.732 1.740 0.660 0.662 0.756 0.753 0.398 0.421 0.870 0.838 + CoOp –
+
+2.627 3.148 1.588 1.730 0.725 0.661 0.804 0.757 0.505 0.400 0.906 
+
+0.870 + HyPLO ✓
+
+2.625 3.069 1.575 1.704 0.731 0.675 0.808 0.766 0.517 0.430 0.909 
+
+0.867 + CoCoOp –
+
+2.877 2.988 1.644 1.695 0.698 0.678 0.785 0.768 0.458 0.434 0.898 
+
+0.871 + CoHyPLO ✓
+
+2.854 2.945 1.625 1.682 0.707 0.687 0.791 0.773 0.472 0.457 0.902 
+
+0.861 + MaPLe –
+
+2.754 2.961 1.605 1.678 0.716 0.686 0.798 0.774 0.487 0.447 0.908 
+
+0.875 + MaHyPLO ✓
+
+2.669 2.940 1.571 1.675 0.731 0.688 0.810 0.775 0.514 0.455 0.915 
+
+0.870 
+
+Table 19: Hierarchical evaluation metrics on StanfordCars. Each cell reports Base (top) and New (bottom), averaged over three seeds. Hierarchical F1 is computed as the harmonic mean of hierarchical precision and hierarchical recall for each dataset. Underline: best in column. Bold : best within each baseline/extension pair (CoOp vs. HyPLO; CoCoOp vs. CoHyPLO; MaPLe vs. MaHyPLO). ↓ lower is better; ↑ higher is better. 
+
+Hier. : explicitly hierarchy-aware. 29 Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+2.498 2.762 1.616 1.762 0.727 0.677 0.795 0.746 0.559 0.526 0.824 0.713 HyCoCLIP † ✓
+
+2.557 2.738 1.639 1.741 0.718 0.685 0.787 0.753 0.548 0.537 0.813 0.722 + CoOp –0.874 3.565 
+
+1.225 
+
+2.003 0.902 0.574 
+
+0.925 
+
+0.666 0.848 0.374 
+
+0.927 
+
+0.623 + HyPLO ✓
+
+0.889 3.704 
+
+1.222 
+
+2.049 
+
+0.902 
+
+0.557 
+
+0.926 
+
+0.650 0.845 0.358 
+
+0.933 
+
+0.593 + CoCoOp –
+
+1.630 3.204 1.411 1.870 0.818 0.631 0.863 0.710 0.706 0.458 
+
+0.883 
+
+0.672 
+
++ CoHyPLO ✓
+
+1.606 3.087 1.394 1.841 0.826 0.642 0.869 0.720 0.724 0.471 0.883 0.688 
+
++ MaPLe –
+
+1.461 2.962 1.370 1.802 0.837 0.658 0.877 0.732 0.743 0.495 0.886 0.702 
+
++ MaHyPLO ✓
+
+1.337 2.824 1.326 1.760 0.857 0.676 0.891 0.747 0.772 0.522 0.901 0.718 
+
+Table 20: Hierarchical evaluation metrics on OxfordFlowers. Each cell reports Base (top) and New (bot-tom), averaged over three seeds. Hierarchical F1 is computed as the harmonic mean of hierarchical pre-cision and hierarchical recall for each dataset. Underline: best in column. Bold : best within each base-line/extension pair (CoOp vs. HyPLO; CoCoOp vs. CoHyPLO; MaPLe vs. MaHyPLO). ↓ lower is better; ↑
+
+higher is better. Hier. : explicitly hierarchy-aware. 
+
+Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+1.425 1.134 1.381 1.279 0.835 0.877 0.873 0.907 0.745 0.803 0.874 0.918 HyCoCLIP † ✓
+
+1.437 1.185 1.384 1.291 0.832 0.872 0.872 0.903 0.737 0.795 0.879 0.914 + CoOp –
+
+1.177 1.513 1.311 1.361 0.865 0.839 0.896 0.880 0.794 0.736 0.895 0.903 
+
++ HyPLO ✓
+
+1.109 1.419 1.288 1.328 0.875 0.854 0.904 0.891 0.807 0.763 0.905 0.909 
+
++ CoCoOp –
+
+1.177 1.286 1.311 1.307 0.865 0.863 0.896 0.898 0.793 0.778 0.896 0.914 
+
++ CoHyPLO ✓
+
+1.143 1.182 1.297 1.286 0.871 0.874 0.901 0.905 0.800 0.796 0.902 0.918 
+
++ MaPLe –
+
+1.133 1.146 1.299 1.276 0.871 0.878 0.900 0.908 0.801 0.805 0.900 0.919 
+
++ MaHyPLO ✓
+
+1.106 1.125 1.288 1.273 0.875 0.880 0.904 0.909 0.808 0.808 0.904 0.920 
+
+Table 21: Hierarchical evaluation metrics on Food101. Each cell reports Base (top) and New (bottom), averaged over three seeds. Hierarchical F1 is computed as the harmonic mean of hierarchical precision and hierarchical recall for each dataset. Underline: best in column. Bold : best within each baseline/extension pair (CoOp vs. HyPLO; CoCoOp vs. CoHyPLO; MaPLe vs. MaHyPLO). ↓ lower is better; ↑ higher is better. 
+
+Hier. : explicitly hierarchy-aware. 30 Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+3.611 3.921 1.834 2.026 0.602 0.561 0.722 0.658 0.262 0.345 0.904 0.629 HyCoCLIP † ✓
+
+3.396 3.935 1.737 2.041 0.651 0.552 0.754 0.653 0.359 0.325 0.904 0.634 + CoOp –
+
+2.976 4.190 1.630 2.151 0.700 0.503 0.790 0.616 0.443 0.244 0.927 0.606 
+
++ HyPLO ✓
+
+2.773 4.109 1.539 2.118 0.745 0.526 0.820 0.627 0.532 0.305 0.929 0.577 
+
++ CoCoOp –
+
+3.186 4.291 1.696 2.205 0.670 0.491 0.768 0.598 0.397 0.264 0.906 0.531 
+
++ CoHyPLO ✓
+
+3.016 3.829 1.611 1.986 0.710 0.570 0.796 0.671 0.465 0.331 0.924 0.683 
+
++ MaPLe –
+
+3.254 4.334 1.708 2.228 0.664 0.485 0.764 0.591 0.381 0.269 0.911 0.503 
+
++ MaHyPLO ✓
+
+2.945 3.707 1.589 1.933 0.722 0.600 0.803 0.689 0.494 0.396 0.917 0.671 
+
+Table 22: Hierarchical evaluation metrics on FGVCAircraft. Each cell reports Base (top) and New (bot-tom), averaged over three seeds. Hierarchical F1 is computed as the harmonic mean of hierarchical pre-cision and hierarchical recall for each dataset. Underline: best in column. Bold : best within each base-line/extension pair (CoOp vs. HyPLO; CoCoOp vs. CoHyPLO; MaPLe vs. MaHyPLO). ↓ lower is better; ↑
+
+higher is better. Hier. : explicitly hierarchy-aware. 
+
+Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+1.328 1.108 1.305 1.251 0.862 0.883 0.898 0.916 0.767 0.789 0.928 0.961 HyCoCLIP † ✓
+
+1.329 1.111 1.295 1.249 0.865 0.884 0.902 0.917 0.765 0.791 0.940 0.960 + CoOp –
+
+1.007 1.385 1.218 1.307 0.899 0.855 0.928 0.898 0.820 0.738 0.961 0.955 
+
++ HyPLO ✓
+
+0.982 1.302 1.207 1.286 0.904 0.865 0.931 0.905 0.828 0.754 0.965 0.961 
+
++ CoCoOp –
+
+1.101 1.207 1.239 1.266 0.889 0.874 0.920 0.911 0.805 0.770 0.956 0.963 
+
++ CoHyPLO ✓
+
+1.063 1.137 1.227 1.249 0.895 0.882 0.924 0.917 0.813 0.785 0.960 0.966 
+
++ MaPLe –
+
+1.052 1.191 1.229 1.266 0.894 0.874 0.924 0.912 0.813 0.772 0.958 0.962 
+
++ MaHyPLO ✓
+
+1.005 1.123 1.212 1.247 0.901 0.883 0.929 0.918 0.824 0.786 0.964 0.968 
+
+Table 23: Hierarchical evaluation metrics on SUN397. Each cell reports Base (top) and New (bottom), averaged over three seeds. Hierarchical F1 is computed as the harmonic mean of hierarchical precision and hierarchical recall for each dataset. Underline: best in column. Bold : best within each baseline/extension pair (CoOp vs. HyPLO; CoCoOp vs. CoHyPLO; MaPLe vs. MaHyPLO). ↓ lower is better; ↑ higher is better. 
+
+Hier. : explicitly hierarchy-aware. 31 Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+3.512 2.957 2.084 1.853 0.556 0.643 0.639 0.716 0.405 0.494 0.510 0.653 HyCoCLIP † ✓
+
+3.461 2.522 2.042 1.676 0.575 0.716 0.653 0.775 0.435 0.595 0.523 0.728 + CoOp –
+
+1.606 3.691 1.484 2.125 0.801 0.537 0.839 0.625 0.731 0.372 0.786 0.504 
+
++ HyPLO ✓
+
+1.449 3.507 1.427 2.029 0.824 0.571 0.858 0.657 0.758 0.397 0.814 0.574 
+
++ CoCoOp –
+
+1.974 3.225 1.587 1.951 0.759 0.605 0.805 0.683 0.673 0.451 0.740 0.598 
+
++ CoHyPLO ✓
+
+1.809 3.124 1.532 1.916 0.781 0.619 0.823 0.695 0.703 0.469 0.765 0.615 
+
++ MaPLe –
+
+1.769 
+
+2.834 
+
+1.528 
+
+1.799 
+
+0.783 
+
+0.664 
+
+0.824 
+
+0.734 
+
+0.707 
+
+0.522 
+
+0.765 
+
+0.678 + MaHyPLO ✓
+
+1.600 
+
+2.882 
+
+1.477 
+
+1.819 
+
+0.803 
+
+0.656 
+
+0.841 
+
+0.727 
+
+0.734 
+
+0.507 
+
+0.789 
+
+0.673 
+
+Table 24: Hierarchical evaluation metrics on DTD. Each cell reports Base (top) and New (bottom), averaged over three seeds. Hierarchical F1 is computed as the harmonic mean of hierarchical precision and hierarchical recall for each dataset. Underline: best in column. Bold : best within each baseline/extension pair (CoOp vs. HyPLO; CoCoOp vs. CoHyPLO; MaPLe vs. MaHyPLO). ↓ lower is better; ↑ higher is better. Hier. :explicitly hierarchy-aware. 
+
+Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+2.237 2.503 1.578 1.807 0.761 0.671 0.807 0.731 0.671 0.568 0.751 0.624 HyCoCLIP † ✓
+
+3.445 1.985 2.049 1.616 0.558 0.743 0.635 0.795 0.432 0.640 0.474 0.744 + CoOp –
+
+0.358 2.878 1.090 1.905 0.963 0.626 0.970 0.698 0.951 0.489 0.959 0.606 
+
++ HyPLO ✓
+
+0.318 2.593 1.076 1.815 0.969 0.663 0.975 0.728 0.959 0.537 0.965 0.648 
+
++ CoCoOp –
+
+0.592 2.579 1.161 
+
+1.781 
+
+0.934 
+
+0.680 
+
+0.946 
+
+0.739 
+
+0.914 
+
+0.571 
+
+0.924 
+
+0.648 + CoHyPLO ✓
+
+0.517 2.532 1.132 
+
+1.792 
+
+0.946 
+
+0.676 
+
+0.956 
+
+0.736 
+
+0.930 
+
+0.566 
+
+0.938 
+
+0.642 + MaPLe –
+
+0.555 2.501 1.143 1.768 0.941 0.681 0.952 0.744 0.921 0.559 0.936 0.673 
+
++ MaHyPLO ✓
+
+0.465 2.079 1.120 1.639 0.951 0.732 0.960 0.787 0.936 0.618 0.944 0.743 
+
+Table 25: Hierarchical evaluation metrics on EuroSAT. Each cell reports Base (top) and New (bottom), averaged over three seeds. Hierarchical F1 is computed as the harmonic mean of hierarchical precision and hierarchical recall for each dataset. Underline: best in column. Bold : best within each baseline/extension pair (CoOp vs. HyPLO; CoCoOp vs. CoHyPLO; MaPLe vs. MaHyPLO). ↓ lower is better; ↑ higher is better. 
+
+Hier. : explicitly hierarchy-aware. 32 Method Hier. Hierarchical Distance Ancestor Overlap Local Accuracy TIE ↓ LCA ↓ J ↑ F1 H ↑ S-Acc ↑ C-Acc ↑
+
+HyCoCLIP –
+
+1.516 1.485 1.308 1.332 0.857 0.850 0.897 0.889 0.746 0.749 0.946 0.919 HyCoCLIP † ✓
+
+1.764 1.534 1.368 1.340 0.832 0.846 0.877 0.887 0.711 0.740 0.920 0.920 + CoOp –
+
+0.902 1.932 1.173 1.432 0.919 0.802 0.942 0.856 0.853 0.661 
+
+0.974 
+
+0.906 
+
++ HyPLO ✓
+
+0.877 1.797 1.162 1.374 0.924 0.831 0.946 0.875 0.865 0.714 
+
+0.973 
+
+0.913 
+
++ CoCoOp –
+
+1.150 1.669 1.227 1.358 0.895 0.838 0.924 0.881 0.818 0.729 0.955 0.913 
+
++ CoHyPLO ✓
+
+1.094 1.517 1.202 1.301 0.906 0.861 0.933 0.900 0.836 0.758 0.961 0.941 
+
++ MaPLe –
+
+1.028 1.648 1.184 1.356 0.914 0.838 0.939 0.881 0.846 0.723 0.971 0.922 
+
++ MaHyPLO ✓
+
+0.942 1.439 1.161 1.298 0.925 0.864 0.947 0.901 0.864 0.768 0.976 0.934 
+
+Table 26: Hierarchical evaluation metrics on UCF101. Each cell reports Base (top) and New (bottom), averaged over three seeds. Hierarchical F1 is computed as the harmonic mean of hierarchical precision and hierarchical recall for each dataset. Underline: best in column. Bold : best within each baseline/extension pair (CoOp vs. HyPLO; CoCoOp vs. CoHyPLO; MaPLe vs. MaHyPLO). ↓ lower is better; ↑ higher is better. 
+
+Hier. : explicitly hierarchy-aware. 
+
+## E Table 1,2 and 3 Extended 
+
+This section provides the extended tables of the main experiments that additionally provide the standard deviation to show the uncertainty across seeds. All average values are excluded.                                                                                                                               
+
+> Source Target Method ImageNet -V2 -S -A -R
+> + CoOp 47.23 ±0.15 40.83 ±0.25 26.80 ±0.17 15.63 ±0.32 47.63 ±0.25
+> + HyPLO 47.53 ±0.15 41.47 ±0.12 27.07 ±0.06 15.67 ±0.21 48.10 ±0.20 + CoCoOp 46.90 ±0.56 40.93 ±0.45 26.40 ±0.17 16.03 ±0.29 47.80 ±0.20
+> + CoHyPLO 47.60 ±0.10 41.67 ±0.06 26.77 ±0.15 15.83 ±0.21 47.93 ±0.31 + MaPLe 46.57 ±0.06 40.50 ±0.10 26.20 ±0.44 15.40 ±0.20 47.97 ±0.15
+> + MaHyPLO 47.37 ±0.15 41.13 ±0.06 26.17 ±0.12 15.30 ±0.26 47.40 ±0.26 + PromptSRC 48.63 ±0.06 41.97 ±0.06 28.00 ±0.20 14.77 ±0.15 49.70 ±0.10 + CoPrompt 48.63 ±0.06 42.40 ±0.35 27.87 ±0.21 14.87 ±0.15 49.00 ±0.26
+
+Table 27: Domain generalization Table 3 with standard deviation. The standard deviation is taken over three seeds per table value. 33 (a) ImageNet 
+
+Method Base New 
+
++ CoOp 48.90 ± 0.10 49.17 ± 0.15 
+
++ HyPLO 49.07 ± 0.06 50.47 ± 0.50 + CoCoOp 48.90 ± 0.10 50.47 ± 0.38 
+
++ CoHyPLO 48.47 ± 0.15 52.03 ± 0.21 + MaPLe 50.27 ± 0.06 50.97 ± 0.55 
+
++ MaHyPLO 50.50 ± 0.10 52.33 ± 0.42 + PromptSRC 52.77 ± 0.12 51.30 ± 0.36 + CoPrompt 50.17 ± 0.46 50.90 ± 0.20 
+
+(b) Caltech101 
+
+Method Base New 
+
++ CoOp 95.53 ± 0.06 83.07 ± 1.30 
+
++ HyPLO 95.37 ± 0.47 84.20 ± 1.87 + CoCoOp 95.10 ± 0.30 88.13 ± 0.86 
+
++ CoHyPLO 95.23 ± 0.25 89.20 ± 0.10 + MaPLe 95.57 ± 0.06 90.40 ± 0.87 
+
++ MaHyPLO 95.83 ± 0.23 90.30 ± 1.15 + PromptSRC 96.13 ± 0.15 85.30 ± 3.56 + CoPrompt 96.03 ± 0.35 88.47 ± 0.47 
+
+(c) OxfordPets 
+
+Method Base New 
+
++ CoOp 76.60 ± 1.14 61.83 ± 0.31 
+
++ HyPLO 78.63 ± 1.24 61.83 ± 2.66 + CoCoOp 75.8 ± 0.50 66.77 ± 1.19 
+
++ CoHyPLO 76.40 ± 1.35 68.47 ± 0.64 + MaPLe 74.60 ± 0.70 70.97 ± 2.59 
+
++ MaHyPLO 77.73 ± 0.06 73.13 ± 1.12 + PromptSRC 79.90 ± 0.78 71.33 ± 0.67 + CoPrompt 76.93 ± 0.91 69.07 ± 2.40 
+
+(d) StanfordCars 
+
+Method Base New 
+
++ CoOp 27.47 ± 0.57 15.60 ± 1.04 
+
++ HyPLO 26.20 ± 0.56 16.90 ± 0.85 + CoCoOp 20.57 ± 0.21 20.10 ± 0.30 
+
++ CoHyPLO 19.83 ± 0.21 20.97 ± 0.38 + MaPLe 22.77 ± 0.21 19.73 ± 0.98 
+
++ MaHyPLO 23.70 ± 0.56 20.53 ± 0.06 + PromptSRC 31.07 ± 0.57 20.93 ± 1.00 + CoPrompt 25.37 ± 0.60 20.97 ± 0.65 
+
+(e) Flowers102 
+
+Method Base New 
+
++ CoOp 78.80 ± 0.40 22.00 ± 2.72 
+
++ HyPLO 78.73 ± 0.86 19.67 ± 3.75 + CoCoOp 59.63 ± 5.55 26.77 ± 2.03 
+
++ CoHyPLO 59.03 ± 3.17 29.70 ± 5.35 + MaPLe 63.97 ± 3.59 32.20 ± 1.75 
+
++ MaHyPLO 65.80 ± 1.82 34.80 ± 2.16 + PromptSRC 85.77 ± 1.88 29.27 ± 2.30 + CoPrompt 70.27 ± 1.63 27.37 ± 2.94 
+
+(f) Food101 
+
+Method Base New 
+
++ CoOp 72.20 ± 0.61 60.47 ± 2.55 
+
++ HyPLO 73.37 ± 0.61 61.90 ± 1.41 + CoCoOp 72.30 ± 0.17 66.43 ± 1.01 
+
++ CoHyPLO 72.60 ± 0.00 69.50 ± 0.62 + MaPLe 73.20 ± 0.26 70.27 ± 0.71 
+
++ MaHyPLO 73.57 ± 0.21 71.00 ± 0.44 + PromptSRC 74.57 ± 0.25 69.67 ± 0.50 + CoPrompt 73.20 ± 0.10 69.77 ± 0.76 
+
+(g) FGVCAircraft 
+
+Method Base New 
+
++ CoOp 14.20 ± 0.44 5.57 ± 0.06 
+
++ HyPLO 15.30 ± 0.62 6.30 ± 1.15 + CoCoOp 10.33 ± 0.91 5.90 ± 0.35 
+
++ CoHyPLO 10.33 ± 0.65 7.17 ± 1.40 + MaPLe 8.07 ± 0.87 6.13 ± 1.15 
+
++ MaHyPLO 11.63 ± 0.71 7.93 ± 0.50 + PromptSRC 12.73 ± 0.59 5.30 ± 1.06 + CoPrompt 10.40 ± 0.79 4.10 ± 1.25 
+
+(h) SUN397 
+
+Method Base New 
+
++ CoOp 71.43 ± 0.12 61.47 ± 0.15 
+
++ HyPLO 71.63 ± 0.21 63.47 ± 0.84 + CoCoOp 68.90 ± 0.53 66.33 ± 0.06 
+
++ CoHyPLO 69.57 ± 0.32 68.00 ± 0.10 + MaPLe 70.30 ± 0.44 67.07 ± 0.49 
+
++ MaHyPLO 71.00 ± 0.35 68.50 ± 0.80 + PromptSRC 73.13 ± 0.31 68.73 ± 0.40 + CoPrompt 70.37 ± 0.45 66.90 ± 0.44 
+
+(i) DTD 
+
+Method Base New 
+
++ CoOp 68.10 ± 0.95 27.93 ± 0.91 
+
++ HyPLO 70.3 ± 2.76 27.57 ± 1.36 + CoCoOp 60.00 ± 3.44 33.87 ± 3.32 
+
++ CoHyPLO 62.70 ± 2.05 35.40 ± 2.08 + MaPLe 64.33 ± 1.04 38.23 ± 1.36 
+
++ MaHyPLO 67.73 ± 2.90 37.87 ± 2.40 + PromptSRC 71.63 ± 1.75 36.63 ± 0.81 + CoPrompt 68.83 ± 1.82 39.30 ± 2.82 
+
+(j) EuroSAT 
+
+Method Base New 
+
++ CoOp 91.07 ± 1.67 46.60 ± 5.34 
+
++ HyPLO 91.70 ± 0.30 51.83 ± 2.26 + CoCoOp 86.53 ± 3.03 49.13 ± 11.15 
+
++ CoHyPLO 87.33 ± 1.10 52.60 ± 11.84 + MaPLe 86.57 ± 1.29 51.70 ± 9.15 
+
++ MaHyPLO 88.73 ± 2.50 59.90 ± 2.70 + PromptSRC 87.23 ± 1.39 43.87 ± 2.47 + CoPrompt 86.10 ± 2.17 47.20 ± 3.48 
+
+(k) UCF101 
+
+Method Base New 
+
++ CoOp 72.20 ± 0.72 46.63 ± 1.16 
+
++ HyPLO 72.33 ± 1.01 47.50 ± 0.90 + CoCoOp 65.17 ± 1.12 52.37 ± 1.99 
+
++ CoHyPLO 65.57 ± 1.18 54.27 ± 0.67 + MaPLe 67.03 ± 0.35 53.20 ± 0.30 
+
++ MaHyPLO 69.00 ± 0.72 57.87 ± 1.07 + PromptSRC 73.67 ± 1.27 55.90 ± 1.13 + CoPrompt 69.77 ± 0.91 52.23 ± 1.86 
+
+Table 28: Base-to-new generalization Table 1 with standard deviation. The standard deviation is taken over three seeds per table value. 34 Source Target Method 
+
+> ImageNet Caltech101 OxfordPets StanfordCars Flowers102 Food101 Aircraft SUN397 DTD EuroSAT UCF101
+
+CoOp 47.23 ± 0.15 86.17 ± 0.15 54.80 ± 0.90 10.27 ± 0.31 29.10 ± 0.92 56.40 ± 1.51 3.70 ± 0.36 51.33 ± 0.40 27.10 ± 0.20 33.43 ± 0.97 45.03 ± 0.42 
+
+HyPLO 47.53 ± 0.15 86.80 ± 0.36 55.27 ± 0.21 11.83 ± 0.31 30.10 ± 0.53 58.20 ± 0.10 3.33 ± 0.15 52.83 ± 0.06 27.17 ± 0.21 34.90 ± 2.11 46.63 ± 0.40 CoCoOp 46.90 ± 0.56 85.90 ± 0.26 53.70 ± 1.07 11.33 ± 0.29 28.77 ± 0.40 56.70 ± 1.21 3.27 ± 0.50 52.30 ± 0.10 27.23 ± 0.23 35.67 ± 2.21 45.90 ± 1.78 
+
+CoHyPLO 47.60 ± 0.10 86.90 ± 0.10 55.97 ± 0.50 11.93 ± 0.40 30.17 ± 0.47 58.57 ± 0.75 3.23 ± 0.25 54.30 ± 0.17 26.87 ± 0.68 34.97 ± 2.53 47.10 ± 0.61 MaPLe 46.57 ± 0.06 86.43 ± 0.40 55.10 ± 0.87 10.40 ± 0.00 26.77 ± 0.50 54.57 ± 0.84 3.53 ± 0.55 51.73 ± 0.32 27.40 ± 1.06 35.83 ± 1.55 45.50 ± 1.05 
+
+MaHyPLO 47.37 ± 0.15 88.03 ± 0.15 55.90 ± 0.62 11.27 ± 0.15 30.70 ± 0.87 59.00 ± 1.23 3.93 ± 0.25 54.93 ± 0.21 27.97 ± 0.55 35.77 ± 1.40 47.20 ± 0.61 PromptSRC 48.63 ± 0.06 87.40 ± 0.10 56.80 ± 0.53 10.57 ± 0.32 29.00 ± 0.69 55.67 ± 0.38 3.70 ± 0.62 52.70 ± 0.20 26.73 ± 0.25 34.20 ± 1.28 46.43 ± 0.67 CoPrompt 48.63 ± 0.06 88.80 ± 0.35 57.20 ± 0.46 10.83 ± 0.23 28.27 ± 0.40 57.37 ± 0.95 4.53 ± 0.47 53.43 ± 0.15 25.93 ± 1.06 22.43 ± 2.34 48.57 ± 0.57 
+
+Table 29: Cross-dataset transfer Table 2 with standard deviation. The standard deviation is taken over three seeds per table value. 35

@@ -6,77 +6,80 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-23
-- 运行时间：2026-09-23 22:17:54 UTC
+- 最新运行日期：2026-09-24
+- 运行时间：2026-09-24 22:28:56 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日扫读19篇文献、精读7篇速读12篇，病理AI基础模型与临床多模态应用是绝对主线。最值得看的是双双9.0的SLICEChat与WILSON：前者用编码器内渐进式token剪枝为全切片病理语言模型提速，后者搭建了面向患者级分析与诊断文本生成的病理基础模型框架，指向病理大模型从"读图"走向"写报告"。普通读者可先精读这两篇，再按需浏览速读中临床数据分析智能体与FLAIR MRI全肿瘤分割等应用向工作。
-- 详情：[/202609/23/README](/202609/23/README)
+- 今日共生成 19 篇推荐（精读 7 篇，速读 12 篇）
+- 精读：《FleXray: Universal Clinical X-ray Segmentation》（9.0/10）, 《NV-Reason-CT: 3D Visual Language Model for CT Analysis》（9.0/10）
+- 速读：《Layer-Aware Position Embeddings for Visual Token Pruning in Multimodal Large Language Models》（8.0/10）, 《Hierarchical Prompt Learning for Hyperbolic Vision-Language Models》（8.0/10）, 《VLM-in-Sandbox: Visual Workspaces for Agentic Visual Reasoning》（8.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202609/24/README](/202609/24/README)
 
 ### 精读区论文标签
-1. [SLICEChat: Progressive In-Encoder Token Pruning for Whole-Slide Pathology Language Models](/202609/23/2609.24894v1-slicechat-progressive-in-encoder-token-pruning-for-whole-slide-pathology-language-models)  
+1. [FleXray: Universal Clinical X-ray Segmentation](/202609/24/2609.26756v2-flexray-universal-clinical-x-ray-segmentation)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：面向病理分析的多模态大模型
-2. [WILSON - a pathology foundation model framework for patient-level analysis and diagnostic text generation](/202609/23/2609.25123v1-wilson---a-pathology-foundation-model-framework-for-patient-level-analysis-and-diagnostic-text-generation)  
+   evidence：通用X光解剖分割模型
+2. [NV-Reason-CT: 3D Visual Language Model for CT Analysis](/202609/24/2609.27511v1-nv-reason-ct-3d-visual-language-model-for-ct-analysis)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：用于患者级分析与诊断文本生成的视觉语言病理基础模型
-3. [MUSE: Benchmarking Large Vision-Language Models on Multi-Modal Understanding in Situated Education](/202609/23/2609.19088v1-muse-benchmarking-large-vision-language-models-on-multi-modal-understanding-in-situated-education)  
+   evidence：面向CT的3D视觉语言模型与推理
+3. [FFM-CP: Cross-Backbone Fusion of Vision-Language Foundation Models for Few-Shot Computational Pathology](/202609/24/2609.27710v1-ffm-cp-cross-backbone-fusion-of-vision-language-foundation-models-for-few-shot-computational-pathology)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：病理视觉语言基础模型的融合
+4. [HPOQuest: A Rare-Disease Diagnostic Agent Using Active Phenotype Acquisition](/202609/24/2609.18431v1-hpoquest-a-rare-disease-diagnostic-agent-using-active-phenotype-acquisition)  
+   标签：评分：8.0/10、query:vlmmed
+   evidence：罕见病诊断智能体，主动获取表型
+5. [MUSE: Benchmarking Large Vision-Language Models on Multi-Modal Understanding in Situated Education](/202609/24/2609.19088v1-muse-benchmarking-large-vision-language-models-on-multi-modal-understanding-in-situated-education)  
    标签：评分：8.0/10、query:vl
-   evidence：大型视觉语言模型基准测试
-4. [A Dual-Stream Regulated Reconstruction and Segmentation Network with Hierarchical Artifact-Prior Modeling for Ultra-Low-Field Pediatric Neuroimaging](/202609/23/2609.20562v1-a-dual-stream-regulated-reconstruction-and-segmentation-network-with-hierarchical-artifact-prior-modeling-for-ultra-low-field-pediatric-neuroimaging)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：面向儿科MRI的3D U-Net重建与分割
-5. [DiaVLo: Diagnosing Behaviours of Vision-Language Models](/202609/23/2609.22008v1-diavlo-diagnosing-behaviours-of-vision-language-models)  
+   evidence：评测大型视觉语言模型多模态理解的基准
+6. [PANORAMA: Panoptic Grounded Captioning via Mask Proposal Selection](/202609/24/2609.19143v1-panorama-panoptic-grounded-captioning-via-mask-proposal-selection)  
    标签：评分：8.0/10、query:vl
-   evidence：视觉语言模型的诊断框架与评测
-6. [BrainIAC: Interactive 3D Brain Lesion Segmentation across Heterogeneous MRI Modalities with Online Adaptation](/202609/23/2609.23026v1-brainiac-interactive-3d-brain-lesion-segmentation-across-heterogeneous-mri-modalities-with-online-adaptation)  
+   evidence：视觉语言模型全景定位描述基准
+7. [M2G-LLM: Enhancing Clinical Prediction via Multimodal Graph Reasoning and LLM Context Injection](/202609/24/2609.21164v1-m2g-llm-enhancing-clinical-prediction-via-multimodal-graph-reasoning-and-llm-context-injection)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：多模态MRI交互式3D脑病灶分割与在线适应
-7. [LD-RSVIS: A Large-Scale and Diverse Benchmark for Referring Surgical Video Instrument Segmentation](/202609/23/2609.23067v1-ld-rsvis-a-large-scale-and-diverse-benchmark-for-referring-surgical-video-instrument-segmentation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：指代式手术视频器械分割基准
+   evidence：融合影像与文本的多模态大模型临床预测框架
 
 ### 速读区论文标签
-1. [Seeing is not Enough: Vision-Language Models Perceive Evidence but Fail to Act](/202609/23/2609.22588v1-seeing-is-not-enough-vision-language-models-perceive-evidence-but-fail-to-act)  
+1. [Layer-Aware Position Embeddings for Visual Token Pruning in Multimodal Large Language Models](/202609/24/2609.23715v1-layer-aware-position-embeddings-for-visual-token-pruning-in-multimodal-large-language-models)  
    标签：评分：8.0/10、query:vl
-   evidence：视觉语言模型基准与过程失败
-2. [VGG16-MCA UNet: Whole-Tumor Segmentation in 2D FLAIR MRI with Decoder-Side Channel Attention](/202609/23/2609.23919v1-vgg16-mca-unet-whole-tumor-segmentation-in-2d-flair-mri-with-decoder-side-channel-attention)  
+   evidence：多模态大模型视觉token剪枝的位置嵌入
+2. [Hierarchical Prompt Learning for Hyperbolic Vision-Language Models](/202609/24/2609.24276v1-hierarchical-prompt-learning-for-hyperbolic-vision-language-models)  
+   标签：评分：8.0/10、query:vl
+   evidence：视觉语言模型的分层提示学习
+3. [VLM-in-Sandbox: Visual Workspaces for Agentic Visual Reasoning](/202609/24/2609.24362v1-vlm-in-sandbox-visual-workspaces-for-agentic-visual-reasoning)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：医学图像分割的通道注意力模块
-3. [Ascent: An Agentic System over the Model Context Protocol for Real-World Clinical Data Analysis](/202609/23/2609.24620v1-ascent-an-agentic-system-over-the-model-context-protocol-for-real-world-clinical-data-analysis)  
+   evidence：面向VLM的智能体视觉推理沙箱框架
+4. [LingLan: An Advancing Traditional Chinese Medicine Diagnosis LLM with Multimodal Data](/202609/24/2609.25715v1-linglan-an-advancing-traditional-chinese-medicine-diagnosis-llm-with-multimodal-data)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：临床数据分析的智能体系统
-4. [SAMI3D-DW: Interactive Segmentation of Any 3D Medical Images](/202609/23/2609.25743v1-sami3d-dw-interactive-segmentation-of-any-3d-medical-images)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：交互式三维医学图像分割模型
-5. [Efficient Quantization-Aware Distillation with Cross-Modal Alignment for Edge Vision-Language Models](/202609/23/2609.16689v1-efficient-quantization-aware-distillation-with-cross-modal-alignment-for-edge-vision-language-models)  
+   evidence：面向中医诊断的多模态大模型，融合舌象脉象图像
+5. [Collaborative Memory for Multi-Agent VLM Systems](/202609/24/2609.17921v1-collaborative-memory-for-multi-agent-vlm-systems)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：多智能体VLM协作与共享记忆
+6. [Collaborative Memory for Multi-Agent VLM Systems](/202609/24/2609.17921v2-collaborative-memory-for-multi-agent-vlm-systems)  
    标签：评分：7.0/10、query:vl
-   evidence：面向边缘视觉语言模型的量化感知蒸馏
-6. [Layers, Sinks, and Scaling: Adaptive Evidence Selection for Multimodal Large Language Models](/202609/23/2609.16795v1-layers-sinks-and-scaling-adaptive-evidence-selection-for-multimodal-large-language-models)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：多模态大模型中结合检索文本与视觉区域的自适应证据选择
-7. [NeuroTS-Net: Multi-Class Semantic Segmentation of Pediatric Brain Tumors in Multi-Modal MRI](/202609/23/2609.16873v1-neurots-net-multi-class-semantic-segmentation-of-pediatric-brain-tumors-in-multi-modal-mri)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：医学图像分割新机制
-8. [Beyond In-Distribution Metrics: A Systematic Out-of-Distribution Evaluation of Congenital Heart Disease Segmentation](/202609/23/2609.17068v2-beyond-in-distribution-metrics-a-systematic-out-of-distribution-evaluation-of-congenital-heart-disease-segmentation)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：医学图像分割架构的系统性评估
-9. [Reasoning with Image Generation](/202609/23/2609.16409v1-reasoning-with-image-generation)  
+   evidence：多智能体VLM系统的协作记忆
+7. [EDCT-Bench: Uncovering Faithfulness Gaps in VLMs via Explanation-Driven Counterfactual Testing](/202609/24/2609.17953v1-edct-bench-uncovering-faithfulness-gaps-in-vlms-via-explanation-driven-counterfactual-testing)  
+   标签：评分：7.0/10、query:vl
+   evidence：面向VLM的忠实性测试基准
+8. [Anchoring What Matters: A Dual-Level Learning Framework for Visually-Grounded Multimodal Reasoning](/202609/24/2609.18057v1-anchoring-what-matters-a-dual-level-learning-framework-for-visually-grounded-multimodal-reasoning)  
+   标签：评分：7.0/10、query:vl
+   evidence：面向大型视觉语言模型的训练框架
+9. [Visual Input and Its Framing Affect Attribute-based Descriptions Produced by Large Vision-Language Models](/202609/24/2609.18345v1-visual-input-and-its-framing-affect-attribute-based-descriptions-produced-by-large-vision-language-models)  
    标签：评分：6.0/10、query:vl
-   evidence：多模态大模型借助图像生成的视觉推理
-10. [SAVOR: Self-Aware Visual Grounding via Confidence-Calibrated Reinforcement Learning for Multimodal Hallucination Mitigation](/202609/23/2609.16601v1-savor-self-aware-visual-grounding-via-confidence-calibrated-reinforcement-learning-for-multimodal-hallucination-mitigation)  
+   evidence：大型视觉语言模型响应分析
+10. [Decoupling Vision, Language, and Action for Efficient Multi-Task Robot Policies](/202609/24/2609.18374v1-decoupling-vision-language-and-action-for-efficient-multi-task-robot-policies)  
    标签：评分：6.0/10、query:vl
-   evidence：多模态大模型视觉 grounding 与幻觉缓解
-11. [What Do Hallucinations Reveal About Multimodal Reasoning? Diagnosing Visual Grounding Failures via Contrastive Decoding Probes](/202609/23/2609.16646v1-what-do-hallucinations-reveal-about-multimodal-reasoning-diagnosing-visual-grounding-failures-via-contrastive-decoding-probes)  
-   标签：评分：6.0/10、query:vl
-   evidence：诊断大型视觉语言模型的视觉接地失败
-12. [ViD: Vision-Dominant Gender Bias Mitigation for Large Vision-Language Models](/202609/23/2609.16647v1-vid-vision-dominant-gender-bias-mitigation-for-large-vision-language-models)  
-   标签：评分：6.0/10、query:vl
-   evidence：面向大型视觉语言模型的注意力机制偏见缓解
+   evidence：研究解耦VLM主干以提升策略效率
+11. [EviGen: Predictive Evidence Scaffolding for Verifiable Clinical Rationale Generation](/202609/24/2609.18852v1-evigen-predictive-evidence-scaffolding-for-verifiable-clinical-rationale-generation)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：基于检索的临床可验证推理生成
+12. [QCPruner: Query-Conditioned Population Coverage for Visual Token Pruning](/202609/24/2609.19990v1-qcpruner-query-conditioned-population-coverage-for-visual-token-pruning)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：面向多模态大模型的查询条件视觉token剪枝
 
 
 <div class="dpr-home-promo-card">
