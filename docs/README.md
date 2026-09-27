@@ -6,80 +6,62 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-26
-- 运行时间：2026-09-26 21:45:37 UTC
+- 最新运行日期：2026-09-27
+- 运行时间：2026-09-27 22:24:59 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
+- 本次总论文数：14
+- 精读区：2
 - 速读区：12
 
 ### 今日简报（AI）
-- 今日共生成 19 篇推荐（精读 7 篇，速读 12 篇）
-- 精读：《Seeing is not Enough: Vision-Language Models Perceive Evidence but Fail to Act》（8.0/10）, 《HyperCLIP++: Fine-tuning CLIP forOpen-vocabulary Semantic Segmentation in Hyperbolic Space》（8.0/10）
-- 速读：《LightMIS: Ultra-Lightweight Medical Image Segmentation Without a Stage-Wise Decoder》（8.0/10）, 《Benchmarking the Explanatory Quality of Open-Weight Vision-Language Models in Face Recognition》（7.0/10）, 《DiaVLo: Diagnosing Behaviours of Vision-Language Models》（7.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202609/26/README](/202609/26/README)
+2026-09-27 日报完成：14 篇入选，精读 2 篇、速读 12 篇。最值得看的是 PRISM-VLM（9.0）对紧凑视觉语言模型的多轴判别基准，以及 PETR（8.0）用免训练路由做提示集成。普通读者可先读这两篇，再按兴趣扫速读里的基准与多模态方向。
+- 详情：[/202609/27/README](/202609/27/README)
 
 ### 精读区论文标签
-1. [Seeing is not Enough: Vision-Language Models Perceive Evidence but Fail to Act](/202609/26/2609.22588v1-seeing-is-not-enough-vision-language-models-perceive-evidence-but-fail-to-act)  
+1. [PRISM-VLM: A Multi-Axis Discriminative Benchmark for Compact Vision-Language Models](/202609/27/2609.27395v1-prism-vlm-a-multi-axis-discriminative-benchmark-for-compact-vision-language-models)  
+   标签：评分：9.0/10、query:vl
+   evidence：紧凑视觉语言模型的多轴基准
+2. [PETR: Prompt Ensembling with Training-free Routing for Vision-Language Models](/202609/27/2609.23600v1-petr-prompt-ensembling-with-training-free-routing-for-vision-language-models)  
    标签：评分：8.0/10、query:vl
-   evidence：含过程先验干预的VLM基准
-2. [HyperCLIP++: Fine-tuning CLIP forOpen-vocabulary Semantic Segmentation in Hyperbolic Space](/202609/26/2609.24564v1-hyperclip-fine-tuning-clip-foropen-vocabulary-semantic-segmentation-in-hyperbolic-space)  
-   标签：评分：8.0/10、query:vl
-   evidence：微调CLIP视觉语言模型做语义分割
-3. [Shallow to Deep: Aligning Token Pruning with Stage-wise Roles in LVLMs](/202609/26/2609.25635v1-shallow-to-deep-aligning-token-pruning-with-stage-wise-roles-in-lvlms)  
-   标签：评分：8.0/10、query:vl
-   evidence：面向视觉语言大模型的按层token剪枝
-4. [SurgGraph: Quantitative Laparoscopic Video Understanding via Geometry-Grounded Scene Graphs](/202609/26/2609.25651v1-surggraph-quantitative-laparoscopic-video-understanding-via-geometry-grounded-scene-graphs)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：面向手术视频与医学场景的视觉语言模型
-5. [MAC-RRG: Iterative Multi-Agent Collaboration for X-ray Radiology Report Generation](/202609/26/2609.26124v1-mac-rrg-iterative-multi-agent-collaboration-for-x-ray-radiology-report-generation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：多智能体协作生成放射报告
-6. [Learning Spectral Allocation: A Fractional Diffusion Framework for Adaptive Volumetric Segmentation](/202609/26/2609.27217v1-learning-spectral-allocation-a-fractional-diffusion-framework-for-adaptive-volumetric-segmentation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：用于3D医学分割的自适应分数扩散机制
-7. [PRISM-VLM: A Multi-Axis Discriminative Benchmark for Compact Vision-Language Models](/202609/26/2609.27395v1-prism-vlm-a-multi-axis-discriminative-benchmark-for-compact-vision-language-models)  
-   标签：评分：8.0/10、query:vl
-   evidence：面向紧凑视觉语言模型的多维基准
+   evidence：视觉语言模型的提示集成
 
 ### 速读区论文标签
-1. [LightMIS: Ultra-Lightweight Medical Image Segmentation Without a Stage-Wise Decoder](/202609/26/2609.28327v1-lightmis-ultra-lightweight-medical-image-segmentation-without-a-stage-wise-decoder)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：超轻量医学图像分割与新颖融合机制
-2. [Benchmarking the Explanatory Quality of Open-Weight Vision-Language Models in Face Recognition](/202609/26/2609.21879v1-benchmarking-the-explanatory-quality-of-open-weight-vision-language-models-in-face-recognition)  
+1. [MinCU: A Fine-Grained Benchmark for Grounded Minimal-Change Understanding in Image Pairs](/202609/27/2609.23336v1-mincu-a-fine-grained-benchmark-for-grounded-minimal-change-understanding-in-image-pairs)  
    标签：评分：7.0/10、query:vl
-   evidence：视觉语言模型基准评测
-3. [DiaVLo: Diagnosing Behaviours of Vision-Language Models](/202609/26/2609.22008v1-diavlo-diagnosing-behaviours-of-vision-language-models)  
+   evidence：多模态大模型图像对基准
+2. [BindCLIP: One Balanced Coupling For Compositional Vision Language Scoring](/202609/27/2609.23717v1-bindclip-one-balanced-coupling-for-compositional-vision-language-scoring)  
    标签：评分：7.0/10、query:vl
-   evidence：诊断视觉语言模型行为
-4. [LD-RSVIS: A Large-Scale and Diverse Benchmark for Referring Surgical Video Instrument Segmentation](/202609/26/2609.23067v1-ld-rsvis-a-large-scale-and-diverse-benchmark-for-referring-surgical-video-instrument-segmentation)  
+   evidence：组合式视觉语言打分模型
+3. [GLR-MM: Graph-Based Global-Local Reconstruction for Robust Multimodal Chest X-ray and EHR Representation Learning under Missing Modalities](/202609/27/2609.23876v1-glr-mm-graph-based-global-local-reconstruction-for-robust-multimodal-chest-x-ray-and-ehr-representation-learning-under-missing-modalities)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：指代性手术视频器械分割基准
-5. [Layer-Aware Position Embeddings for Visual Token Pruning in Multimodal Large Language Models](/202609/26/2609.23715v1-layer-aware-position-embeddings-for-visual-token-pruning-in-multimodal-large-language-models)  
+   evidence：胸片与电子病历多模态表示学习及图注意力
+4. [LegendBench: A Diagnostic Benchmark for Legend Understanding with Counterfactual Interventions](/202609/27/2609.24172v1-legendbench-a-diagnostic-benchmark-for-legend-understanding-with-counterfactual-interventions)  
    标签：评分：7.0/10、query:vl
-   evidence：面向多模态大语言模型的视觉 token 剪枝方法
-6. [LegendBench: A Diagnostic Benchmark for Legend Understanding with Counterfactual Interventions](/202609/26/2609.24172v1-legendbench-a-diagnostic-benchmark-for-legend-understanding-with-counterfactual-interventions)  
+   evidence：VLM图表理解的诊断基准
+5. [Look Where It Counts: A Free, Label-Free Visual Evidence Signal for Fine-Grained Vision-Language Reasoning](/202609/27/2609.24244v1-look-where-it-counts-a-free-label-free-visual-evidence-signal-for-fine-grained-vision-language-reasoning)  
    标签：评分：7.0/10、query:vl
-   evidence：视觉语言模型图表理解基准
-7. [Look Where It Counts: A Free, Label-Free Visual Evidence Signal for Fine-Grained Vision-Language Reasoning](/202609/26/2609.24244v1-look-where-it-counts-a-free-label-free-visual-evidence-signal-for-fine-grained-vision-language-reasoning)  
-   标签：评分：7.0/10、query:vl
-   evidence：面向多模态大模型推理的无标签视觉证据信号
-8. [Hierarchical Prompt Learning for Hyperbolic Vision-Language Models](/202609/26/2609.24276v1-hierarchical-prompt-learning-for-hyperbolic-vision-language-models)  
+   evidence：多模态大模型细粒度视觉语言推理
+6. [Hierarchical Prompt Learning for Hyperbolic Vision-Language Models](/202609/27/2609.24276v1-hierarchical-prompt-learning-for-hyperbolic-vision-language-models)  
    标签：评分：7.0/10、query:vl
    evidence：双曲视觉语言模型的分层提示学习
-9. [Beyond Exact Match: Task-Aware GRPO for Cross-Domain PCBA Visual Question Answering](/202609/26/2609.21276v1-beyond-exact-match-task-aware-grpo-for-cross-domain-pcba-visual-question-answering)  
+7. [SPACE: Semantic Projection and Alignment of CLIP Embeddings for Domain Adaptation](/202609/27/2609.23248v1-space-semantic-projection-and-alignment-of-clip-embeddings-for-domain-adaptation)  
    标签：评分：6.0/10、query:vl
-   evidence：面向跨域视觉问答的大型视觉语言模型
-10. [Purification and Regulation: Comorbidity-Aware Multi-Label Few-Shot Learning for Medical Image Classification](/202609/26/2609.21541v1-purification-and-regulation-comorbidity-aware-multi-label-few-shot-learning-for-medical-image-classification)  
+   evidence：利用CLIP视觉语言空间与文本锚点做域适应
+8. [A Task-Oriented Multi-Agent Framework for Complex Wearable Health Analysis](/202609/27/2609.24107v1-a-task-oriented-multi-agent-framework-for-complex-wearable-health-analysis)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：多标签小样本医学图像分类
-11. [From Retrieval to Recognition:How Vision--Language Models Become OCR Specialists](/202609/26/2609.21543v1-from-retrieval-to-recognitionhow-vision--language-models-become-ocr-specialists)  
-   标签：评分：6.0/10、query:vl
-   evidence：视觉语言模型OCR能力的机制分析
-12. [Extending Decoupled Attention to Dense Prediction and Masked Training for Multi-Channel Images](/202609/26/2609.21629v1-extending-decoupled-attention-to-dense-prediction-and-masked-training-for-multi-channel-images)  
+   evidence：面向健康分析的多智能体框架
+9. [Patch-to-Global: Random Patch Diffusion for Globally Consistent Megapixel Artifact Inpainting in Whole Slide Images](/202609/27/2609.24116v1-patch-to-global-random-patch-diffusion-for-globally-consistent-megapixel-artifact-inpainting-in-whole-slide-images)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：面向多通道图像视觉transformer的解耦注意力机制
+   evidence：扩散模型与大核注意力用于医学图像修复
+10. [StenoVLA-3D: 3D-Aware Reasoning VLA for Navigation Through Gastrointestinal Stenoses](/202609/27/2609.24187v1-stenovla-3d-3d-aware-reasoning-vla-for-navigation-through-gastrointestinal-stenoses)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：面向胃肠道内镜导航的3D视觉语言动作模型
+11. [StenoVLA-3D: 3D-Aware Reasoning VLA for Navigation Through Gastrointestinal Stenoses](/202609/27/2609.24187v2-stenovla-3d-3d-aware-reasoning-vla-for-navigation-through-gastrointestinal-stenoses)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：用于医学内镜导航的3D视觉语言动作模型
+12. [Spatial Action Review: A Visual Analytics Dashboard for Auditing Language-to-Action Hand-offs in Electron Microscopy](/202609/27/2609.24470v1-spatial-action-review-a-visual-analytics-dashboard-for-auditing-language-to-action-hand-offs-in-electron-microscopy)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：多模态大模型用于图像分析并衔接分割
 
 
 <div class="dpr-home-promo-card">

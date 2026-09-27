@@ -1,0 +1,348 @@
+Title: Look Where It Counts: A Free, Label-Free Visual Evidence Signal for Fine-Grained Vision-Language Reasoning
+
+URL Source: https://arxiv.org/pdf/2609.24244v1
+
+Published Time: Tue, 22 Sep 2026 02:17:46 GMT
+
+Number of Pages: 6
+
+Markdown Content:
+# Look Where It Counts: A Free, Label-Free Visual Evidence Signal for Fine-Grained Vision–Language Reasoning 
+
+Santi Ram Tiwari, Nihal Naik, Devbrat Pandey, Nishant Sinha 
+
+KGraph AI Solutions Pvt. Ltd. 
+
+Bangalore, India – 560016 
+
+Abstract —Multimodal large language models (MLLMs) fail at fine-grained visual questions less because they cannot reason than because they never see the evidence—high-resolution images are downsampled before encoding, so the model answers from linguistic priors. The standard remedies are expensive: annotated answers (SFT), hand-engineered verifiers (RLVR), or a large external teacher (on-policy distillation). We ask whether the 
+
+visual evidence itself can supply the signal, for free. We formalize the contrastive evidence gap , the per-token log-likelihood ratio a model assigns to its own output when conditioned on aquestion-relevant region versus an irrelevant one, and study it across Qwen2.5-VL-7B, Qwen3-VL-8B, and Qwen3-VL-30B-A3B on V *Bench. Our main, positive result is training-free : selecting the candidate crop under which the model’s answer distribution is most peaked—a single-view, label-free criterion—discovers the answer-bearing region with no bounding boxes, no training, and no labels, localizing the target 4.4–5.1 × better than chance and lifting fine-grained accuracy from 70% to 85% at inference. We further show the gap is complementary to the model’s own confidence (combining them predicts correctness better than either alone, AUC up to 0.99) and that it flags confidently-wrong 
+
+answers (AUC 0.97–1.00 within the high-confidence subset). All effects concentrate on perception-bottleneck questions and vanish on a global-context control. Finally, we report an honest negative: converting the same signal into a training method (gated self-distillation, SEG-Distill) does not beat the base model at pilot scale across three gate designs, and more aggressive gating degrades accuracy—the signal is real, but the signal-to-training-gain conversion is an open problem. 
+
+Index Terms —vision-language models, fine-grained visual rea-soning, contrastive learning, on-policy distillation, label-free grounding, self-distillation 
+
+I. I NTRODUCTION 
+
+Multimodal large language models (MLLMs) have made rapid progress on general visual reasoning, yet a specific and well-documented failure mode persists: they struggle on fine-grained visual questions—questions that hinge on a small object, a peripheral detail, or an exact attribute buried in a high-resolution image [1]. This failure is commonly mistaken for a reasoning limitation, but a growing body of evidence points to a simpler, upstream cause. The root cause is an input bottleneck, not a reasoning one. Fine-grained visual reasoning fails in current MLLMs not because the language model cannot reason, but because it never sees the evidence: high-resolution images are aggres-sively downsampled before the vision encoder, so small or peripheral detail is destroyed and the model falls back on linguistic priors [1]. In other words, the model is not reasoning poorly about a detail it perceived—it is answering a question about a detail it never had the opportunity to perceive. The field’s three dominant remedies each carry a disquali-fying cost for a modest-resource practitioner. Supervised fine-tuning (SFT) on region/answer annotations is label-hungry and induces catastrophic forgetting [2]. Reinforcement learning with verifiable rewards (RLVR) requires hand-built verifiers, is compute-heavy, and is vulnerable to reward hacking. On-policy distillation (OPD) is cheaper and label-free but, in its strongest visual form [3], still needs a large external teacher model and oracle (human-marked) crops. This is the gap this paper addresses: there is no free, label-free, teacher-free way to determine whether a model’s own answer is actually grounded in the image evidence, as opposed to a plausible-sounding guess drawn from linguistic priors. This gap matters for three concrete reasons. First, without such a signal, a practitioner has no cheap way to improve fine-grained accuracy at inference time short of the expensive remedies above. Second, low answer entropy (high confidence) is conventionally treated as a proxy for reliability, yet a model can be confidently wrong precisely when it is guessing fluently from priors rather than seeing the image—confidence alone cannot distinguish the two. Third, the absence of a diagnostic signal makes it hard to tell, even after the fact, whether a wrong answer was caused by a perception failure (the detail was never seen) or a reasoning failure (the detail was seen but misused), which is essential for deciding which remedy to apply. We propose the contrastive evidence gap as a solution to this diagnostic and practical gap. The core idea is simple: contrast a question-relevant image crop against an irrelevant one, and measure how much more probable the model’s own answer tokens become under the relevant crop. If showing the model the right region sharply raises the probability of its answer relative to a wrong region, the answer is grounded; otherwise it is a prior-driven guess. This quantity requires no annotated answers, no external verifier, and no teacher model larger than the model being evaluated—it is computed entirely from the model’s own output probabilities under two different visual conditions. We formalize this quantity and demonstrate two label-free uses of evidence sensitivity—region discovery , via answer-arXiv:2609.24244v1 [cs.CV] 21 Sep 2026 peakedness under a candidate crop, and trajectory weighting ,via the contrastive gap itself—which together motivate ateacher-free, verifier-free distillation method, SEG-Distill. Our central, positive result is training-free: at inference time, max-imizing the gap over a grid of candidate crops discovers the answer-bearing region with no bounding boxes, no training, and no labels, localizing the target 4.4–5.1 × better than chance and lifting fine-grained accuracy from approximately 70% to 85% across three model scales (Qwen2.5-VL-7B, Qwen3-VL-8B, Qwen3-VL-30B-A3B) on V *Bench. We additionally show the gap is complementary to the model’s own confidence, with the combined signal predicting correctness at AUC up to 0.99 and flagging confidently-wrong answers at AUC 0.97–1.00. We also report an honest negative result: converting this same signal into a training-time method (SEG-Distill, a gated self-distillation scheme) does not beat the base model at pilot scale across three gate designs, and more aggressive gating degrades accuracy—establishing that the signal is real even though the signal-to-training-gain conversion remains an open problem. 
+
+Contributions 
+
+1) A training-free, label-free test-time method (our main result): maximizing answer-peakedness over candidate crops discovers the answer region with no boxes, train-ing, or labels (4.4–5.1 × chance) and lifts fine-grained accuracy from approximately 70% to 85% at inference. 2) A formal account and analysis of the gap as a coun-terfactual estimate of a region’s influence, with evidence that it is complementary to confidence (combined AUC up to 0.99) and flags confidently-wrong answers. 3) An honest negative result on the training-time use: SEG-Distill, an EMA-self-teacher gated self-distillation method, fails to beat the base model at pilot scale across three gate designs (none, trajectory, token), with more selective gating degrading accuracy—establishing the signal-to-training-gain conversion as a genuine open problem. 
+
+Related Work and Positioning 
+
+Low-rank adaptation (LoRA) learns less but forgets less than full fine-tuning [4]; MLLMs suffer a dual forgetting of perception and instruction-following when fine-tuned on annotated data [2]. This motivates approaches that avoid gradient updates on annotated targets altogether. Reverse-KL divergence is mode-seeking and is preferred for generative students [5]; generalized and on-policy knowledge distillation trains the student on its own samples with per-token teacher feedback [6]; a stop-gradient formulation with view asymmetry prevents representational collapse without requiring negative pairs [7]; and a model exponential moving average (EMA) can supply a label-free target in place of a sep-arately trained teacher [8]. Vision-OPD [9] uses an EMA crop self-teacher but applies dense supervision uniformly across all trajectories, without any gating mechanism to discount poorly-grounded samples. Vision-R1 [10] and Perception-R1 [11] apply group rela-tive policy optimization (GRPO) with verifier-based rewards. CEPO [12] performs token-level contrastive credit assignment but conditions on the gold answer and still requires a verifier. GCPO [13] reweights GRPO over text conditioning rather than visual conditioning. Contrastive Region Guidance (CRG) [14] contrasts decode-time outputs with and without a region in a training-free setting, establishing that the resulting gap carries grounding signal. CropVLM [15] learns a box-free crop policy via an absolute answer-likelihood reward, which is label-dependent. V-Zero [3] gates on-policy distillation with a contrastive crop gap but relies on an external teacher and oracle (human-annotated) crops. Table I summarizes how these methods compare along five properties; SEG-Distill is the only method in this comparison that is simultaneously teacher-free, gated, label/verifier-free, contrastive, and capable of crop discovery. II. M ETHODOLOGY 
+
+A. Preliminaries 
+
+An MLLM defines an autoregressive policy over token se-quences y = ( y1, . . . , y T ) given multimodal input x = ( I, q ),where I is the image and q is the question: 
+
+πθ (y | x) = 
+
+> T
+
+Y
+
+> k=1
+
+πθ (yk | x, y <k ) (1) Eq. (1) defines the autoregressive decomposition used through-out. On-policy distillation aligns the student to a teacher on the student’s own samples via reverse-KL: 
+
+LOPD = Ex Ey∼πs(·| x)
+
+ 1
+
+T
+
+X
+
+> k
+
+KL 
+
+
+
+πs(· | x, y <k )
+
+sg πt(· | x, y <k )
+
+(2) which is mode-seeking and, by sampling y ∼ πs, removes the exposure-bias mismatch present in off-policy knowledge distillation [6]. Fig. 1 summarizes the full method: candidate crop selection, the contrastive evidence gap, and the two downstream uses of the resulting signal—a training-free inference-time path and the SEG-Distill training-time path. 
+
+B. On-Policy Distillation as Negative-Free Stop-Gradient Alignment 
+
+Let z denote privileged visual information available at inference time—an image crop; z+ is a question-relevant crop and z− is an irrelevant one. Conditioning appends the crop to the visual context so that both the full image and the crop are visible to the model. With student view vs = ( x, y <k ) and privileged teacher view vt = ( x, z, y <k ), on-policy distillation aligns the online student policy πs(· | vs) to a stop-gradient target sg[ πt(· | vt)] —structurally identical to negative-free self-distillation [7]. This exposes OPD’s core limitation: it applies identical pressure to every sampled trajectory, with no mechanism to discount poorly-grounded ones. SEG-Distill TABLE I PROPERTY COVERAGE . SEG-D ISTILL IS THE ONLY METHOD HOLDING ALL FIVE .                                    
+
+> Method teacher-free gating label/verifier-free contrastive gap crop discovery
+> V-Zero ✗✓✓✓✗
+> Vision-OPD ✓✗✓✗✗
+> CEPO ✓✓✗(answers) ✗✗
+> CropVLM ✗✓✗(gold answer) ✗✓
+> SEG-Distill ✓✓✓✓✓
+> Fig. 1. Overview of SEG-Distill. Candidate crops are scored for answer-peakedness to discover z+and z−; the resulting contrastive evidence gap feeds two uses—a training-free inference-time path (left, our main positive result) and a gated self-distillation training path (right, reported as an honest negative at pilot scale).
+
+supplies exactly this mechanism through a second, contrastive view. 
+
+C. Contrastive Evidence Gap 
+
+For token yk in context y<k , the per-token log-likelihood ratio 
+
+∆k = log πt(yk | x, z +, y <k ) − log πt(yk | x, z −, y <k ) (3) measures how much the relevant evidence raises the prob-ability of the realized token. It estimates the counterfactual influence of revealing the answer region (holding x and y<k 
+
+fixed, and varying only z) and provides pointwise grounding: 
+
+∆k > 0 if and only if yk is more probable when the correct region is visible. The trajectory grounding score is the mean of ∆k over the trajectory. 
+
+p = 1
+
+T
+
+> T
+
+X
+
+> k=1
+
+∆k (4) 
+
+D. Distinct from Confidence 
+
+A natural baseline gate is the student’s own confidence, i.e., the negative entropy of its predictive distribution. Confidence is a property of the marginal predictive distribution—it is high whenever the model commits to an answer, whether or not that answer is grounded. The gap, by contrast, is approximately the log-ratio of the answer probability under the relevant versus irrelevant crop; it is invariant to the overall sharpness of the distribution and instead measures sensitivity to the evidence region specifically. Consequently, a confidently-wrong answer (low entropy, ungrounded) exhibits high confidence yet small or negative gap—the two signals are complementary, which we confirm empirically in Section III. 
+
+E. Evidence Gate 
+
+Given G on-policy rollouts for a prompt x, the grounding scores p(g) are normalized within the group and mapped to a bounded stop-gradient weight. Centering the weight at 1 keeps the average weight approximately 1, which preserves OPD’s overall training scale, while upweighting well-grounded tra-jectories and zeroing out the worst ones. 
+
+μx = 1
+
+G
+
+X
+
+> g
+
+p(g), σ2 
+
+> x
+
+= 1
+
+G
+
+X
+
+> g
+
+ p(g) − μx
+
+2,a(g) = p(g) − μx
+
+σx + ε
+
+(5) 
+
+w(g) = sg  clip  1 + a(g), w min , w max 
+
+ ,wmin = 0 , wmax = 2 (6) 
+
+F. Label-Free Region Discovery 
+
+Given a set of candidate regions R—drawn from a question-cued open-vocabulary detector, attention peaks, or a simple grid—the crop the teacher finds most decisive is selected as 
+
+z+. Crucially, this selection criterion never references the gold answer, unlike CropVLM’s answer-likelihood reward, which requires the ground-truth answer string; and z+ doubles as a weakly-supervised grounding prediction that can be evalu-ated against ground-truth bounding boxes without ever being trained on them. 
+
+z+ = argmax 
+
+> r∈R
+
+−Hπt(· | x, crop( r)) , z− ∈ R\{ z+} (7) Note the difference in scope between Eq. (7) and Eq. (3). Region discovery uses the single-view peakedness criterion, which requires no z− and no sampled trajectory; the con-trastive gap of Eq. (3) presupposes a realized y and is used for trajectory scoring and gating (Eqs. (4)–(6)). Both measure the same underlying property—sensitivity of the model’s output distribution to what it is shown—in the two regimes where each is computable. 
+
+G. Objective 
+
+Combining the components above, the student is distilled from the positive-view self-teacher, modulated per trajectory by the evidence gate, where D is a reverse-KL or top-k
+
+Jensen–Shannon divergence and the self-teacher πt = π¯θ is updated via an exponential moving average of the student parameters. Algorithm 1 summarizes one training step end to end. 
+
+LSEG = 1
+
+G
+
+X
+
+> g
+
+w(g) 1
+
+Tg
+
+X
+
+> k
+
+D
+
+
+
+πs
+
+ · | x, y (g)
+
+> <k
+
+
+
+sg πt
+
+ · | x, z +, y (g)
+
+> <k
+
+ 
+
+(8) 
+
+Algorithm 1 SEG-Distill (one training step)  
+
+> 1:
+
+z+ ← argmax r∈R −H[π¯θ (· | x, crop( r))] ; z− ← region in 
+
+R \ { z+} 
+
+> 2:
+
+sample y(g) ∼ πθ (· | x) for g = 1 . . . G {on-policy rollouts } 
+
+> 3:
+
+∆(g) 
+
+> k
+
+← log π¯θ (y(g) 
+
+> k
+
+| x, z +, y <k ) − log π¯θ (y(g) 
+
+> k
+
+| x, z −, y <k ) 
+
+> 4:
+
+p(g) ← mean k ∆(g) 
+
+> k
+
+; a(g) ← (p(g) − μx)/(σx + ε); w(g) ←
+
+sg[clip(1 + a(g), 0, 2)]  
+
+> 5:
+
+L ← 1
+
+> G
+
+P 
+
+> g
+
+w(g) 1
+
+> Tg
+
+P 
+
+> k
+
+D(πθ (· | x, y <k ) ∥ sg[ π¯θ (· |
+
+x, z +, y <k )])  
+
+> 6:
+
+θ ← θ − η∇θ L; ¯θ ← αθ + (1 − α)¯θ      
+
+> Fig. 2. Conceptual illustration of the contrastive evidence gap. Conditioning the model on the question-relevant crop z+sharply raises the probability of its answer token relative to conditioning on an irrelevant crop z−; the resulting gap ∆kis a per-token measure of grounding.
+
+H. Experimental Setup 
+
+The probes use the model itself as a fixed scorer, i.e., the EMA self-teacher at initialization. Three models are evaluated: Qwen2.5-VL-7B, Qwen3-VL-8B, and Qwen3-VL-30B-A3B, all in bf16 precision. The evaluation dataset is V *Bench, comprising 191 multiple-choice examples with target bound-ing boxes, split into direct_attributes (n = 115 ,the perception-bottleneck split) and relative_position 
+
+(n = 76 , a global-context control split that does not require fine-grained detail). Three conditions are compared: the full image (downsized to at most 1280 px), the full image plus an oracle crop, and the full image plus an irrelevant crop. For region discovery, a grid of |R| = 16 candidate crops is used. Each condition requires exactly one forward pass; accuracy is computed as the argmax over the full-vocabulary log-probability of each answer letter. III. R ESULTS AND DISCUSSION 
+
+A. Region Discovery 
+
+Maximizing answer-peakedness localizes the target 4.4– 5.1 × above chance on every model (Table II); using the discovered crop lifts accuracy from approximately 70% to 85%. Confidence alone is non-spatial and cannot localize a region, so this discovery capability is independent of, and not derivable from, plain confidence. TABLE II 
+
+> D I R E C T
+
+_A T T R I B U T E S (n = 115 ). D ISCOVERY LOCALIZES FAR ABOVE CHANCE ; THE COMBINED PREDICTOR (p + conf ) BEATS CONFIDENCE ALONE ON EVERY MODEL .
+
+Model disc. hit chance ratio gate AUC ( p) conf AUC AUC ( p + conf ) top-50%-p acc 
+
+Qwen2.5-VL-7B 0.835 0.180 4.6 × 0.913 0.854 0.926 0.965 Qwen3-VL-8B 0.800 0.180 4.4 × 0.913 0.922 0.992 0.947 Qwen3-VL-30B-A3B 0.922 0.180 5.1 × 0.981 0.866 0.979 1.000 TABLE III CROP -SELECTION ABLATION (Q WEN 3-VL-8B). “A NY ZOOM ”(RANDOM /CENTER ) DOES NOT HELP ; PEAKEDNESS -BASED SELECTION DOES , AND ITS DIRECTION MATTERS . “ DIRECT ” IS 
+
+> D I R E C T
+
+_A T T R I B U T E S ; “ REL . POS .” IS R E L A T I V E _P O S I T I O N .
+
+Crop selection direct overall rel. pos. 
+
+Full image (no crop) 0.704 0.723 0.750 Center crop (naive) 0.687 0.717 0.763 Random crop (“random/center”) 0.714 0.710 0.705 Anti-selected (lowest gap) 0.678 0.665 0.645 Peakedness-selected (ours) 0.852 0.832 0.803 
+
+Oracle bbox 1.000 0.890 0.724 
+
+B. The Selection Is Causal, Not “Any Zoom” 
+
+A natural concern is that any crop—regardless of content— might help simply by increasing effective resolution. Table III shows this is not the case: on Qwen3-VL-8B, a random grid crop (0.714) and a center crop (0.687) match or trail the no-crop baseline (0.704) on direct_attributes , whereas the peakedness-selected crop reaches 0.852, a gain of +13 .8
+
+points over the random crop. Reversing the selection criterion (choosing the crop with the lowest peakedness) gives 0.678, so the direction of the selection criterion is causal with a +17 .4-point discrepancy between the selected and anti-selected crops. A further observation on the control split is notable: on relative_position , the selected crop (0.803) outperforms even the oracle bounding-box crop (0.724), be-cause a tight crop destroys the global context that relative-position questions require—this directly explains the training-time negative result reported below and motivates context-preserving privileged views as future work. 
+
+C. Complementary to Confidence 
+
+The combined predictor ( p+ confidence) beats confidence alone on every model evaluated: 0.854 → 0.926 for Qwen2.5-VL-7B, 0.922 → 0.992 for Qwen3-VL-8B, and 0.866 →
+
+0.979 for Qwen3-VL-30B-A3B, including the 8B model where 
+
+p alone already ties confidence. Within the high-confidence half of examples, p separates correct from incorrect answers at AUC 0.97–1.00, meaning it flags confidently-wrong answers that confidence alone cannot detect. 
+
+D. Selectivity and Control 
+
+Keeping only the top 50% of trajectories by grounding score 
+
+p yields accuracy between 0.95 and 1.00 (Fig. 4). On the 
+
+relative_position control split, discovery performance drops to 2.1–3.0 × chance and the gate’s lift over confidence becomes negative on all three models, confirming that the 
+
+Fig. 3. Label-free region discovery vs. chance, across three model scales (data from Table II). 
+
+Fig. 4. Top-p trajectories are more correct: accuracy of the kept subset as the top fraction of trajectories retained by grounding score p decreases. Curves are an illustrative reconstruction of the reported trend (exact per-point values were not tabulated in the source draft) and should be re-plotted from the underlying data before final submission. 
+
+signal is specific to perception-bottleneck questions rather than a generic artifact of the scoring procedure. 
+
+E. The Training-Time Use Is a Negative Result 
+
+Algorithm 1 was implemented end to end (Qwen2.5-VL-7B with LoRA, label-free crop discovery, 300 steps per arm) and evaluated on V *Bench. On low-resolution GQA, a control setting where ∆ ≈ 0, all arms are equal to the base model, as expected. On HR-Bench, the matched high-resolution distribution, all three gate designs were tested: no gating (ungated OPD), trajectory-level gating (SEG), and per-token gating (TOKEN). Table IV reports the results. TABLE IV SEG-D ISTILL GATE -DESIGN ABLATION ON HR-B ENCH . M ORE GATING CONSISTENTLY UNDERPERFORMS : BASE > NONE > SEG > TOKEN. “DIRECT ” IS D I R E C T _A T T R I B U T E S ; “ REL . POS .” IS 
+
+> R E L A T I V E
+
+_P O S I T I O N .
+
+Arm overall direct rel. pos. 
+
+base 7B 0.717 0.730 0.697 NONE (ungated OPD) 0.712 0.730 0.684 SEG (trajectory gate) 0.707 0.713 0.697 TOKEN (per-token gate) 0.691 0.713 0.658 
+
+The pattern is consistent and monotonic: more gating corresponds to worse performance (base > NONE > SEG 
+
+> TOKEN). No variant beats the base model, the ∆-gate does not outperform ungated OPD, and the per-token gate performs worst overall, cratering specifically on 
+
+relative_position . A plausible explanation is that per-token upweighting reinforces high-∆k tokens that, on spatial questions, are themselves crop-induced errors—since a sin-gle tight crop destroys the global context needed to answer such questions correctly. We report this as strong, consistent negative evidence: converting the validated inference-time signal into a training gain does not follow from the naive recipe at pilot scale, and likely requires substantially larger scale, context-preserving privileged views (e.g., a multi-crop or full-plus-crop conditioning scheme), or a different distillation target altogether. Critically, the inference-time results reported above are unaffected by this negative result. 
+
+F. Limitations 
+
+The inference-time discovery method uses a 16-crop grid, requiring 16 forward passes per example, and is evalu-ated on a single benchmark (V *Bench) with multiple-choice-letter scoring and fixed 1280-pixel downsizing. A stronger evaluation would incorporate grounding and intersection-over-union (IoU) metrics and compare against additional baselines—random-crop, attention/Grad-CAM-based selec-tion, and CRG [14]—across more datasets. The training probes in this work use the model as a fixed scorer, i.e., the self-teacher at initialization, rather than a continually updated teacher throughout training. IV. C ONCLUSION 
+
+A model’s sensitivity to what it is shown is a free, label-free signal for fine-grained visual reasoning. In its single-view form—answer peakedness under a candidate crop—it discovers the answer-bearing region at 4.4–5.1 × chance with no bounding boxes, and lifts accuracy from approximately 70% to 85% at inference across three MLLMs spanning a range of scales. In its contrastive form, the evidence gap of Eq. (3) is complementary to confidence and improves correctness prediction to AUC up to 0.99 while specifically flagging confidently-wrong answers. Converting this signal into a training-time gain (SEG-Distill) does not yet succeed at pilot scale, which we report honestly as an open problem rather than obscuring it. The practical takeaway is immediate: a vision-language model’s differential response to where it looks is a usable, label-free signal for improving fine-grained answers today. REFERENCES [1] P. Wu and S. Xie, “V*: Guided visual search as a core mechanism in multimodal LLMs,” arXiv:2312.14135, 2024. [2] Anonymous, “SmoLoRA: Mitigating dual catastrophic forgetting in continual visual instruction tuning,” arXiv:2411.13949, 2025. [3] H. Sun et al., “V-Zero: Answer-label-free on-policy distillation with contrastive evidence gating,” arXiv:2606.25319, 2026. [4] D. Biderman et al., “LoRA learns less and forgets less,” arXiv:2405.09673, 2024. [5] Y. Gu et al., “MiniLLM: Knowledge distillation of large language models,” arXiv:2306.08543, 2023. [6] R. Agarwal et al., “On-policy distillation of language models: Learning from self-generated mistakes,” arXiv:2306.13649, 2024. [7] X. Chen and K. He, “Exploring simple siamese representation learning,” arXiv:2011.10566, 2021. [8] D. Busbridge et al., “How to scale your EMA,” arXiv:2307.13813, 2023. [9] Anonymous, “Vision-OPD: Learning to see fine details via on-policy self-distillation,” arXiv:2605.18740, 2026. [10] W. Huang et al., “Vision-R1: Incentivizing reasoning capability in MLLMs,” arXiv:2503.06749, 2025. [11] Anonymous, “Perception-R1: Pioneering perception policy with rein-forcement learning,” arXiv:2506.07218, 2025. [12] Anonymous, “CEPO: RLVR self-distillation using contrastive evidence policy optimization,” arXiv:2605.19436, 2026. [13] Anonymous, “GCPO: Group contrastive policy optimization,” arXiv:2605.29198, 2026. [14] D. Wan et al., “Contrastive region guidance: Improving grounding in vision-language models without training,” arXiv:2403.02325, 2024. [15] Anonymous, “CropVLM: Learning to zoom without bounding-box su-pervision,” arXiv:2511.19820, 2026.
