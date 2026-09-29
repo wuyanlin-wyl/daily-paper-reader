@@ -1,0 +1,507 @@
+Title: Clinical Trajectory Alignment for Medical Vision-Language Pre-training
+
+URL Source: https://arxiv.org/pdf/2609.34439v1
+
+Published Time: Tue, 29 Sep 2026 03:11:21 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Clinical Trajectory Alignment for Medical Vision-Language Pre-training 
+
+Huimin Yan 1, Xian Yang 2, Zhi Wang 1, Liang Bai 1
+
+> 1
+
+Institute of Intelligent Information Processing, Shanxi University, Taiyuan, China 
+
+> 2
+
+Alliance Manchester Business School, The University of Manchester, Manchester, UK 
+
+yanhm0925@163.com , xian.yang@manchester.ac.uk 
+
+202322407045@email.sxu.edu.cn , bailiang@sxu.edu.cn 
+
+## Abstract 
+
+Medical vision-language pre-training largely follows a visit-level image-report matching paradigm, aligning paired images and reports at individual visits. While effective for static cross-modal correspondence, this paradigm provides limited supervision for longitudinal clinical change, such as whether abnormalities im-prove, remain stable, or worsen over time. Learning such change is challenging because temporal semantics are implicit in free-text reports, and different abnor-malities within the same patient may evolve asynchronously or even in opposite directions. We propose MedCTA, which reframes medical vision-language pre-training from visit-level cross-modal matching to learning clinical change. Rather than compressing a patient history into a single temporal representation, MedCTA models clinical change at two complementary scopes. At the abnormality scope, clinically grounded queries construct abnormality-conditioned visual and textual trajectories to capture heterogeneous abnormality evolution. At the patient-course scope, global image and report sequences are modeled to capture overall clinical progression beyond any individual abnormality. Structured trend supervision is extracted from longitudinal reports by an offline LLM parser, removing the need for manual temporal annotations. Combined with static image-report alignment, Med-CTA learns representations that preserve visit-level cross-modal correspondence while encoding longitudinal change semantics. Experiments on temporal image classification, image-text retrieval, and zero-shot classification show consistent gains over strong medical vision-language baselines. 
+
+## 1 Introduction 
+
+Medical vision–language pre-training (VLP) aims to learn clinically meaningful cross-modal rep-resentations from medical images and their corresponding reports. Existing methods based on image-text contrastive learning [1], masked modeling [2], and local region-text matching [3] have achieved notable progress in image-text retrieval, disease classification, and phrase grounding [4]. However, most existing methods largely follow a visit-level image-report matching paradigm, where paired images and reports are aligned at individual visits [5, 6]. Such supervision is effective for learning static cross-modal correspondence, but provides limited guidance for longitudinal clinical change, such as whether abnormalities improve, remain stable, or worsen over time [7, 8]. As a result, the temporal evolution semantics contained in patient follow-up records are not explicitly modeled, limiting the ability of current models to learn abnormality progression from longitudinal medical data, as illustrated in Figure 1. Learning longitudinal clinical change is challenging for two main reasons. First, temporal seman-tics are often implicit in free-text radiology reports rather than available as structured annotations.    
+
+> Preprint. arXiv:2609.34439v1 [cs.CV] 28 Sep 2026 Report Image
+> (a) Pair Matching
+> t = n t = T ... t = 1 ...
+> Hidden temporal semantics
+> LLM
+> Image nImage T
+
+... 
+
+> Image 1
+
+... ... ... ... ...   
+
+> Abnormality-Specific Evolution Patient-Course Progression
+> (b) Clinical Trajectory Alignment
+> Report nReport T
+
+... 
+
+> Report 1
+
+...   
+
+> ... ... ... ...
+> Pair Matching
+
+?
+
+> Stable Worsening
+> 1Improving
+> 0-1
+> Improving Stable Worsening
+> 10-1
+> Pneumonia Edema
+
+...   
+
+> Previous right upper lobe pneumonia improved , and has not changed appreciably since ___. Small right pleural effusion unchanged.
+
+Figure 1: Motivation of MedCTA. (a) Static image–report matching captures visit-level correspon-dence but overlooks longitudinal clinical change. (b) MedCTA exploits follow-up records with LLM-derived trend supervision to model abnormality-specific and patient-course trajectories. Reports often describe abnormality changes through expressions such as “increased opacity”, “in-terval improvement”, or “no significant change”, but these descriptions cannot be directly used as supervision without clinical semantic parsing [9, 10]. Second, abnormality progression is inherently heterogeneous. Different abnormalities within the same patient may evolve asynchronously or even in opposite directions. Therefore, compressing an entire patient history into a single temporal fea-ture may oversimplify longitudinal abnormality evolution and fail to capture abnormality-specific changes [11, 12]. To address these challenges, we propose MedCTA, a clinical trajectory alignment framework that reframes medical vision–language pre-training from visit-level cross-modal matching to model-ing clinical change. Instead of compressing a patient’s longitudinal history into a single temporal representation, MedCTA explicitly models longitudinal changes at two complementary scopes: abnormality-specific evolution and patient-course progression. At the abnormality scope, Med-CTA constructs abnormality-conditioned visual and textual trajectories across visits using clinically grounded abnormality queries. These trajectories capture the evolution of each abnormality over time and are supervised by abnormality-specific trend labels through Abnormality-Specific Trajectory Alignment. At the patient-course scope, MedCTA further models global image and report sequences across visits through Patient-Course Progression Alignment, thereby capturing the patient’s over-all clinical progression beyond any individual abnormality. To train these alignment objectives without manual trend annotations, MedCTA adopts an offline large language model to extract struc-tured trend supervision from longitudinal report sequences, including abnormality-specific evolution trends and patient-course progression trends. By jointly optimizing static visit-level image–report alignment, Abnormality-Specific Trajectory Alignment, and Patient-Course Progression Alignment, MedCTA learns cross-modal representations that preserve single-visit image-text correspondence while capturing longitudinal abnormality evolution and patient-course progression. The main contributions of this paper are summarized as follows: 
+
+• We reformulate longitudinal medical VLP as learning from clinical change, extending static visit-level image–report matching to trajectory-level temporal semantic supervision. 
+
+• We propose MedCTA, a trajectory alignment framework that models longitudinal change through abnormality-specific trajectories and patient-course progression, thereby capturing heterogeneous abnormality evolution and overall patient-level clinical progression. 
+
+• We derive structured trend supervision using an offline LLM parser and demonstrate consistent improvements on temporal classification, image-text retrieval, and zero-shot classification. 
+
+## 2 Related Work 
+
+2.1 Medical VLP 
+
+Medical VLP learns transferable cross-modal representations from medical images and radiology reports [13, 14]. Existing methods have made progress through image–text contrastive learning [15, 216], masked modeling [17], and fine-grained region–text alignment [3, 6], benefiting tasks such as image–text retrieval, disease classification, phrase grounding, and report understanding [18, 19]. However, most methods follow a visit-level image–report matching paradigm, where each pair is treated as an independent static sample. This paradigm learns effective single-visit correspondence but provides limited supervision for longitudinal clinical change, such as improvement, stability, or worsening. Different from prior static medical VLP methods, we reframe pre-training from visit-level cross-modal matching to clinical change learning from longitudinal patient trajectories. 
+
+2.2 Longitudinal Temporal Modeling in Medical VLP 
+
+Longitudinal radiology data contain temporal cues about clinical progression across follow-up examinations [8, 20, 21]. Recent methods have explored such information: ALTA [22] uses prior X-ray views as temporal context, Med-ST [23] introduces cross-modal cycle consistency with historical image–text pairs, and TAMM [24] leverages LLM-derived supervision from adjacent reports. However, these methods mainly capture visual context, temporal correspondence, or short-range local transitions, and thus may overlook heterogeneous abnormality evolution and global patient-course progression. Our method addresses this limitation by modeling clinical change through abnormality-specific trajectories and patient-course progression. 
+
+## 3 Method 
+
+3.1 From Static Pair Matching to Change-Aware Pre-training 
+
+Existing medical VLP methods typically align paired images and reports at individual visits. While effective for static cross-modal correspondence, this visit-level matching paradigm provides limited supervision for longitudinal clinical change, such as whether abnormalities improve, remain stable, or worsen over time. MedCTA reframes medical VLP from static pair matching to change-aware pre-training by modeling how clinical states evolve along patient trajectories. Formally, we consider a longitudinal medical VLP setting, where each patient is associated with a temporally ordered sequence of image–report pairs: 
+
+D = {S i}Ni=1 , Si = {(Ii,t , R i,t , τ i,t )}Ti
+
+> t=1
+
+, (1) where Ii,t and Ri,t denote the medical image and the corresponding radiology report of patient i at the t-th visit, τi,t is the examination timestamp, and Ti is the number of visits. MedCTA retains static image–report alignment to preserve visit-level cross-modal correspondence. For a batch of B image–report pairs, let vb and rb denote the global image and report representations of the b-th pair, respectively. The static image–report alignment loss is defined as 
+
+Lclip = 12 (LI→T + LT →I ) , LI→T = − 1
+
+B
+
+> B
+
+X
+
+> b=1
+
+log exp(sim( vb, rb)/τ )
+
+PBj=1 exp(sim( vb, rj )/τ ) , (2) where LT →I is symmetric, sim( ·, ·) is cosine similarity, and τ is the temperature. However, Lclip only learns visit-level state matching and cannot explicitly supervise longitudinal change. Therefore, MedCTA further introduces two change-aware objectives: Abnormality-Specific Trajectory Alignment for heterogeneous abnormality evolution and Patient-Course Progression Alignment for global clinical progression, as shown in Figure 2. 
+
+3.2 Structured Trend Supervision from Longitudinal Reports 
+
+The temporal semantics of longitudinal radiology reports are usually implicit in free-text reports and cannot be directly used as structured supervision. To obtain learnable temporal supervision, we use an LLM as an offline parser to extract structured trend labels from complete longitudinal report sequences. For patient i, the longitudinal report sequence is 
+
+Ri = {Ri, 1, R i, 2, . . . , R i,T i }. (3) Specifically, MedCTA uses the same offline LLM parser GLLM with task-specific prompts to derive two types of trend labels from Ri: abnormality-specific trend labels and patient-course trend labels. 3Pneumonia Edema 
+
+> ...
+> Abnormality
+
+𝐀 𝐀 
+
+> ⋯⋯⋯⋯
+
+𝐀 𝐀,1 𝐀 𝐀,1 
+
+𝐀 𝐀,𝐀−1 
+
+𝐀 𝐀,𝐀 
+
+𝐀 𝐀,𝐀−1 
+
+𝐀 𝐀,𝐀 
+
+𝐀 𝐀,𝐀+1 𝐀 𝐀,𝐀+1 
+
+𝐀 𝐀,𝐀 𝐀 𝐀 𝐀,𝐀 𝐀 
+
+Structured Trend Supervision Construction   
+
+> LLM 𝐀 𝐀,1 𝐀 𝐀,𝐀−1 𝐀 𝐀,𝐀
+
+... ...      
+
+> 𝐀 𝐀,𝐀+1 𝐀 𝐀,𝐀 𝐀
+> Patient-Course Trend Labels
+> 10-1
+> Improving Stable Worsening
+> Abnormality-Specific Trend Labels
+> Improving Stable Worsening 10-1 Abnormality
+> Pneumonia Edema
+
+... 
+
+> Text Encoder
+> 𝐀 𝐀𝐀𝐀𝐀
+
+ℒ𝐀𝐀𝐀𝐀 ... 
+
+Abnormality-Specific Trajectory Alignment 
+
+ℒ𝐀𝐀𝐀 
+
+Patient-Course Progression Alignment 
+
+> At both lung bases, but more extensive on the right than left.
+> 𝐀 𝐀𝐀𝐀𝐀𝐀
+> Image Encoder
+> ...
+
+Dataset  
+
+> t=n-1 t=T
+
+... t=1 ... t=n t=n+1 t=n-1 t=T ... t=1 ... t=n t=n+1 
+
+... ...   
+
+> Learnable Queries
+> ...
+> Abnormality-Conditioned Visual Trajectory
+> ... ... ... ...
+> Abnormality-Conditioned Text Trajectory
+
+... ... 
+
+> Patient-Course Visual Trajectory Patient-Course Text Trajectory
+> Mamba
+
+ℒ𝐀𝐀𝐀 Predictor Head Mamba Predictor Head Figure 2: Overview of MedCTA. Given a longitudinal image–report sequence Si, MedCTA jointly performs static image–report alignment, Abnormality-Specific Trajectory Alignment, and Patient-Course Progression Alignment. Abnormality-specific and patient-course trajectories are temporally encoded by Mamba and constrained by LLM-derived trend supervision, enabling semantic-level trajectory alignment for abnormality evolution and overall clinical progression. Given a fixed abnormality set A = {ak}Kk=1 , the abnormality-specific trend label is generated as 
+
+yai,k = GLLM (Ri, a k; πabn ), yai,k ∈ {− 1, 0, 1}, (4) where πabn denotes the abnormality-level prompting instruction. The labels −1, 0, and 1 indicate worsening, stable condition, and improvement, respectively. Since not all abnormalities appear in each patient sequence, we use a validity mask mi,k ∈ { 0, 1}, where mi,k = 1 if abnormality ak has an available trend label for patient i, and mi,k = 0 otherwise. In parallel, the patient-course trend label is generated by the same LLM parser with a patient-level prompt: 
+
+ypi = GLLM (Ri; πpat ), ypi ∈ {− 1, 0, 1}, (5) where πpat denotes the patient-course prompting instruction. This label provides sequence-level supervision for patient-course progression modeling. 
+
+3.3 Abnormality-Conditioned Trajectory Construction 
+
+To model the longitudinal evolution of individual abnormalities, abnormality queries serve as semantic selectors that identify abnormality-relevant visual and textual representations at each visit. These visit-wise representations are then organized across time to form abnormality-conditioned visual and textual trajectories. Given a predefined abnormality set A = {ak}Kk=1 , we associate each abnormality 
+
+ak with a learnable query qk ∈ Rd, and collect all queries as Q = [ q1; q2; · · · ; qK ] ∈ RK×d. To inject clinical semantic priors, we initialize each query using the global [CLS] embedding of an abnormality-specific prompt Pk, e.g., "a clinical finding of ak", encoded by the text encoder [25]: 
+
+q(0) 
+
+k = f CLS text (Pk), k = 1 , . . . , K. (6) The initialized query q(0) 
+
+k is then treated as the initial value of the learnable parameter qk and is updated during pre-training. To adapt the query to different modalities, we project it into image and text spaces: 
+
+qIk = WI qk, qTk = WT qk, (7) where WI and WT are modality-specific projection matrices. 4For each visit (Ii,t , R i,t ), the image encoder fimage [26] and text encoder ftext [25] produce global features for visit-level alignment and local features for abnormality-specific extraction: 
+
+fimage : Ii,t → (gIi,t , HIi,t ), ftext : Ri,t → (gTi,t , HTi,t ). (8) where gIi,t and gTi,t denote the global image and text representations, respectively, while HIi,t and 
+
+HTi,t denote the patch-level image features and token-level report features, respectively. The modality-specific queries attend to local features to obtain abnormality-specific visual and textual states: 
+
+eIi,t,k = Attn( qIk, HIi,t , HIi,t ), eTi,t,k = Attn( qTk , HTi,t , HTi,t ), (9) where eIi,t,k and eTi,t,k denote the image-side and text-side abnormality-specific embeddings of ak at visit t, respectively. In this way, the image and text representations are organized into abnormality-conditioned semantic spaces. Given the visit-wise abnormality-conditioned representations, MedCTA constructs visual and textual trajectories for each abnormality by organizing these representations across visits. For patient i and abnormality ak, the resulting image-side and text-side abnormality trajectories are defined as: 
+
+EIi,k = {eIi, 1,k , eIi, 2,k , . . . , eIi,T i,k }, ETi,k = {eTi, 1,k , eTi, 2,k , . . . , eTi,T i,k }. (10) 
+
+3.4 Abnormality-Specific Trajectory Alignment 
+
+Given the abnormality-conditioned trajectories, we use modality-specific Mamba-based temporal encoders [27] to encode the image-side and text-side evolution of each abnormality: 
+
+zI,a i,k = gI,a 
+
+> Mamba
+
+(EIi,k ), zT,a i,k = gT,a 
+
+> Mamba
+
+(ETi,k ), (11) where zI,a i,k and zT,a i,k denote the temporally encoded image-side and text-side trajectory representations of abnormality ak for patient i, respectively. Padding masks are applied during temporal encoding to handle variable-length visit sequences across patients. Instead of directly matching image and text trajectory embeddings, MedCTA aligns them in a shared clinical-change space supervised by the LLM-derived abnormality trend label yai,k . The image-side and text-side trend predictions are computed as 
+
+ˆpI,a i,k = softmax( haI (zI,a i,k )) , ˆpT,a i,k = softmax( haT (zT,a i,k )) , (12) where haI (·) and haT (·) are image-side and text-side abnormality-specific trend classification heads. The abnormality-specific trajectory alignment loss is defined as 
+
+Labn = 12 PNi=1 
+
+PKk=1 mi,k NX
+
+> i=1
+> K
+
+X
+
+> k=1
+
+mi,k 
+
+h
+
+CE 
+
+
+
+ˆpI,a i,k , y ai,k 
+
+
+
++ CE 
+
+
+
+ˆpT,a i,k , y ai,k 
+
+i 
+
+, (13) where CE( ·, ·) denotes the cross-entropy loss, and mi,k is a validity mask indicating whether abnor-mality ak has an available trend label for patient i. The label yai,k is mapped to a three-class trend category, corresponding to worsening, stable, and improving conditions. This objective encourages image and text trajectories of the same abnormality to be consistent at the trend-semantic level. 
+
+3.5 Patient-Course Progression Alignment 
+
+While abnormality-specific trajectories capture fine-grained evolution, they may not fully reflect the overall patient course. MedCTA therefore models patient-course progression from global longitudinal image and text representations. For patient i, we organize the visit-level global representations from Eq. (8) into image and text sequences: 
+
+UIi = {gIi,t }Ti
+
+> t=1
+
+, UTi = {gTi,t }Ti
+
+> t=1
+
+. (14) To capture long-range patient-course progression, we perform Mamba-based temporal modeling [27] over the global image and text sequences: 
+
+zI,p i = gI,p 
+
+> Mamba
+
+(UIi ), zT,p i = gT,p 
+
+> Mamba
+
+(UTi ). (15) 5where zI,p i and zT,p i denote the image-side and text-side patient-course progression representations. The learned patient-course representations are supervised by the LLM-derived patient-course trend label ypi . The image-side and text-side predictions are computed as 
+
+ˆpI,p i = softmax( hpI (zI,p i )) , ˆpT,p i = softmax( hpT (zT,p i )) , (16) where hpI (·) and hpT (·) are patient-course trend classification heads. The patient-course progression alignment loss is defined as 
+
+Lpat = 12N
+
+> N
+
+X
+
+> i=1
+
+h
+
+CE 
+
+
+
+ˆpI,p i , y pi
+
+
+
++ CE 
+
+
+
+ˆpT,p i , y pi
+
+i 
+
+, (17) where ypi is mapped to a three-class label corresponding to overall worsening, stable condition, and improvement. This loss encourages the model to capture the overall clinical progression of each patient across longitudinal visits, thereby enabling patient-course progression alignment. 
+
+3.6 Joint Optimization with Static Image–Report Alignment 
+
+MedCTA is trained by jointly optimizing static image–report alignment, abnormality-specific trajec-tory alignment, and patient-course progression alignment: 
+
+L = Lclip + Labn + Lpat , (18) where Lclip preserves visit-level cross-modal correspondence, Labn supervises abnormality-specific evolution, and Lpat models overall patient-course progression. 
+
+## 4 Experiments 
+
+4.1 Experimental Setting 
+
+We evaluate MedCTA on both longitudinal temporal reasoning and cross-modal understanding tasks. Below, we briefly describe the pre-training data, downstream benchmarks, and baselines. Additional implementation and evaluation details are provided in Appendix A. 
+
+Pre-training Data. We pre-train MedCTA on MIMIC-CXR [28] and reorganize image–report pairs into patient-level longitudinal sequences ordered by study time. Following prior temporal VLP settings [23], each sequence contains up to four consecutive visits. 
+
+Downstream Tasks. We evaluate MedCTA on temporal reasoning and cross-modal understanding tasks. Temporal reasoning includes temporal image classification, temporal sentence similarity classification, and dynamic phrase grounding on Chest ImaGenome [29] and MS-CXR-T [20]. Cross-modal understanding includes image–text retrieval on MIMIC-5 ×200 [15] and zero-shot classification on COVIDx [30] and RSNA Pneumonia [31]. 
+
+Baselines. We compare MedCTA with representative medical vision–language methods under the same evaluation settings. The baselines include non-temporal VLP methods, i.e., MGCA [32], MedCLIP [15], CARZero [16], PRIOR [17], and MAVL [33], as well as temporal medical VLP methods, i.e., Med-ST [23], ALTA [22], and TAMM [24]. When official code is available, we reproduce results using the released implementations; otherwise, we follow the original protocols with the same backbone and training settings for fair comparison. 
+
+4.2 Experimental Results 
+
+To comprehensively evaluate MedCTA, we divide our evaluation into two categories: temporal trend understanding tasks and standard vision-language benchmarks. 
+
+4.2.1 Temporal Trend Understanding Tasks Temporal Image Classification. To evaluate temporal progression modeling from longitudinal chest X-rays, we fine-tune on Chest ImaGenome and evaluate temporal image classification on MS-CXR-T over five abnormalities: Consolidation, Edema, Pleural Effusion, Pneumonia, and Pneumothorax. The 6Table 1: Temporal image classification results. Accuracy (%) is reported across five abnormality categories. Best results are shown in bold, and second-best results are underlined.                                                                                                                                             
+
+> Method Consolidation Edema Pl. Effusion Pneumonia Pneumothorax
+> MGCA 44.99 ±0.47 62.71 ±0.24 57.17 ±0.69 63.73 ±0.89 52.16 ±1.02 MedCLIP 53.40 ±0.87 42.85 ±0.01 49.96 ±0.28 67.10 ±0.22 55.46 ±0.02 PRIOR 41.85 ±1.51 43.97 ±1.03 59.21 ±1.19 41.41 ±3.24 45.33 ±2.13 MAVL 43.79 ±0.00 42.85 ±0.00 48.66 ±0.00 67.10 ±0.00 55.46 ±0.00 CARZero 48.95 ±1.25 51.92 ±1.64 50.19 ±1.72 57.44 ±1.35 47.84 ±1.78 Med-ST 60.57 ±1.18 67.35 ±0.32 58.47 ±1.50 65.00 ±0.34 54.18 ±0.81 ALTA 52.76 ±1.86 66.92 ±0.89 50.92 ±1.72 66.82 ±0.19 51.04 ±0.41 TAMM 65.51 ±0.83 69.22 ±0.01 63.18 ±0.45 72.71 ±0.77 60.50 ±0.01
+> Ours 67.14 ±0.82 70.30 ±0.16 65.59 ±1.03 72.85 ±0.35 61.66 ±0.05
+
+task predicts one of three progression categories, i.e., improving , stable , and worsening , for each abnormality. As shown in Table 1, MedCTA achieves superior performance across all diseases. This indicates that explicitly modeling longitudinal clinical change at both abnormality and patient-course levels provides more discriminative representations than visit-level image–report matching alone, especially for distinguishing improvement, stability, and worsening. 
+
+Figure 3: Accuracy (%) for temporal sentence simi-larity classification. 
+
+Temporal Sentence Similarity Classifica-tion. To evaluate the temporal language un-derstanding ability of MedCTA, we conduct zero-shot sentence similarity classification on the MS-CXR-T dataset. In particular, this ex-periment examines the text encoder of each model to determine how well it captures se-mantic shifts and temporal progression in tex-tual descriptions. Fig. 3 shows that Med-CTA achieves the best zero-shot accuracy of 95.72%. This result indicates that Med-CTA learns more temporally aware textual representations, enabling better recognition of progression-related semantics such as im-provement, stability, and worsening in reports. 
+
+Dynamic Phrase Grounding. We evaluate dynamic phrase grounding using Chest ImaGenome bounding-box annotations, aiming to localize temporal progression descriptions across two consecutive chest X-rays. Specifically, we compute cosine similarity between patch-level image embeddings and temporal description embeddings, and upsample the patch-wise similarity scores to generate grounding heatmaps. Fig. 4 presents repre-sentative examples from three progression categories, i.e., improving , stable , and worsening ,with the left and right images denoting the prior and current studies, respectively. The results show that MedCTA can better localize regions associated with longitudinal changes by organizing abnormality-relevant visual representations across visits. 
+
+4.2.2 Standard Vision-Language Benchmarks Cross-modal Retrieval on MIMIC-5 ×200. We evaluate text-to-image and image-to-text retrieval on MIMIC-5 ×200. As shown in Table 2, MedCTA achieves the best results on seven of eight metrics and ranks second on text-to-image P@2. Fig. 5 shows qualitative image-to-text and text-to-image examples, where green/red boxes denote correct/incorrect retrievals and labels indicate abnormality categories. These results demonstrate that combining static alignment with abnormality-conditioned trajectories and patient-course progression improves cross-modal representation learning. 
+
+Zero-shot Classification Tasks. We evaluate the transferability of MedCTA on RSNA Pneumonia and COVIDx under a zero-shot setting. As shown in Table 3, MedCTA achieves the best results on both datasets, with 86.05% accuracy and 79.25% F1 on RSNA Pneumonia, and 95.66% accuracy and 88.48% F1 on COVIDx. This indicates that modeling longitudinal clinical change enhances visual representation learning. By integrating static image–report alignment with abnormality-conditioned 7Table 2: Cross-modal retrieval results on the MIMIC-CXR 5 ×200 benchmark. Performance is reported as precision (%) at top-k (P@ k). Best results are shown in bold, and second-best results are underlined. 
+
+Text → Image Image → Text Method P@1 P@2 P@5 P@10 P@1 P@2 P@5 P@10 
+
+MGCA 74.50 76.30 71.16 60.85 63.62 63.88 64.11 61.95 MedCLIP 45.75 47.10 48.63 43.07 50.31 48.37 48.30 48.09 PRIOR 47.13 48.11 47.53 47.24 49.50 52.55 51.95 36.55 MAVL 50.00 50.00 42.91 37.27 50.00 50.00 49.47 50.00 CARZero 52.44 50.00 49.47 50.01 50.00 50.00 51.65 47.38 Med-ST 75.25 76.18 71.36 65.04 64.50 63.97 62.48 59.00 ALTA 69.80 65.85 52.60 37.72 56.80 55.40 46.80 46.80 TAMM 78.69 79.26 73.07 64.03 66.44 67.63 66.05 62.50 
+
+Ours 80.24 79.08 75.68 65.82 69.13 68.63 67.23 63.01 Query: There has been significant interval           
+
+> improvement in the diffuse alveolar opacities previously seen.
+> Previous Current
+> Improve Query: There is rightward deviation of the trachea and stable moderate cardiomegaly.
+> Previous Current
+> Stable
+> Query: In the interval since the prior study, there is now collapse of the right lower lobe with mild elevation of the right hemidiaphragm.
+> Previous Current
+> Worse
+
+Figure 4: Qualitative dynamic phrase grounding results on Chest ImaGenome for improving, stable, and worsening cases. The left and right images denote the prior and current studies, respectively, with highlighted regions indicating visual evidence related to temporal progression. Table 3: Zero-shot classification results on the RSNA Pneumonia and COVIDx datasets. Performance is reported in terms of Accuracy (ACC, %) and F1 (%). Best results are shown in bold, and second-best results are underlined. 
+
+RSNA Pneumonia COVIDx Method ACC F1 ACC F1 
+
+MGCA 85.06 ± 0.05 76.56 ± 0.10 92.13 ± 0.10 80.10 ± 0.65 MedCLIP 84.17 ± 0.16 77.38 ± 0.35 90.19 ± 0.09 75.60 ± 2.10 PRIOR 81.30 ± 0.35 72.02 ± 1.09 90.01 ± 0.19 87.97 ± 0.68 MAVL 79.99 ± 0.83 73.14 ± 0.48 88.77 ± 0.92 85.09 ± 1.71 CARZero 84.28 ± 0.07 76.94 ± 0.40 91.92 ± 0.20 85.83 ± 0.98 Med-ST 85.15 ± 0.04 76.96 ± 0.25 92.27 ± 0.17 80.22 ± 0.35 ALTA 84.24 ± 0.20 76.54 ± 0.61 91.53 ± 0.19 77.62 ± 1.26 TAMM 85.48 ± 0.05 78.21 ± 0.14 93.03 ± 0.06 87.32 ± 0.38 
+
+Ours 86.05 ± 0.03 79.25 ± 0.08 95.66 ± 0.12 88.48 ± 0.16 
+
+trajectories and patient-course progression, MedCTA learns more transferable visual features for zero-shot disease classification. 
+
+4.3 Ablation Study Contribution of Different Components. We ablate Lclip , Labn , and Lpat to assess the contribution of each objective. As shown in Table 4, removing any objective consistently reduces performance on temporal sentence similarity and temporal image classification, indicating their complementary effects. The full model performs best, demonstrating the effectiveness of combining static alignment with dual-scope clinical change supervision. More detailed ablations are reported in Appendix B.1. 8Med-ST 
+
+Input: Ground Truth: 
+
+ALTA 
+
+Right Wrong 
+
+Label: 
+
+Atelectasis the left lung is well aerated with only mild basilar atelectasis 1.the left - sided effusion likely has increased slightly 2.small left pleural effusion which developed between ___ and ___ is unchanged Pleural Effusion Pleural Effusion 1.left basal atelectasis is overall similar to previous examination 2.a left retrocardiac consolidation is increased in density Consolidation 
+
+TAMM 
+
+1.left basilar atelectasis appears unchanged 2.the left lower lobe is substantially consolidated 
+
+MedCTA (ours) 
+
+1.the left lung is well aerated with only mild basilar atelectasis 2.left basilar atelectasis is demonstrated 
+
+Consolidation Pleural Effusion 
+
+Consolidation Edema 
+
+Query Text: 
+
+as compared to chest radiograph from 1 day prior , moderate cardiomegaly is stable 
+
+Label: Cardiomegaly 
+
+Image-to-Text Retrieval Text-to-Image Retrieval Figure 5: Qualitative examples of image-to-text and text-to-image retrieval on MIMIC-5 ×200. For each method, we show the top two retrieved samples given an input chest X-ray or a query sentence. Green and red boxes denote correct and incorrect retrievals, respectively, with abnormality categories annotated below the incorrect samples. Table 4: Ablation study on temporal tasks on the MS-CXR-T dataset. Accuracy (%) for temporal sentence similarity and temporal image classification. Relative changes from the full model are shown below.                                              
+
+> Method Temporal Sentence Similarity Temporal Image Classification
+> Consolidation Edema Pleural Effusion Pneumonia Pneumothorax
+> Ours 95.72 67.14 70.30 65.59 72.85 61.66 w/o clip loss 92.24 59.58 59.51 63.44 67.50 56.75 (−3.48) (−7.56) (−10.79) (−2.15) (−5.35) (−4.91)
+> w/o abnormality loss 87.47 55.22 51.46 58.41 65.24 53.33 (−8.25) (−11.92) (−18.84) (−7.18) (−7.61) (−8.33)
+> w/o patient loss 90.55 56.98 57.66 59.58 65.80 54.18 (−5.17) (−10.16) (−12.64) (−6.01) (−7.05) (−7.48)
+
+Effect of Query Initialization. We compare random and clinically initialized abnormality queries in Appendix B.2. Clinical initialization consistently performs better, indicating that medical prompts provide useful semantic priors for constructing abnormality-specific trajectories. 
+
+Effect of Different LLM Parsers. MedCTA uses Qwen2-7B [34] as the offline parser for abnormality-specific and patient-course trend supervision. To assess parser robustness, we replace it with Llama 3-8B [35]. Appendix B.3 shows stable image-text retrieval performance, suggesting that MedCTA’s gains come from structured temporal supervision that transforms implicit longitudinal semantics into learnable clinical change signals, rather than from a specific LLM backbone. 
+
+## 5 Conclusion 
+
+We introduced MedCTA, a clinical trajectory alignment framework that extends medical vision– language pre-training from visit-level image–report matching to longitudinal clinical change learning. MedCTA models change at two complementary scopes: abnormality-specific trajectories capture heterogeneous abnormality evolution, while patient-course progression captures overall clinical status. 9With structured trend supervision extracted from longitudinal reports by an offline LLM parser, MedCTA enables trajectory-level learning without manual temporal annotations while preserving static image–report alignment. Experiments on temporal image classification, image–text retrieval, and zero-shot classification show consistent gains over strong medical VLP baselines, demonstrating the value of modeling clinical change through both abnormality-specific evolution and patient-course progression. 
+
+## References 
+
+[1] Pingyi Miao, Xianlai Chen, Kai Sun, Yunbo Wang, Shuang Zhao, and Ying An. Biodpp: Dynamic prompt policy learning for biomedical vision-language models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 8052–8060, 2026. [2] Weiwei Cao, Jianpeng Zhang, Zhongyi Shui, Sinuo Wang, Zeli Chen, Xi Li, Le Lu, Xianghua Ye, Qi Zhang, Tingbo Liang, et al. Boosting vision semantic density with anatomy normality modeling for medical vision-language pre-training. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 23041–23050, 2025. [3] Huimin Yan, Xian Yang, Liang Bai, and Jiye Liang. Local alignment for medical vision-language pre-training. IEEE Transactions on Image Processing , 34:7321–7334, 2025. [4] Xin Mei, Rui Mao, Xiaoyan Cai, Libin Yang, and Erik Cambria. Medical report generation via multimodal spatio-temporal fusion. In Proceedings of the 32nd ACM International Conference on Multimedia , pages 4699–4708, 2024. [5] Christian Bluethgen, Pierre Chambon, Jean-Benoit Delbrouck, Rogier Van Der Sluijs, Małgorzata Połacin, Juan Manuel Zambrano Chaves, Tanishq Mathew Abraham, Shivanshu Purohit, Curtis P Langlotz, and Akshay S Chaudhari. A vision–language foundation model for the generation of realistic chest x-ray images. Nature Biomedical Engineering , 9(4):494–506, 2025. [6] Hao Yang, Hong-Yu Zhou, Jiarun Liu, Weijian Huang, Cheng Li, Zhihuan Li, Yuanxu Gao, Qiegen Liu, Yong Liang, Qi Yang, et al. A multimodal vision–language model for generalizable annotation-free pathology localization. Nature Biomedical Engineering , 10:1595–1609, 2026. [7] Xin You, Runze Yang, Chuyan Zhang, Zhongliang Jiang, Jie Yang, and Nassir Navab. Fb-diff: Fourier basis-guided diffusion for temporal interpolation of 4d medical imaging. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 28010–28020, 2025. [8] Zhuoyi Yang and Liyue Shen. Tempa-vlp: Temporal-aware vision-language pretraining for longitudinal exploration in chest x-ray image. In 2025 IEEE/CVF Winter Conference on Applications of Computer Vision , pages 4625–4634. IEEE, 2025. [9] Hejie Cui, Alyssa Unell, Bowen Chen, Jason Alan Fries, Emily Alsentzer, Sanmi Koyejo, and Nigam H Shah. Timer: Temporal instruction modeling and evaluation for longitudinal clinical records. npj Digital Medicine , 8(1):577, 2025. [10] Kang Liu, Zhuoqi Ma, Zikang Fang, Yunan Li, Kun Xie, and Qiguang Miao. Priorrg: Prior-guided contrastive pre-training and coarse-to-fine decoding for chest x-ray report generation. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 7206–7214, 2026. [11] Ke Zhang, Hanliang Jiang, Jian Zhang, Qingming Huang, Jianping Fan, Jun Yu, and Weidong Han. Semi-supervised medical report generation via graph-guided hybrid feature consistency. IEEE Transactions on Multimedia , 26:904–915, 2024. [12] Wei Fan, Jingru Fei, Jindong Han, Jie Lian, Hangting Ye, Xiaozhuang Song, Xin Lv, Kun Yi, and Min Li. Medvia: Empowering medical time series classification with vision augmentation and multimodal fusion. 
+
+Information Fusion , 127:103659, 2026. [13] Yuxiang Lai, Jike Zhong, Ming Li, Shitian Zhao, Yuheng Li, Konstantinos Psounis, and Xiaofeng Yang. Med-r1: Reinforcement learning for generalizable medical reasoning in vision-language models. IEEE Transactions on Medical Imaging , 45(6):2727–2737, 2026. [14] Vishwesh Nath, Wenqi Li, Dong Yang, Andriy Myronenko, Mingxin Zheng, Yao Lu, Zhijian Liu, Hongxu Yin, Yee Man Law, Yucheng Tang, et al. Vila-m3: Enhancing vision-language models with medical expert knowledge. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 14788–14798, 2025. 
+
+10 [15] Zifeng Wang, Zhenbang Wu, Dinesh Agarwal, and Jimeng Sun. Medclip: Contrastive learning from unpaired medical images and text. In Proceedings of the Conference on Empirical Methods in Natural Language Processing , pages 3876–3887, 2022. [16] Haoran Lai, Qingsong Yao, Zihang Jiang, Rongsheng Wang, Zhiyang He, Xiaodong Tao, and S. Kevin Zhou. Carzero: Cross-attention alignment for radiology zero-shot classification. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 11137–11146, 2024. [17] Pujin Cheng, Li Lin, Junyan Lyu, Yijin Huang, Wenhan Luo, and Xiaoying Tang. Prior: Prototype representation joint learning from medical images and reports. In 2023 IEEE/CVF International Conference on Computer Vision , pages 21304–21314. IEEE, 2023. [18] Tianbin Li, Yanzhou Su, Wei Li, Bin Fu, Zhe Chen, Ziyan Huang, Guoan Wang, Chenglong Ma, Ying Chen, Ming Hu, et al. Gmai-vl & gmai-vl-5.5 m: A large vision-language model and a comprehensive multimodal dataset towards general medical ai. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 23177–23185, 2026. [19] Yanyuan Chen, Dexuan Xu, Yu Huang, Songkun Zhan, Hanpin Wang, Dongxue Chen, Xueping Wang, Meikang Qiu, and Hang Li. Mimo: A medical vision language model with visual referring multimodal input and pixel grounding multimodal output. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 24732–24741, 2025. [20] Shruthi Bannur, Stephanie Hyland, Qianchu Liu, Fernando Perez-Garcia, Maximilian Ilse, Daniel C Castro, Benedikt Boecking, Harshita Sharma, Kenza Bouzid, Anja Thieme, et al. Learning to exploit temporal structure for biomedical vision-language processing. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 15016–15027, 2023. [21] Kang Liu, Zhuoqi Ma, Xiaolu Kang, Yunan Li, Kun Xie, Zhicheng Jiao, and Qiguang Miao. Enhanced contrastive learning with multi-view longitudinal data for chest x-ray report generation. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 10348–10359, 2025. [22] Chenyu Lian, Hong-Yu Zhou, Dongyun Liang, Jing Qin, and Liansheng Wang. Efficient medical vision-language alignment through adapting masked vision models. IEEE Transactions on Medical Imaging ,44(11):4499–4510, 2025. [23] Jinxia Yang, Bing Su, Xin Zhao, and Ji-Rong Wen. Unlocking the power of spatial and temporal information in medical multimodal pre-training. In Forty-first International Conference on Machine Learning , pages 56382–56396, 2024. [24] Liang Bai, Zhi Wang, Huimin Yan, and Xian Yang. Medical vision–language pretraining with llm-guided temporal supervision. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 19666–19674, 2026. [25] Emily Alsentzer, John Murphy, William Boag, Wei-Hung Weng, Di Jindi, Tristan Naumann, and Matthew McDermott. Publicly available clinical bert embeddings. In Proceedings of the 2nd clinical natural language processing workshop , pages 72–78, 2019. [26] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. In 9th International Conference on Learning Representations , 2021. [27] Albert Gu and Tri Dao. Mamba: Linear-time sequence modeling with selective state spaces. arXiv preprint arXiv:2312.00752 , 2023. [28] Alistair EW Johnson, Tom J Pollard, Seth J Berkowitz, Nathaniel R Greenbaum, Matthew P Lungren, Chih-ying Deng, Roger G Mark, and Steven Horng. Mimic-cxr, a de-identified publicly available database of chest radiographs with free-text reports. Scientific data , 6(1):317, 2019. [29] Joy Wu, Nkechinyere Agu, Ismini Lourentzou, Arjun Sharma, Joseph Paguio, Jasper Seth Yao, Ed-ward Christopher Dee, William Mitchell, Satyananda Kashyap, Andrea Giovannini, et al. Chest imagenome dataset. Physio Net , 2021. [30] Linda Wang, Zhong Qiu Lin, and Alexander Wong. Covid-net: A tailored deep convolutional neural network design for detection of covid-19 cases from chest x-ray images. Scientific reports , 10(1):19549, 2020. 
+
+11 [31] George Shih, Carol C Wu, Safwan S Halabi, Marc D Kohli, Luciano M Prevedello, Tessa S Cook, Arjun Sharma, Judith K Amorosa, Veronica Arteaga, Maya Galperin-Aizenberg, et al. Augmenting the national institutes of health chest radiograph dataset with expert annotations of possible pneumonia. Radiology: Artificial Intelligence , 1(1):e180041, 2019. [32] Fuying Wang, Yuyin Zhou, Shujun Wang, Varut Vardhanabhuti, and Lequan Yu. Multi-granularity cross-modal alignment for generalized medical visual representation learning. Advances in neural information processing systems , 35:33536–33549, 2022. [33] Vu Minh Hieu Phan, Yutong Xie, Yuankai Qi, Lingqiao Liu, Liyang Liu, Bowen Zhang, Zhibin Liao, Qi Wu, Minh-Son To, and Johan W Verjans. Decomposing disease descriptions for enhanced pathology detection: A multi-aspect vision-language pre-training framework. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 11492–11501. IEEE, 2024. [34] An Yang, Baosong Yang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Zhou, Chengpeng Li, Chengyuan Li, Dayiheng Liu, Fei Huang, et al. Qwen2 technical report. arXiv preprint arXiv:2407.10671 , 2024. [35] Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, et al. The llama 3 herd of models. 
+
+> arXiv preprint arXiv:2407.21783 , 2024.
+
+## A Additional Experimental Details 
+
+A.1 Pretraining Data 
+
+We pretrain MedCTA on MIMIC-CXR [28], which contains chest X-ray images and corresponding radiology reports. For longitudinal modeling, we reorganize the data into patient-level sequences ordered by study time. Following prior temporal medical VLP settings [23], each sequence includes up to four consecutive image–report pairs, while shorter sequences are preserved. The dataset is publicly available at https://physionet.org/content/mimic-cxr-jpg/2.1.0/ .
+
+A.2 Downstream Tasks 
+
+We evaluate MedCTA on downstream benchmarks disjoint from the pre-training data, covering both longitudinal temporal reasoning and cross-modal understanding. 
+
+Longitudinal temporal reasoning: We evaluate three tasks. Temporal image classification is fine-tuned on Chest ImaGenome [29] and tested on MS-CXR-T [20], reporting macro-averaged accuracy over progression types. Temporal sentence similarity classification is evaluated as a zero-shot binary classification on MS-CXR-T sentence pairs, reporting accuracy. Dynamic phrase grounding is assessed through qualitative visualization on Chest ImaGenome, where we examine whether the model localizes image regions relevant to temporal progression descriptions across consecutive chest X-rays. 
+
+Cross-modal understanding: We evaluate cross-modal retrieval on MIMIC-5 ×200 [15], reporting P@1, P@2, P@5, and P@10 for both image-to-text and text-to-image retrieval. We also assess 
+
+zero-shot classification on COVIDx [30] and RSNA Pneumonia [31] using Accuracy and F1. 
+
+A.3 Baselines 
+
+We compare MedCTA with recent representative medical vision–language methods, grouped accord-ing to whether they explicitly model temporal information. Non-temporal vision–language baselines 
+
+focus on static image–text alignment: MGCA [32] aligns radiographs and reports at multiple granu-larities; MedCLIP [15] improves contrastive learning with semantic-aware matching; CARZero [16] leverages LLM-based prompts and cross-attention for zero-shot classification; PRIOR [17] combines cross-modal reconstruction with global-local supervision; and MAVL [33] uses LLM-guided dis-ease decomposition to enhance attribute-level grounding. In contrast, temporal baselines explicitly incorporate longitudinal context: Med-ST [23] introduces temporal supervision through historical image–text pairs and cycle consistency, while ALTA [22] models temporal views with masked pre-training and efficient adaptation. TAMM [24] leverages LLM-derived trend labels and rationales from adjacent reports to inject temporal supervision into medical vision-language pretraining. 12 Table 5: Additional ablation results on image–text retrieval on the MIMIC-CXR 5 ×200 benchmark. Performance is reported as precision (%) at top-k (P@ k). Relative changes from the full model are shown below.                                                                      
+
+> Method Text →Image Image →Text P@1 P@2 P@5 P@10 P@1 P@2 P@5 P@10 MedCTA 80.24 79.08 75.68 65.82 69.13 68.63 67.23 63.01 w/o Lclip 58.05 55.35 54.32 46.06 53.22 53.19 53.98 48.72 (−22.19) (−23.73) (−21.36) (−19.76) (−15.91) (−15.44) (−13.25) (−14.29)
+> w/o Labn 77.67 76.59 73.45 63.93 67.51 66.36 64.75 61.28 (−2.57) (−2.49) (−2.23) (−1.89) (−1.62) (−2.27) (−2.48) (−1.73)
+> w/o Lpat 78.90 78.02 74.01 65.00 68.21 68.67 66.51 61.80 (−1.34) (−1.06) (−1.67) (−0.82) (−0.92) (+0.04) (−0.72) (−1.21)
+
+A.4 Implementation Details 
+
+We initialize MedCTA with pretrained MGCA weights to improve optimization stability and ac-celerate convergence. The model is trained for 8 epochs on 4 NVIDIA A40 GPUs. We use the AdamW optimizer with a weight decay of 1 × 10 −6 and an initial learning rate of 1 × 10 −5. A cosine annealing schedule with 40% warm-up is adopted, gradually decaying the learning rate to 1 × 10 −8.All images are resized to 256 × 256 , followed by a random crop to 224 × 224 for data augmentation. For downstream evaluation, we either use the pretrained model in a zero-shot manner or fine-tune a lightweight task-specific head, depending on the benchmark. For cross-modal retrieval, temporal sentence similarity classification, and dynamic phrase grounding, we directly evaluate the pretrained model without additional training, and thus do not report standard deviations. In contrast, zero-shot classification and temporal image classification involve training a lightweight classifier on top of pretrained representations. For these tasks, we run experiments with three different random seeds and report the mean and standard deviation to reflect training variability. This evaluation protocol follows prior work for fair comparison. 
+
+## B Ablation experimental results 
+
+In this section, we provide additional ablation results to further analyze the contribution of each component in MedCTA, the effect of abnormality query initialization, and the robustness to different LLM-based trend supervision extractors. 
+
+B.1 Contribution of Different Components. 
+
+To further validate the effectiveness of the three training objectives, we report additional ablation results on image–text retrieval. Specifically, we remove the static image–report alignment loss 
+
+Lclip , the abnormality-specific trend loss Labn , and the patient-course trend loss Lpat from the full objective, respectively. As shown in Table 5, removing each objective generally degrades retrieval performance across most metrics, indicating that the three objectives provide complementary super-vision. Removing Lclip causes the largest drop, suggesting that visit-level image–report alignment remains essential for cross-modal retrieval. Removing Labn also reduces performance, reflecting the benefit of modeling fine-grained abnormality evolution. Removing Lpat leads to smaller but mostly consistent declines, suggesting that patient-course progression modeling further improves the learned representations. These retrieval results are broadly consistent with the temporal reasoning results in the main paper and support the complementary roles of the three objectives. 
+
+B.2 Effect of Query Initialization. 
+
+We further investigate whether the abnormality queries benefit from clinical semantic initializa-tion. We compare two strategies: random initialization and clinical semantic initialization using abnormality-specific medical prompts. As shown in Table 6, clinical semantic initialization improves most retrieval metrics compared with random initialization. This suggests that abnormality prompts provide useful semantic priors, helping the queries select abnormality-relevant visual and textual evidence and construct more effective abnormality-specific progression trajectories. 13 Table 6: Effect of abnormality query initialization on image–text retrieval on the MIMIC-CXR 5 ×200 benchmark. Performance is reported as precision at top-k (P@k).                              
+
+> Method Text →Image Image →Text P@1 P@2 P@5 P@10 P@1 P@2 P@5 P@10 Random init 78.37 77.69 72.94 65.32 68.27 65.42 68.15 61.82
+> Clinical init 80.24 79.08 75.68 65.82 69.13 68.63 67.23 63.01
+
+B.3 Effect of Different LLM Parsers. 
+
+MedCTA uses an offline LLM parser to extract structured trend supervision from longitudinal reports. To examine whether the performance depends on a specific LLM backbone, we replace Qwen2-7B [34] with Llama 3-8B [35] while keeping the remaining training and evaluation settings unchanged. As shown in Table 7, MedCTA maintains stable performance under different LLM settings on image–report retrieval. These results indicate that MedCTA does not rely on a particular LLM backbone. Instead, its gains mainly come from the structured temporal supervision that converts implicit longitudinal report semantics into learnable clinical change signals. Table 7: Robustness to different LLM parsers on image–text retrieval on the MIMIC-CXR 5 ×200 benchmark. Performance is reported as precision at top-k (P@k).                              
+
+> Method Text →Image Image →Text P@1 P@2 P@5 P@10 P@1 P@2 P@5 P@10 Qwen2-7B 80.24 79.08 75.68 65.82 69.13 68.63 67.23 63.01
+> Llama 3-8B 80.11 78.92 76.89 66.09 69.56 68.54 66.85 63.14
+
+## C Limitations and Broader Impact 
+
+Limitations. Although MedCTA shows consistent improvements across temporal reasoning and cross-modal understanding tasks, it still has several limitations. First, MedCTA relies on structured trend supervision extracted by an offline LLM parser from longitudinal radiology reports. Although our experiments with different LLM parsers show stable performance, the quality of the extracted trend labels may still be affected by the reasoning ability, prompting strategy, and possible parsing errors of the LLM. Second, MedCTA models abnormality-specific trajectories based on a predefined abnormality set, which may not fully cover rare diseases, fine-grained clinical findings, or complex comorbid conditions. Third, our experiments are mainly conducted on chest X-ray datasets and radiology reports. Further validation on other imaging modalities, medical domains, institutions, and real-world clinical workflows remains an important direction for future work. Finally, MedCTA is designed for representation learning and should not be directly used for clinical diagnosis or decision-making without careful validation and expert supervision. 
+
+Broader Impact. MedCTA aims to improve medical vision–language representation learning by explicitly modeling longitudinal clinical change. Its potential positive impacts include enhancing tem-porally aware medical image understanding, improving progression-related retrieval and grounding, and supporting research on longitudinal disease modeling. By reducing the need for manual temporal annotations through offline LLM-derived supervision, MedCTA may also facilitate the scalable use of longitudinal medical records for representation learning. However, the method may inherit biases and reporting inconsistencies from the underlying medical datasets and radiology reports. In addition, inaccurate LLM-derived trend labels could affect the learned representations, especially in underrepresented diseases or patient groups. Therefore, deployment in high-stakes clinical scenarios should carefully consider data privacy, fairness, and robustness. 14
