@@ -1,0 +1,623 @@
+Title: Mind What Matters for Reasoning: Aligning Cross-Modal Attention via Selective Probability Mass Concentration
+
+URL Source: https://arxiv.org/pdf/2609.29940v1
+
+Published Time: Fri, 25 Sep 2026 01:23:42 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# Mind What Matters for Reasoning: Aligning Cross-Modal Attention via Selective Probability Mass Concentration 
+
+# Jiaqi Deng 1, Zonghan Wu 2, Zhan Heng 3, Xiaoshui Huang 4, Huan Huo 1∗, Guandong Xu 5∗
+
+> 1
+
+University of Technology Sydney 2East China Normal University 3The University of New South Wales 
+
+> 4
+
+Shanghai Jiaotong University 5 The Education University of Hong Kong 
+
+Abstract 
+
+Multimodal large language models (MLLMs) achieve strong performance on visual reasoning tasks, yet remain prone to hallucinations and over-reliance on language priors, often gen-erating answers without adequately using task-relevant vi-sual evidence. Existing approaches primarily improve reason-ing through reasoning-oriented supervision or inference-time strategies. In this work, we study a complementary question: 
+
+can multimodal reasoning be improved by strengthening im-plicit visual grounding without directly supervising the rea-soning process? Motivated by the functional specialization of attention heads, we investigate whether reasoning can be improved by guiding only the heads most responsive to vi-sual evidence grounding. We propose Selective Probability Mass Concentration (sPMC), a training framework that iden-tifies grounding-responsive heads and selectively regularizes their text-to-image attention. sPMC treats normalized atten-tion over visual tokens as a spatial probability distribution and encourages the probability mass to be assigned to semantically relevant regions using segmentation-derived spatial priors. Adaptive Head Selection restricts this guidance to visually responsive heads while leaving the remaining heads uncon-strained to preserve their complementary functions. Across 6 multimodal benchmark suites, sPMC achieves an average zero-shot improvement of 3% and gains of up to 11.3% across multiple MLLMs while regularizing only 3%-15% of their attention heads. These results demonstrate that targeted guid-ance of sparse and implicit visual evidence pathways can di-rectly improve multimodal reasoning. 
+
+# Introduction 
+
+Multimodal large language models (MLLMs) (Bai et al. 2023; Dai et al. 2023; Team 2024) have made substantial progress on visually grounded reasoning tasks, including Vi-sual Question Answering (VQA) (Li et al. 2025b; Gao et al. 2025; Deng et al. 2025). Nevertheless, they remain prone to hallucinations and over-reliance on language priors (Leng et al. 2024; Bai et al. 2024), often producing answers without adequately using task-relevant visual evidence. This problem is especially acute in fine-grained reasoning, where a correct answer may depend on only a few informative visual cues. 
+
+> ∗
+
+Corresponding author. Copyright © 2027, Association for the Advancement of Artificial Intelligence (www.aaai.org). All rights reserved. 
+
+Recent analyses associate these failures with misallocated text-to-image attention (Seil et al. 2025; Woo et al. 2025; Chen et al. 2025). Attention determines which visual signals are emphasized and propagated during decoding; when it is diffuse or concentrated on irrelevant regions, the model may aggregate incomplete or misleading evidence. These findings suggest that reasoning failures are often linked not only to deficiencies in reasoning itself, but also to ineffective utilization of visual evidence. Existing methods therefore attempt to improve visual grounding either by manipulating attention dynamics dur-ing inference (Seil et al. 2025; Woo et al. 2025; Leng et al. 2024) or by directly aligning attention maps during train-ing (Chen et al. 2025). While inference-time approaches can partially mitigate attention misallocation, they operate on the model’s native attention dynamics and do not fundamentally improve how visual evidence is utilized. Training-based ap-proaches provide stronger supervision signals, but rigidly assume dense alignment across attention maps, requiring broad modification of the attention mechanism. Despite their methodological differences, both paradigms implicitly treat attention as a uniformly important component. Recent work suggests that visual grounding is concentrated in a small subset of attention heads (Seil et al. 2025; Kang et al. 2025). This raises a unexplored question: can multimodal reasoning be improved by selectively strengthening the attention path-ways exhibiting strong visual-grounding signals, rather than directly the reasoning process itself? 
+
+In response, we propose Selective Probability Mass Con-centration (sPMC) , a training framework for targeted text-to-image attention guidance. Given a segmentation-derived spatial mask, sPMC increases the total attention mass as-signed to the masked region without prescribing its distribu-tion across individual visual tokens. Because the objective constrains only aggregate in-mask mass, it tolerates moder-ately over-inclusive masks without requiring every masked token to match a fixed target. Through a head-level empir-ical study, we confirm that strong visual engagement and spatial grounding are consistently concentrated in a small subset of attention heads. Building on this finding, Adaptive Head Selection applies sPMC only through these grounding-responsive heads while leaving the remaining heads uncon-strained. Controlled ablations further show that guiding this subset yields consistent improvements in downstream rea-arXiv:2609.29940v1 [cs.CV] 24 Sep 2026 soning and is more effective than all-head guidance. This observation suggests that effective visual evidence utilization is not uniformly distributed throughout the attention mech-anism. Instead, a relatively small number of attention heads appear to form attention pathways that exhibit particularly strong visual-grounding behavior. Our contributions are: 
+
+• We formulate region-level attention guidance as probability-mass concentration, providing flexible spatial supervision without exact patch-wise matching. 
+
+• We introduce Adaptive Head Selection, which restricts probability-mass guidance to a small subset of attention heads with high visual engagement and show that selec-tively applying guidance through these heads is sufficient and more effective. 
+
+• We evaluate sPMC across six multimodal benchmark suites and multiple MLLMs, obtaining an average zero-shot gain of 3% and gains of up to 11.3% over the corre-sponding base models. 
+
+# Related Work 
+
+Multimodal Large Language Models 
+
+MLLMs such as Qwen-VL (Bai et al. 2023), Instruct-BLIP (Dai et al. 2023), and LLaVA (Liu et al. 2024) achieve strong performance across multimodal tasks (Li et al. 2019; Deng et al. 2025). Many architectures connect a pretrained vision encoder, such as ViT (Dosovitskiy et al. 2020), to a language model through a learned adapter. Decoder-only models such as Chameleon (Team 2024) and Qwen3-VL (Bai et al. 2025) instead represent visual and textual inputs in a shared autoregressive sequence. In both designs, attention provides an important interface between queries and visual tokens, making it a natural target for grounding supervision. 
+
+Enhancing Multimodal Reasoning 
+
+Recent efforts to enhance multimodal reasoning in MLLMs largely focus on improving intermediate reasoning processes and grounding mechanisms to alleviate multimodal hal-lucinations. A prominent direction comprises Multimodal Chain-of-Thought (MCoT) methods (Zhang et al. 2024; Gao et al. 2025; Wu et al. 2024), which extend the success of CoT prompting in LLMs to multimodal settings by introduc-ing explicit intermediate reasoning steps (Zheng et al. 2023; Chen et al. 2024b; Zhang et al. 2024; Mitra et al. 2024). ICoT (Gao et al. 2025), for example, interleaves visual re-gions selected using attention scores, while MVoT (Li et al. 2025a) pairs intermediate reasoning steps with generated vi-sualizations. Such methods improve the reasoning process but may still inherit errors from the mechanism used to se-lect visual evidence. Another line of studies has identified cross-modal atten-tion misallocation as a key factor contributing to the failure of visual reasoning tasks (Seil et al. 2025; Woo et al. 2025; Chen et al. 2025). These works show that attention maps are often either overly diffuse or concentrated on irrelevant re-gions, leading to ineffective aggregation of visual evidence during reasoning. To address this issue, several approaches attempt to rectify attention by manipulating attention distri-butions. For instance, (Seil et al. 2025) applies diagnostic experiment to identify attention heads that consistently attend to irrelevant patches (attention sinks). They then propose an inference-time intervention that reallocates attention away from these sinks. (Leng et al. 2024) introduces contrastive decoding adjustments to refine attention allocation. Laven-der (Chen et al. 2025) enables MLLMs to learn towards diffu-sion’s attention maps through patch-wise regression. While these techniques can partially improve visual perception by redistributing attention, their effectiveness is inherently lim-ited, often yielding modest improvements and incurring ad-ditional inference overhead. Also, they fail to directly learn how attention is distributed across visual tokens. 
+
+# Methodology 
+
+We propose a novel supervision framework to improve MLLMs’ general reasoning abilities by explicitly regulariz-ing their spatial attention distribution. Built on the hypothesis that effective reasoning depends on concentrating attention over semantically relevant image regions, we first construct semantically enriched grounding masks using external seg-mentation priors. We then selectively identify attention heads that exhibit strong grounding behavior and aggregate multi-head, multi-layer attention into a unified spatial representa-tion. Finally, we introduce a probability mass concentration objective that encourages the model to allocate more atten-tion to relevant regions while preserving their pretrained generative capabilities. Together, these components provide a weakly supervised yet effective framework for aligning textual queries with visual evidence. 
+
+Problem Formulation 
+
+Let the visual encoder map an image I to Nv visual tokens, let the language model autoregressively generate an answer 
+
+x = ( x1, . . . , x T ) conditioned on I and a question Q:
+
+pθ (x | I , Q) = 
+
+> T
+
+Y
+
+> t=1
+
+pθ (xt | x<t , I, Q). (1) Our central hypothesis is that prediction errors on vision-centric tasks often arise when grounding-sensitive atten-tion heads allocate insufficient attention to task-relevant vi-sual evidence. We therefore formulate attention guidance as probability-mass concentration: selected heads are encour-aged to allocate greater attention mass to relevant visual regions without being forced to match a fixed token-wise attention pattern. 
+
+Semantically Enriched Grounding Masks 
+
+Dense attention annotations are rarely available at scale, so we derive weak spatial priors using SAM 3 (Carion et al. 2026), which is designed to detect and segment visual con-cepts specified by short noun-phrase prompts. Given an image, we prompt pre-trained LLMs to derive several semantically enriched text proposals by extracting noun phrases with language modifiers (e.g., color, size and Multimodal Large Language Model   
+
+> Vision Encoder …Text Encoder
+> <System Prompt> <Question : Where the girl is going?> < Answer : Wooden cabin>
+> Segmentation Model
+> Guidance
+> 1Adaptive Attention Aggregation
+> ……
+> (Layer N, Head M) (Head M+Q)
+> L11.H2 L13.H6
+> …
+> 2Probability Mass Concentration Instruction
+> Head Selection
+> Aggregated Attention Map
+> Alignment Guidance
+> Guidance mask Attention map suppress suppress
+
+Figure 1: Overview of the proposed sPMC framework. A text-conditioned segmentation model generates a binary guidance mask; Adaptive Attention Aggregation selects grounding-responsive heads, and probability-mass concentration directs their attention toward the masked regions. Algorithm 1: Semantically Enriched Grounding Mask Gen-eration 
+
+Require: Image I, caption or answer T , pretrained LLM G, text-conditioned segmentation model S, maximum foreground ratio 
+
+ρmax = 0 .6
+
+Ensure: Set of binary masks {M j }
+
+1: Extract noun phrases with modifiers from T to form proposals 
+
+P = {pj } ← G(T )
+
+2: for all pj ∈ P do 
+
+3: Rj = {ri,j } ← S(I, p j ) ▷ candidate regions 4: Mj ← W  
+
+> ri,j ∈R j
+
+ri,j 
+
+5: ρj ← P Mj /|I| ▷ foreground ratio 6: if ρj < ρ max then 
+
+7: Add Mj to output set 8: end if 
+
+9: end for 
+
+10: return {P = {pj }, M = {M j }} 
+
+locations) from captions or input context. The textual pro-posals specify not only object categories but also identi-fiable fine-grained properties that refer to a particular in-stance, such as “man wearing green shirt” or “dog on the left” . For caption-based samples, proposals are extracted from image-associated captions; for VQA samples, they are extracted from reference answers. We retain only concrete noun phrases that denote visually localizable entities. Be-cause these source texts describe the corresponding image, this construction reduces the likelihood that a segmentation prompt refers to an absent concept. Conditioned on each proposal, SAM generates multiple candidate regions corresponding to different visual hypothe-ses. We then aggregate these segmentation masks into a sin-gle binary mask and discard masks with excessively large foreground ratio (>60%) to avoid coarse or non-informative coverage. The resulting masks Mi,j ∈ { 0, 1} capture seman-tically relevant regions corresponding to the noun phrase, which serve as region-level priors that guide text-to-image attention toward relevant areas, without enforcing overly strict supervision. Implementation details can be found in the Appendix and Algorithm 1. We treat the resulting masks as weak spatial priors rather than pixel-accurate ground truth. Merging candidate masks improves coverage, while the foreground-area filter removes overly broad masks. This favors recall because sPMC is more robust to moderate over-coverage than to missing relevant regions. 
+
+Adaptive Attention Aggregation 
+
+Attention Aggregation. Let Z(h,l ) 
+
+> t
+
+∈ RNv denote the pre-softmax text-to-image attention logits from answer token t
+
+to the visual tokens, produced by head h at layer l. Let Tans 
+
+denote the token indices of the target answer span, and let 
+
+S denote the set of head–layer pairs selected by the adap-tive procedure described below. We aggregate the selected attention logits as 
+
+˜Z = 1
+
+|T ans ||S| 
+
+X
+
+> t∈T ans
+
+X
+
+> (h,l )∈S
+
+Z(h,l ) 
+
+> t
+
+. (2) The corresponding spatial attention distribution is 
+
+˜Ai = exp( ˜Zi)
+
+PNv 
+
+> j=1
+
+exp( ˜Zj ) , i = 1 , . . . , N v . (3) The distribution ˜A ∈ ∆Nv −1 is reshaped into the original 
+
+Hv × Wv visual-token grid, where Hv Wv = Nv (Figure 1). 
+
+Adaptive Head Selection. Our exploratory analysis (Fig-ure 2) indicates that only a subset of attention heads pro-duces spatially coherent and semantically grounded patterns, while others remain diffuse or specialized in text-only rea-soning (George et al. 2025; Seil et al. 2025). Uniformly reg-ularizing all heads can disrupt non-grounding functions and dilute optimization signals. We therefore selectively regular-ize a target subset Hs ⊆ H that exhibits strong visual en-gagement and spatial alignment. A head h is included in Hs
+
+if it satisfies two criteria. The following head-level statistics are computed for each calibration example and then averaged over Dcal .Head 0 Head 1 Head 2 Origin   
+
+> Head 6 Head 3 Head 4 Head 5
+> Q: What is the colour of the shirt worn by the man on the right?
+
+Figure 2: Exemplar visualization of attention maps from layer 6 of Qwen3-VL-2B. While several heads exhibit irrelevant attention patterns, certain heads (Head 4) demonstrate strong alignment with the task-relevant region. 
+
+Criterion 1: Visual Engagement. Let Z(h,l ) 
+
+> t,i
+
+denote the raw pre-softmax attention logit from answer token t to visual token i, produced by head h at layer l. We define the visual engagement score as the mean logit over all answer–visual token pairs: 
+
+e(h,l ) = 1
+
+|T ans ||V| 
+
+X
+
+> t∈T ans
+
+X
+
+> i∈V
+
+Z(h,l ) 
+
+> t,i
+
+(4) A head–layer pair satisfies the visual-engagement criterion if e(h,l ) ≥ τm.
+
+Criterion 2: Spatial Alignment. Spatial alignment mea-sures the negative log attention mass assigned to the target region: 
+
+g(h,l ) = 1
+
+|T ans |
+
+X
+
+> t∈T ans
+
+
+
+LSE i∈V Z(h,l ) 
+
+> t,i
+
+− LSE i∈R Z(h,l )
+
+> t,i
+
+
+
+(5) where LSE i∈A (ui) = log P 
+
+> i∈A
+
+exp( ui). Lower values in-dicate stronger spatial alignment. The selected set of head–layer pairs is 
+
+S =
+
+n
+
+(h, l ) : e(h,l ) ≥ τm and g(h,l ) ≤ τs
+
+o
+
+(6) The thresholds τm and τs are determined from the calibration statistics using the elbow method (Sahoo, Soltani, and Wong 1988) (detailed in Appendix). 
+
+Selective Probability Mass Concentration 
+
+Let R denote the visual-token indices covered by the target mask. Given the aggregated logits ˜Z, the sPMC loss mini-mizes the negative log attention mass assigned to R:
+
+LsPMC = − log 
+
+P 
+
+> i∈R
+
+exp( ˜Zi)
+
+PNv 
+
+> i=1
+
+exp( ˜Zi) (7) Equivalently, 
+
+LsPMC = LSE Nv
+
+> i=1
+
+( ˜Zi) − LSE i∈R ( ˜Zi) (8) The objective depends on the total probability mass within R
+
+rather than on point-wise agreement with every masked to-ken. Consequently, moderately over-inclusive masks do not force attention toward each incorrectly included token; the model can satisfy the objective by concentrating on any in-formative subset within the mask. This makes sPMC more tolerant to false-positive mask regions than point-wise align-ment objectives. Our mask-generation procedure mitigates this risk by deriving prompts from image-associated text and merging candidate masks to favor coverage. This objective increases the collective probability mass assigned to the target region without enforcing a fixed distri-bution among in-mask tokens. The final objective is 
+
+Ltotal = LLM + λLsPMC , (9) where λ controls the strength of attention regularization. 
+
+# Experiment 
+
+Experiment Setup 
+
+Grounding Mask Dataset Generation. Following the method described earlier, we use Qwen3-Instruct-4B (Yang et al. 2025) to extract important semantically enriched prompts from image captions, which serve as textual queries for subsequent grounding. we apply SAM3 (Carion et al. 2026) to generate binary segmentation masks across two datasets: Flickr30k (Plummer et al. 2015) which con-tains 31,783 images on human everyday activities with 158,915 captions; RLAIF-V 83k (Yu et al. 2025), which provides 83,132 image pairs covering multiple sources (MSCOCO (Lin et al. 2015), ShareGPT-4V (Chen et al. 2024a), MovieNet (Huang et al. 2020), VQA variants). To-tally, 332,480 image-question-mask tuples are generated with our method. We evaluate the quality of these automatically generated masks in the Appendix. 
+
+Multimodal benchmarks Our method is evaluated across six benchmark suites, reported as seven evaluation sets, grouped into two categories: general vision-language un-derstanding and hallucination evaluation. 1) General vision-language understanding task assesses comprehensive mul-timodal capabilities such as OCR and reasoning. We include four benchmarks under this category, including MMVP (Tong et al. 2024), VisOnly (Synthetic and Real splits) (Kamoi et al. 2025), V* (Wu and Xie 2023) and MME (Fu et al. 2025). 2) hallucination evaluation includes POPE (Li et al. 2023) and HallusionBench (Guan et al. 2024), two specialized benchmarks designed to assess whether a model’s responses remain faithful to the input image, thereby evaluating its reliability. 
+
+Baseline models As our method improves the model’s allocation of attention and can be simply applied to var-ious MLLMs, we integrate it with the state-of-the-art Qwen3-VL family (Qwen3-VL-2B-Instruct and Qwen3-VL-8B-Instruct) (Bai et al. 2025) and Llama3.2-11B-Vision (Grattafiori et al. 2024) to verify the generalizability of the method. 
+
+Implementation details Experiments are conducted on a single NVIDIA RTX Pro 6000 GPU. For fine-tuning, we employ LoRA (Hu et al. 2021) to update only a subset of parameters. Training is performed under gradient accumu-lation over 4 or 8 steps (depending on the size of the base Model Base Data POPE HalluBench MMVP VisOnly S VisOnly R V ∗ MME Qwen3-VL-2B Qwen3-2B N.A. 89.0 44.1 51.3 38.0 44.0 67.5 2025.8 + AutoR. LoRA-FT Qwen3-2B 0.3M 84.5 35.3 51.3 31.7 46.2 63.9 1525.0 + sPMC LoRA-FT Qwen3-2B 0.3M 89.9 49.1 52.7 38.3 45.8 68.1 2118.8                                                                                                                                  
+
+> % improvement w.r.t. base model 1.0 ↑11.3 ↑2.7 ↑0.8 ↑0.9 ↑1.8 ↑4.6 ↑
+> Qwen3-VL-8B Qwen3-8B N.A. 88.0 58.5 65.3 42.2 54.6 73.8 2416.2
+> + AutoR. LoRA-FT Qwen3-8B 0.3M 86.5 56.6 64.0 40.3 50.4 71.2 2317.5 + sPMC LoRA-FT Qwen3-8B 0.3M 88.5 59.5 69.3 43.1 55.8 75.4 2400.5
+> % improvement w.r.t. base model 0.6 ↑1.7 ↑6.1 ↑2.1 ↑2.2 ↑2.2 ↑0.6 ↓
+> Llama3.2-11B-V Llama3-11B N.A. 88.1 40.3 42.0 25.0 33.4 30.2 1820.0 + AutoR. LoRA-FT Llama3-11B 0.3M 85.5 35.4 39.8 19.8 28.9 24.6 1736.6 + sPMC LoRA-FT Llama3-11B 0.3M 88.5 40.5 44.0 25.0 37.0 32.5 1841.0
+> % improvement w.r.t. base model 0.5 ↑0.5 ↑4.8 ↑0.0 10.8 ↑7.6 ↑1.2 ↑
+> Small SOTA Models with Massive FT Data ( ≥5M) or Large SOTA Models ( ≥20B)
+> Qwen2-VL-72B Qwen2-72B ∼50M 87.2 58.1 –41.4 44.4 –2482.7 Molmo-7B-O Qwen2-7B ∼35M 86.7 42.5 –34.3 31.0 –1714.0 GPT-4V N.A. N.A. 81.8 43.9 38.7 39.0 48.8 54.9 2070.2 Gemini1.5-Pro N.A. N.A. 88.2 55.9 40.7 42.4 52.6 71.7 2110.6 Llama-3.2-90B Llama-3.1-70B N.A. 86.3 44.1 –33.7 37.1 –1741.0 InternVL3-38B Qwen-2.5-32B N.A. 89.2 58.4 –39.0 42.1 –2500.7
+
+Table 1: Zero-shot performance across multimodal benchmarks. The best within each group is shown in bold, and the overall best is underlined. Fair evaluations are performed and supported by VLMEvalKit (Duan et al. 2024). model) with an effective batch size of 32 using the AdamW optimizer (Loshchilov and Hutter 2017), with the learning rate set to 1e − 4. A cosine learning rate scheduler is applied, beginning with a warm-up phase of 100 steps with one hard reset in the middle of training. 
+
+Main Results 
+
+Table 1 presents a comprehensive comparison of zero-shot performance across multiple multimodal benchmarks under varying model scales and training regimes. Results demon-strate that the proposed method brings consistent perfor-mance improvements and reduced hallucination. The results show that the proposed sPMC drives consis-tent performance gains on various baseline models across multiple benchmarks (on average 2.1%-3.7% depending on the base model). In particular, our proposed sPMC elevates Qwen3-VL-8B over existing state-of-the-art performance, surpassing larger models such as GPT-4V and Gemini 1.5 Pro on HallusionBench (59.5) and MMVP (69.3), despite being 7 × smaller. This demonstrates that our method en-ables lightweight models to outperform their nominal capac-ity. sPMC shows a specialized strength in reducing model hallucination. On two specialized hallucination challenges POPE and HallusionBench, our method yields average rela-tive gains of 0.7% and 4.5% performance gains respectively to various base models, which verifies our theoretical hy-pothesis that better attention distribution can help alleviate MLLMs’ hallucination. 
+
+Effective selection of visual grounding attention heads. 
+
+Table 2 and the two leftmost plots in Figure 3 reveal a consistent pattern in attention-head selection across both decoder-only and cross-attention architectures. In all cases, only a small subset of heads is repeatedly selected, with selec-tion rates ranging from 3.03% to 15.4%, indicating that visual grounding is highly sparse and concentrated in a limited num-ber of heads. This sparsity is especially pronounced in larger models such as Qwen3-VL-8B, where only 3% of heads are identified as relevant. Additionally, the decoder-only ar-chitecture rely only on self-attention mechanism, which en-tangles perception and reasoning within unified attention heads. This structural entanglement makes text-to-image at-tention guidance even more challenging for these more mod-ern decoder-only models (Chen et al. 2025). Subsequently, it highlights the inherent significance of identifying grounding-relevant heads, as the results support restricting the alignment loss to heads most strongly associated with visual ground-ing. These observations motivate our design choice: instead of supervising all attention heads indiscriminately, focusing on a small subset of grounding-relevant heads enables more efficient and precise supervision. This insight underpins the proposed Adaptive Head Selection strategy. 
+
+More grounded text-to-image attention. The two right-most plots in Figure 3, which compare cross-modal attention before and after applying sPMC, provide further evidence of the method’s effectiveness. After application of sPMC, the global distribution of text-to-image attention remains largely stable, with only a slight reduction in total attention mass, in-dicating that the model does not simply suppress attention. In contrast, the alignment loss decreases substantially, showing that the model reallocates attention toward task-critical vi-sual evidence. Together, these results demonstrate that sPMC sharpens text-to-image attention by preserving overall atten-tion behavior while redirecting focus away from irrelevant regions and toward the correct visual cues. Figure 3: Head-level diagnostics for Qwen3-VL-2B-Instruct, averaged over 200 randomly sampled images. The left panels show the calibration statistics and thresholds; the right panels compare selected heads before and after sPMC fine-tuning. Fine-tuning slightly reduces the mean visual-attention mass and shifts the alignment loss downward (lower is better).             
+
+> Qwen3-VL-2B Qwen3-VL-8B Llama3.2-11B-V # Layers 28 36 8
+> Total Heads 448 1152 256
+> Selected Heads 69 35 37
+> Selection Rate (%) 15.40% 3.03% 14.45%
+
+Table 2: Summary of adaptive head selection, which demon-strates the sparsity of visual grounding heads. Detailed layer-wise head selection is provided in Appendix. 
+
+Ablation study 
+
+Adaptive head selection To evaluate Adaptive Head Se-lection, we compare Adaptive-Late with four variants: aggregation over all heads ( All Heads ), random selection from late layers ( Random-Late ), adaptive selection from early layers ( Adaptive-Early ), and adaptive selection across all layers ( Adaptive-Full ). All adaptive variants use the head selection criteria; Adaptive-Late applies them to layers 17–28. 
+
+Late-layer guidance is more effective. As shown in Figure 4, Adaptive-Late achieves the best perfor-mance across all five evaluation metrics. All Heads 
+
+trails it by 6.24% on average, indicating that indiscrim-inate regularization can dilute grounding-relevant signals. 
+
+Random-Late is 3.9 points lower despite using the same layer range, showing that the gains depend on which heads are selected rather than merely on reducing their num-ber. Layer placement is also important: Adaptive-Early 
+
+trails Adaptive-Late by approximately 10 points, while 
+
+Adaptive-Full improves upon Adaptive-Early by 4.9 points but remains inferior to late-layer selection. To-gether, these results support applying sPMC to adaptively selected grounding-responsive heads in later layers. 
+
+Training objective variants We compare sPMC with the pretrained model without fine-tuning ( No Guidance ), autoregressive LoRA fine-tuning ( AutoR. ), and patch-wise cross-entropy alignment with the normalized mask (Cross-Entropy ). The choice of alignment objec-tive is critical. As shown in Table 3, AutoR. and 
+
+Cross-Entropy reduce average zero-shot performance                                                       
+
+> Method Align POPE Hall. MMVP Vstar Avg.
+> Qwen3-VL-2B
+> No Guidance ×89.0 44.1 51.3 67.5 62.98 AutoR. ×84.5 35.3 51.3 63.9 58.75 CrossEntropy ✓81.5 32.2 42.0 58.9 53.65
+> sPMC ✓89.9 49.1 52.7 68.1 64.95
+> Qwen3-VL-8B
+> No Guidance ×88.0 58.5 65.3 73.8 71.40 AutoR. ×86.5 56.6 64.0 71.2 69.58 CrossEntropy ✓81.8 45.6 57.3 62.8 61.88
+> sPMC ✓88.5 59.5 69.3 75.4 73.18
+
+Table 3: Ablation of the training objective. AutoR. denotes LoRA fine-tuning with only the next-token objective. Cross-Entropy directly matches attention to the normalized mask. The average is the unweighted mean of the four benchmark scores; × denotes no attention-alignment loss. by 3.03% and 9.42%, respectively, relative to the pretrained model. The larger degradation from Cross-Entropy in-dicates that exact patch-wise alignment imposes an overly restrictive attention target. In contrast, sPMC improves performance, supporting the use of flexible region-level probability-mass guidance over point-wise matching. 
+
+Qualitative analysis 
+
+We also present multiple qualitative examples in Figure 5. Across the presented examples, the performance gains are evident over various multimodal tasks, spanning from graph-ic/diagram interpretation ( Chubb illusion and Central bank 
+
+examples), OCR-intensive text understanding (the question about Abraham Lincoln’s quote ) to commonsense reason-ing, and fine-grained visual-grounded discrimination. These improvements verify our method’s ability to steer attention toward task-relevant regions, thereby improving access to relevant visual evidence and reducing hallucination. An illustrative example in the top-right corner further highlights this advantage: the sPMC-tuned model demon-strates stronger alignment between salient visual evidence and generated responses, particularly in scenarios where crit-ical cues are subtle or easily overlooked (e.g., the lady in the corner is carrying a handbag. ). By concentrating probabil-Figure 4: Ablation study: zero-shot performance of head-selection variants for Qwen3-VL-2B-Instruct (28 layers and 448 heads). We partition layers into early (1–8), middle (9–16), and late (17–28) stages. Adaptive selection in late layers performs best on all five metrics. Question: The image shows the famous Chubb illusion. Is the center area on the left smaller than the center area on the right? Correct: No        
+
+> HalluBench-VD Qwen3-VL-2B: Yes Ours: No
+> Question: In 2019, were the main policy interest rates of the Central Banks in the UK higher than those of the U.S. Central Bank , Eurozone, and Japan? Correct: No , the main policy interest rates of the Central Banks in the UK were not higher than those of the U.S. Central Bank, Eurozone, and Japan in 2019.
+> HalluBench-VS Qwen3-VL-2B: Yes
+> Ours: No, No, the main policy interest rates of the Central Banks in the UK were not higher
+
+Question: Is there a handbag in the image? Please answer yes or no . Correct: Yes    
+
+> POPE Qwen3-VL-2B: No Ours: Yes
+> Question:
+
+Is the text in this figure made by Abraham Lincoln? Correct: Yes. Qwen3-VL-2B: No  
+
+> HalluBench-VS Ours: YES, the text in this figure is made by Abraham Lincoln
+
+Question: Is there a bed in the image? Please answer yes or no . Correct: Yes   
+
+> POPE Qwen3-VL-2B: Yes Ours: No
+
+Question: How many spots are on the animal in the image? A. 6 B. 5 Correct: B   
+
+> MMVP Qwen3-VL-2B: AOurs: B
+
+Figure 5: Qualitative comparison between Qwen3-VL-2B and its sPMC-tuned counterpart. The examples cover diagram interpretation, OCR, commonsense reasoning, and fine-grained visual discrimination. Yellow marks incorrect answers and green marks correct answers. The bottom-left example is a failure case introduced by sPMC. ity mass on relevant regions, the model is better at capturing fine-grained details that are essential for accurate reasoning. However, the bottom-left example highlights a representa-tive failure case: when task-relevant evidence is very ambigu-ous (e.g., a blurred pet bed in the background ), our model may under-attend to such low-saliency regions and fail to recover the correct answer. This suggests that while atten-tion concentration improves robustness in most settings, it may also bias the model against weak signals, indicating a limitation in handling uncertain visual details. 
+
+# Conclusion and Future Directions 
+
+In this work, we study attention misallocation as a poten-tial source of hallucination in MLLMs and reformulate it as a problem of suboptimal probability mass distribution over visual regions. To address this, we propose Selective Proba-bility Mass Concentration (sPMC), an effective weak super-vision framework that directly regularizes the global struc-ture of cross-modal attention. By encouraging attention to concentrate on semantically relevant regions and selectively tuning grounding-relevant heads, sPMC enhances MLLMs’ “visibility” while preserving the model’s inherent reasoning capabilities. Extensive experiments across multiple bench-marks demonstrate that our approach consistently enhances zero-shot performance over base models. A promising direc-tion is to incorporate more diverse and challenging visual inputs, including synthetic data and compositional scenes. Such data could provide richer supervision and improve ro-bustness under complex reasoning conditions. References 
+
+Bai, J.; Bai, S.; Yang, S.; Wang, S.; Tan, S.; Wang, P.; Lin, J.; Zhou, C.; and Zhou, J. 2023. Qwen-VL: A Versatile Vision-Language Model for Understanding, Localization, Text Reading, and Beyond. Bai, S.; Cai, Y.; Chen, R.; Chen, K.; Chen, X.; Cheng, Z.; Deng, L.; Ding, W.; Gao, C.; Ge, C.; Ge, W.; Guo, Z.; Huang, Q.; Huang, J.; Huang, F.; Hui, B.; Jiang, S.; Li, Z.; Li, M.; Li, M.; Li, K.; Lin, Z.; Lin, J.; Liu, X.; Liu, J.; Liu, C.; Liu, Y.; Liu, D.; Liu, S.; Lu, D.; Luo, R.; Lv, C.; Men, R.; Meng, L.; Ren, X.; Ren, X.; Song, S.; Sun, Y.; Tang, J.; Tu, J.; Wan, J.; Wang, P.; Wang, P.; Wang, Q.; Wang, Y.; Xie, T.; Xu, Y.; Xu, H.; Xu, J.; Yang, Z.; Yang, M.; Yang, J.; Yang, A.; Yu, B.; Zhang, F.; Zhang, H.; Zhang, X.; Zheng, B.; Zhong, H.; Zhou, J.; Zhou, F.; Zhou, J.; Zhu, Y.; and Zhu, K. 2025. Qwen3-VL Technical Report. Bai, Z.; Xiao, T.; Shanghai Lab, A. A.; Tong, C. H.; Zongbo Han, C.; Wang, P.; He, T.; Han, Z.; Zhang, Z.; and Zheng Shou, M. 2024. Hallucination of Multimodal Large Language Models: A Survey. Preprint , 1(1): 40. Carion, N.; Gustafson, L.; Hu, Y.-T.; Debnath, S.; Hu, R.; Suris, D.; Ryali, C.; Alwala, K. V.; Khedr, H.; Huang, A.; Lei, J.; Ma, T.; Guo, B.; Kalla, A.; Marks, M.; Greer, J.; Wang, M.; Sun, P.; Rädle, R.; Afouras, T.; Mavroudi, E.; Xu, K.; Wu, T.-H.; Zhou, Y.; Momeni, L.; Hazra, R.; Ding, S.; Vaze, S.; Porcher, F.; Li, F.; Li, S.; Kamath, A.; Cheng, H. K.; Dollár, P.; Ravi, N.; Saenko, K.; Zhang, P.; and Feichtenhofer, C. 2026. SAM 3: Segment Anything with Concepts. In ICLR 2026 .Chen, J.; Ryutaro, T.; Amrutha, S.; Tom, D.; and Philip, T. 2025. Lavender: Diffusion Instruction Tuning. In Forty-Second International Conference on Machine Learning .Chen, L.; Wei, X.; Li, J.; Dong, X.; Zhang, P.; Zang, Y.; Chen, Z.; Duan, H.; Lin, B.; Tang, Z.; Yuan, L.; Qiao, Y.; Lin, D.; Zhao, F.; and Wang, J. 2024a. ShareGPT4Video: Improving Video Understanding and Generation with Better Captions. 
+
+Advances in Neural Information Processing Systems , 37. Chen, Z.; Zhou, Q.; Shen, Y.; Hong, Y.; Sun, Z.; Gutfreund, D.; and Gan, C. 2024b. Visual Chain-of-Thought Prompting for Knowledge-Based Visual Reasoning. In Proceedings of the AAAI Conference on Artificial Intelligence , 1254–1262. Dai, W.; Li, J.; Li, D.; Tiong, A. M. H.; Zhao, J.; Wang, W.; Li, B.; Fung, P.; and Hoi, S. 2023. InstructBLIP: Towards General-purpose Vision-Language Models with Instruction Tuning. Deitke, M.; Clark, C.; Lee, S.; Tripathi, R.; Yang, Y.; Park, J. S.; Salehi, M.; Muennighoff, N.; Lo, K.; Soldaini, L.; Lu, J.; Anderson, T.; Bransom, E.; Ehsani, K.; Ngo, H.; Chen, Y.; Patel, A.; Yatskar, M.; Callison-Burch, C.; Head, A.; Hendrix, R.; Bastani, F.; Vanderbilt, E.; Lambert, N.; Chou, Y.; Chheda, A.; Sparks, J.; Skjonsberg, S.; Schmitz, M.; Sarnat, A.; Bischoff, B.; Walsh, P.; Newell, C.; Wolters, P.; Gupta, T.; Zeng, K.-H.; Borchardt, J.; Groeneveld, D.; Nam, C.; Lebrecht, S.; Wittlif, C.; Schoenick, C.; Michel, O.; Krishna, R.; Weihs, L.; Smith, N. A.; Hajishirzi, H.; Girshick, R.; Farhadi, A.; Kembhavi, A.; and Allen. 2024. Molmo and PixMo: Open Weights and Open Data for State-of-the-Art Vision-Language Models. Deng, J.; Wu, Z.; Huo, H.; and Xu, G. 2025. A Comprehen-sive Survey of Knowledge-Based Vision Question Answer-ing Systems: The Lifecycle of Knowledge in Visual Reason-ing Task. Dosovitskiy, A.; Beyer, L.; Kolesnikov, A.; Weissenborn, D.; Zhai, X.; Unterthiner, T.; Dehghani, M.; Minderer, M.; Heigold, G.; Gelly, S.; Uszkoreit, J.; and Houlsby, N. 2020. An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale. Duan, H.; Fang, X.; Yang, J.; Zhao, X.; Qiao, Y.; Li, M.; Agarwal, A.; Chen, Z.; Chen, L.; Liu, Y.; Ma, Y.; Sun, H.; Zhang, Y.; Lu, S.; Wong, T. H.; Wang, W.; Zhou, P.; Li, X.; Fu, C.; Cui, J.; Chen, J.; Song, E.; Mao, S.; Ding, S.; Liang, T.; Zhang, Z.; Dong, X.; Zang, Y.; Zhang, P.; Wang, J.; Lin, D.; and Chen, K. 2024. VLMEvalKit: An Open-Source Toolkit for Evaluating Large Multi-Modality Models. MM 2024 -Proceedings of the 32nd ACM International Conference on Multimedia , 11198–11201. Fu, C.; Chen, P.; Shen, Y.; Qin, Y.; Zhang, M.; Lin, X.; Yang, J.; Zheng, X.; Li, K.; Sun, X.; Wu, Y.; Ji, R.; Shan, C.; and He, R. 2025. MME: A Comprehensive Evaluation Benchmark for Multimodal Large Language Models. In NeurIPS .Gao, J.; Li, Y.; Cao, Z.; and Li, W. 2025. Interleaved-Modal Chain-of-Thought. In 2025 IEEE/CVF Conference on Com-puter Vision and Pattern Recognition (CVPR) .George, W.; Jesse, H.; Stan, v. W.; Zach, F.; and Daniel, M. 2025. Differentiation and Specialization of Attention Heads via the Refined Local Learning Coefficient. In ICLR .Grattafiori, A.; Dubey, A.; Jauhri, A.; Pandey, A.; Kadian, A.; Al-Dahle, A.; Letman, A.; Hinsvark, A.; Rao, A.; Rodriguez, A.; Gregerson, A.; Spataru, A.; Roziere, B.; Biron, B.; Tang, B.; Chern, B.; Nayak, C.; Bi, C.; Marra, C.; McConnell, C.; Touret, C.; Ferrer, C. C.; Nikolaidis, C.; Allonsius, D.; Livshits, D.; Mahajan, D.; Perino, D.; Hupkes, D.; Lakomkin, E.; AlBadawy, E.; Lobanova, E.; Dinan, E.; Smith, E. M.; Radenovic, F.; Guzmán, F.; Zhang, F.; Synnaeve, G.; Lee, G.; Anderson, G. L.; Thattai, G.; Nail, G.; Mialon, G.; Pang, G.; Cucurell, G.; Nguyen, H.; Korevaar, H.; Xu, H.; Touvron, H.; Zarov, I.; Ibarra, I. A.; Kloumann, I.; Misra, I.; Evtimov, I.; Zhang, J.; Copet, J.; Lee, J.; Geffert, J.; Vranes, J.; Park, J.; Mahadeokar, J.; Shah, J.; van der Linde, J.; Billock, J.; Hong, J.; Lee, J.; Fu, J.; Chi, J.; Huang, J.; Liu, J.; Wang, J.; Yu, J.; Bitton, J.; Spisak, J.; Park, J.; Rocca, J.; Johnstun, J.; Saxe, J.; Jia, J.; Alwala, K. V.; Prasad, K.; Upasani, K.; Plawiak, K.; Li, K.; Heafield, K.; Stone, K.; El-Arini, K.; Iyer, K.; Malik, K.; Chiu, K.; Bhalla, K.; Lakhotia, K.; Rantala-Yeary, L.; van der Maaten, L.; Chen, L.; Tan, L.; Jenkins, L.; Martin, L.; Madaan, L.; Malo, L.; Blecher, L.; Landzaat, L.; de Oliveira, L.; Muzzi, M.; Pasupuleti, M.; Singh, M.; and Others. 2024. The Llama 3 Herd of Models. Guan, T.; Liu, F.; Wu, X.; Xian, R.; Li, Z.; Liu, X.; Wang, X.; Chen, L.; Huang, F.; Yacoob, Y.; Manocha, D.; and Zhou, T. 2024. HallusionBench: An Advanced Diagnostic Suite for Entangled Language Hallucination and Visual Illusion in Large Vision-Language Models. Proceedings of the IEEE Computer Society Conference on Computer Vision and Pat-tern Recognition , 14375–14385. Hu, E. J.; Shen, Y.; Wallis, P.; Allen-Zhu, Z.; Li, Y.; Wang, S.; Wang, L.; and Chen, W. 2021. LoRA: Low-Rank Adaptation of Large Language Models. Huang, Q.; Xiong, Y.; Rao, A.; Wang, J.; and Lin, D. 2020. MovieNet: A Holistic Dataset for Movie Understanding. In 
+
+ECCV , volume 12349 LNCS, 709–727. Springer Science and Business Media Deutschland GmbH. Kamoi, R.; Zhang, Y.; Das, S. S. S.; Zhang, R. H.; and Zhang, R. 2025. VisOnlyQA: Large Vision Language Models Still Struggle with Visual Perception of Geometric Information. Kang, S.; Kim, J.; Kim, J.; and Hwang, S. J. 2025. Your Large Vision-Language Model Only Needs A Few Attention Heads For Visual Grounding. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 9339–9350. Leng, S.; Zhang, H.; Chen, G.; Li, X.; Lu, S.; Miao, C.; and Bing, L. 2024. Mitigating Object Hallucinations in Large Vision-Language Models through Visual Contrastive Decod-ing. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 13872–13882. IEEE. ISBN 979-8-3503-5300-6. Li, C.; Wu, W.; Zhang, H.; Xia, Y.; Mao, S.; Dong, L.; Vuli, I.; and Wei, F. 2025a. Imagine while Reasoning in Space: Mul-timodal Visualization-of-Thought Chain-of-Thought Multi-modal Visualization-of-Thought. Li, S.; Tao, Z.; Li, K.; and Fu, Y. 2019. Visual to Text: Sur-vey of Image and Video Captioning. IEEE Transactions on Emerging Topics in Computational Intelligence , 3(4): 297– 312. Li, Y.; Du, Y.; Zhou, K.; Wang, J.; Zhao, W. X.; and Wen, J.-R. 2023. Evaluating Object Hallucination in Large Vision-Language Models. EMNLP 2023 - 2023 Conference on Em-pirical Methods in Natural Language Processing, Proceed-ings , 292–305. Li, Z.; Luo, R.; Zhang, J.; Qiu, M.; Huang, X.; and Wei, Z. 2025b. VoCoT: Unleashing Visually Grounded Multi-Step Reasoning in Large Multi-Modal Models. In Proceed-ings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) ,3769–3798. Stroudsburg, PA, USA: Association for Compu-tational Linguistics. Lin, T.-Y.; Maire, M.; Belongie, S.; Bourdev, L.; Girshick, R.; Hays, J.; Perona, P.; Ramanan, D.; Zitnick, C. L.; and Dollár, P. 2015. Microsoft COCO: Common Objects in Con-text. Lecture Notes in Computer Science (including subseries Lecture Notes in Artificial Intelligence and Lecture Notes in Bioinformatics) , 8693 LNCS(PART 5): 740–755. Liu, H.; Li, C.; Li, Y.; and Lee, Y. J. 2024. Improved Base-lines with Visual Instruction Tuning. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) . ISBN 9798350353006. Loshchilov, I.; and Hutter, F. 2017. Decoupled Weight Decay Regularization. Mitra, C.; Huang, B.; Darrell, T.; and Herzig, R. 2024. Compositional Chain-of-Thought Prompting for Large Mul-timodal Models. In 2024 IEEE/CVF Conference on Com-puter Vision and Pattern Recognition (CVPR) .Plummer, B. A.; Wang, L.; Cervantes, C. M.; Caicedo, J. C.; Hockenmaier, J.; and Lazebnik, S. 2015. Flickr30k Entities: Collecting Region-to-Phrase Correspondences for Richer Image-to-Sentence Models. In Proceedings of the IEEE International Conference on Computer Vision (ICCV), 2015 , 2641–2649. Sahoo, P.; Soltani, S.; and Wong, A. 1988. A survey of thresholding techniques. Computer Vision, Graphics, and Image Processing , 41(2): 233–260. Seil, K.; Jinyeong, K.; Junhyeok, K.; and Jae, H. 2025. See What You Are Told: Visual Attention Sink in Large Multi-modal Models. In ICLR 2025 .Team, C. 2024. Chameleon: Mixed-Modal Early-Fusion Foundation Models. Team, G.; Georgiev, P.; Lei, V. I.; Burnell, R.; Bai, L.; Gu-lati, A.; Tanzer, G.; Vincent, D.; Pan, Z.; Wang, S.; Mar-iooryad, S.; Ding, Y.; Geng, X.; Alcober, F.; Frostig, R.; Omernick, M.; Walker, L.; Paduraru, C.; Sorokin, C.; Tac-chetti, A.; Gaffney, C.; Daruki, S.; Sercinoglu, O.; Gleicher, Z.; Love, J.; Voigtlaender, P.; Jain, R.; Surita, G.; Mohamed, K.; Blevins, R.; Ahn, J.; Zhu, T.; Kawintiranon, K.; Firat, O.; Gu, Y.; Zhang, Y.; Rahtz, M.; Faruqui, M.; Clay, N.; Gilmer, J.; Co-Reyes, J.; Penchev, I.; Zhu, R.; Morioka, N.; Hui, K.; Haridasan, K.; Campos, V.; Mahdieh, M.; Guo, M.; Has-san, S.; Kilgour, K.; Vezer, A.; Cheng, H.-T.; de Liedekerke, R.; Goyal, S.; Barham, P.; Strouse, D.; Noury, S.; Adler, J.; Sundararajan, M.; Vikram, S.; Lepikhin, D.; Paganini, M.; Garcia, X.; Yang, F.; Valter, D.; Trebacz, M.; Vodrahalli, K.; Asawaroengchai, C.; Ring, R.; Kalb, N.; Soares, L. B.; Brahma, S.; Steiner, D.; Yu, T.; Mentzer, F.; He, A.; Gon-zalez, L.; Xu, B.; Kaufman, R. L.; Shafey, L. E.; Oh, J.; Hennigan, T.; Driessche, G. v. d.; Odoom, S.; Lucic, M.; Roelofs, B.; Lall, S.; Marathe, A.; Chan, B.; Ontanon, S.; He, L.; Teplyashin, D.; Lai, J.; Crone, P.; Damoc, B.; Ho, L.; Riedel, S.; Lenc, K.; Yeh, C.-K.; Chowdhery, A.; Xu, Y.; Kazemi, M.; Amid, E.; Petrushkina, A.; Swersky, K.; Kho-daei, A.; Chen, G.; Larkin, C.; Pinto, M.; Yan, G.; Badia, A. P.; Patil, P.; Hansen, S.; Orr, D.; Arnold, S. M. R.; Grim-stad, J.; Dai, A.; Douglas, S.; Sinha, R.; Yadav, V.; Chen, X.; Gribovskaya, E.; Austin, J.; Zhao, J.; Patel, K.; Komarek, P.; Austin, S.; Borgeaud, S.; Friso, L.; Goyal, A.; Caine, B.; Cao, K.; Chung, D.-W.; Lamm, M.; Barth-Maron, G.; Kago-hara, T.; Olszewska, K.; Chen, M.; Shivakumar, K.; Agarwal, R.; Godhia, H.; Rajwar, R.; Snaider, J.; Dotiwalla, X.; Liu, Y.; Barua, A.; Ungureanu, V.; Zhang, Y.; Batsaikhan, B.-O.; Wirth, M.; Qin, J.; Danihelka, I.; Doshi, T.; Chadwick, M.; Chen, J.; Jain, S.; Le, Q.; Kar, A.; Gurumurthy, M.; Li, C.; Sang, R.; Liu, F.; Lamprou, L.; Munoz, R.; Lintz, N.; Mehta, H.; Howard, H.; Reynolds, M.; Aroyo, L.; Wang, Q.; Blanco, L.; Cassirer, A.; Griffith, J.; Das, D.; Lee, S.; Sygnowski, J.; Fisher, Z.; Besley, J.; Powell, R.; Ahmed, Z.; Paulus, D.; Reitter, D.; Borsos, Z.; Joshi, R.; Pope, A.; Hand, S.; Selo, V.; Jain, V.; Sethi, N.; Goel, M.; Makino, T.; May, R.; Yang, Z.; Schalkwyk, J.; Butterfield, C.; Hauth, A.; Goldin, A.; Hawkins, W.; Senter, E.; Brin, S.; Woodman, O.; Ritter, M.; Noland, E.; Giang, M.; Bolina, V.; Lee, L.; Blyth, T.; Mackinnon, I.; Reid, M.; Sarvana, O.; Silver, D.; Chen, A.; Wang, L.; Maggiore, L.; Chang, O.; Attaluri, N.; Thornton, G.; Chiu, C.-C.; Bunyan, O.; Levine, N.; Chung, T.; Eltyshev, E.; Si, X.; Lillicrap, T.; Brady, D.; Aggarwal, V.; Wu, B.; Xu, Y.; McIlroy, R.; Badola, K.; Sandhu, P.; Moreira, E.; Stokowiec, W.; Hemsley, R.; Li, D.; Tudor, A.; Shyam, P.; Rahimtoroghi, E.; Haykal, S.; Sprechmann, P.; Zhou, X.; Mincu, D.; Li, Y.; Addanki, R.; Krishna, K.; Wu, X.; Frechette, A.; Eyal, M.; Dafoe, A.; Lacey, D.; Whang, J.; Avrahami, T.; Zhang, Y.; Taropa, E.; Lin, H.; Toyama, D.; Rutherford, E.; Sano, M.; Choe, H.; Tomala, A.; Safranek-Shrader, C.; Kassner, N.; Pajarskas, M.; Harvey, M.; Sechrist, S.; Fortunato, M.; Lyu, C.; Elsayed, G.; Kuang, C.; Lottes, J.; Chu, E.; Jia, C.; Chen, C.-W.; Humphreys, P.; Baumli, K.; Tao, C.; Samuel, R.; Santos, C. N. d.; Andreassen, A.; Rakićević, N.; Grewe, D.; Kumar, A.; Winkler, S.; Caton, J.; Brock, A.; Dalmia, S.; Sheahan, H.; Barr, I.; Miao, Y.; Natsev, P.; Devlin, J.; Behbahani, F.; Prost, F.; Sun, Y.; Myaskovsky, A.; Pillai, T. S.; Hurt, D.; Lazaridou, A.; Xiong, X.; Zheng, C.; Pardo, F.; Li, X.; Horgan, D.; Stanton, J.; Ambar, M.; Xia, F.; Lince, A.; Wang, M.; Mustafa, B.; Webson, A.; Lee, H.; Anil, R.; Wicke, M.; Dozat, T.; Sinha, A.; Piqueras, E.; Dabir, E.; Upadhyay, S.; Boral, A.; Hendricks, L. A.; Fry, C.; Djolonga, J.; Su, Y.; Walker, J.; Labanowski, J.; Huang, R.; Misra, V.; Chen, J.; Skerry-Ryan, R.; Singh, A.; Rijhwani, S.; Yu, D.; Castro-Ros, A.; Changpinyo, B.; Datta, R.; Bagri, S.; Hrafnkelsson, A. M.; Maggioni, M.; Zheng, D.; Sulsky, Y.; Hou, S.; Paine, T. L.; Yang, A.; Riesa, J.; Rogozinska, D.; Marcus, D.; Badawy, D. E.; Zhang, Q.; Wang, L.; Miller, H.; Greer, J.; Sjos, L. L.; Nova, A.; Zen, H.; Chaabouni, R.; Rosca, M.; Jiang, J.; Chen, C.; Liu, R.; Sainath, T.; Krikun, M.; Polozov, A.; Lespiau, J.-B.; Newlan, J.; Cankara, Z.; Kwak, S.; Xu, Y.; Chen, P.; Coenen, A.; Meyer, C.; Tsihlas, K.; Ma, A.; Gottweis, J.; Xing, J.; Gu, C.; Miao, J.; Frank, C.; Cankara, Z.; Ganapathy, S.; Dasgupta, I.; Hughes-Fitt, S.; Chen, H.; Reid, D.; Rong, K.; Fan, H.; van Amersfoort, J.; Zhuang, V.; Cohen, A.; Gu, S. S.; Mohananey, A.; Ilic, A.; Tobin, T.; Wieting, J.; Bortsova, A.; Thacker, P.; Wang, E.; Caveness, E.; Chiu, J.; Sezener, E.; Kaskasoli, A.; Baker, S.; Millican, K.; Elhawaty, M.; Aisopos, K.; Lebsack, C.; Byrd, N.; Dai, H.; Jia, W.; Wiethoff, M.; Davoodi, E.; Weston, A.; Yagati, L.; Ahuja, A.; Gao, I.; Pundak, G.; Zhang, S.; Azzam, M.; Sim, K. C.; Caelles, S.; Keeling, J.; Sharma, A.; Swing, A.; Li, Y.; Liu, C.; Bostock, C. G.; Bansal, Y.; Nado, Z.; Anand, A.; Lipschultz, J.; Karmarkar, A.; Proleev, L.; Itty-cheriah, A.; Yeganeh, S. H.; Polovets, G.; Faust, A.; Sun, J.; Rrustemi, A.; Li, P.; Shivanna, R.; Liu, J.; Welty, C.; Lebron, F.; Baddepudi, A.; Krause, S.; Parisotto, E.; Soricut, R.; Xu, Z.; Bloxwich, D.; Johnson, M.; Neyshabur, B.; Mao-Jones, J.; Wang, R.; Ramasesh, V.; Abbas, Z.; Guez, A.; Segal, C.; Nguyen, D. D.; Svensson, J.; Hou, L.; York, S.; Milan, K.; Bridgers, S.; Gworek, W.; Tagliasacchi, M.; Lee-Thorp, J.; Chang, M.; Guseynov, A.; Hartman, A. J.; Kwong, M.; Zhao, R.; Kashem, S.; Cole, E.; Miech, A.; Tanburn, R.; Phuong, M.; Pavetic, F.; Cevey, S.; Comanescu, R.; Ives, R.; Yang, S.; Du, C.; Li, B.; Zhang, Z.; Iinuma, M.; Hu, C. H.; Roy, A.; Bijwadia, S.; Zhu, Z.; Martins, D.; Saputro, R.; Gergely, A.; Zheng, S.; Jia, D.; Antonoglou, I.; Sadovsky, A.; Gu, S.; Bi, Y.; Andreev, A.; Samangooei, S.; Khan, M.; Kocisky, T.; Filos, A.; Kumar, C.; Bishop, C.; Yu, A.; Hodkinson, S.; Mittal, S.; Shah, P.; Moufarek, A.; Cheng, Y.; Bloniarz, A.; Lee, J.; Pejman, P.; Michel, P.; Spencer, S.; Feinberg, V.; Xiong, X.; Savinov, N.; Smith, C.; Shakeri, S.; Tran, D.; Chesus, M.; Bohnet, B.; Tucker, G.; von Glehn, T.; Muir, C.; Mao, Y.; Kazawa, H.; Slone, A.; Soparkar, K.; Shrivastava, D.; Cobon-Kerr, J.; Sharman, M.; Pavagadhi, J.; Araya, C.; Misiunas, K.; Ghelani, N.; Laskin, M.; Barker, D.; Li, Q.; Briukhov, A.; Houlsby, N.; Glaese, M.; Lakshminarayanan, B.; Schucher, N.; Tang, Y.; Collins, E.; Lim, H.; Feng, F.; Recasens, A.; Lai, G.; Magni, A.; De Cao, N.; Siddhant, A.; Ashwood, Z.; Orbay, J.; Dehghani, M.; Brennan, J.; He, Y.; Xu, K.; Gao, Y.; Saroufim, C.; Molloy, J.; Wu, X.; Arnold, S.; Chang, S.; Schrittwieser, J.; Buchatskaya, E.; Radpour, S.; Polacek, M.; Giordano, S.; Bapna, A.; Tokumine, S.; Hellendoorn, V.; Sottiaux, T.; Cogan, S.; Severyn, A.; Saleh, M.; Thakoor, S.; Shefey, L.; Qiao, S.; Gaba, M.; Chang, S.-y.; Swanson, C.; Zhang, B.; Lee, B.; Rubenstein, P. K.; Song, G.; Kwiatkowski, T.; Koop, A.; Kannan, A.; Kao, D.; Schuh, P.; Stjerngren, A.; Ghiasi, G.; Gibson, G.; Vilnis, L.; Yuan, Y.; Ferreira, F. T.; Kamath, A.; Klimenko, T.; Franko, K.; Xiao, K.; Bhattacharya, I.; Patel, M.; Wang, R.; Morris, A.; Strudel, R.; Sharma, V.; Choy, P.; Hashemi, S. H.; Landon, J.; Finkel-stein, M.; Jhakra, P.; Frye, J.; Barnes, M.; Mauger, M.; Daun, D.; Baatarsukh, K.; Tung, M.; Farhan, W.; Michalewski, H.; Viola, F.; Quitry, F. d. C.; Lan, C. L.; Hudson, T.; Wang, Q.; Fischer, F.; Zheng, I.; White, E.; Dragan, A.; Alayrac, J.-b.; Ni, E.; Pritzel, A.; Iwanicki, A.; Isard, M.; Bulanova, A.; Zilka, L.; Dyer, E.; Sachan, D.; Srinivasan, S.; Muckenhirn, H.; Cai, H.; Mandhane, A.; Tariq, M.; Rae, J. W.; Wang, G.; Ayoub, K.; FitzGerald, N.; Zhao, Y.; Han, W.; Alberti, C.; Garrette, D.; Krishnakumar, K.; Gimenez, M.; Levskaya, A.; Sohn, D.; Matak, J.; Iturrate, I.; Chang, M. B.; Xiang, J.; Cao, Y.; Ranka, N.; Brown, G.; Hutter, A.; Mirrokni, V.; Chen, N.; Yao, K.; Egyed, Z.; Galilee, F.; Liechty, T.; Kallakuri, P.; Palmer, E.; Ghemawat, S.; Liu, J.; Tao, D.; Thornton, C.; Green, T.; Jasarevic, M.; Lin, S.; Cotruta, V.; Tan, Y.-X.; Fiedel, N.; Yu, H.; Chi, E.; Neitz, A.; Heitkaemper, J.; Sinha, A.; Zhou, D.; Sun, Y.; Kaed, C.; Hulse, B.; Mishra, S.; Geor-gaki, M.; Kudugunta, S.; Farabet, C.; Shafran, I.; Vlasic, D.; Tsitsulin, A.; Ananthanarayanan, R.; Carin, A.; Su, G.; Sun, P.; V, S.; Carvajal, G.; Broder, J.; Comsa, I.; Repina, A.; Wong, W.; Chen, W. W.; Hawkins, P.; Filonov, E.; Loher, L.; Hirnschall, C.; Wang, W.; Ye, J.; Burns, A.; Cate, H.; Wright, D. G.; Piccinini, F.; Zhang, L.; Lin, C.-C.; Gog, I.; Kulizhskaya, Y.; Sreevatsa, A.; Song, S.; Cobo, L. C.; Iyer, A.; Tekur, C.; Garrido, G.; Xiao, Z.; Kemp, R.; Zheng, H. S.; Li, H.; Agarwal, A.; Ngani, C.; Goshvadi, K.; Santamaria-Fernandez, R.; Fica, W.; Chen, X.; Gorgolewski, C.; Sun, S.; Garg, R.; Ye, X.; Eslami, S. M. A.; Hua, N.; Simon, J.; Joshi, P.; Kim, Y.; Tenney, I.; Potluri, S.; Thiet, L. N.; Yuan, Q.; Luisier, F.; Chronopoulou, A.; Scellato, S.; Srinivasan, P.; Chen, M.; Koverkathu, V.; Dalibard, V.; Xu, Y.; Saeta, B.; Anderson, K.; Sellam, T.; Fernando, N.; Huot, F.; Jung, J.; Varadarajan, M.; Quinn, M.; Raul, A.; Le, M.; Habalov, R.; Clark, J.; Jalan, K.; Bullard, K.; Singhal, A.; Luong, T.; Wang, B.; Rajayogam, S.; Eisenschlos, J.; Jia, J.; Finchel-stein, D.; Yakubovich, A.; Balle, D.; Fink, M.; Agarwal, S.; Li, J.; Dvijotham, D.; Pal, S.; Kang, K.; Konzelmann, J.; Beattie, J.; Dousse, O.; Wu, D.; Crocker, R.; Elkind, C.; Jon-nalagadda, S. R.; Lee, J.; Holtmann-Rice, D.; Kallarackal, K.; Liu, R.; Vnukov, D.; Vats, N.; Invernizzi, L.; Jafari, M.; Zhou, H.; Taylor, L.; Prendki, J.; Wu, M.; Eccles, T.; Liu, T.; Kopparapu, K.; Beaufays, F.; Angermueller, C.; Marzoca, A.; Sarcar, S.; Dib, H.; Stanway, J.; Perbet, F.; Trdin, N.; Ster-neck, R.; Khorlin, A.; Li, D.; Wu, X.; Goenka, S.; Madras, D.; Goldshtein, S.; Gierke, W.; Zhou, T.; Liu, Y.; Liang, Y.; White, A.; Li, Y.; Singh, S.; Bahargam, S.; Epstein, M.; Basu, S.; Lao, L.; Ozturel, A.; Crous, C.; Zhai, A.; Lu, H.; Tung, Z.; Gaur, N.; Walton, A.; Dixon, L.; Zhang, M.; Glober-son, A.; Uy, G.; Bolt, A.; Wiles, O.; Nasr, M.; Shumailov, I.; Selvi, M.; Piccinno, F.; Aguilar, R.; McCarthy, S.; Khal-man, M.; Shukla, M.; Galic, V.; Carpenter, J.; Villela, K.; Zhang, H.; Richardson, H.; Martens, J.; Bosnjak, M.; Belle, S. R.; Seibert, J.; Alnahlawi, M.; McWilliams, B.; Singh, S.; Louis, A.; Ding, W.; Popovici, D.; Simicich, L.; Knight, L.; Mehta, P.; Gupta, N.; Shi, C.; Fatehi, S.; Mitrovic, J.; Grills, A.; Pagadora, J.; Munkhdalai, T.; Petrova, D.; Eisenbud, D.; Zhang, Z.; Yates, D.; Mittal, B.; Tripuraneni, N.; Assael, Y.; Brovelli, T.; Jain, P.; Velimirovic, M.; Akbulut, C.; Mu, J.; Macherey, W.; Kumar, R.; Xu, J.; Qureshi, H.; Comanici, G.; Wiesner, J.; Gong, Z.; Ruddock, A.; Bauer, M.; Felt, N.; GP, A.; Arnab, A.; Zelle, D.; Rothfuss, J.; Rosgen, B.; Shenoy, A.; Seybold, B.; Li, X.; Mudigonda, J.; Erdogan, G.; Xia, J.; Simsa, J.; Michi, A.; Yao, Y.; Yew, C.; Kan, S.; Caswell, I.; Radebaugh, C.; Elisseeff, A.; Valenzuela, P.; McKinney, K.; Paterson, K.; Cui, A.; Latorre-Chimoto, E.; Kim, S.; Zeng, W.; Durden, K.; Ponnapalli, P.; Sosea, T.; Choquette-Choo, C. A.; Manyika, J.; Robenek, B.; Vashisht, H.; Pereira, S.; Lam, H.; Velic, M.; Owusu-Afriyie, D.; Lee, K.; Bolukbasi, T.; Parrish, A.; Lu, S.; Park, J.; Venkatraman, B.; Talbert, A.; Rosique, L.; Cheng, Y.; Sozanschi, A.; Paszke, A.; Kumar, P.; Austin, J.; Li, L.; Salama, K.; Perz, B.; Kim, W.; Dukkipati, N.; Baryshnikov, A.; Kaplanis, C.; Sheng, X.; Chervonyi, Y.; Unlu, C.; Casas, D. d. L.; Askham, H.; Tunyasuvunakool, K.; Gimeno, F.; Poder, S.; Kwak, C.; Miecnikowski, M.; Mirrokni, V.; Dimitriev, A.; Parisi, A.; Liu, D.; Tsai, T.; Shevlane, T.; Kouridi, C.; Garmon, D.; Goedeckemeyer, A.; Brown, A. R.; Vijayakumar, A.; Elqursh, A.; Jazayeri, S.; Huang, J.; Carthy, S. M.; Hoover, J.; Kim, L.; Kumar, S.; Chen, W.; Biles, C.; Bingham, G.; Rosen, E.; Wang, L.; Tan, Q.; Engel, D.; Pongetti, F.; de Cesare, D.; Hwang, D.; Yu, L.; Pullman, J.; Narayanan, S.; Levin, K.; Gopal, S.; Li, M.; Aha-roni, A.; Trinh, T.; Lo, J.; Casagrande, N.; Vij, R.; Matthey, L.; Ramadhana, B.; Matthews, A.; Carey, C.; Johnson, M.; Goranova, K.; Shah, R.; Ashraf, S.; Dasgupta, K.; Larsen, R.; Wang, Y.; Vuyyuru, M. R.; Jiang, C.; Ijazi, J.; Osawa, K.; Smith, C.; Boppana, R. S.; Bilal, T.; Koizumi, Y.; Xu, Y.; Altun, Y.; Shabat, N.; Bariach, B.; Korchemniy, A.; Choo, K.; Ronneberger, O.; Iwuanyanwu, C.; Zhao, S.; Soergel, D.; Hsieh, C.-J.; Cai, I.; Iqbal, S.; Sundermeyer, M.; Chen, Z.; Bursztein, E.; Malaviya, C.; Biadsy, F.; Shroff, P.; Dhillon, I.; Latkar, T.; Dyer, C.; Forbes, H.; Nicosia, M.; Nikolaev, V.; Greene, S.; Georgiev, M.; Wang, P.; Martin, N.; Sedghi, H.; Zhang, J.; Banzal, P.; Fritz, D.; Rao, V.; Wang, X.; Zhang, J.; Patraucean, V.; Du, D.; Mordatch, I.; Jurin, I.; Liu, L.; Dubey, A.; Mohan, A.; Nowakowski, J.; Ion, V.-D.; Wei, N.; Tojo, R.; Raad, M. A.; Hudson, D. A.; Keshava, V.; Agrawal, S.; Ramirez, K.; Wu, Z.; Nguyen, H.; Liu, J.; Sewak, M.; Petrini, B.; Choi, D.; Philips, I.; Wang, Z.; Bica, I.; Garg, A.; Wilkiewicz, J.; Agrawal, P.; Li, X.; Guo, D.; Xue, E.; Shaik, N.; Leach, A.; Khan, S. M.; Wiesinger, J.; Jerome, S.; Chak-ladar, A.; Wang, A. W.; Ornduff, T.; Abu, F.; Ghaffarkhah, A.; Wainwright, M.; Cortes, M.; Liu, F.; Maynez, J.; Terzis, A.; Samangouei, P.; Mansour, R.; Ke ¸pa, T.; Aubet, F.-X.; Algymr, A.; Banica, D.; Weisz, A.; Orban, A.; Senges, A.; Andrejczuk, E.; Geller, M.; Santo, N. D.; Anklin, V.; Merey, M. A.; Baeuml, M.; Strohman, T.; Bai, J.; Petrov, S.; Wu, Y.; Hassabis, D.; Kavukcuoglu, K.; Dean, J.; and Vinyals, O. 2024. Gemini 1.5: Unlocking multimodal understanding across millions of tokens of context. Tong, S.; Liu, Z.; Zhai, Y.; Ma, Y.; LeCun, Y.; and Xie, S. 2024. Eyes Wide Shut? Exploring the Visual Shortcomings of Multimodal LLMs. Proceedings of the IEEE Computer Society Conference on Computer Vision and Pattern Recog-nition , 9568–9578. Woo, S.; Kim, D.; Jang, J.; Choi, Y.; and Kim, C. 2025. Don’t Miss the Forest for the Trees: Attentional Vision Cal-ibration for Large Vision Language Models. In Findings of the Association for Computational Linguistics: ACL 2025 ,1927–1951. Stroudsburg, PA, USA: Association for Compu-tational Linguistics. Wu, P.; and Xie, S. 2023. V*: Guided Visual Search as a Core Mechanism in Multimodal LLMs. Proceedings of the IEEE Computer Society Conference on Computer Vision and Pattern Recognition , 13084–13094. Wu, W.; Mao, S.; Zhang, Y.; Xia, Y.; Dong, L.; Cui, L.; and Wei, F. 2024. Mind’s Eye of LLMs: Visualization-of-Thought Elicits Spatial Reasoning in Large Language Mod-els. In Proceedings of the 38th International Conference on Neural Information Processing Systems .Yang, A.; Li, A.; Yang, B.; Zhang, B.; Hui, B.; Zheng, B.; Yu, B.; Gao, C.; Huang, C.; Lv, C.; Zheng, C.; Liu, D.; Zhou, F.; Huang, F.; Hu, F.; Ge, H.; Wei, H.; Lin, H.; Tang, J.; Yang, J.; Tu, J.; Zhang, J.; Yang, J.; Yang, J.; Zhou, J.; Zhou, J.; Lin, J.; Dang, K.; Bao, K.; Yang, K.; Yu, L.; Deng, L.; Li, M.; Xue, M.; Li, M.; Zhang, P.; Wang, P.; Zhu, Q.; Men, R.; Gao, R.; Liu, S.; Luo, S.; Li, T.; Tang, T.; Yin, W.; Ren, X.; Wang, X.; Zhang, X.; Ren, X.; Fan, Y.; Su, Y.; Zhang, Y.; Zhang, Y.; Wan, Y.; Liu, Y.; Wang, Z.; Cui, Z.; Zhang, Z.; Zhou, Z.; and Qiu, Z. 2025. Qwen3 Technical Report. Yu, T.; Zhang, H.; Li, Q.; Xu, Q.; Yao, Y.; Chen, D.; Lu, X.; Cui, G.; Dang, Y.; He, T.; Feng, X.; Song, J.; Zheng, B.; Liu, Z.; Chua, T.-S.; and Sun, M. 2025. RLAIF-V: Open-Source AI Feedback Leads to Super GPT-4V Trustworthiness. In 
+
+Proceedings of the IEEE Computer Society Conference on Computer Vision and Pattern Recognition , 19985–19995. IEEE Computer Society. Zhang, Z.; Zhang, A.; Li, M.; Services, W.; Zhao, H.; Karypis, G.; and Smola, A. 2024. Multimodal Chain-of-Thought Reasoning in Language Models. Transactions on machine Learning Research .Zheng, G.; Yang, B.; Tang, J.; Zhou, H.-Y.; and Yang, S. 2023. DDCoT: Duty-Distinct Chain-of-Thought Prompting for Multimodal Reasoning in Language Models. In 37th Con-ference on Neural Information Processing Systems (NeurIPS 2023) .Zhu, J.; Wang, W.; Chen, Z.; Liu, Z.; Ye, S.; Gu, L.; Tian, H.; Duan, Y.; Su, W.; Shao, J.; Gao, Z.; Cui, E.; Wang, X.; Cao, Y.; Liu, Y.; Wei, X.; Zhang, H.; Wang, H.; Xu, W.; Li, H.; Wang, J.; Deng, N.; Li, S.; He, Y.; Jiang, T.; Luo, J.; Wang, Y.; He, C.; Shi, B.; Zhang, X.; Shao, W.; He, J.; Xiong, Y.; Qu, W.; Sun, P.; Jiao, P.; Lv, H.; Wu, L.; Zhang, K.; Deng, H.; Ge, J.; Chen, K.; Wang, L.; Dou, M.; Lu, L.; Zhu, X.; Lu, T.; Lin, D.; Qiao, Y.; Dai, J.; and Wang, W. 2025. InternVL3: Exploring Advanced Training and Test-Time Recipes for Open-Source Multimodal Models. 
+
+# Preliminary Experiment 
+
+We conduct a preliminary analysis to better understand the role of attention heads when taking on comprehensive mul-timodal tasks. Two key observations are: (1) within each model, only a small subset of attention heads consistently exhibits grounding behavior, characterized by relatively con-centrated attention on semantically relevant visual regions. This suggests that visual evidence aggregation is not uni-formly distributed across heads, but instead localized to a few specialized components. (2) Second, this pattern is consistent across different model architectures and scales. Despite differences in design, we observe similar head-level behaviors, where a limited number of heads dominate grounding-related attention while others serve complementary roles such as contextual reasoning or diffusive exploring. To support these observations, we provide two illustra-tive visualizations. Figure 6: Qualitative attention maps that highlights representative heads that consistently capture vi-sual grounding across samples. Figure 7: qualitative attention maps that demonstrates visual evidence aggregation behav-ior existing across different model backbones. These results collectively support our motivation in method design that grounding is an emergent yet sparse property, motivating targeted supervision rather than uniform regulation across all heads. 
+
+# Details of Semantically Enriched Grounding Mask Generation 
+
+This section describes the automated pipeline generating high-fidelity segmentation masks paired with noun phrases. This process transforms raw image-text pairs from the source dataset into grounded training data through a two-stage ex-traction and segmentation framework. The initial stage of our pipeline involves extracting con-crete, segmentable entities from complex image descriptions. Given a caption from the dataset, we employ Qwen3-4B-Instruct (Yang et al. 2025) as a semantic parser. This con-straint ensures semantic alignment between the text and the image while filtering out abstract concepts (e.g., love, free-dom) that are not suitable to localize. The output of this stage is a set of query-ready noun phrases P = {p1, p 2, ..., p n},where each pi represents a localized entity with its original modifiers (e.g., colors, sizes, or spatial attributes). Modifiers turn isolated object nouns into fully grounded, semantically rich queries, which is critical for generating accurate masks that correspond to the intended object in context.The specific prompt we used is: 
+
+Prompt Design for Mask Generation 
+
+<SYSTEM PROMPT> Extract specific, individual physical objects or regions from the image description as noun or short noun phrases including key modifiers (e.g. color, size, location). Exclude categories and collections. The output must be literal substrings from the text. <USER PROMPT> Refer to this image descrip-tion: {caption} With the extracted semantic queries P , we perform zero-shot instance segmentation to generate binary spatial masks. We utilize the Segment Anything Model 3 (SAM3) (Carion et al. 2026), passing the image I and the extracted phrase 
+
+p as a multimodal prompt pair. For each image-query pair, the model predicts binary mask of the same resolution as the image. To refine the spatial accuracy of our generated data, we configure the SAM3 inference parameters to balance se-mantic recall with spatial accuracy. We apply a detection threshold τdet = 0 .15 to filter out low-confidence object proposals that lack sufficient alignment with the text prompt, and a mask binarization threshold τmask = 0 .5 to project the model’s soft attention logits into discrete pixel-level as-signments. This configuration allows the pipeline to capture challenging or small objects while establishing definitive de-cision boundaries for foreground pixels, ensuring that the resulting masks provide a sharp, unambiguous signal for downstream probability mass concentration tuning. To maintain the integrity of the training data, we imple-ment a semantic density filter to prune low-quality or overly-generalized masks. We define a foreground ratio ρ as: 
+
+ρ = 1
+
+H · W
+
+X
+
+> x,y
+
+Mx,y 
+
+Where M(x,y ) ∈ { 0, 1}. H and W represent row and column sizes of the mask. We discard any mask where ρ > 0.6. This heuristic effectively filters out hallucinated segmentations or cases where the model fails to differentiate between a specific object and the global background. The resulting dataset provides a dense, semantically-grounded mapping that serves as the foundation for our visual reasoning training. Samples from the curated dataset are il-lustrated in Figure 8. These examples demonstrate that the generated masks are semantically well-aligned with their cor-responding queries and exhibit high spatial precision, with minimal annotation noise. 
+
+# Quality Evaluation of Segmentation Masks 
+
+We conducted an AI-assisted semantic utility audit on 200 records sampled from the created dataset. For each record, a Question: What does the man wearing? Region of interest: Green Shirt 
+
+Qwen3-VL-2B, 27 th Layer, Head 6, and 9 are selected by sPMC  
+
+> Question: What are the two people using to cook ? Region of interest : Stove
+> Question: What does the little girl wearing? Region of interest: Pink dress
+
+Figure 6: Qualitative attention maps highlighting representative heads (e.g., Layer 27, head 6 and 9) that consistently capture relevant visual evidence across samples. Other head’s attention (e.g., head 6, and 14) are scattered in the image or not focusing on the relevant region. Qwen3-VL-2B, 27 th Layer, Head 6, and 9 are selected by sPMC 
+
+> Question: What are the two people using to cook ? Region of interest : Stove
+
+Qwen3-VL-8B, 31 th Layer, Head 25, 26 and 28 are selected by sPMC Llama-3.2-11B-V, 7 th Layer, Head 24 is selected by sPMC Figure 7: Qualitative attention maps demonstrating visual evidence aggregation behavior exists across different model backbones: Qwen3-VL-2B, Qwen3-VL-8B, Llama-3.2-11B-V. For various backbones, the selected heads appeared to be more concentrated on relevant regions compared to other heads. human and a blinded multimodal AI evaluator saw the origi-nal image, the target phrase, and a side-by-side visualization with the mask overlaid in translucent red; the source question and answer were withheld. The audit measures useful seman-tic localization for attention supervision rather than pixel-level segmentation accuracy. Imprecise boundaries, partial coverage that clearly localized the target, moderate over-coverage, and merged nearby regions were not automatically penalized. Each example was labeled Accurate, Usable, Un-usable, or Unjudgeable. We release the audit artifact in the as Supplementary Media Archive. Each of the 200 records include image with segmentation mask, assessment on target visibility, target coverage, irrelevant coverage, confidence, and decision reason. Overall, at least 195/200 examples (97.5%) were deter-mined Accurate or Usable. Excluding Unjudgeable cases, the usable-mask rate was 195/198 = 0.985 (98.5%; Wilson 95% CI [95.6%, 99.5%]). This quality is more than suffi-cient for the intended attention-supervision setting because the method is designed to be robust to noisy labels: masks act as weak spatial guidance, not pixel-level ground truth, and the small residual of noisy or ambiguous supervision can therefore be tolerated. Figure 8 and Figure 9 contain 12 examples from the eval-uation: three clear Accurate masks, four imperfect but useful Usable masks, and all five Unusable/Unjudgeable cases iden-tified by AI (human identified Unusable cases are a subset of the shown examples) for an extensive error analysis. It can be seen that the generated segmentation masks are generally quite accurate even for challenging cases. When focusing on the extremely rare error cases, the kite example is dominated by irrelevant sky; the “women”example masks a man and foreground regions; the guitar example highlights the illus-trated figure rather than the intended object; the pink-bike example focuses on other bicycles; and the broad “orange items” phrase is too ambiguous for reliable judgment. These cases show the main residual risks are wrong-target or over-global masks and ambiguous phrases. We do observe that the AI evaluator is slightly stricter than the human evaluator, especially around the criteria for Accurate and Usable. How-ever, it does not change our conclusion that the quality of the generated segmentation mask set is sufficient for sPMC training. Table 4: Segmentation Mask Quality Audit Summary Statis-tics Label Human % Human # AI % AI # Accurate 77.0% 154 61.5% 123 Usable 22.0% 44 36.0% 72 Unusable 1.0% 2 1.5% 3Unjudgeable 0% 0 1.0% 2
+
+# Theoretical Justification of Adaptive Head Selection Criteria 
+
+Theoretical justification 
+
+Based on our main formulation, we model each attention head can induce a conditional probability distribution over visual tokens: 
+
+ph(v|t) = exp( ah,t (v)) 
+
+P 
+
+> v′
+
+exp( ah,t (v′)
+
+where ah,t (v) denotes the attention logit on visual token v
+
+at decoding step t. Let V denote all visual tokens and v′ ⊂ V 
+
+is the semantically relevant region defined by the supervision mask. 
+
+Criterion 1: High visual engagement. Heads are selected that allocate substantial attention to visual tokens when pro-cessing target textual spans. 
+
+˜A(Tv )h = 1
+
+|Tans |
+
+X
+
+> t∈Tans
+
+Ah ≥ τm (10) Given the above conditional probability formulation, the cri-terion can be reformed as: 
+
+˜A(Tv )h = 1
+
+|Tans |
+
+X
+
+> t∈Tans
+
+X
+
+> v∈V
+
+ph(v|t) ≥ τm (11) Since cross-modal attention competes with textual tokens, this criterion enforces: 
+
+Et
+
+"X
+
+> v∈V
+
+ph(v|t)
+
+#
+
+≥ τm (12) Which lower-bounds the marginal probability mass assigned to visual tokens. From an information-theoretic perspective, this ensures that the mutual information between the head and visual inputs is non-trivial. Thus excluding heads whose attention collapses onto textual tokens (i.e., ph(v) ≈ 0), which do not contribute to visual evidence aggregation. 
+
+Criterion 2: Spatial Consistency. Heads are selected when their attention sufficiently aligns with the visual region out-lined by the supervision mask. 
+
+E
+
+log 
+
+1 + exp 
+
+log X
+
+> i,j
+
+exp  a−
+
+> i,j
+
+ − log X
+
+> j
+
+exp  a+
+
+> i,j
+
+ ≤ τs
+
+(13) Let: 
+
+Z+ = X
+
+> j
+
+exp  a+
+
+> i,j
+
+ , Z − = X
+
+> i,j
+
+exp  a−
+
+> i,j
+
+ (14) Then the above formula can be reduced to: 
+
+Et
+
+log(1 + exp(log Z− − log Z+))  ≤ τs (15) This is precisely the negative log-likelihood of attention mass within the relevant region, which is implying: 
+
+Et
+
+"
+
+− log X
+
+> v∈V +
+
+ph(v|t)
+
+#
+
+≤ τs (16) Figure 8: Examples from our curated mask dataset and quality audit result. Red masks are the generated segmentation masks. Figure 9: Examples from our curated mask dataset and quality audit result (Continued). Which is equivalent to: 
+
+Et
+
+" X
+
+> v∈V +
+
+ph(v|t)
+
+#
+
+≥ δ(τs) (17) It is noteworthy that we do not directly minimize log Z−
+
+> Z+
+
+in the practice as it is numerically unstable and unbounded. Therefore, we adopt the softplus transformation in practice as shown in Equation 4, which enables the smooth upper bound and computational stability while preserving the monotonic-ity of the original design. Combining both criteria defines a feasible set Hs ⊆ H 
+
+that satisfies non-trivial visual engagement and attending to semantically relevant regions. 
+
+Adaptive thresholds 
+
+Rather than employing a fixed heuristic threshold, we dynam-ically determine the point of diminishing returns by analyzing the distribution of head scores. For a sorted set of scores V ,we compute the optimal threshold by treating the distribu-tion as a discrete curve and finding the point of maximum curvature relative to the curve’s secant line. Given the sorted values S = {s0, s 1, . . . , s n} and a chord 
+
+L connecting the endpoints (0 , s 0) and (n, s n), the optimal head index k∗ is defined as: 
+
+k∗ = arg max 
+
+> k
+
+|(xn − x0)( y0 − yk) − (x0 − xk)( yn − y0)|
+
+p(xn − x0)2 + ( yn − y0)2
+
+where x represents the rank and y represents the score value. This robustly ensures that the selected heads are statistically significant outliers in the performance distribution, resulting in a sparse but highly effective set of grounding-active heads. 
+
+# Experiment Setup Details 
+
+More Implementation Details 
+
+We use parameter-efficient LoRA tuning and keep the re-maining backbone parameters frozen. For all backbones, the adapters use rank 16, LoRA alpha 16, dropout 0.1, and no bias parameters. For Qwen3-VL-2B, LoRA is applied to the query and value projections in the first 14 of 28 language layers; for Qwen3-VL-8B, it is applied to the query and key projections in the final 15 of 36 language layers. For Llama-3.2-11B-Vision, LoRA is applied to the query and key pro-jections of the cross-attention modules across the language backbone (i.e., only blocks containing those modules are affected). These architecture-specific placements are imple-mentation choices rather than components of our method. We train each model for one epoch in bfloat16 with AdamW, a learning rate of 10 −4, weight decay 0.1, 100 warmup steps, and a two-cycle cosine schedule with hard restarts. The ef-fective batch size is 32 (using gradient accumulation where needed), and the random seed is 42. 
+
+Benchmarks 
+
+Our method is evaluated across multiple VLM benchmarks, grouped into two main categories: general vision-language understanding and visual hallucination task. 1) General vision-language understanding task assesses comprehensive multimodal capabilities such as OCR and reasoning. There three benchmarks under this category: 
+
+• MMVP (Tong et al. 2024) is a compact benchmark that contains 300 images-question pairs. It is designed to evaluate vision-language models on “CLIP-blind" visual features. Higher performance on MMVP indicates the MLLMs can genuinely utilize visual information rather than relying on language priors. 
+
+• VisOnly (Synthetic and Real splits) (Kamoi et al. 2025) evaluates MLLMs on 12 various geometric perception tasks, and reveals that base MLLMs often cannot ac-curately perceive basic geometric information in images. The dataset contains synthetic dataset (700 questions) and real dataset (900 questions). 
+
+• V* (Wu and Xie 2023) is a visual search and grounding benchmark designed to evaluate Multimodal Large Lan-guage Models (MLLMs) on processing high-resolution images ( 2246 × 1582 average resolution) and locating small visual details (area < 0.05% ). The dataset consists of 191 multiple-choice evaluation samples split into two core sub-tasks: attribute recognition (115 samples) and spatial relationship reasoning (76 samples). 
+
+• MME (Fu et al. 2025) is a large-scale evaluation suite with over 14,000 evaluation samples spanning perception and cognition tasks. It includes fine-grained subtasks such as object recognition, OCR, commonsense reasoning, and numerical understanding, providing a comprehensive as-sessment of multimodal capability and robustness. 2) Visual hallucination task. In addition to assessing gen-eral MLLM capabilities, we conduct evaluations on two spe-cialized benchmarks, where our method demonstrates strong effectiveness in mitigating hallucination: 
+
+• POPE (Li et al. 2023) is a diagnostic benchmark for prob-ing object hallucination in MLLMs via binary (yes/no) questions about object presence. It comprises 3,000 questions constructed under different sampling strategies (e.g., random, popular, adversarial) to systematically test whether models can correctly assert the existence of cer-tain objects. 
+
+• HallusionBench (Guan et al. 2024) comprises 346 im-ages paired with 1129 questions, all meticulously crafted by human experts. It is specifically designed to evaluate multimodal hallucination across diverse visual reasoning scenarios. 
+
+Baseline models 
+
+• Base Models. We select Qwen3-VL-2B-Instruct, Qwen3-VL-8B-Instruct (Bai et al. 2025), and Llama3.2-11B-Vision (Grattafiori et al. 2024) as our primary backbones to ensure diversity in both model scale and architectural design. Specifically, Qwen3-VL models represent strong 
+
+decoder-only self-attention architectures at different pa-rameter scales (2B vs 8B), enabling us to analyze scaling effects on attention behavior. In contrast, Llama3.2-11B-Vision adopts a cross-attention-based design , providing a complementary paradigm for multimodal fusion. This combination allows us to comprehensively evaluate the generality of our method across distinct attention mecha-nisms and model capacities. 
+
+• Other Baseline Models. We also consider alternative open-source MLLMs, including Qwen2-VL-72B (Bai et al. 2023), InternVL3-72B (Zhu et al. 2025), Molmo-7B-O (Deitke et al. 2024) and Llama-3.2-90B (Grattafiori et al. 2024), and close-source MLLMs, including Gemini1.5-Pro (Team et al. 2024) and GPT-4V. These models serve as reference points due to their leading per-formance on multimodal benchmarks, but are not directly comparable as they rely on larger scales (parameter size 
+
+≥ 20B) and complex post-training strategies (e.g., mixed preference optimization). In contrast, our method is eval-uated on smaller MLLMs (2B-8B) under controlled set-tings, where it achieves comparable or even superior per-formance. Moreover, as a lightweight and model-agnostic approach, it can be readily integrated into larger models to further enhance their performance. 
+
+Stage / Base Computation Time Mask Generation 
+
+Noun Phrase Extraction 0.04 s/iteration Grounding Mask Generation 0.18 s/iteration 
+
+Training 
+
+Qwen3-VL-2B 2 h 25 min Qwen3-VL-8B 4 h 43 min Llama3.2-11B-V 7 h 26 min Table 5: Computation time for semantically enriched ground-ing masks generation and model’s instruction tuning. 
+
+# More Experiment Results 
+
+Computation Time 
+
+In terms of computational efficiency in Table 5, our method introduces no additional overhead compared to prior ap-proaches that explicitly modify or reweight attention maps during inference (Seil et al. 2025; Woo et al. 2025; Leng et al. 2024). This design ensures that performance gains are achieved without sacrificing scalability or efficiency (train-ing time within a few hours on a single GPU), making the method directly compatible with existing architectures and deployment settings. 
+
+Adaptive Head Selection Results 
+
+We summarize the details of head selection results in Table 6. Model #L Sel. Rate (%) Selected Heads (by layer) 
+
+Qwen3-VL-2B ∗ 28 15.40% (69/448) L17: [6, 7, 8, 9, 10, 14, 15, 16]; L18: [2, 3, 9, 11, 12, 13]; L19: [3, 4, 6, 12]; L20: [5, 6, 10, 14]; L21: [4, 5, 7, 9, 12, 13, 14, 15, 16]; L22: [2, 9, 10, 13, 14, 16]; L23: [8, 10, 13]; L24: [1, 2, 5, 7, 15, 16]; L27: [3, 5, 6, 9, 15] Qwen3-VL-8B ∗ 36 3.03% (35/1152) L22: [11, 19, 23, 24, 27]; L23: [23, 24]; L25: [9, 30, 31]; L26: [31]; L29: [1, 24]; L30: [1, 4, 8, 13, 15]; L31: [9, 10, 12, 25, 26, 28]; L32: [5, 6, 7, 8, 14, 15, 16]; L33: [1, 11, 12]; L34: [24] Llama3.2-11B-V 8 14.45% (37/256) L3: [9, 11, 25, 26, 27]; L4: [6, 8, 9, 10, 12, 21, 24, 25]; L5: [1, 2, 3, 4, 5, 6, 7, 8, 13, 16, 17, 18, 19, 20, 25, 27, 32]; L6: [6, 9, 10, 12, 21, 23]; L7: [24] Table 6: Full head selection across base models. Selection rate (Sel. Rate) is computed as the ratio of selected heads to total heads of the model. ∗ indicates that cross-modal attention is achieved via self attention only. #L means the total number of attention layers for each model. Selected head indexes are summarized in lists.

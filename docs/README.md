@@ -6,77 +6,73 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-30
-- 运行时间：2026-09-30 23:14:29 UTC
+- 最新运行日期：2026-10-01
+- 运行时间：2026-10-01 23:10:19 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
+- 本次总论文数：17
+- 精读区：5
 - 速读区：12
 
 ### 今日简报（AI）
-今日精读7篇、速读12篇共19篇，视觉语言模型评测成为绝对焦点。最值得看的是PRISM-VLM和SynDORBench双双拿到9.0分，前者关注紧凑型VLM的多轴判别基准，后者考察物理受限可见度下的感知鲁棒性。普通读者可优先从这两篇入手，再顺带扫一眼MVVBench的4D推理和MedRouter的医学模型路由思路。
-- 详情：[/202609/30/README](/202609/30/README)
+10月1日扫了17篇，精读5篇、速读12篇，主线落在视觉语言模型评测与鲁棒性。  
+最值得看的是9.0分的PRISM-VLM（面向紧凑VLM的多轴判别基准）和8.0分的SynDORBench（物理约束可见性下的LVLM感知鲁棒性评测）。  
+普通读者可先抓住“怎么评、在什么条件下还稳”，再按兴趣看医学影像分类、翻转方向引导和跨模态注意力对齐等速读方向。
+- 详情：[/202610/01/README](/202610/01/README)
 
 ### 精读区论文标签
-1. [PRISM-VLM: A Multi-Axis Discriminative Benchmark for Compact Vision-Language Models](/202609/30/2609.27395v1-prism-vlm-a-multi-axis-discriminative-benchmark-for-compact-vision-language-models)  
+1. [PRISM-VLM: A Multi-Axis Discriminative Benchmark for Compact Vision-Language Models](/202610/01/2609.27395v1-prism-vlm-a-multi-axis-discriminative-benchmark-for-compact-vision-language-models)  
    标签：评分：9.0/10、query:vl
-   evidence：面向紧凑视觉语言模型的多轴基准
-2. [SynDORBench: Evaluating LVLM Perceptual Robustness Under Physically Constrained Visibility Conditions](/202609/30/2609.31823v1-syndorbench-evaluating-lvlm-perceptual-robustness-under-physically-constrained-visibility-conditions)  
-   标签：评分：9.0/10、query:vl
-   evidence：受约束条件下LVLM感知鲁棒性基准
-3. [Prompt-Anchored Residual Adaptation for Biomedical Vision-Language Models](/202609/30/2609.33701v1-prompt-anchored-residual-adaptation-for-biomedical-vision-language-models)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：生物医学视觉语言模型适配
-4. [Qwen3.8-Omni: Towards Native Omni-Modal Agents](/202609/30/2609.25611v1-qwen38-omni-towards-native-omni-modal-agents)  
+   evidence：面向紧凑VLM的多轴基准
+2. [SynDORBench: Evaluating LVLM Perceptual Robustness Under Physically Constrained Visibility Conditions](/202610/01/2609.31823v1-syndorbench-evaluating-lvlm-perceptual-robustness-under-physically-constrained-visibility-conditions)  
    标签：评分：8.0/10、query:vl
-   evidence：原生全模态多模态大模型与智能体能力
-5. [ProCAP: Probabilistic Cross-Attentive Prompt Learning for Vision-Language Models](/202609/30/2609.30434v1-procap-probabilistic-cross-attentive-prompt-learning-for-vision-language-models)  
+   evidence：评估LVLM感知鲁棒性的基准
+3. [OmniMoE-VL: A Sparse Vision-Language Model with Coupled Visual-Depth Routing](/202610/01/2609.32780v1-omnimoe-vl-a-sparse-vision-language-model-with-coupled-visual-depth-routing)  
    标签：评分：8.0/10、query:vl
-   evidence：视觉语言模型交叉注意力提示学习
-6. [Refining Cytology Predictions with Conditional Random Fields](/202609/30/2609.31028v1-refining-cytology-predictions-with-conditional-random-fields)  
+   evidence：稀疏视觉语言模型与视觉深度路由
+4. [GR-FM: Geometrically Regularized Flow Matching for SDF-Based Medical Image Segmentation](/202610/01/2609.35006v1-gr-fm-geometrically-regularized-flow-matching-for-sdf-based-medical-image-segmentation)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：视觉语言模型用于细胞学医学图像
-7. [How Far Can INRs Go? Cross-Domain Parameter-efficient INR-Based Semantic Segmentation for Brain MRI](/202609/30/2609.31573v1-how-far-can-inrs-go-cross-domain-parameter-efficient-inr-based-semantic-segmentation-for-brain-mri)  
+   evidence：面向医学分割的几何正则化流匹配
+5. [RT-Super: Learning Tumor Segmentation from Longitudinal Images and Reports](/202610/01/2609.35637v1-rt-super-learning-tumor-segmentation-from-longitudinal-images-and-reports)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：基于INR的脑MRI语义分割新机制
+   evidence：利用影像与报告进行肿瘤分割
 
 ### 速读区论文标签
-1. [MVVBench: Benchmarking 4D Reasoning in Vision-Language Models](/202609/30/2609.30952v1-mvvbench-benchmarking-4d-reasoning-in-vision-language-models)  
-   标签：评分：8.0/10、query:vl
-   evidence：视觉语言模型多视图推理基准
-2. [MedRouter: Demystifying Knowledge Differences Across Medical LLMs for Routing-Based Reasoning](/202609/30/2609.33119v1-medrouter-demystifying-knowledge-differences-across-medical-llms-for-routing-based-reasoning)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：智能体系统路由专科大模型进行医学推理
-3. [Geometric Encoding for Spatial Reasoning in Vision-Language Models](/202609/30/2609.34148v1-geometric-encoding-for-spatial-reasoning-in-vision-language-models)  
-   标签：评分：8.0/10、query:vl
-   evidence：视觉语言模型空间推理
-4. [Preference-Guided Adaptation for Open-Vocabulary Semantic Segmentation via Prompt Disagreement](/202609/30/2609.34528v1-preference-guided-adaptation-for-open-vocabulary-semantic-segmentation-via-prompt-disagreement)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：面向开放词汇分割的提示适配，含医学影像
-5. [RGSQ: Riemannian Geometry-Sensitive Quantization for Large Vision-Language Models](/202609/30/2609.25492v1-rgsq-riemannian-geometry-sensitive-quantization-for-large-vision-language-models)  
+1. [M3D-Net: Hierarchical Coordination of Spatial Context, Feature Reuse, and Differential Attention for Mammography Classification](/202610/01/2609.27523v1-m3d-net-hierarchical-coordination-of-spatial-context-feature-reuse-and-differential-attention-for-mammography-classification)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：乳腺影像分类与注意力机制
+2. [Looks the Same, Answers Differently: Flip-Direction Steering for Robust Vision-Language Reasoning](/202610/01/2609.28851v1-looks-the-same-answers-differently-flip-direction-steering-for-robust-vision-language-reasoning)  
    标签：评分：7.0/10、query:vl
-   evidence：大型视觉语言模型量化
-6. [Shallow to Deep: Aligning Token Pruning with Stage-wise Roles in LVLMs](/202609/30/2609.25635v1-shallow-to-deep-aligning-token-pruning-with-stage-wise-roles-in-lvlms)  
+   evidence：视觉语言模型鲁棒推理
+3. [Mind What Matters for Reasoning: Aligning Cross-Modal Attention via Selective Probability Mass Concentration](/202610/01/2609.29940v1-mind-what-matters-for-reasoning-aligning-cross-modal-attention-via-selective-probability-mass-concentration)  
    标签：评分：7.0/10、query:vl
-   evidence：与LVLM层级对齐的层次化token剪枝
-7. [Metric-Bench: Exploring In-context Spatial Metric Reasoning in VLMs for Indoor Scenes](/202609/30/2609.25841v1-metric-bench-exploring-in-context-spatial-metric-reasoning-in-vlms-for-indoor-scenes)  
+   evidence：多模态大模型跨模态注意力对齐
+4. [ProCAP: Probabilistic Cross-Attentive Prompt Learning for Vision-Language Models](/202610/01/2609.30434v1-procap-probabilistic-cross-attentive-prompt-learning-for-vision-language-models)  
    标签：评分：7.0/10、query:vl
-   evidence：面向VLM空间度量推理的基准
-8. [From Token Importance to Conditional Removability: Rethinking Visual Token Pruning in Multimodal Large Language Models](/202609/30/2609.26484v1-from-token-importance-to-conditional-removability-rethinking-visual-token-pruning-in-multimodal-large-language-models)  
+   evidence：面向CLIP等视觉语言模型的交叉注意力提示学习
+5. [Where Does Retrieval-Based Open-Ended Evaluation Fail? Automatic Taxonomy Induction from Long-Form Medical Answer Factuality Verification](/202610/01/2609.30467v1-where-does-retrieval-based-open-ended-evaluation-fail-automatic-taxonomy-induction-from-long-form-medical-answer-factuality-verification)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：临床RAG检索式事实性评估
+6. [Can Linguistic Reasoning Vectors Enhance Multimodal Reasoning Ability?](/202610/01/2609.31140v1-can-linguistic-reasoning-vectors-enhance-multimodal-reasoning-ability)  
    标签：评分：7.0/10、query:vl
-   evidence：多模态大模型视觉token剪枝
-9. [MMAP: Multimodal Missing-Aware Pretraining for Longitudinal Alzheimer's Prediction](/202609/30/2609.26617v1-mmap-multimodal-missing-aware-pretraining-for-longitudinal-alzheimers-prediction)  
-   标签：评分：6.0/10、query:vlmmed
-   evidence：面向医学数据的多模态缺失感知预训练
-10. [Gender Bias in Vision-Language In-Context Learning](/202609/30/2609.27682v1-gender-bias-in-vision-language-in-context-learning)  
+   evidence：通过基座LLM迁移提升视觉语言模型推理
+7. [From Alignment to Fusion in 3D Vision-Language](/202610/01/2609.28222v1-from-alignment-to-fusion-in-3d-vision-language)  
    标签：评分：6.0/10、query:vl
-   evidence：研究大型视觉语言模型与上下文学习
-11. [Gender Bias in Vision-Language In-Context Learning](/202609/30/2609.27682v2-gender-bias-in-vision-language-in-context-learning)  
+   evidence：3D视觉语言融合，含分割与语言引导推理
+8. [CinematicVQA: Benchmarking Film-Grammar Reasoning in Large Vision-Language Models](/202610/01/2609.28813v1-cinematicvqa-benchmarking-film-grammar-reasoning-in-large-vision-language-models)  
    标签：评分：6.0/10、query:vl
-   evidence：大型视觉语言模型上下文学习评测
-12. [Dual-Hypergraph Indexing: Bridging Knowledge Islands for Multi-Hop Reasoning in Retrieval-Augmented Generation](/202609/30/2609.28108v1-dual-hypergraph-indexing-bridging-knowledge-islands-for-multi-hop-reasoning-in-retrieval-augmented-generation)  
-   标签：评分：6.0/10、query:vlmmed
-   evidence：超图检索增强生成多跳推理
+   evidence：视觉语言大模型基准评测
+9. [Seeing Is Not Measuring: Tool-Augmented Metric Spatial Reasoning for Vision-Language Models](/202610/01/2609.29073v1-seeing-is-not-measuring-tool-augmented-metric-spatial-reasoning-for-vision-language-models)  
+   标签：评分：6.0/10、query:vl
+   evidence：视觉语言模型的工具增强推理
+10. [From Text Decisions to Pixels: An Study of Jev-Style Visual Choice Model](/202610/01/2609.29283v1-from-text-decisions-to-pixels-an-study-of-jev-style-visual-choice-model)  
+   标签：评分：6.0/10、query:vl
+   evidence：多模态选择模型在七个基准上评测
+11. [Domain Recentering and Confidence-Weighted Prior Calibration for Vision-Language Models](/202610/01/2609.29358v1-domain-recentering-and-confidence-weighted-prior-calibration-for-vision-language-models)  
+   标签：评分：6.0/10、query:vl
+   evidence：视觉语言模型免训练校准
+12. [The Alignment Illusion in Multimodal Large Language Models](/202610/01/2609.30210v1-the-alignment-illusion-in-multimodal-large-language-models)  
+   标签：评分：6.0/10、query:vl
+   evidence：分析多模态大模型中的跨模态对齐
 
 
 <div class="dpr-home-promo-card">
