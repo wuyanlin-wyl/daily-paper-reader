@@ -1,0 +1,679 @@
+Title: FSS-UBrain: Multi-region Few-Shot Brain Tumor MRI Segmentation
+
+URL Source: https://arxiv.org/pdf/2609.32273v1
+
+Published Time: Tue, 29 Sep 2026 00:53:28 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# FSS-UBrain: Multi-region Few-Shot Brain Tumor MRI Segmentation 
+
+Truong Viet Vu a, Nguyen Phuc Nguyen a, Dang Thi Thu Hang a, Tran Thien Thanh b, Vo Nguyen Quoc Bao a, Nguyen Thai Anh a,Ngo Hoang Tu a, ∗
+
+> aFaculty of Information Technology, Van Lang School of Technology, Van Lang University, Ho Chi Minh City 70000, Vietnam
+> bInstitute of Information Technology and Electrical-Electronics Engineering, Ho Chi Minh City University of Transport, Ho Chi Minh City 70000, Vietnam
+
+Abstract 
+
+Accurate delineation of whole tumor (WT), tumor core (TC), and enhancing tumor (ET) from multimodal magnetic resonance imaging remains challenging under limited annotation, cross-cohort variation, and severe target sparsity. We propose FSS-UBrain, a region-wise one-shot segmentation framework that uses a labeled positive support slice to condition binary query segmentation separately for WT, TC, and ET. Support-derived foreground and background descriptors guide query-feature adaptation, bottleneck interaction, decoder-side reconstruction, and boundary refinement. Episodic training additionally incorporates hard-negative and fully negative queries with empty-query regularization to suppress spurious foreground activation when the selected region is absent. Although inference operates on two-dimensional support–query slice pairs, checkpoint selection, threshold calibration, and final evaluation are performed after volumetric reconstruction. FSS-UBrain is evaluated on a held-out BraTS 2020 split and under target-supported cross-cohort protocols on BraTS 2023 and BraTS-Africa. Cases used as target support are excluded from the query cohorts, and no target-domain fine-tuning or test-time parameter updates are performed. On BraTS 2020, FSS-UBrain achieves volumetric Dice scores of 89.82%, 82.14%, and 77.42% for WT, TC, and ET, respectively, with corresponding 95th-percentile Hausdor ff distance (HD95) values of 11.12, 9.01, and 4.46 mm. It also achieves the highest mean Dice and lowest finite-pair mean HD95 point estimates on BraTS 2023 and BraTS-Africa among the compared few-shot methods. These findings support target-conditioned few-shot segmentation while highlighting sensitivity to support selection and cohort-specific variation. 
+
+Keywords: Brain tumor segmentation, few-shot segmentation, multimodal magnetic resonance imaging, target-absent reliability 
+
+1. Introduction 
+
+Brain and central nervous system tumors continue to impose a substantial clinical burden despite advances in diagnosis and treatment (Zhao et al., 2025; Huang et al., 2023). In routine neuro-oncology workflows, accurate delineation of tumor sub-regions, including whole tumor (WT), tumor core (TC), and enhancing tumor (ET), from multimodal magnetic resonance imaging (MRI) is critical for diagnosis, surgical planning, ra-diotherapy targeting, and longitudinal monitoring. However, manual annotation is labor-intensive, time-consuming, and prone to inter-observer variability, motivating the development of reliable automated segmentation systems (Despotovi´ c et al., 2015; Menze et al., 2015; Bakas et al., 2018). The Brain Tumor Segmentation (BraTS) benchmark pro-vides standardized, multi-institutional MRI datasets and eval-uation protocols for glioma segmentation (Bakas et al., 2017; Menze et al., 2015). Each subject typically in-cludes T1-weighted, contrast-enhanced T1-weighted (T1ce),            
+
+> ∗Corresponding author.
+> Email addresses: vu.2274802011045@vanlanguni.vn (Truong Viet Vu), nguyen.2274802010586@vanlanguni.vn (Nguyen Phuc Nguyen),
+> hang.2274801040002@vanlanguni.vn (Dang Thi Thu Hang),
+> thanh.tran@ut.edu.vn (Tran Thien Thanh), bao.vnq@vlu.edu.vn (Vo Nguyen Quoc Bao), anh.nt@vlu.edu.vn (Nguyen Thai Anh),
+> tu.nh@vlu.edu.vn (Ngo Hoang Tu)
+
+T2-weighted, and fluid-attenuated inversion recovery (FLAIR) volumes. These sequences provide complementary tissue infor-mation: T1-weighted MRI depicts anatomical structure, T1ce highlights contrast enhancement, and T2-weighted and FLAIR images reveal water-related signal abnormalities, including per-itumoral edema (Menze et al., 2015; Bakas et al., 2018). Their joint use allows segmentation models to combine information about tumor extent and internal composition that is not equally visible in every sequence. Exploiting this complementary information remains chal-lenging because tumor appearance varies both within and across patients, MRI intensity characteristics depend on scan-ners and acquisition protocols, and the WT, TC, and ET re-gions di ff er substantially in size and prevalence (Bakas et al., 2018; Adewole et al., 2025). The model must therefore inte-grate modality-dependent evidence while preserving small and irregular tumor structures. This di ffi culty also occurs at the slice level: many two-dimensional (2D) slices contain no ET, whereas target-positive slices may contain only a small enhanc-ing region. As illustrated in Figure 1, ET can occupy only a small portion of a tumor volume. Consequently, a positive sup-port example does not imply that the selected region is present in every query slice. A query may contain other tumor compo-nents while remaining empty for ET, or it may contain no tumor tissue at all. In both cases, the desired prediction for the absent target is an empty mask.       
+
+> Preprint submitted to Neurocomputing September 29, 2026 arXiv:2609.32273v1 [cs.CV] 26 Sep 2026 (a) BraTS20 BraTS20_Training_030 (b) BraTS20 BraTS20_Training_059 (c) BraTS-Africa BraTS_SSA_00050_000
+> Figure 1: Representative BraTS slices illustrating ET sparsity and severe slice-level target-presence imbalance.
+
+This motivates the study of target-absent reliability, under-stood here as the ability to suppress spurious foreground pre-dictions when the selected region is absent. Training predom-inantly on target-present queries provides limited exposure to this situation and may encourage foreground activation even when the query does not contain the support-defined target. We therefore include target-empty queries during episodic training and examine false-positive activation on ground-truth-empty volume–region pairs alongside the standard segmentation re-sults. Deep learning approaches for BraTS have historically been dominated by convolutional encoder–decoder architectures. For example, U-Net (Ronneberger et al., 2015) and its volu-metric variants (Çiçek et al., 2016; Milletari et al., 2016) estab-lished strong baselines by combining multi-scale feature extrac-tion with skip connections, while subsequent refinements such as UNet ++ (Zhou et al., 2019) redesigned skip pathways to bet-ter exploit multi-resolution features. Self-configuring pipelines such as nnU-Net (Isensee et al., 2021) further improved ro-bustness through automated design choices and standardized training heuristics. Although convolutional encoder–decoder models provide strong local representations, they may not ex-plicitly model long-range dependencies and broader anatomi-cal context. Transformer-based and hybrid convolutional neu-ral network (CNN)–Transformer architectures have therefore been explored for medical image segmentation (Han et al., 2022). TransUNet integrates Transformer-based global-context modeling with a U-shaped decoder, whereas Swin-based ar-chitectures use shifted-window self-attention to construct hier-archical feature representations (Chen et al., 2021; Liu et al., 2021; Hatamizadeh et al., 2021; Cao et al., 2022). In brain tumor MRI segmentation, Swin-PResU combines a Swin Vi-sion Transformer with a pruned residual CNN in a U-Net-style architecture, illustrating how global-context modeling can be coupled with local feature refinement (Nguyen et al., 2025). These backbone advances motivate contextual representation learning, but they do not directly specify how a labeled support image–mask pair should condition query segmentation or how target-empty queries should be handled in a few-shot setting. In practical scenarios, dense voxel-wise annotations at scale are expensive, and models must generalize across institutions, populations, and dataset releases. This motivates data-e ffi cient paradigms such as few-shot segmentation (FSS), where a query image is segmented using only a small set of labeled support ex-amples. Prototype-based frameworks have demonstrated strong transferability by summarizing support information into class prototypes and matching them to query features (Wang et al., 2019). More recent medical few-shot methods have explored mechanisms to mitigate foreground (FG)–background (BG) im-balance and limited supervision, including adaptive prototype pooling, self-supervised training signals (Ouyang et al., 2020), and clinically inspired representations with attention mecha-nisms (Debnath et al., 2025). Nevertheless, applying FSS to multi-region brain tumor MRI remains challenging because tu-mor regions di ff er markedly in prevalence and appearance and because cross-cohort shifts can alter image characteristics and tumor presentation. To address these challenges, we propose FSS-UBrain, a multi-region, one-shot FSS framework that performs support-conditioned binary segmentation separately for WT, TC, and ET. For a selected region, the model uses FG–BG representa-tive descriptors derived from a labeled support slice to guide query segmentation through support-guided bottleneck interac-tion, descriptor-gated decoding, and boundary-guided refine-ment. During episodic training, positive queries are combined with hard-negative and fully negative queries and an empty-query regularization term to suppress spurious FG activation. Although FSS-UBrain processes two-dimensional support– query slice pairs, checkpoint selection, threshold optimization, and all final comparisons are performed after reconstructing slice-wise predictions into volumes. We evaluate the method on a held-out BraTS 2020 (BraTS20) test split and under target-supported cross-cohort protocols on BraTS 2023 (BraTS23) and BraTS-Africa. In each external experiment, labeled target-support cases condition inference but are excluded from the query cohort. No target-domain fine-tuning or test-time pa-rameter update is performed. BraTS 2024 (BraTS24) is not in-cluded in the quantitative WT /TC /ET analysis because its post-treatment annotation ontology contains a distinct resection-cavity label (de Verdier et al., 2024). BraTS 2017 (BraTS17)– BraTS 2019 (BraTS19) are excluded because duplicate auditing identified overlap with the BraTS20 cohort. Our main contribu-tions are summarized as follows: 1. Integrated support-conditioned architecture: We develop 2FSS-UBrain, which refines FG and BG descriptors us-ing query context at multiple encoder levels and integrates them into feature adaptation, bottleneck interaction, and de-coder reconstruction. Descriptor-gated skip attention, multi-scale descriptor-logit fusion, and boundary-guided refine-ment form a coordinated prediction pathway for WT, TC, and ET. 2. Region-aware negative-query learning: We combine target-positive, hard-negative, and fully negative queries with empty-query regularization to jointly address target localization and false-positive suppression. Hard-negative queries are defined relative to the selected TC or ET region, distinguishing non-target tumor tissue from fully tumor-free slices. 3. Controlled volumetric assessment: We evaluate recon-structed volumes on held-out BraTS20 and target-supported BraTS23 and BraTS-Africa, keeping support and query cases separate and using validation-only threshold calibra-tion. Component ablations, support-provenance compar-isons, negative-query sensitivity analysis, and complex-ity profiling characterize the framework’s performance and trade-o ff s. The remainder of this paper is organized as follows. Sec-tion 2 reviews related work on brain tumor segmentation, back-bone architectures, and few-shot segmentation. Section 3 presents the proposed methodology. Section 4 describes the ex-perimental settings and volume-level evaluation protocol. Sec-tion 5 reports the numerical results and analyses. Section 6 discusses the main findings and limitations. Finally, Section 7 concludes the paper. 
+
+2. Related Work 
+
+2.1. Brain Tumor Segmentation and Backbone Architectures 
+
+The BraTS benchmark has become a primary platform for evaluating glioma MRI segmentation, o ff ering standardized multi-institutional data and evaluation protocols for clinically relevant subregions, including WT, TC, and ET, from multi-modal MRI (Menze et al., 2015; Bakas et al., 2017, 2018). De-spite substantial progress, BraTS-style segmentation remains challenging because of heterogeneous tumor appearance, ac-quisition variability, and pronounced imbalance across tumor subregions. In particular, ET is often sparse and fragmented. BraTS-Africa further expands BraTS data to include an under-represented population, making cross-cohort assessment partic-ularly relevant (Adewole et al., 2025). Convolutional encoder–decoder networks remain founda-tional for brain tumor segmentation. U-Net and its volu-metric extensions, including 3D U-Net and V-Net, combine multi-scale feature extraction with skip connections, whereas UNet ++ improves multi-resolution feature fusion and nnU-Net provides a strong self-configuring training framework (Ron-neberger et al., 2015; Çiçek et al., 2016; Milletari et al., 2016; Zhou et al., 2019; Isensee et al., 2021). These methods estab-lish the CNN backbone family from which later attention-based and Transformer-based designs have evolved. Transformer-based and hybrid CNN–Transformer architec-tures have further improved global-context modeling through self-attention (Han et al., 2022). Representative examples in-clude TransUNet (Chen et al., 2021), UNETR (Hatamizadeh et al., 2022), SwinUNet (Cao et al., 2022), and Swin-UNETR (Hatamizadeh et al., 2021), together with BraTS-oriented vari-ants such as SwinBTS (Jiang et al., 2022), CoTr (Xie et al., 2021), nnFormer (Zhou et al., 2021), and modality-aware cross-attention models (Lin et al., 2023a). These architectures broaden contextual modeling, although their increased repre-sentational capacity must be balanced against computational requirements and the limited availability of annotated med-ical data. Beyond convolutional and Transformer-based de-signs, VM-UNet explores visual state-space modeling within a U-shaped architecture for medical image segmentation (Ruan et al., 2025). Promptable segmentation models, represented by SAM, provide another direction in which prompts guide mask prediction (Kirillov et al., 2023). These developments broaden the available approaches to contextual representation and target specification. Support-based FSS addresses a related setting in which the target evidence is transferred from an annotated sup-port image to a separate query image, making support represen-tation and support–query interaction central design considera-tions. A separate line of neural-network research studies synchro-nization and control, including applications to image encryp-tion. Examples include passivity-based synchronization under an adaptive event-driven protocol (Chandrasekar et al., 2026) and sampled-data synchronization with two additive delay com-ponents (Tamil Thendral et al., 2026). Related work investi-gates memory-sampled-data control for exponential synchro-nization of Markovian jump neural networks with mixed delays and partially unknown transition probabilities (Radhika et al., 2026). Image encryption and decryption concern the protection and recovery of image content, whereas FSS-UBrain predicts tumor-region masks from multimodal MRI using labeled sup-port information. 
+
+2.2. Few-Shot Segmentation 
+
+FSS performs dense prediction on a query image using only a small set of labeled support examples. It is commonly trained through episodic learning, in which support–query episodes en-courage the transfer of task-specific information from annotated support images to unlabeled queries (Shaban et al., 2017; Wang et al., 2019). Early approaches transferred support informa-tion through conditioning or parameter generation, as exempli-fied by One-Shot Learning for Semantic Segmentation (Shaban et al., 2017). More recent methods have largely adopted metric-and prototype-based formulations, in which support features and masks are used to construct class representations for dense query matching. PANet (Wang et al., 2019) is a representative prototype-based method that formulates FSS as a metric-learning problem and introduces prototype alignment regularization to strengthen support–query consistency. Subsequent methods have im-proved dense correspondence by enriching query features with 3support-derived priors or by modeling higher-order support– query relationships. For example, the Prior-Guided Feature En-richment Network (Tian et al., 2020) emphasizes prior-guided feature enrichment, whereas the Hypercorrelation Squeeze Net-work (Min et al., 2021) models multi-level correlations using effi cient high-dimensional operators. Medical FSS introduces additional di ffi culties, including se-vere FG–BG imbalance, limited annotated semantic classes, and substantial appearance variation across patients and ac-quisition settings. ALPNet and SSL-ALPNet (Ouyang et al., 2020) address intra-class variation through adaptive local pro-totype pooling and reduce dependence on manually annotated training classes through self-supervised signals. These studies show the importance of preserving local variation rather than relying exclusively on a single global prototype. Query-aware and cross-attention mechanisms provide complementary strate-gies for support–query interaction. Q-Net introduces query-informed representations to improve support-conditioned med-ical image segmentation (Shen et al., 2023), whereas CATNet uses cross-attention to model relationships between support and query features (Lin et al., 2023b). A complementary direction generates multiple support-derived descriptors for each class. GMRD was proposed to ad-dress the limited representational capacity of a single prototype by generating multiple representative descriptors from the sup-port image (Cheng et al., 2024). This principle is relevant to heterogeneous tumor MRI, in which tumor-subregion appear-ance, boundary characteristics, and surrounding BG may vary substantially across cases. FSS-UBrain adopts FG–BG descrip-tor sets within a distinct support-conditioned architecture that additionally integrates bottleneck interaction, descriptor-gated decoding, and boundary-guided refinement. Recent medical FSS methods further enrich support repre-sentations. SPENet combines a global prototype with an adap-tive number of local prototypes and uses query-guided optimal transport to reweight the local support prototypes (Fan et al., 2026). BePMI constructs boundary prototypes by clustering inner- and outer-boundary features and uses momentum infer-ence to update prototype representations across adjacent query slices (Xu et al., 2026). These studies demonstrate that local ap-pearance variation, support–query compatibility, and boundary information are established considerations in medical FSS. 
+
+2.3. Research Gaps and Motivation 
+
+The literature reviewed above motivates three considerations for slice-based few-shot brain tumor segmentation. First, het-erogeneous tumor appearance requires support representations that preserve variation within the selected region and its sur-rounding tissue. Multiple descriptors, query-guided prototype enhancement, and boundary-related representations provide es-tablished mechanisms for addressing di ff erent aspects of this problem (Cheng et al., 2024; Fan et al., 2026; Xu et al., 2026). For the present framework, the architectural question is how to use this support evidence consistently across query-feature adaptation, deep support–query interaction, and decoder-side reconstruction. Second, sparse subregions such as TC and ET generate many target-empty query slices. At the 2D slice level, a hard-negative query slice is empty for the selected target region while re-taining non-empty whole-tumor tissue, whereas a fully nega-tive query slice contains no whole-tumor tissue. Because WT comprises all tumor labels, a WT-empty query is fully negative by construction; hard-negative sampling is therefore relevant only to TC and ET. This distinction is important because strong overlap on target-present queries does not ensure suppression of spurious FG activation when the selected region is absent. Third, because FSS-UBrain produces slice-wise estimates that are reconstructed into volumes for BraTS-style bench-marking, checkpoint selection, threshold tuning, and final evaluation should be conducted at the reconstructed volume level. Volume-level Dice and 95th-percentile Hausdor ff dis-tance (HD95), together with false-positive rates on ground-truth-empty volume–region pairs, cannot be inferred reliably from episode-level slice scores alone. In cross-cohort FSS, the source of support labels, case-level separation between support and query sets, overlap auditing, and the presence or absence of test-time parameter updates should be stated explicitly. When labeled target support cases condition inference without param-eter updates, the setting should be described as target-supported FSS rather than zero-shot domain generalization. Together, these considerations guide the design and evaluation of FSS-UBrain. 
+
+3. Proposed Methodology 
+
+This section presents FSS-UBrain, a multi-region, support-conditioned one-shot FSS framework that performs binary seg-mentation separately for WT, TC, and ET in multimodal brain MRI. Each episode contains one labeled support slice with fore-ground pixels for the selected region and one query slice; during training, the query may be positive or target-empty. The sup-port image–mask pair provides the FG and BG evidence used to guide query segmentation. The architecture is designed to address heterogeneous tu-mor appearance while maintaining selected-region guidance throughout query prediction. Multiple FG and BG descriptors represent support-side appearance variation that may be ob-scured by a single region average (Cheng et al., 2024), while query-guided refinement makes these representations respon-sive to the current query. Support-conditioned feature adapta-tion and bottleneck interaction incorporate target-specific con-text into query features. Descriptor-gated skip attention and multi-scale descriptor-logit fusion maintain this guidance dur-ing spatial reconstruction by combining support-conditioned evidence at di ff erent resolutions. Finally, boundary-guided residual refinement uses decoder features and prediction-derived edge cues to correct the preliminary prediction, pro-viding explicit boundary information for delineating irregular tumor contours. All learnable operations are performed on two-dimensional support–query slice pairs. Deep supervision, descriptor-level supervision, and the alignment loss are applied only during 4training. During validation, slice-wise predictions are recon-structed into volumes for checkpoint selection and threshold tuning. During testing, the same reconstruction procedure is used for final volume-level evaluation. 
+
+3.1. Problem Formulation 
+
+Let x ∈ R4×H×W denote a preprocessed two-dimensional multimodal MRI slice, where H and W denote the spatial di-mensions. The four channels correspond to FLAIR, T1, T1ce, and T2 modalities. Each slice is associated with a harmonized BraTS-style label map y ∈ { 0, 1, 2, 4}H×W , where yi j denotes the label at spatial location ( i, j). Under the canonical BraTS20 encoding, labels 0, 1, 2, and 4 denote BG, necrotic or non-enhancing tumor core, peritumoral edema, and ET, respectively (Bakas et al., 2018). We consider the clinically relevant tumor-region set R =
+
+{WT , TC , ET }. For each region r ∈ R , the multi-class anno-tation is converted into a binary target mask mr ∈ { 0, 1}H×W . At each spatial location ( i, j), the binary target is defined as 
+
+mri j =
+
+
+
+Ihyi j ∈ { 1, 2, 4}i , r = WT ,
+
+Ihyi j ∈ { 1, 4}i , r = TC ,
+
+Ihyi j = 4i , r = ET ,
+
+(1) where I[·] is the indicator function. These definitions imply ET ⊆ TC ⊆ WT. FSS-UBrain predicts the three regions as sep-arate support-conditioned binary tasks rather than as mutually exclusive classes in one multi-class output. For a selected region r, each one-shot episode contains a la-beled support slice ( xs, mrs) and a query slice xq. The corre-sponding query mask mrq is not provided to the model; it is used only to compute training losses and evaluation metrics. Sub-scripts s and q denote the support and query slices, respectively. The support slice is selected such that mrs contains FG pixels for the selected region. During episodic training, the query may be positive or target-empty. A hard-negative query is empty for the selected target region while retaining non-empty WT tissue, whereas a fully negative query contains no WT tissue. Because WT comprises all tumor labels, hard-negative queries are appli-cable only to TC and ET. The construction and sampling ratios of these query types are specified in the experimental proto-col. These query types provide complementary training signals. Target-positive queries supervise localization of the selected re-gion. Hard-negative queries require rejection of non-target tu-mor tissue that may share appearance characteristics with the target, whereas fully negative queries supervise FG suppression in slices without tumor tissue. Given the support pair ( xs, mrs) and query slice xq, FSS-UBrain produces a dense prediction for the selected region: 
+
+zrq = Fθ
+
+xs, mrs, xq
+
+ , prq = σzrq
+
+ , (2) where Fθ denotes FSS-UBrain with learnable parameters θ,
+
+zrq ∈ R1×H×W is the query logit map, σ(·) is the element-wise sigmoid function, and prq ∈ (0 , 1) 1×H×W is the predicted FG-probability map. The target region is specified implicitly through the binary support mask rather than through an explicit region-identifier input. In particular, the support mask sepa-rates FG and BG support features for representative-descriptor construction, enabling a single parameterized model to adapt its query prediction to WT, TC, or ET. Thresholding, nested-region enforcement, and volume reconstruction are defined later in the evaluation protocol. For example, in an ET episode, the support mask marks only enhancing tumor as FG, and the resulting FG /BG descriptors guide ET segmentation in a query slice from another patient. In a WT episode, the support mask also includes necrotic /non-enhancing tumor core and peritumoral edema, so tissue treated as BG for ET can become FG for WT. This illustrates how FSS provides region-specific guidance through one labeled support slice per episode, allowing the same trained model to address the selected segmentation task while keeping its learned param-eters fixed during inference. 
+
+3.2. Architecture Overview 
+
+Figure 2 illustrates FSS-UBrain, a support-conditioned one-shot segmentation framework for a selected tumor region r. In this U-shaped encoder–decoder architecture, the encoder ex-tracts hierarchical features at progressively lower spatial resolu-tions, while the decoder restores resolution for dense prediction. Skip connections transfer higher-resolution encoder features to the decoder, helping combine contextual information with spa-tial detail (Ronneberger et al., 2015). In FSS-UBrain, the en-coder processes both support and query images, whereas the decoder reconstructs the query mask using support-conditioned query features. The support slice xs and query slice xq are processed by a shared residual encoder, producing hierarchi-cal support and query feature maps f ℓ 
+
+> s
+
+and f ℓ 
+
+> q
+
+, respectively, at encoder levels ℓ ∈ { 1, 2, 3, 4}. At level ℓ, f ℓ 
+
+> s
+
+, f ℓ 
+
+> q
+
+∈ RCℓ ×Hℓ ×Wℓ ,
+
+where Cℓ, Hℓ, and Wℓ denote the channel and spatial dimen-sions. With base channel width C = 64, the encoder uses 
+
+Cℓ = 2ℓ−1C, Hℓ = H/2ℓ−1, and Wℓ = W/2ℓ−1. Batch dimensions are omitted throughout this section. Singleton channel dimen-sions are retained when they clarify single-channel descriptor logits or gates. Support-conditioned descriptor adaptation is performed at levels ℓ ∈ { 2, 3, 4}. At each level, the support mask mrs sep-arates support features into FG and BG regions for descriptor construction. The resulting descriptor sets condition the cor-responding query feature and produce a Feature-wise Linear Modulation (FiLM)-conditioned query feature ˜f ℓ 
+
+> q
+
+, a descrip-tor margin logit zℓ 
+
+> desc
+
+∈ R1×Hℓ ×Wℓ , and a descriptor gate gℓ ∈
+
+(0 , 1) 1×Hℓ ×Wℓ . The refined level-4 descriptor sets eD4FG and eD4BG 
+
+are additionally supplied to the support-guided bottleneck. The decoder subsequently reconstructs the query prediction through descriptor-gated skip attention, multi-scale descriptor-logit fu-sion, and boundary-guided refinement. 
+
+3.2.1. Shared Residual Encoder 
+
+The support and query branches share the same encoder pa-rameters so that both inputs are represented through a com-mon learned feature transformation. This is useful for support-conditioned segmentation because the subsequent descriptor-matching operations compare support-derived representations 5Descriptor   
+
+> Matching +
+> Support-
+> conditioned FiLM
+> (Level 2)
+> Descriptor
+> Matching +
+> Support-
+> conditioned FiLM
+> (Level 3)
+> Descriptor
+> Matching +
+> Support-
+> conditioned FiLM
+> (Level 4)
+> Descriptor margin logit
+> FiLM-conditioned
+> query feature
+> Descriptor margin logit
+> Descriptor gate
+> Descriptor margin logit
+> Refined descriptors Support-Guided
+> bottleneck
+> Upblock 4→3
+> Upblock 3→2
+> Upblock 2→1
+> Descriptor-logit aggregation
+> (upsample, concatenate, and
+> softmax-weighted fusion)
+> Segmentation
+> head
+> Boundary-Guided
+> Refinement
+> Sigmoid
+> Shared encoder
+> weight
+> FiLM-conditioned
+> query feature
+> FiLM-conditioned
+> query feature
+> Descriptor gate
+> Decoder
+> feature
+
++         
+
+> Support image
+> ,
+> ,
+> Query
+> Support
+> ,
+> Support mask
+> Query image
+> Shared Residual Encoder
+> ,
+> ,
+> ,,
+> Support-Conditioned Descriptor Adaptation Support-Guided Decoder Prediction and Refinement
+> XNote. Refined FG /BG descriptors are computed at all levels, but only eD4FG and eD4BG are explicitly routed to the support-guided bottleneck. Figure 2: Overview of the proposed FSS-UBrain model architecture.
+
+with query features. Weight sharing provides a consistent fea-ture mapping for these comparisons and avoids maintaining separate sets of encoder parameters for the two branches. The encoder begins with a 3 × 3 convolution, Group Normal-ization, and Sigmoid Linear Unit (SiLU) activation, followed by a residual refinement block. Three downsampling stages progressively reduce spatial resolution while increasing chan-nel capacity. Each stage contains a stride-two convolutional transformation followed by residual feature refinement. Resid-ual connections allow a block to learn a feature correction while preserving a direct information path, thereby facilitating fea-ture and gradient propagation through the encoder (He et al., 2016). This supports the extraction of hierarchical representa-tions needed for both local tumor detail and broader anatomical context. Group Normalization is used because it does not de-pend on batch-level statistics and is suitable for the small mini-batches used in episodic training (Wu and He, 2018). The full-resolution features f 1 
+
+> s
+
+and f 1 
+
+> q
+
+preserve local spatial detail for the final decoder stage. Levels 2, 3, and 4 provide progressively more abstract representations at one-half, one-quarter, and one-eighth of the input resolution, respectively. At level 4, a pyramid-context module applies parallel 1 × 1 convo-lution and dilated 3 × 3 convolution branches with dilation rates of 2 and 4. Their outputs are concatenated and projected back to the original channel dimension. This operation enriches the deepest representation with multi-scale contextual information, following the general use of dilated convolutions for context aggregation in semantic segmentation (Chen et al., 2017). 
+
+3.2.2. Support-Conditioned Descriptor Adaptation 
+
+Figure 3 presents the support-conditioned descriptor-adaptation block at encoder level ℓ. The block receives the support feature f ℓ 
+
+> s
+
+, the support mask mrs, and the query feature 
+
+f ℓ 
+
+> q
+
+. It constructs multiple FG and BG descriptors from the sup-port representation, refines these descriptors using query con-text, and matches them densely against the query feature. The resulting support-conditioned evidence is used to generate zℓ
+
+> desc
+
+,
+
+gℓ, and ˜ f ℓ 
+
+> q
+
+.For each matching level, mrs is resized to Hℓ × Wℓ by nearest-neighbor interpolation and dilated by one feature-grid pixel. We denote the resulting working mask by ¯mrs,ℓ ; its comple-ment 1 − ¯mrs,ℓ defines the BG region. For a feature-aligned mask a ∈ [0 , 1] Hℓ ×Wℓ , we obtain a support-derived region sum-mary through masked average pooling (MAP), consistent with the prototype-estimation paradigm in few-shot segmentation (Wang et al., 2019): MAP( f ℓ 
+
+> s
+
+, a) =
+
+PHℓ
+
+> i=1
+
+PWℓ
+
+> j=1
+
+[ f ℓ 
+
+> s
+
+]:,i, j[a]i j 
+
+max ϵ1, PHℓ
+
+> i=1
+
+PWℓ
+
+> j=1
+
+[a]i j 
+
+ , (3) where [ f ℓ 
+
+> s
+
+]:,i, j ∈ RCℓ denotes the support-feature vector at spa-tial location ( i, j), and ϵ1 = 10 −6 is a numerical-stability con-stant that prevents division by zero when the corresponding re-gion contains no pixels on the feature grid. The FG descriptor set is denoted by Dℓ 
+
+> FG
+
+∈ R(KFG +2) ×Cℓ , where 
+
+KFG denotes the number of primary FG descriptors generated by a learnable descriptor projection. The remaining two de-scriptors are support-derived: a masked-average FG descriptor and an inner-boundary descriptor. The latter is obtained from the di ff erence between the working FG mask and its eroded ver-sion. Similarly, the BG descriptor set is denoted by Dℓ 
+
+> BG
+
+∈
+
+R(KBG +2) ×Cℓ , where KBG denotes the number of primary BG de-scriptors. The remaining BG descriptors are a global BG de-6FG   
+
+> mask
+> BG
+> mask
+> FG descriptor
+> BG descriptor
+> ...
+> ...
+> FG similarity
+> maps
+> BG similarity
+> maps
+> Descriptor
+> Margin,
+> Gate, and
+> Query Adapter
+> ...
+> ...
+> Support-
+> conditioned
+> FiLM
+> Support
+> feature
+> Support
+> mask
+> Query
+> feature
+> Query-guided
+> descriptor
+> refiner
+> Descriptor margin logit
+> Refined descriptor
+> Descriptor gate
+> FiLM-conditioned
+> query feature Figure 3: Support-conditioned descriptor adaptation at encoder level ℓ. Masked support features form FG and BG descriptors that are query-refined, matched to query features, and used for descriptor gating and FiLM modulation.
+
+scriptor and an outer-boundary descriptor. The outer bound-ary is defined as the one-pixel ring surrounding the working FG region. This multiple-descriptor formulation is motivated by representative-descriptor learning, which preserves support-side appearance variation beyond a single global prototype (Cheng et al., 2024). The primary descriptors are generated from dense masked feature canvases. In the FG branch, feature vectors outside the working FG region are replaced by the masked-average FG fea-ture. The resulting canvas is adaptively pooled and processed by a learnable descriptor projection to produce KFG primary descriptors. The BG branch is constructed analogously using the complementary support region. This design preserves local support-side variation while maintaining class-specific descrip-tor generation. The initial descriptor sets are refined using query con-text. For each descriptor, normalized descriptor–query sim-ilarities are computed over the spatial query grid. A spa-tial softmax produces a descriptor-specific query-context vec-tor. A LayerNorm–multilayer perceptron (MLP) update then predicts a descriptor correction from the di ff erence between the query context and the initial descriptor. This correc-tion is incorporated through a bounded learned blend, pro-ducing the refined descriptor sets eDℓ 
+
+> FG
+
+and eDℓ
+
+> BG
+
+. The re-finement preserves descriptor cardinality, such that eDℓ 
+
+> FG
+
+∈
+
+R(KFG +2) ×Cℓ and eDℓ 
+
+> BG
+
+∈ R(KBG +2) ×Cℓ . The refined descriptors are matched densely against channel-normalized query features to form descriptor-wise similarity maps. Separate convolutional heads transform the FG and BG similarity maps into single-channel spatial logits. Their di ff erence forms the descriptor margin logit zℓ
+
+> desc
+
+, while its sigmoid transform defines the de-scriptor gate gℓ. Descriptor-wise softmax weights also produce FG and BG context features together with their a ffi nity maps. The query adapter receives the original query feature, the FG and BG context features, the two a ffi nity maps, and a scaled and clipped descriptor margin. It predicts a residual correction to f ℓ 
+
+> q
+
+. The associated scalar gain is initialized at zero, so the adapter initially preserves the unconditioned query feature. The refined descriptor sets further condition the query fea-ture through FiLM-style feature-wise a ffi ne modulation (Perez et al., 2018). For a descriptor-adapted feature map h ∈
+
+RCℓ ×Hℓ ×Wℓ , the implementation adopts the following identity-centered bounded parameterization: FiLM( h; γ, β ) = h⊙(1 + ρ tanh( γ)) +ρ tanh( β), ρ = 0.15 , (4) where γ, β ∈ RCℓ ×1×1 are channel-wise modulation parame-ters, and ⊙ denotes element-wise multiplication. They are pre-dicted by an MLP from the LayerNorm-normalized concatena-tion of the mean vectors of the refined FG and BG descriptor sets, eDℓ 
+
+> FG
+
+and eDℓ
+
+> BG
+
+, respectively. The final MLP layer is ini-tialized to produce zero modulation parameters, such that the transformation is initialized as the identity mapping, while the bounded hyperbolic-tangent parameterization limits subsequent descriptor-induced feature perturbations. The resulting feature is denoted by ˜ f ℓ 
+
+> q
+
+.
+
+3.2.3. Support-Guided Decoder and Prediction Refinement 
+
+At level 4, the FiLM-conditioned feature ˜f 4 
+
+> q
+
+and the refined descriptor sets eD4FG and eD4BG are processed by the support-guided bottleneck. The spatial locations of ˜ f 4 
+
+> q
+
+are flattened into query tokens. The concatenated FG and BG descriptors serve as memory tokens, while an additional support token is gener-ated from the mean FG and BG descriptors. Multi-head atten-tion retrieves support-relevant descriptor information for each query token, followed by a feed-forward update and a resid-ual projection back to the original feature space. This mecha-nism follows the standard query–key–value attention principle (Vaswani et al., 2017). The decoder restores spatial resolution through three upsam-pling blocks. The support-guided bottleneck output is fused with ˜f 3 
+
+> q
+
+to produce x3. The second block fuses x3 with ˜f 2 
+
+> q
+
+to produce x2. The final upsampling block fuses x2 with the full-resolution query feature f 1 
+
+> q
+
+to produce the final full-resolution decoder feature x1. The channel dimensions of x3, x2, and x1
+
+are C3, C2, and C1, respectively. Each upsampling block first applies a transposed convolution to increase the spatial resolution of the decoder feature. The corresponding query-side skip feature is then filtered through additive attention before concatenation and residual convolu-7tional refinement. Let uℓ denote the spatially aligned upsampled decoder feature and sℓ denote the corresponding query-side skip feature. Specifically, u3 is obtained from the support-guided bottleneck output, u2 from x3, and u1 from x2, whereas s3 = ˜f 3 
+
+> q
+
+,
+
+s2 = ˜f 2 
+
+> q
+
+, and s1 = f 1 
+
+> q
+
+. We use an additive attention gate inspired by Attention U-Net (Oktay et al., 2018): 
+
+aℓ = σψϕGN( Wguℓ) + GN( Ws sℓ) , bsℓ = sℓ ⊙ aℓ, (5) where Wg and Ws denote learned 1 × 1 projections, GN( ·)denotes Group Normalization, ϕ(·) is the SiLU nonlinearity, 
+
+ψ(·) maps the fused representation to a single-channel attention score, and ⊙ denotes element-wise multiplication. At levels 3 and 2, the descriptor gates g3 and g2 further modu-late the corresponding skip-attention maps. After spatial align-ment, each gate is clipped to the probability range and rescales the base attention response by 1 + 0.35( gℓ − 0.5). No descriptor gate is applied to the final skip fusion with f 1 
+
+> q
+
+. Although g4 is computed at level 4, it has no corresponding encoder–decoder skip connection and is therefore not used by an upsampling block. The descriptor margin logits from levels 2, 3, and 4 are bilin-early upsampled to the spatial resolution of x1. Their channel-wise concatenation is denoted by Zdesc ∈ R3×H×W . This tensor is concatenated with x1 and processed by the segmentation head, producing Zseg desc ∈ R1×H×W . In parallel, the three descriptor log-its are fused using learned softmax-normalized scale weights 
+
+α2, α 3, α 4, producing zdesc fused ∈ R1×H×W . The segmentation-head logit receives an additional residual contribution from zdesc fused ,scaled by a learned sigmoid-bounded scalar λ ∈ (0 , 1). The resulting preliminary logit is denoted by z0 = Zseg desc + λzdesc fused ∈
+
+R1×H×W .
+
+Boundary-guided refinement receives the final full-resolution decoder feature x1, the preliminary logit z0, and the fused de-scriptor logit zdesc fused . It derives detached FG probability maps from the two logits and computes their soft edge maps using a 3×3 morphological gradient based on dilation and erosion. The feature x1, the two probability maps, and the two edge maps are concatenated and processed by a residual convolutional trunk followed by a residual-logit head to produce ∆ref ∈ R1×H×W .The final query logit map is defined as 
+
+zrq = z0 + ρref tanh( αref ) ∆ref , ρref = 0.35 , (6) where ∆ref ∈ R1×H×W is the residual logit correction produced by the residual-logit head, αref ∈ R is a learned scalar residual-gain parameter, and ρref = 0.35 specifies the maximum magni-tude of the scalar gain ρref tanh( αref ). Here, tanh( ·) denotes the hyperbolic tangent function. The residual-gain parameter is ini-tialized to 1, whereas the residual-logit head is zero-initialized. Consequently, at initialization, ∆ref = 0, and the refinement block preserves the preliminary logit z0. The nonzero residual gain allows the residual-logit head to receive gradients during training; once its weights depart from zero, gradients also prop-agate through the preceding refinement trunk. The correspond-ing probability map prq is obtained using the sigmoid operation defined in Section 3.1. Although the implementation also re-turns an auxiliary boundary-logit output, no separate supervi-sion or inference decision is based on that output. 
+
+3.3. Training Objective 
+
+The primary supervision is applied to query-side outputs. During training, the final refined logit zrq is accompanied by three auxiliary logits derived from x1, x2, and x3. The auxil-iary logits from x2 and x3 are bilinearly upsampled to the final output resolution, whereas the auxiliary logit from x1 is already defined at that resolution. Consequently, all deep-supervision outputs are evaluated against the full-resolution query mask mrq.For a supervised output, let pi j ∈ (0 , 1) denote the predicted FG probability at pixel ( i, j), and let mi j ∈ { 0, 1} denote the cor-responding binary target value. We use the following smoothed Dice objective, based on the Dice formulation widely adopted in medical image segmentation (Milletari et al., 2016): 
+
+LDice = 1 − 2 P(i, j)∈Ω pi j mi j + ϵ2
+
+P(i, j)∈Ω p2 
+
+> i j
+
++ P(i, j)∈Ω m2 
+
+> i j
+
++ ϵ2
+
+, (7) where Ω denotes the spatial pixel set of the supervised output and ϵ2 = 10 −6 is a small constant used for numerical stability. The loss is computed independently for each sample in a mini-batch and then averaged over the batch. For each supervised decoder output, the segmentation loss combines the smoothed Dice loss in Eq. (7), boundary-weighted binary cross-entropy (BCE), and focal binary cross-entropy with coe ffi cients 0 .45, 0 .45, and 0 .10, respectively. For the boundary-weighted BCE term, a target-derived edge map is computed using 3 × 3 morphological dilation and erosion. The pixel-wise BCE weight is one plus 0 .20 times the edge value, thereby emphasizing boundary errors without introduc-ing a separately supervised boundary output. The focal term uses focusing exponent γfoc = 2 (Lin et al., 2017). When neces-sary, auxiliary logits are bilinearly upsampled to the final output resolution before supervision by the full-resolution query mask. For target-empty queries, an empty-query regularization term is added to each supervised decoder output to explicitly discour-age foreground activation. It penalizes the mean FG probability together with 0 .25 times the maximum FG probability. The mean-probability component discourages spatially distributed activation, whereas the maximum-probability component pe-nalizes a strong local response that may remain small after av-eraging over the full image. An additional hinge penalty is activated when the mean FG probability exceeds 0 .035 for a hard-negative query or 0 .015 for a fully negative query. The hinge contribution has relative weight 0 .10, and the complete empty-query term is scaled by 0.16. These hinge thresholds determine when the additional penalty becomes active; the reference mask for the selected re-gion remains empty in both cases. The term is applied only to target-empty queries, while target-positive queries retain the foreground supervision provided by the segmentation loss. To-gether, negative-query sampling and this regularization provide explicit learning signals for rejecting non-target tissue and sup-pressing spurious FG responses. Let d = 0 denote the final refined logit zrq, and let d ∈ { 1, 2, 3}
+
+denote the auxiliary logits derived from x1, x2, and x3, respec-tively. For output d, L(d)seg denotes the three-term segmenta-tion loss described above, and L(d)empty denotes the corresponding empty-query regularization term. The latter is evaluated only 8for target-empty samples and is zero for target-positive sam-ples. Following deep supervision (Lee et al., 2015), the decoder objective is 
+
+Ldeep =
+
+X3 
+
+> d=0
+
+wd
+
+L(d)seg + L(d)empty 
+
+ , (8) where wd denotes the supervision weight assigned to output 
+
+d, which is chosen based on empirical experiments. Here, 
+
+w0 = 0.62 corresponds to the final refined output, whereas 
+
+w1 = 0.2, w2 = 0.12, and w3 = 0.06 correspond to the auxiliary outputs derived from x1, x2, and x3, respectively. Descriptor-level supervision is applied to z2desc , z3desc , z4desc , and zdesc fused . Each descriptor logit receives the same three-term segmentation loss after the query mask is resized to the corresponding spatial res-olution. Their mean defines Ldesc . Empty-query regularization is not applied to this auxiliary descriptor supervision. A reverse support–query alignment term is applied only to target-positive episodes. A detached probability map derived from the final query prediction is resized to encoder level 4 and used to construct query-derived FG and BG descriptors. These descriptors are matched to the level-4 support feature, and the resulting support-side margin logit is supervised using the re-sized support mask. The resulting loss, denoted by Lalign , fol-lows the prototype-alignment principle of PANet (Wang et al., 2019). It is set to zero when a mini-batch contains no target-positive sample. The complete training objective is 
+
+Ltotal = Ldeep + δ1 Ldesc + δ2 Lalign , (9) where δ1 = 0.08 and δ2 = 0.15 are the loss weights, chosen based on empirical experiments and task-specific evaluations. All loss terms and auxiliary outputs are used only during train-ing. During inference, FSS-UBrain uses only the final query logit zrq and probability map prq.
+
+4. Experimental Details 
+
+4.1. Datasets, Label Harmonization, and Data Processing 4.1.1. Source Cohort and Held-Out Split 
+
+BraTS20 was used as the source cohort for model develop-ment (Center for Biomedical Image Computing and Analyt-ics (CBICA), University of Pennsylvania, Accessed: Mar. 12, 2026; Bakas et al., 2018). Its 369 labeled cases were partitioned once at the case level using seed 1337. First, 10% of the com-plete cohort was reserved for held-out testing, yielding 37 test cases. Next, 10% of the remaining 332 cases was assigned to validation, yielding 33 validation cases and leaving 299 cases for training. The held-out test partition was not used for check-point selection, threshold calibration, architecture selection, or hyperparameter adjustment. All compared models were trained on the same BraTS20 training partition. The validation partition was used for model selection and calibration, whereas the held-out partition was used only for final in-domain evaluation. 
+
+4.1.2. External Cohorts and Overlap Audit 
+
+External evaluation used the publicly labeled BraTS23 adult-glioma training cohort and the glioma subset of BraTS-Africa. These datasets permit harmonization with the BraTS20 WT, TC, and ET composite regions. The BraTS24 adult-glioma (GLI) cohort was not included in the quantitative cross-cohort analysis because it comprises post-treatment MRI and intro-duces a distinct resection-cavity label (de Verdier et al., 2024). Merging this label with ET would alter the clinical meaning of ET and its composite regions. These cohorts assess robust-ness beyond the BraTS20 source cohort under cross-release variation and, in the case of BraTS-Africa, population shift (Synapse, Accessed: Mar. 12, 2026; Adewole et al., 2025). Before external evaluation, each candidate case was verified to contain all four MRI modalities and a spatially compati-ble segmentation mask. Potential overlap was audited against the complete BraTS20 cohort, including its training, validation, and held-out test partitions. The audit compared canonicalized case identifiers and full content fingerprints computed from the FLAIR, T1, T1ce, T2, and segmentation arrays. A target case was excluded whenever either criterion indicated an overlap with BraTS20. After this audit, BraTS17 and BraTS18 contained no re-tained non-overlapping cases. BraTS19 retained only one case, 
+
+BraTS19_CBICA_BLJ_1 , which is insu ffi cient for a meaning-ful cohort-level analysis. Accordingly, BraTS17–BraTS19 are not reported as independent external cohorts because duplicate auditing identified overlap with the complete BraTS20 cohort. 
+
+4.1.3. Label Harmonization 
+
+All datasets were mapped to the common WT, TC, and ET region definitions introduced in Section 3.1. Under the canon-ical BraTS20 encoding, labels 1, 2, and 4 represent necrotic or non-enhancing tumor core, edema, and enhancing tumor, respectively. BraTS20 encodes enhancing tumor as label 4, whereas the retained external cohorts use their release-specific enhancing-tumor encoding. Before constructing WT, TC, and ET, each retained cohort was interpreted using its own label map. Whole tumor comprises all non-BG tumor components, tumor core comprises the necrotic or non-enhancing component together with enhancing tumor, and enhancing tumor comprises the enhancing component only. This harmonization does not imply that labels 3 and 4 coexist within an individual release; rather, it provides a consistent clinical interpretation of WT, TC, and ET across datasets with di ff erent enhancing-tumor encod-ings. 
+
+4.1.4. Slice-Level Preprocessing and Augmentation 
+
+Each axial slice was represented by four channels in the or-der FLAIR, T1, T1ce, and T2. For each case and modality, nor-malization statistics were computed from nonzero voxels over the entire volume. Nonzero intensities were standardized us-ing these statistics, whereas zero-valued BG voxels remained zero. The same preprocessing was applied to support and query inputs. Table 1 summarizes the preprocessing and training-time aug-mentation pipeline. Geometric transformations were applied jointly to each image–mask pair to preserve spatial alignment. Support and query pairs were augmented independently during training; validation and test inputs were not augmented. 9Table 1: Preprocessing and training-time augmentation applied to support and query inputs.                                     
+
+> Preprocessing or Augmentation Step and Procedure Purpose Applied During Modality organization. Each axial input is formed by stacking FLAIR, T1, T1ce, and T2 as a four-channel slice. Preserves the standard multimodal BraTS input representation. Training, valida-tion, and testing
+> Region-mask construction. Binary WT, TC, and ET masks are generated using the unified region definitions described in Section 3.1. Ensures a consistent clinical-region in-terpretation across datasets. Training, valida-tion, and testing
+> Per-case normalization. For each modality, the mean and standard deviation are computed from nonzero voxels across the complete case volume. Only nonzero voxels are standard-ized, while zero-valued BG remains zero. Reduces inter-case intensity variation without altering the zero-valued BG convention. Training, valida-tion, and testing
+> Spatial resizing. Images are resized to 256 ×256 using bilinear interpolation; binary masks are resized using nearest-neighbor interpolation. Provides a fixed input size while avoid-ing interpolation-induced label mixing. Training, valida-tion, and testing
+> Horizontal and vertical flips. Each image–mask pair is independently flipped horizontally and vertically with probability 0 .5. Increases invariance to in-plane orienta-tion variation. Training only
+> Right-angle rotation. With probability 0 .5, an image–mask pair is rotated by 0 ◦, 90 ◦,180 ◦, or 270 ◦.Improves robustness to in-plane orien-tation variation while preserving voxel-grid alignment. Training only
+> Random a ffi ne transformation. With probability 0 .35, an a ffi ne transformation is applied using a rotation angle sampled from [ −8◦,8◦], a scale factor sampled from [0 .95 ,1.05], and translations of up to 4% of the image size along both spatial axes. Images use bilinear interpolation and masks use nearest-neighbor interpolation. Increases tolerance to modest geometric variation while preserving image–mask correspondence. Training only
+> Intensity perturbation. With probability 0 .5, image intensities are multiplicatively scaled by a factor from [0 .90 ,1.10] and additively shifted by a value from [ −0.05 ,0.05]. Improves robustness to moderate intensity-scale and brightness variation. Training only
+> Numerical stabilization. Non-finite image values are replaced with zero before further processing. During augmentation, image intensities are clipped to [ −8,8] after the geomet-ric and intensity transformations. Prevents invalid numerical values and limits extreme augmented intensities. All stages; clip-ping during train-ing only
+
+4.2. One-Shot Training Configuration 
+
+FSS-UBrain was trained under a one-shot episodic protocol: each episode contains exactly one labeled positive support slice for the selected target region. During training and validation, support and query slices were drawn from di ff erent cases. Im-ages were resized to 256 × 256. The model was trained for 150 epochs, with 3,600 training episodes and 720 validation episodes per epoch and a mini-batch size of four. AdamW used an initial learning rate of 10 −4, weight decay 10 −4, and numerical-stability constant 10 −6. The learning rate was lin-early warmed up for eight epochs and cosine-annealed to 10 −6.Gradients were clipped to a maximum norm of 0.5. Mixed pre-cision and an exponential moving average of model parameters with decay 0.995 were used during optimization and evaluation. The descriptor module used 100 primary FG descriptors and 300 primary BG descriptors. As defined in Section 3.2.2, two additional support-derived descriptors were appended to each FG and BG descriptor set. The descriptor grid size was 64, and the cosine-similarity scale was 20. To improve robustness when a queried region is absent, TC and ET episodes included hard-negative and fully negative queries. A hard-negative query contains WT tissue but no voxel of the selected target region, whereas a fully negative query contains no WT tissue. The hard-negative and fully negative sampling ratios were 0 .20 and 0 .10, respectively, during train-ing, and 0 .25 and 0 .15, respectively, during validation. Because a WT-empty slice contains no WT tissue by definition, WT has no distinct hard-negative category; its nominal hard-negative al-location is consequently sampled from the fully negative pool. Model selection was based on the mean Dice score of recon-structed three-dimensional validation volumes. The selected checkpoint was then evaluated using the final volume-level pro-tocol described below. 
+
+4.3. Volume-Level Evaluation and Post-Processing 
+
+Although FSS-UBrain performs two-dimensional support– query inference, all principal results were computed after re-constructing three-dimensional prediction volumes. Each query slice was processed independently, its predicted probability map was resized to the original in-plane resolution, and the maps were stacked along the original slice axis. For held-out BraTS20 evaluation, support slices were drawn exclusively from the BraTS20 training partition. Five deter-ministic one-shot support draws were evaluated for each test volume. For each retained external cohort, a fixed target-domain sup-port pool of ten labeled cases was selected once using seed 1337 after overlap auditing. These cases were excluded from query evaluation, yielding fixed query cohorts of 85 cases for BraTS-Africa and 1,241 cases for BraTS23. For BraTS-Africa, five deterministic one-shot support draws were constructed from the fixed support pool. For each draw and tumor region, one positive support slice was evaluated against the same 85-case query cohort. Region-level cohort means were first computed within each draw, after which the WT, TC, and ET results were averaged without weighting. Val-ues are reported as mean ± sample standard deviation across the five draws. For BraTS23, two deterministic one-shot support draws, cor-responding to seeds 1337 and 1338, were constructed from the fixed target-support pool. For each draw and tumor region, one positive support slice was evaluated against the same 1,241-case query cohort. Region-level cohort means were first com-puted within each draw, after which the WT, TC, and ET results were averaged without weighting. Values are reported as mean 
+
+± sample standard deviation across the two draws. The support pool, query cohort, and evaluated support con-10 figurations were shared across all compared methods within each experiment. No target-domain fine-tuning, gradient up-date, test-time parameter update, or query-label adaptation was performed. All compared models used the same final inference proto-col. Flip-based test-time augmentation averaged predictions from the original query slice, the horizontal flip, the vertical flip, and the simultaneous horizontal–vertical flip. The re-constructed probability volumes were smoothed only along the through-plane z-axis using a one-dimensional Gaussian filter with standard deviation σz = 1.0, measured in slices. Region-specific decision thresholds were selected exclu-sively on a fixed 12-case subset of the BraTS20 validation partition. Candidate thresholds were evaluated on the grid 
+
+{0.20 , 0.25 , 0.30 , 0.35 , 0.40 , 0.45 , 0.50 , 0.55 , 0.60 , 0.65 , 0.70 }
+
+under five deterministic support configurations (seeds 1337– 1341), flip-based test-time augmentation, through-plane Gaussian smoothing, and nested-region post-processing. Two coordinate-wise passes were used to optimize WT, TC, and ET thresholds; the selected values were then fixed for held-out and external evaluation. After region-specific thresholding, nested-region post-processing is applied to ensure anatomically consistent tumor predictions. The tumor core prediction is restricted to the pre-dicted whole-tumor region, and the enhancing-tumor prediction is subsequently restricted to the resulting tumor-core region. Consequently, the final enhancing-tumor region is always con-tained within the tumor core, and the tumor core is always con-tained within the whole-tumor region. This procedure removes hierarchically inconsistent voxels while preserving the clinical nesting relationship among the three BraTS regions. 
+
+4.4. Evaluation Metrics and Fair Comparison 
+
+All metrics in Table 2 were computed from final recon-structed and post-processed three-dimensional masks. For each clinical region r ∈ { WT , TC , ET }, Mr denotes the binary ref-erence volume mask and bMr denotes the corresponding final predicted binary volume mask; the hat indicates a model pre-diction. The voxel-wise counts T P , FP , T N , and FN denote true positives, false positives, true negatives, and false nega-tives, respectively. Each of these metrics characterizes segmentation quality only with respect to a specific property, and each is therefore blind to, or potentially misleading about, some other property. Overlap metrics quantify how much of the tumor volume is re-covered but are invariant to the spatial arrangement of the er-rors; surface-distance metrics describe boundary geometry but convey no information about the amount of correctly labeled volume and are undefined when exactly one mask is empty; precision and recall isolate the two error types that Dice ag-gregates, yet either one can be improved at the direct expense of the other; and background-oriented metrics saturate because background voxels dominate a brain MRI volume. Reporting a single figure of merit would consequently allow a model to appear strong while failing in a manner that the selected met-ric cannot express. This is the reason for reporting a panel of metrics rather than a single score. Accordingly, Table 2 states, for every metric, both the property that it captures and the prop-erty that it cannot capture. The panel is assembled so that no limitation of one metric is shared by all of the others: Dice and IoU quantify volumetric agreement, HD95 adds boundary ge-ometry in physical units, precision and recall decompose the er-ror into over- and under-segmentation, specificity summarizes background rejection, and FP-neg-rate isolates the target-absent behavior that none of the preceding metrics can represent. The limitations listed in the last column of Table 2 are consequently covered pairwise: the insensitivity of Dice and IoU to error lo-cation is covered by HD95; the exclusion of empty-reference pairs from HD95 is covered by FP-neg-rate; the conservative-prediction bias of precision is covered by recall and the over-segmentation bias of recall by precision, with Dice summariz-ing their balance; and the saturation of specificity under BG dominance is covered by FP-neg-rate, which reports the com-plementary false-positive fraction restricted to the pairs whose reference mask is empty. Dice and HD95 are reported for every method in the comparative experiments, whereas the remaining metrics are reported for the negative-query sensitivity analysis of Section 5.8, in which the trade-o ff between foreground re-covery and target-absent false-positive suppression is examined explicitly. For jointly empty prediction–reference pairs, Dice, IoU, pre-cision, and recall were assigned a value of one, whereas HD95 was assigned a value of zero. When the reference mask was non-empty but the prediction was empty, precision was as-signed a value of zero. When the reference mask was empty but the prediction was non-empty, recall was assigned a value of zero. When exactly one mask was empty, HD95 was unde-fined and excluded from the finite-pair HD95 summary. Con-sequently, the reported HD95 values are conditional on this empty-mask convention and should be interpreted jointly with the corresponding Dice results. Specificity was assigned a value of one when its denominator was zero. These conventions were applied identically to all evaluated methods and configurations. Because these conventions determine the reported values in ex-actly the degenerate cases identified in the third column of Ta-ble 2, the metrics should be interpreted as a coordinated panel rather than individually, and the comparative claims in Sec-tion 5 are reported together with the complementary metrics of the panel wherever these are available. For the extended metric analysis, IoU, precision, recall, and specificity were computed separately for each reconstructed test volume, tumor region, and one-shot support draw. For each re-gion, the reported value was obtained by averaging over all test-volume–support-draw pairs. The corresponding mean value was subsequently calculated as the unweighted mean of the WT, TC, and ET regional results. FP-neg-rate was evaluated only on volume–region–support-draw pairs with an empty reference mask. Within each eligible region, false-positive and total voxel counts were pooled be-fore computing the regional rate. The reported mean rate was then obtained as the unweighted average over eligible regions; WT contributed only when a WT-empty reference volume was present. Fairness was enforced through a common BraTS20 split, 11 Table 2: Definitions, main advantages, and main limitations of the volume-level evaluation metrics. 
+
+Evaluation Metric and Formula Main Advantages Main Limitations Dice coe ffi cient. This overlap measure is defined as (Milletari et al., 2016; Taha and Hanbury, 2015) Dice( Mr , bMr ) = 2T P + ϵ3
+
+2T P + FP + FN + ϵ3
+
+, (10) where ϵ3 = 10 −6 is the small constant used for numerical stability. Dice is the voxel-wise F1 score of the predicted FG region and is reported as a percentage. Primary overlap measure for imbal-anced binary segmentation; weights FP 
+
+and FN equally while excluding T N , so it is not inflated by the large BG volume; comparable in scale with the BraTS lit-erature. Invariant to error location; merges over- and under-segmentation into one value; unstable for sparse re-gions such as ET; degenerate for jointly empty pairs. 
+
+HD95. The 95th-percentile Hausdor ff distance is defined as (Taha and Han-bury, 2015) HD95( Mr , bMr ) = Q0.95 
+
+D(∂Mr , ∂ bMr ) ⊎ D (∂ bMr , ∂ Mr ) , (11) where ⊎ denotes concatenation with multiplicities preserved, Q0.95 returns the 95th percentile of the resulting distance collection, whereas ∂Mr and 
+
+∂ bMr denote the surfaces of the reference and predicted masks, respectively. For two surfaces A and B, D(A, B) denotes the collection of directed nearest-surface distances from A to B.Robust surface-distance measure in physical space that reduces sensitivity to isolated outlier voxels; interpretable as a clinical margin; sensitive to the geomet-ric placement of errors that overlap met-rics cannot express. Undefined when exactly one mask is empty, yielding a finite-pair sum-mary over a varying subset; con-veys no volumetric information; de-pends on voxel spacing; the dis-carded 5% tail may hide extreme deviations. 
+
+Intersection over union (IoU). The overlap between prediction and refer-ence is (Taha and Hanbury, 2015) IoU( Mr , bMr ) = T P T P + FP + FN . (12) Also known as the Jaccard index, it satisfies IoU = Dice /(2 − Dice) for an individual volume–region pair, with both quantities expressed as fractions. Supplementary overlap measure that pe-nalizes false positives and false nega-tives symmetrically; stricter than Dice, hence separates methods whose Dice values are compressed near the upper end of the scale. Monotone transform of Dice per pair and therefore largely redun-dant; shares the insensitivity of Dice to error location; absolute val-ues are not comparable with Dice-based results reported elsewhere. 
+
+Precision. The reliability of predicted FG voxels is given by (Taha and Hanbury, 2015) Precision( Mr , bMr ) = T P T P + FP . (13) It is equivalently the positive predictive value. Proportion of predicted FG voxels that are correct; isolates the FP compo-nent that Dice merges with FN , thereby quantifying over-segmentation. Driven close to its maximum by conservative predictions, hence un-informative unless read jointly with recall; degenerate on target-absent pairs; disregards the spatial distri-bution of false positives. 
+
+Recall. The recovery of reference FG voxels is (Taha and Hanbury, 2015) Recall( Mr , bMr ) = T P T P + FN . (14) It is equivalently the sensitivity or true-positive rate. Proportion of reference FG voxels re-covered by the prediction; quantifies under-segmentation, the error type with the greatest clinical cost in surgical and radiotherapy planning. Attains its maximum for any model labeling the entire brain as FG; en-tirely insensitive to false positives; degenerate on target-absent pairs. 
+
+Specificity. The correct rejection of BG voxels is (Taha and Hanbury, 2015) Specificity( Mr , bMr ) = T N T N + FP . (15) It is equivalently the true-negative rate. Proportion of BG voxels correctly re-jected as BG; describes the negative class, which the overlap metrics ex-clude; provides a volume-wide check against indiscriminate FG activation. Saturates near 100% because BG voxels dominate the volume, hence off ers little resolution among mod-els; a high value may still cor-respond to a clinically significant number of false-positive voxels. 
+
+FP-neg-rate. For a volume–region pair with an empty reference mask, FP-neg-rate is defined as the fraction of all voxels that are incorrectly predicted as FG. Mathematically, FP-neg-rate is expressed as (Hartmann et al., 2023) FP-neg-rate( Mr , bMr ) = FP FP + T N , |Mr | = 0, (16) where |Mr | denotes the number of FG voxels in the reference volume mask. False-positive FG fraction on volume– region pairs whose reference mask is empty; the only metric in the panel that isolates target-absent reliability, on which the overlap metrics are degener-ate; directly probes the failure mode that negative-query training is designed to suppress. Defined only on the empty-reference subset, so regional averages rest on unequal sample sizes and are dominated by TC and ET; blind to the spatial clustering and clinical severity of the false positives; attains a perfect value for a model that predicts no FG voxel anywhere. 
+
+region-mask construction, preprocessing pipeline, input resolu-tion, validation-only threshold calibration, volume reconstruc-tion, post-processing procedure, and metric implementation. Within each experiment, support-conditioned methods used the same fixed support pool, one-shot support configurations, and query cohort. Methods that do not require a support image were evaluated through the same query-volume pipeline without a support input. The common query-volume pipeline controls data handling and evaluation. The labeled support input re-mains an explicit requirement of support-conditioned methods and is not used by non-FSS models; this model-specific input requirement is reported as part of the comparison rather than treated as a shared input. 
+
+5. Numerical Results 
+
+Unless otherwise stated, all results were obtained from re-constructed three-dimensional volumes using the protocol in Section 4.3. All dimensionless metrics, including Dice, IoU, precision, recall, specificity, and FP-neg-rate, are reported as percentages, whereas HD95 is reported in millimeters. The pri-mary FSS-UBrain configuration uses hard-/fully-negative sam-12 pling ratios of 20 /10 during training and 25 /15 during valida-tion. 
+
+5.1. Training and Validation Dynamics on BraTS20 
+
+Figure 4 summarizes training loss, validation slice Dice, and validation volume Dice. The losses decrease and the valida-tion curves approach stable regimes under the selected sched-ules. Because the methods optimize di ff erent objectives, abso-lute loss values are not directly comparable across models. The volume-level validation curves identify the checkpoints used in the subsequent evaluations and are interpreted as optimiza-tion diagnostics rather than as evidence of comparative conver-gence. Checkpoint selection was based on reconstructed vali-dation volumes rather than on isolated slice predictions. 
+
+5.2. In-Domain Comparison with Few-Shot Baselines 
+
+Table 3 compares FSS-UBrain with ALPNet (Ouyang et al., 2020), PANet (Wang et al., 2019), Q-Net (Shen et al., 2023), CATNet (Lin et al., 2023b), and GMRD (Cheng et al., 2024) on the held-out BraTS20 cohort. All methods use the shared volume-level protocol in Section 4.3; for FSS-UBrain, the reported values correspond to the fixed primary hard-/fully-negative configuration of 20 /10 during training and 25 /15 dur-ing validation. FSS-UBrain achieves the highest Dice and lowest HD95 point estimates for all three regions in Table 3. Its Dice scores are 89 .82 ± 0.03, 82 .14 ± 4.35, and 77 .42 ± 3.42 for WT, TC, and ET, respectively, with corresponding HD95 values of 11 .12 ± 0.08, 9 .01 ± 0.70, and 4 .46 ± 1.63 mm. The largest Dice point-estimate margin occurs for ET, where FSS-UBrain exceeds the strongest competing few-shot baseline by 8 .08 per-centage points. The lower HD95 point estimates indicate that the overlap improvements are accompanied by closer boundary agreement. 
+
+5.3. BraTS20 Comparison with Non-FSS Baselines 
+
+Table 4 compares the same fixed FSS-UBrain configuration with U-Net (Ronneberger et al., 2015), UNet ++ (Zhou et al., 2019), TransUNet (Chen et al., 2021), SwinUNet (Cao et al., 2022), VMUNet (Ruan et al., 2025), and the Segment Anything Model (SAM) (Kirillov et al., 2023) on the held-out BraTS20 query cohort. All reported comparisons use the cohort, support, reconstruction, and metric definitions specified in Section 4.3. FSS-UBrain achieves the highest WT Dice (89 .82) and ET Dice (77 .42) in Table 4. It also attains the lowest ET HD95 (4 .46 mm). SAM (Kirillov et al., 2023) achieves the strongest TC Dice (84 .83) and the lowest WT and TC HD95 (4 .25 and 4.86 mm), respectively. Therefore, the comparison does not in-dicate uniform dominance by a single model across all regions and metrics. Rather, FSS-UBrain provides the strongest WT and ET overlap and the most accurate ET boundary distance among the listed methods, while SAM remains stronger on TC and on the WT /TC surface-distance measures. 
+
+5.4. Target-Supported Cross-Cohort Evaluation 
+
+Table 5 evaluates transfer beyond the BraTS20 source cohort. For each external cohort, ten labeled target cases were reserved as a case-disjoint support pool and excluded from query eval-uation. BraTS-Africa used five deterministic support draws on the remaining 85 cases, whereas BraTS23 used two determin-istic support draws on the remaining 1,241 cases. FSS-UBrain achieves the highest mean Dice and lowest finite-pair mean HD95 point estimates on both external co-horts. On BraTS-Africa, it obtains 78 .04 ± 0.77 Dice and 11 .03 ±0.43 mm HD95 across five support draws. On BraTS23, it obtains 83 .41 ± 0.26 Dice and 7 .86 ± 0.05 mm HD95 across two support draws. 
+
+5.5. E ff ect of Source Versus Target Support on BraTS-Africa 
+
+Table 6 examines how the provenance of the labeled support examples a ff ects cross-cohort inference. Source support refers to support slices drawn from the BraTS20 training partition, whereas target support refers to support slices drawn from re-served, case-disjoint target-domain cases. In this BraTS-Africa analysis, target support is drawn from a reserved pool of ten la-beled BraTS-Africa cases. In both support conditions, the ten reserved BraTS-Africa cases are excluded from the query set, leaving the same 85-case BraTS-Africa query cohort for every method and support condition. Five deterministic one-shot sup-port draws are evaluated under each condition. Thus, the com-parison changes only the provenance of support evidence while preserving the query cases, inference pipeline, post-processing, and metric aggregation. For FSS-UBrain, replacing source support with target sup-port increases the mean Dice point estimate from 74 .55 ± 2.47 to 78 .04 ±0.77 and reduces the mean HD95 point estimate from 13 .03 ± 1.33 to 11 .03 ± 0.43 mm. Under target support, FSS-UBrain achieves the highest mean Dice point estimate and the lowest mean HD95 point estimate among the compared meth-ods. Because the query cohort, model parameters, and infer-ence procedure are unchanged, these di ff erences are associated with support provenance under the stated protocol. The e ff ect of target support is method dependent. Tar-get support increases the mean Dice point estimate for ALP-Net (Ouyang et al., 2020), PANet (Wang et al., 2019), GMRD (Cheng et al., 2024), and FSS-UBrain but decreases it for Q-Net (Shen et al., 2023) and CATNet (Lin et al., 2023b). HD95 changes are likewise non-uniform. These results indicate that support provenance can alter one-shot predictions, but they do not establish universal superiority of target support. 
+
+5.6. Component Ablation on BraTS20 
+
+Table 7 quantifies the contribution of the main components on BraTS20. DMP denotes the descriptor-matching pathway of the support-conditioned descriptor-adaptation block described in Section 3.2.2, which performs multi-descriptor FG–BG matching; SGB denotes the support-guided bottleneck, PC de-notes the pyramid-context module, and BR denotes boundary-guided refinement. 13 Epoch 0 30 60 90 120 150 0.00 0.25 0.50 0.75 1.00 Train loss       
+
+> PANet ALPNet GMRD CATNet FSS-UBrain Q-Net
+> 120 125 130 135 140 145 150 0.06 0.08 0.1 0.12 0.14
+
+Epoch 0 30 60 90 120 150 0.00 0.25 0.50 0.75 1.00 Val slice Dice       
+
+> PANet ALPNet GMRD CATNet FSS-UBrain Q-Net
+> 120 125 130 135 140 145 150 0.75 0.8 0.85
+
+Epoch 0 30 60 90 120 150 0.00 0.25 0.50 0.75 1.00 Val volume Dice     
+
+> PANet ALPNet GMRD CATNet FSS-UBrain Q-Net 120 130 140 150 0.7 0.72 0.74 0.76 0.78
+
+(a) Training loss (b) Validation slice Dice (c) Validation volume Dice Figure 4: Training and validation dynamics of the compared models on BraTS20. Table 3: BraTS20 few-shot results reported as mean ± sample standard deviation over five deterministic support draws. Best point estimates are bold. 
+
+WT TC ET Model Dice HD95 Dice HD95 Dice HD95 
+
+ALPNet (Ouyang et al., 2020) 76 .38 ± 6.39 41 .48 ± 3.86 56 .74 ± 10 .96 47 .80 ± 18 .76 47 .88 ± 4.35 36 .36 ± 23 .24 PANet (Wang et al., 2019) 80 .44 ± 5.38 32 .48 ± 2.46 75 .33 ± 2.06 26 .14 ± 7.86 62 .65 ± 2.78 15 .65 ± 2.64 Q-Net (Shen et al., 2023) 82 .74 ± 0.58 37 .23 ± 1.53 66 .53 ± 10 .30 45 .36 ± 4.22 55 .06 ± 3.23 40 .43 ± 3.15 CATNet (Lin et al., 2023b) 82 .48 ± 0.10 37 .70 ± 0.98 68 .89 ± 2.60 39 .01 ± 14 .16 69 .34 ± 1.17 18 .08 ± 5.25 GMRD (Cheng et al., 2024) 85 .98 ± 1.05 26 .13 ± 3.64 79 .09 ± 1.20 24 .16 ± 5.95 68 .95 ± 7.75 15 .57 ± 9.13 FSS-UBrain (ours) 89 .82 ± 0.03 11 .12 ± 0.08 82 .14 ± 4.35 9.01 ± 0.70 77 .42 ± 3.42 4.46 ± 1.63 
+
+Table 4: BraTS20 volume-level Dice and HD95 for non-FSS baselines and FSS-UBrain. The best point estimate in each column is shown in bold. 
+
+WT TC ET Model Dice HD95 Dice HD95 Dice HD95 
+
+U-Net (Ronneberger et al., 2015) 86.20 28.01 80.20 25.78 75.72 17.65 UNet ++ (Zhou et al., 2019) 86.35 27.61 80.61 27.68 74.77 23.74 TransUNet (Chen et al., 2021) 82.72 40.91 75.24 39.16 70.43 16.79 SwinUNet (Cao et al., 2022) 84.29 24.24 74.01 23.28 68.23 19.07 VMUNet (Ruan et al., 2025) 88.32 18.41 80.77 20.97 75.09 13.44 SAM (Kirillov et al., 2023) 86.06 4.25 84.83 4.86 68.74 4.75 FSS-UBrain (ours) 89.82 11.12 82.14 9.01 77.42 4.46 
+
+The full model obtains the highest mean Dice (83 .13) and the lowest mean HD95 (8 .20 mm). Removing DMP yields the largest observed Dice reduction (0 .80 percentage points), sup-porting the contribution of multi-descriptor matching under the evaluated configuration. Removing SGB produces the largest HD95 increase (1 .76 mm), while the removal of PC or BR also degrades both overlap and boundary accuracy. These point-estimate changes are consistent with complementary contribu-tions from descriptor matching, support interaction, contextual aggregation, and boundary refinement under the evaluated con-figuration. 
+
+5.7. Qualitative Comparison 
+
+Figure 5 provides illustrative support–query examples for WT, TC, and ET across the compared few-shot methods. Each block shows the support FLAIR image and its corresponding 
+
+Table 5: Target-supported cross-cohort mean results. BraTS-Africa values are mean ± sample standard deviation over five deterministic support draws; BraTS23 values are mean ± sample standard deviation over two deterministic support draws (seeds 1337 and 1338). Best point estimates are bold.                                                                              
+
+> BraTS-Africa BraTS23 Model Mean Dice Mean HD95 Mean Dice Mean HD95
+> ALPNet (Ouyang et al., 2020) 66 .83 ±0.85 40 .40 ±2.05 69 .15 ±4.32 40 .50 ±4.10 PANet (Wang et al., 2019) 74 .37 ±1.08 16 .29 ±1.01 76 .77 ±0.28 21 .94 ±1.17 Q-Net (Shen et al., 2023) 68 .83 ±6.04 28 .94 ±0.43 71 .02 ±0.76 42 .39 ±0.02 CATNet (Lin et al., 2023b) 70 .65 ±2.01 26 .56 ±1.95 71 .34 ±0.43 36 .21 ±2.61 GMRD (Cheng et al., 2024) 77 .65 ±0.86 18 .46 ±1.14 81 .84 ±0.98 13 .44 ±1.01 FSS-UBrain (ours) 78 .04 ±0.77 11 .03 ±0.43 83 .41 ±0.26 7.86 ±0.05
+
+mask, followed by the query FLAIR image, query reference mask, and prediction. The examples complement the volume-level results by illustrating the spatial behavior of the competing methods. In the displayed examples, FSS-UBrain yields predictions that more closely follow the reference masks for the selected TC and ET cases, whereas some baseline predictions show in-complete recovery or displaced boundaries. 
+
+5.8. Post-Hoc Sensitivity Analysis of Negative-Query Sampling 
+
+Table 8 reports a post-hoc sensitivity analysis of five negative-query training configurations, together with the fixed primary configuration used in the principal comparisons. All configurations were evaluated on the same held-out BraTS20 test split using five deterministic one-shot support draws. The analysis examines the empirical trade-o ff among volumetric 14 WT TC ET 
+
+FSS-UBrain     
+
+> SP FLAIR SP Mask Query FLAIR Query GT Query Pred
+
+ALPNet     
+
+> SP FLAIR SP Mask Query FLAIR Query GT Query Pred
+> WT TC ET
+
+PANet     
+
+> SP FLAIR SP Mask Query FLAIR Query GT Query Pred
+
+CATNet     
+
+> SP FLAIR SP Mask Query FLAIR Query GT Query Pred
+> WT TC ET
+
+GMRD     
+
+> SP FLAIR SP Mask Query FLAIR Query GT Query Pred
+
+Q-Net     
+
+> SP FLAIR SP Mask Query FLAIR Query GT Query Pred
+> Figure 5: Qualitative few-shot comparisons using four-modality MRI input; only FLAIR is displayed. SP denotes support, GT ground truth, and Pred prediction.
+
+overlap, boundary agreement, foreground sensitivity, back-ground rejection, and false-positive activation on target-absent volumes. It does not replace the fixed primary 20 /10 /25 /15 configuration used for the benchmark comparisons. The ratio columns are ordered as training hard-negative, training fully negative, validation hard-negative, and validation fully nega-tive. Training without target-empty queries produces the weak-est results, including a mean Dice of 75 .46, a mean HD95 of 41 .97 mm, and an FP-neg-rate of 0 .35. Adding hard-negative or fully negative queries is associated with improved overlap, sur-face agreement, and false-positive control. The fixed primary configuration, 20 /10 /25 /15, yields a mean Dice of 83 .13, a mean HD95 of 8 .20 mm, and the lowest FP-neg-rate in the table (0 .10). Relative to this primary configuration, the 30 /15 /35 /20 setting increases mean Dice by 1 .06 percentage points and re-duces mean HD95 by 0 .59 mm, although its FP-neg-rate is slightly higher. TC and, particularly, ET occupy only a limited subset of axial slices in a BraTS volume; many slices are there-fore empty for the selected target region. The higher-ratio result is consistent with the possibility that more frequent exposure to target-absent queries better reflects this slice-wise composi-tion. Accordingly, di ff erent balances of hard-negative and fully negative episodes are associated with substantial di ff erences in aggregate volume-level Dice and HD95. 
+
+5.9. Computational Complexity of Component Ablations 
+
+All complexity values in this subsection and the following subsection were profiled in inference mode with batch size one. Each image input is a four-channel 4 ×256 ×256 MRI slice. For 15 Table 6: BraTS-Africa mean results under source and target support (mean ±                                                                                         
+
+> sample standard deviation over five draws; same 85 query cases). Best point estimates within each support condition are bold.
+> Source support Target support Model Mean Dice Mean HD95 Mean Dice Mean HD95
+> ALPNet (Ouyang et al., 2020) 61 .32 ±2.82 38 .07 ±11 .75 66 .83 ±0.85 40 .40 ±2.05 PANet (Wang et al., 2019) 73 .05 ±1.71 16 .90 ±0.77 74 .37 ±1.08 16 .29 ±1.01 Q-Net (Shen et al., 2023) 70 .60 ±2.49 29 .45 ±1.29 68 .83 ±6.04 28 .94 ±0.43 CATNet (Lin et al., 2023b) 72 .59 ±1.21 25 .82 ±3.46 70 .65 ±2.01 26 .56 ±1.95 GMRD (Cheng et al., 2024) 76 .62 ±2.18 18 .33 ±2.43 77 .65 ±0.86 18 .46 ±1.14 FSS-UBrain (ours) 74 .55 ±2.47 13 .03 ±1.33 78 .04 ±0.77 11 .03 ±0.43
+> Table 7: BraTS20 mean component-ablation results across WT, TC, and ET. Best point estimates are bold.
+> Metric Full model w/o DMP w/o SGB w/o PC w/o BR
+> Mean Dice 83.13 82.33 82.42 82.75 82.98 Mean HD95 8.20 9.27 9.96 9.86 9.59
+
+support-conditioned methods, one measurement corresponds to a one-shot episode comprising one support image, its binary support mask, and one query image; methods without a labeled support input are profiled on one query image. The reported floating-point operations (FLOPs) and multiply–accumulate operations (MACs), reported in units of 10 9 as GFLOPs and GMACs, include only the neural-network forward pass and exclude flip-based test-time augmentation, probability-volume reconstruction, smoothing, thresholding, nested-region post-processing, and data input /output. Accordingly, they describe standardized model-side operation counts rather than end-to-end wall-clock latency. Table 9 reports the computational footprint of the full model and the principal component ablations under this common pro-filing convention. Removing DMP produces the largest reduc-tion in parameters and operations, whereas PC also contributes materially to the total footprint. In contrast, removing SGB or BR changes the measured complexity only modestly. 
+
+5.10. Model-Level Complexity and Accuracy–E ffi ciency Trade-Off 
+
+Table 10 places FSS-UBrain in the context of the compared architectures under the profiling convention stated above. For support-conditioned methods, the reported cost includes one support–query episode; for methods without a labeled support input, it corresponds to one query-slice forward pass. The val-ues therefore make the di ff erent inference pathways explicit and should not be interpreted as direct end-to-end latency measure-ments. FSS-UBrain has 42 .65 million parameters, 352 .05 GFLOPs, and 176 .03 GMACs. Its parameter count is lower than those of ALPNet (Ouyang et al., 2020), CATNet (Lin et al., 2023b), Q-Net (Shen et al., 2023), VMUNet (Ruan et al., 2025), SAM (Kirillov et al., 2023), TransUNet (Chen et al., 2021), and GMRD (Cheng et al., 2024), while its operation count is lower than those of SAM (Kirillov et al., 2023), Q-Net (Shen et al., 2023), and GMRD (Cheng et al., 2024). Conversely, it requires more forward-pass computation than lightweight few-shot baselines such as PANet (Wang et al., 2019) and ALPNet (Ouyang et al., 2020). Because support-conditioned measurements include both a support pathway and a query pathway, whereas non-FSS measurements contain only a query pathway, these values should be interpreted as stan-dardized model-side costs rather than directly comparable end-to-end latency. They nonetheless make the cost of support-conditioned adaptation explicit. 
+
+6. Discussion 
+
+The results demonstrate that a single labeled support slice can provide e ff ective region-specific guidance for volumetric WT, TC, and ET segmentation. Under the controlled volume-level evaluation protocol, FSS-UBrain achieves the highest Dice and lowest HD95 point estimates among the evaluated few-shot methods for all three regions on the held-out BraTS20 split. The consistently strong WT results indicate that the model can e ff ectively exploit support information for a spatially exten-sive tumor region. The greater support-draw variation observed for TC and ET further highlights the importance of represen-tative support selection for smaller and more heterogeneous subregions. Overall, these findings support region-conditioned one-shot inference for multi-region brain tumor segmentation. The component-ablation results support the complementary roles of the proposed architectural modules. Removing de-scriptor matching produces the largest observed reduction in mean Dice, emphasizing the importance of representing hetero-geneous foreground and background appearance through multi-ple support-derived descriptors. Removing the support-guided bottleneck produces the largest increase in mean HD95, show-ing that deep support–query interaction contributes substan-tially to boundary localization. The performance reductions observed after removing the pyramid-context or boundary-refinement module further indicate that contextual aggregation and boundary-aware correction complement descriptor match-ing and decoder-side reconstruction. Together, these results support the integrated FSS-UBrain architecture rather than re-liance on any individual component. The non-FSS comparison provides a broader contextual as-sessment across di ff erent supervision and inference paradigms. FSS-UBrain achieves the strongest WT and ET overlap and the lowest ET HD95 in this comparison, whereas SAM (Kirillov et al., 2023) achieves the strongest TC Dice and lower WT and TC surface distances. These results show that FSS-UBrain is particularly e ff ective for support-conditioned WT and ET delin-eation, while also illustrating the complementary strengths of fully supervised and support-conditioned approaches. Impor-tantly, FSS-UBrain obtains these results by conditioning each prediction on one labeled support example, thereby provid-ing explicit region-specific evidence without requiring target-domain parameter updates. The cross-cohort experiments demonstrate that FSS-UBrain retains strong performance beyond the BraTS20 source cohort. Under target-supported evaluation, FSS-UBrain achieves the 16 Table 8: BraTS20 sensitivity to hard- and fully negative-query sampling. Mean Dice and mean HD95 are unweighted averages across WT, TC, and ET; ratios denote training hard /full and validation hard /full sampling. Best point estimates are bold.                                                                                                                                      
+
+> Cohort Train Hard Neg Train Full Neg Val Hard Neg Val Full Neg Mean Dice Mean HD95 Mean IoU Precision Recall Specificity FP-neg-rate
+> BraTS20 000075.46 41.97 63.93 72.82 83.33 99.89 0.35 20 025 082.72 10.68 73.91 82.11 86.99 99.93 0.16 010 015 81.52 12.81 72.41 80.68 86.57 99.92 0.23 10 515 10 83.21 11.42 74.27 82.09 87.06 99.93 0.15 20 10 25 15 83.13 8.20 74.34 82.59 86.81 99.93 0.10
+> 30 15 35 20 84.19 7.61 75.90 83.75 87.45 99.94 0.12 Table 9: Model-side complexity of FSS-UBrain ablations per 4 ×256 ×256 one-shot support–query episode at batch size one. Test-time augmentation and volume post-processing are excluded. Lowest values are bold.
+> Model Params (M) FLOPs (G) MACs (G)
+> Without DMP 19.83 200.45 100.22
+> Without SGB 41.82 351.05 175.53 Without PC 36.88 328.39 164.19 Without BR 42.61 347.00 173.50 FSS-UBrain (Full model) 42.65 352.05 176.03 Table 10: Model-side complexity at batch size one. Support-conditioned meth-ods are profiled per support–query episode and non-FSS methods per query slice; test-time augmentation and volume post-processing are excluded. Lowest values are bold separately for the non-FSS group (upper block, including SAM) and the support-conditioned group (lower block, including FSS-UBrain).
+> Model Params (M) FLOPs (G) MACs (G)
+> SwinUNet (Cao et al., 2022) 6.94 6.90 3.45
+> U-Net (Ronneberger et al., 2015) 7.70 73.91 36.96 UNet ++ (Zhou et al., 2019) 36.62 276.83 138.42 TransUNet (Chen et al., 2021) 105.32 77.09 38.55 VMUNet (Ruan et al., 2025) 44.28 19.66 9.82 SAM (Kirillov et al., 2023) 93.74 976.50 488.25 ALPNet (Ouyang et al., 2020) 43.03 180.09 90.50 PANet (Wang et al., 2019) 14.72 102.07 51.00
+> CATNet (Lin et al., 2023b) 45.80 191.33 95.66 Q-Net (Shen et al., 2023) 46.13 533.00 266.50 GMRD (Cheng et al., 2024) 100.03 574.01 287.01 FSS-UBrain (ours) 42.65 352.05 176.03
+
+highest mean Dice and lowest finite-pair mean HD95 point es-timates on both BraTS23 and BraTS-Africa among the com-pared few-shot methods. These results show that labeled target support can adapt the prediction process to cohort-specific im-age and tumor characteristics while keeping the learned model parameters fixed. The strong performance on BraTS-Africa is particularly relevant because this cohort introduces acquisition and population di ff erences relative to the BraTS20 source co-hort. The matched-cohort BraTS-Africa experiment further em-phasizes the importance of support provenance. For FSS-UBrain, replacing source support with target support increases the mean Dice point estimate from 74 .55 to 78 .04 and reduces the mean HD95 point estimate from 13 .03 to 11 .03 mm under the same query cohort, model parameters, inference procedure, and post-processing protocol. Several comparison methods also exhibit favorable changes in at least one metric when target sup-port is used, suggesting that support examples drawn from the target cohort can provide more cohort-aligned appearance and anatomical evidence for multiple architectures. However, the magnitude and direction of the changes remain method depen-dent, as also observed for CATNet (Lin et al., 2023b). The ability to benefit from target support therefore depends on how eff ectively each architecture represents and transfers support in-formation. These findings position support selection as a central ele-ment of the one-shot segmentation protocol. An informative support example should contain the selected region, provide a reliable annotation, and represent the appearance and boundary characteristics of the target cohort. This consideration is par-ticularly important for TC and ET because their smaller extent and greater heterogeneity make their support-derived represen-tations more sensitive to the selected case and slice. Carefully selected target-cohort support can therefore align one-shot in-ference with cohort-specific tumor appearance without modify-ing the trained parameters. The negative-query experiments demonstrate the importance of explicitly representing target absence during episodic learn-ing. Training without target-empty queries produces the weak-est mean Dice and HD95 results and the highest FP-neg-rate. Hard-negative queries help the model distinguish the selected TC or ET region from other non-target tumor tissue, whereas fully negative queries provide direct supervision for suppress-ing foreground activation when no tumor tissue is present. Combining these query types therefore provides complemen-tary evidence for foreground localization and background re-jection. The primary 20 /10 /25 /15 configuration achieves the lowest FP-neg-rate, whereas the higher-ratio 30 /15 /35 /20 configura-tion achieves the highest mean Dice and lowest mean HD95 with a slightly higher FP-neg-rate. This pattern reveals a mean-ingful balance between foreground recovery and conservative false-positive suppression. This trade-o ff also illustrates the complementary role of the reported metrics discussed in Sec-tion 4.4. Specificity remains within 99 .89–99 .94 across all six configurations in Table 8, including the configuration trained without any target-empty query, because BG voxels dominate the volume; it therefore o ff ers little resolution among the con-figurations. The same behavior is expressed far more legibly by FP-neg-rate, which spans 0 .35 to 0 .10 over these configu-rations, a 3 .5-fold range. Reporting overlap, surface-distance, 17 and target-absent metrics jointly is thus necessary to character-ize the e ff ect of negative-query sampling. More broadly, the sensitivity results show that the composition of positive, hard-negative, and fully negative episodes is an important design fac-tor for region-wise FSS, especially for sparse tumor subregions that are absent from many axial slices. Model-side profiling places these accuracy gains in the con-text of computational cost. FSS-UBrain requires 42 .65 mil-lion parameters, 352 .05 GFLOPs, and 176 .03 GMACs per one-shot support–query episode. Its parameter count is lower than those of ALPNet (Ouyang et al., 2020), CATNet (Lin et al., 2023b), Q-Net (Shen et al., 2023), VMUNet (Ruan et al., 2025), SAM (Kirillov et al., 2023), TransUNet (Chen et al., 2021), and GMRD (Cheng et al., 2024). Its operation count is also lower than those of several computationally intensive compared archi-tectures. The component-level profiling shows that descriptor matching accounts for the largest share of the additional com-putation, which is consistent with its substantial contribution to segmentation performance. E ffi cient descriptor construction and reuse of support representations therefore provide promis-ing directions for reducing the computational cost of support-conditioned inference. Several limitations also define opportunities for further de-velopment. First, FSS-UBrain operates on two-dimensional slices, whereas explicit through-plane or fully volumetric mod-eling could provide richer three-dimensional anatomical con-text. Second, one-shot performance depends on the represen-tativeness and annotation quality of the selected support exam-ple. Multi-shot support aggregation, uncertainty-aware support weighting, and automatic support selection could improve ro-bustness to support variation. Third, target-supported inference requires a small number of labeled target cases, which should be considered when deploying the method in new clinical co-horts. Fourth, descriptor-based adaptation and support-guided interaction introduce additional computational cost, motivating more e ffi cient support encoding, descriptor construction, and representation reuse. Finally, the present quantitative evaluation focuses on co-horts whose labels can be harmonized with the WT, TC, and ET definitions used in BraTS20. BraTS24 was excluded because its post-treatment ontology includes a distinct resection-cavity label (de Verdier et al., 2024). Extending the framework to post-treatment imaging will therefore require task-specific modeling of the additional clinical labels rather than direct reuse of the pre-treatment composite regions. 
+
+7. Conclusion 
+
+This work introduced FSS-UBrain, a region-wise one-shot segmentation framework for WT, TC, and ET delineation from multimodal brain MRI. The method combines a shared resid-ual encoder, support-derived FG and BG descriptors, support-guided bottleneck interaction, descriptor-gated decoding, and boundary-guided refinement. Episodic training additionally uses hard-negative and fully negative queries with empty-query regularization to reduce spurious foreground activation when the selected region is absent. All principal comparisons were conducted after three-dimensional reconstruction, with validation-only threshold cal-ibration and a fixed inference and post-processing protocol. On held-out BraTS20, FSS-UBrain achieves the highest Dice and lowest HD95 point estimates among the evaluated few-shot methods for WT, TC, and ET. Under target-supported cross-cohort evaluation, it also achieves the highest mean Dice and lowest finite-pair mean HD95 point estimates on BraTS23 and BraTS-Africa. Component ablations are consistent with com-plementary contributions from descriptor matching, support-guided interaction, contextual aggregation, and boundary re-finement. Negative-query sensitivity analysis identifies a trade-off between overlap accuracy and false-positive suppression. These findings are specific to a two-dimensional, target-supported one-shot setting and do not constitute evidence of annotation-free or fully volumetric generalization. BraTS24 was not included in the quantitative WT /TC /ET comparison be-cause its post-treatment ontology contains a distinct resection-cavity label (de Verdier et al., 2024). This work suggests several research directions for future work. A first direction is a 2.5D extension that incorporates neighboring slices to provide through-plane context while re-taining slice-level prediction. A further direction is a fully three-dimensional framework that constructs support descrip-tors from annotated subvolumes and conditions volumetric query features. These extensions would allow us to examine whether explicit inter-slice information improves the continu-ity of tumor predictions and the delineation of small or irreg-ular regions. Such extensions will require consideration of the increased memory and computational costs, the spatial extent of support annotations, and the sampling of target-present and target-empty subvolumes. Multi-shot and uncertainty-aware support aggregation, together with e ffi cient reuse of support representations, will also be investigated. Evaluation across independent training runs and broader clinical cohorts will be pursued, with task-specific label definitions for post-treatment imaging. 
+
+CRediT authorship contribution statement 
+
+Truong Viet Vu: Conceptualization, Methodology, Software, Validation, Investigation, Writing – original draft. Nguyen Phuc Nguyen: Software, Validation, Data curation, Visualiza-tion. Dang Thi Thu Hang: Data curation, Investigation, Visual-ization. Tran Thien Thanh: Formal analysis, Writing – review & editing. Vo Nguyen Quoc Bao: Formal analysis, Writing – review & editing, Supervision. Nguyen Thai Anh: Conceptu-alization, Methodology, Writing – review & editing, Supervi-sion, Project administration. Ngo Hoang Tu: Conceptualiza-tion, Methodology, Writing – review & editing, Supervision, Funding acquisition. 
+
+Declaration of competing interest 
+
+The authors declare that they have no known competing fi-nancial interests or personal relationships that could have ap-peared to influence the work reported in this paper. 18 Acknowledgements 
+
+This research is funded by Van Lang University, Vietnam un-der grant number VLU-2604-DT-VLT-KCT-GV-0108. 
+
+References 
+
+Adewole, M., Rudie, J.D., Gbadamosi, A., Zhang, D., Raymond, C., Ajigboto-shso, J., Toyobo, O., Aguh, K., Omidiji, O., Akinola, R., et al., 2025. The BraTS-africa dataset: Expanding the brain tumor segmentation data to cap-ture african populations. Radiology Artif. Intell. 7, e240528. Bakas, S., Akbari, H., Sotiras, A., Bilello, M., Rozycki, M., Kirby, J.S., Frey-mann, J.B., Farahani, K., Davatzikos, C., 2017. Advancing the cancer genome atlas glioma MRI collections with expert segmentation labels and radiomic features. Sci. Data 4, 1–13. Bakas, S., Reyes, M., Jakab, A., Bauer, S., Rempfler, M., Crimi, A., Shino-hara, R.T., Berger, C., Ha, S.M., Rozycki, M., et al., 2018. Identifying the best machine learning algorithms for brain tumor segmentation, progression assessment, and overall survival prediction in the BraTS challenge. arXiv preprint arXiv:1811.02629 . Cao, H., Wang, Y., Chen, J., Jiang, D., Zhang, X., Tian, Q., Wang, M., 2022. Swin-UNet: UNet-like pure transformer for medical image segmentation, in: European Conference on Computer Vision, Springer. pp. 205–218. Center for Biomedical Image Computing and Analytics (CBICA), University of Pennsylvania, Accessed: Mar. 12, 2026. Multimodal brain tumor seg-mentation challenge 2020: Data. URL: https://www.med.upenn.edu/ cbica/brats2020/data.html .Chandrasekar, A., Zhu, Q., Radhika, T., Kamali, M., Subhashri, A.R., 2026. Passivity-based synchronization of Markovian jump inertial neural networks via adaptive event-driven protocol and its application to image encryption. Acta Mathematica Scientia 46, 1555–1580. Chen, J., Lu, Y., Yu, Q., Luo, X., Adeli, E., Wang, Y., Lu, L., Yuille, A.L., Zhou, Y., 2021. TransUNet: Transformers make strong encoders for medical image segmentation. arXiv preprint arXiv:2102.04306 . Chen, L.C., Papandreou, G., Schro ff , F., Adam, H., 2017. Rethinking atrous convolution for semantic image segmentation. arXiv preprint arXiv:1706.05587 . Cheng, Z., Wang, S., Xin, T., Zhou, T., Zhang, H., Shao, L., 2024. Few-shot medical image segmentation via generating multiple representative descrip-tors. IEEE Transactions on Medical Imaging 43, 2202–2214. Çiçek, Ö., Abdulkadir, A., Lienkamp, S.S., Brox, T., Ronneberger, O., 2016. 3D U-Net: learning dense volumetric segmentation from sparse annotation, in: International Conference on Medical Image Computing and Computer-Assisted Intervention, Springer. pp. 424–432. Debnath, R.K., Rahman, M.A., Azam, S., Zhang, Y., Jonkman, M., 2025. FSS-ULivR: a clinically-inspired few-shot segmentation framework for liver imaging using unified representations and attention mechanisms. J. Cancer Res. Clin. Oncol. 151, 1–23. Despotovi´ c, I., Goossens, B., Philips, W., 2015. MRI segmentation of the hu-man brain: Challenges, methods, and applications. Comput. Math. Methods Med. 2015, 450341. Fan, C., Jia, X., Xiao, A., Yu, H., Yang, Z., Yang, D., Xu, H., Huang, Y., Wang, L., 2026. SPENet: Self-guided prototype enhancement network for few-shot medical image segmentation, in: Medical Image Computing and Computer Assisted Intervention – MICCAI 2025, Springer. pp. 584–593. Han, K., Wang, Y., Chen, H., Chen, X., Guo, J., Liu, Z., Tang, Y., Xiao, A., Xu, C., Xu, Y., et al., 2022. A survey on vision transformer. IEEE Trans. Pattern Anal. Mach. Intell. 45, 87–110. Hartmann, D., Schmid, V., Meyer, P., Kramer, F., 2023. MISM: A medical image segmentation metric for evaluation of weak labeled data. Diagnostics 13, 2618. Hatamizadeh, A., Nath, V., Tang, Y., Yang, D., Roth, H.R., Xu, D., 2021. Swin-UNETR: Swin transformers for semantic segmentation of brain tumors in MRI images, in: Int. MICCAI Brainlesion Workshop, Springer. pp. 272– 284. Hatamizadeh, A., Tang, Y., Nath, V., Yang, D., Myronenko, A., Landman, B., Roth, H.R., Xu, D., 2022. UNETR: Transformers for 3D medical image segmentation, in: Proc. IEEE Winter Conf. Appl. Comput. Vis., pp. 574– 584. He, K., Zhang, X., Ren, S., Sun, J., 2016. Deep residual learning for image recognition, in: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 770–778. Huang, J., Chan, S.C., Lok, V., Zhang, L., Lin, X., Lucero-Prisno, D.E., Xu, W., Zheng, Z.J., Elcarte, E., Withers, M., et al., 2023. Disease burden, risk factors, and trends of primary central nervous system (CNS) cancer: a global study of registries data. Neuro-Oncol. 25, 995–1005. Isensee, F., Jaeger, P.F., Kohl, S.A., Petersen, J., Maier-Hein, K.H., 2021. nnU-Net: a self-configuring method for deep learning-based biomedical image segmentation. Nat. Methods 18, 203–211. Jiang, Y., Zhang, Y., Lin, X., Dong, J., Cheng, T., Liang, J., 2022. SwinBTS: A method for 3D multimodal brain tumor segmentation using swin trans-former. Brain Sci. 12, 797. Kirillov, A., Mintun, E., Ravi, N., Mao, H., Rolland, C., Gustafson, L., Xiao, T., Whitehead, S., Berg, A.C., Lo, W.Y., et al., 2023. Segment anything, in: Proceedings of the IEEE /CVF International Conference on Computer Vision, pp. 4015–4026. Lee, C.Y., Xie, S., Gallagher, P., Zhang, Z., Tu, Z., 2015. Deeply-supervised nets, in: Artificial Intelligence and Statistics, Pmlr. pp. 562–570. Lin, J., Lin, J., Lu, C., Chen, H., Lin, H., Zhao, B., Shi, Z., Qiu, B., Pan, X., Xu, Z., et al., 2023a. CKD-TransBTS: clinical knowledge-driven hybrid trans-former with modality-correlated cross-attention for brain tumor segmenta-tion. IEEE Trans. Med. Imaging 42, 2451–2461. Lin, T.Y., Goyal, P., Girshick, R., He, K., Dollár, P., 2017. Focal loss for dense object detection, in: Proceedings of the IEEE International Conference on Computer Vision, pp. 2980–2988. Lin, Y., Chen, Y., Cheng, K.T., Chen, H., 2023b. Few shot medical image seg-mentation with cross attention transformer, in: International Conference on Medical Image Computing and Computer-Assisted Intervention, Springer. pp. 233–243. Liu, Z., Lin, Y., Cao, Y., Hu, H., Wei, Y., Zhang, Z., Lin, S., Guo, B., 2021. Swin transformer: Hierarchical vision transformer using shifted windows, in: Proc. IEEE Int. Conf. Comput. Vis., pp. 10012–10022. Menze, B., Jakab, A., Bauer, S., Kalpathy-Cramer, J., Farahani, K., Kirby, J., Burren, Y., Porz, N., Slotboom, J., Wiest, R., et al., 2015. The multimodal brain tumor image segmentation benchmark (BraTS). IEEE Trans. Med. Imaging 34, 1993–2024. Milletari, F., Navab, N., Ahmadi, S.A., 2016. V-Net: Fully convolutional neu-ral networks for volumetric medical image segmentation, in: 2016 Fourth International Conference on 3D Vision (3DV), Ieee. pp. 565–571. Min, J., Kang, D., Cho, M., 2021. Hypercorrelation squeeze for few-shot seg-mentation, in: Proceedings of the IEEE /CVF International Conference on Computer Vision, pp. 6941–6952. Nguyen, N.P., Hang, D.T.T., Vu, T.V., Tu, N.H., Anh, N.T., 2025. Swin-PResU: Hybrid swin ViT and pruned residual CNN for precise brain tumor MRI segmentation, in: 2025 RIVF International Conference on Computing and Communication Technologies (RIVF), IEEE. pp. 149–154. Oktay, O., Schlemper, J., Folgoc, L.L., Lee, M., Heinrich, M., Misawa, K., Mori, K., McDonagh, S., Hammerla, N.Y., Kainz, B., et al., 2018. At-tention U-Net: Learning where to look for the pancreas. arXiv preprint arXiv:1804.03999 . Ouyang, C., Bi ffi , C., Chen, C., Kart, T., Qiu, H., Rueckert, D., 2020. Self-supervision with superpixels: Training few-shot medical image segmen-tation without annotation, in: European Conference on Computer Vision, Springer. pp. 762–780. Perez, E., Strub, F., De Vries, H., Dumoulin, V., Courville, A., 2018. FiLM: Visual reasoning with a general conditioning layer, in: Proceedings of the AAAI Conference on Artificial Intelligence, pp. 3942–3951. Radhika, T., Chandrasekar, A., Subhashri, A.R., Kamali, M., Ahmad, H., 2026. Memory-sampled data controller for exponential synchronization of Marko-vian jump neural networks with mixed delays and partially unknown tran-sition probabilities. Physica A: Statistical Mechanics and its Applications 694, 131587. Ronneberger, O., Fischer, P., Brox, T., 2015. U-Net: Convolutional networks for biomedical image segmentation, in: Int. Conf. Med. Image Comput. Comput.-Assisted Intervention, Springer. pp. 234–241. Ruan, J., Li, J., Xiang, S., 2025. VM-UNet: Vision Mamba UNet for medical image segmentation. ACM Transactions on Multimedia Computing, Com-munications, and Applications . Shaban, A., Bansal, S., Liu, Z., Essa, I., Boots, B., 2017. One-shot learning for semantic segmentation. arXiv preprint arXiv:1709.03410 . 
+
+19 Shen, Q., Li, Y., Jin, J., Liu, B., 2023. Q-Net: Query-informed few-shot medi-cal image segmentation, in: Proceedings of SAI Intelligent Systems Confer-ence, Springer. pp. 610–628. Synapse, Accessed: Mar. 12, 2026. BraTS 2023 challenge. URL: https: //www.synapse.org/brats2023 .Taha, A.A., Hanbury, A., 2015. Metrics for evaluating 3D medical image seg-mentation: analysis, selection, and tool. BMC Med. Imaging 15, 29. Tamil Thendral, M., Ganesh Babu, T.R., Chandrasekar, A., Cao, Y., 2026. Synchronization of Markovian jump neural networks for sampled data con-trol systems with additive delay components: Analysis of image encryption technique. Mathematical Methods in the Applied Sciences 49, 1879–1895. Tian, Z., Zhao, H., Shu, M., Yang, Z., Li, R., Jia, J., 2020. Prior guided fea-ture enrichment network for few-shot segmentation. IEEE Transactions on Pattern Analysis and Machine intelligence 44, 1050–1065. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, Ł., Polosukhin, I., 2017. Attention is all you need. Advances in Neural Information Processing Systems 30. de Verdier, M.C., Saluja, R., Gagnon, L., LaBella, D., Baid, U., Tahon, N.H., Foltyn-Dumitru, M., Zhang, J., Alafif, M., Baig, S., et al., 2024. The 2024 brain tumor segmentation (BraTS) challenge: Glioma segmentation on post-treatment MRI. arXiv preprint arXiv:2405.18368 . Wang, K., Liew, J.H., Zou, Y., Zhou, D., Feng, J., 2019. PANet: Few-shot im-age semantic segmentation with prototype alignment, in: Proc. IEEE /CVF Int. Conf. Comput. Vis. (ICCV), pp. 9197–9206. Wu, Y., He, K., 2018. Group normalization, in: Proceedings of the European Conference on Computer Vision (ECCV), pp. 3–19. Xie, Y., Zhang, J., Shen, C., Xia, Y., 2021. Cotr: E ffi ciently bridging cnn and transformer for 3d medical image segmentation, in: Int. Conf. Med. Image Comput. Comput.-Assist. Interv., Springer. pp. 171–180. Xu, B., Zhu, Y., Wang, S., Long, Y., Zhang, H., 2026. Few-shot medical image segmentation via boundary-extended prototypes and momentum inference. Computer Vision and Image Understanding 263, 104571. Zhao, X., He, M., Yang, R., Geng, N., Zhu, X., Tang, N., 2025. The global, regional, and national brain and central nervous system cancer burden and trends from 1990 to 2021: An analysis based on the global burden of disease study 2021. Front. Neurol. 16, 1574614. Zhou, H.Y., Guo, J., Zhang, Y., Yu, L., Wang, L., Yu, Y., 2021. nn-Former: Interleaved transformer for volumetric segmentation. arXiv preprint arXiv:2109.03201 . Zhou, Z., Siddiquee, M.M.R., Tajbakhsh, N., Liang, J., 2019. UNet ++ : Re-designing skip connections to exploit multiscale features in image segmen-tation. IEEE Transactions on Medical Imaging 39, 1856–1867. 
+
+Author biographies 
+
+Truong Viet Vu received the B.S. degree in information technology from the Van Lang School of Technology, Van Lang University, Ho Chi Minh City, Vietnam, in 2026. Since September 2025, he has been a member of the Future Commu-nications and Computer Science (FCCS) Laboratory, Van Lang University. His re-search interests include machine learning, deep learning, and computer vision. 
+
+Nguyen Phuc Nguyen received the B.S. degree in information technology from the Van Lang School of Technology, Van Lang University, Ho Chi Minh City, Viet-nam, in 2026. Since September 2025, he has been a member of the Future Commu-nications and Computer Science (FCCS) Laboratory, Van Lang University. His re-search interests include artificial intelli-gence, medical image segmentation, deep embedded clustering, and reinforcement learning. 
+
+Dang Thi Thu Hang received the B.S. degree in information technology from the Van Lang School of Technology, Van Lang University, Ho Chi Minh City, Viet-nam, in 2026. Since September 2025, she has been a member of the Future Commu-nications and Computer Science (FCCS) Laboratory, Van Lang University. Her re-search interests include machine learning, deep learning, big data, and data management systems. 
+
+Tran Thien Thanh received the Ph.D. degree in electrical engineering from Ho Chi Minh City University of Technol-ogy, Vietnam, in 2016. She serves as the Deputy Director of the Institute of Information Technology and Electrical-Electronics Engineering, Ho Chi Minh City University of Transport, Ho Chi Minh City, Vietnam. Her research interests include wireless communications and information theory with current emphasis on cooperative and cognitive communications, physical layer security, energy harvesting, 6G infrastructures, and applied ma-chine learning. 
+
+Vo Nguyen Quoc Bao received the bach-elor’s and master’s degrees from Ho Chi Minh City University of Technology, in 2002 and 2005, respectively, and the Ph.D. degree from the University of Ul-san, South Korea, in 2010. He is cur-rently a Professor at Van Lang University, specializing in wireless communications. After completing his Ph.D., he was at the Posts and Telecommunications Institute of Technology, where he was promoted to an Associate Professor, in 2015, and a Pro-fessor, in 2023. In 2024, he joined Van Lang University, as a Full Professor. His research interests include developing new techniques at the physical layer for 5G and 6G communication systems and applied machine learning. He served as the Tech-nical Editor-in-Chief for REV Journal on Electronics and Com-munications, from 2017 to 2023. He has also organized many IEEE conferences in Vietnam, including ATC, RIVF, ComMan-Tel, and NICS. 
+
+Nguyen Thai Anh received the B.S. de-gree in information technology from the Van Lang School of Technology, Van Lang University (VLU), Ho Chi Minh City, Vietnam, in 2022, and the M.Sc. de-gree in data science and artificial intel-ligence from the School of Engineering and Technology, Asian Institute of Technology, Pathum Thani, Thailand, in 2024. From 2020 to 2021, he was a Data Scientist 20 Intern with DMSpro. From 2021 to 2022, he was a Teaching Assistant with the Faculty of Information Technology, VLU, where he later served as an International Cooperation Special-ist, from 2023 to 2024. Since 2024, he has been a Lecturer with the Faculty of Information Technology and a member of the Data Science Research Group, VLU. He is also a Guest Lecturer with the University of Industry and Trade, Ho Chi Minh City. His research interests include machine learning, deep learning, and computer vision. 
+
+Ngo Hoang Tu received the B.S. de-gree in computer networking and data communications from Ho Chi Minh City University of Transport (UTH), Ho Chi Minh City, Vietnam, in 2020, the M.S. degree from the Department of Smart Energy System Engineering, Seoul Na-tional University of Science and Technol-ogy (SeoulTech), Seoul, South Korea, in 2022, and the Ph.D. degree from the Department of Electri-cal and Information Engineering, SeoulTech, in 2025. From 2019 to 2020, he was an Assistant Researcher with the Wire-less Communication Laboratory, Posts and Telecommunica-tions Institute of Technology, Ho Chi Minh City. In 2020, he was a Lecturer with the Department of Computer Engineer-ing, UTH. Since September 2025, he has been a Lecturer with the Faculty of Information Technology, Van Lang School of Technology, Van Lang University, Ho Chi Minh City. His re-search interests include wireless communications, signal pro-cessing, and applied machine learning. He received the Best Paper Award at the International Conference on Intelligence Systems and Robotics for Sustainable Development (ISRSD) in 2026, the Best Dissertation Award in 2025, the Best Presen-tation Awards at the Annual Conference of Vietnamese Young Scientists (ACVYS), in 2022 and 2024, and the Outstanding Student Paper Award at the International Conference on Con-trol, Automation and Systems (ICCAS) in 2023. He serves on the Editorial Board for EAI Endorsed Transactions on Indus-trial Networks and Intelligent Systems. 21

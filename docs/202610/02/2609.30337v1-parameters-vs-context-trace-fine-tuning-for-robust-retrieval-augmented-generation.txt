@@ -1,0 +1,561 @@
+Title: Parameters vs. Context: TRACE Fine-Tuning for Robust Retrieval-Augmented Generation
+
+URL Source: https://arxiv.org/pdf/2609.30337v1
+
+Published Time: Mon, 28 Sep 2026 00:02:44 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# Parameters vs. Context: TRACE Fine-Tuning for Robust Retrieval-Augmented Generation 
+
+Zhengchen Huang 1, Yundong Sun 1,* , Minrui Song 2, Shuanglong Yao 1, Ye Liu 1, Ji Chen 1, Xing Wang 1 
+
+> 1
+
+School of Information Science & Engineering, LinYi University, China  
+
+> 2
+
+School of Computer Science and Technology, Harbin Institute of Technology, China 
+
+> *
+
+Corresponding author: Yundong Sun, hitffmy@163.com 
+
+Abstract —Retrieval-Augmented Generation (RAG) mitigates knowledge obsolescence and factual hallucination in large lan-guage models by introducing external context. However, when retrieved knowledge conflicts with the model’s internal paramet-ric knowledge, the model may either blindly follow misleading context or incorrectly rely on parametric knowledge, leading to unreliable responses. To address this issue, this paper proposes TRACE (Debate-TRace and Answer-Completeness rEgularized fine-tuning), a robust fine-tuning framework for RAG under knowledge conflicts. First, we propose a fine-tuning method that leverages multi-agent debate traces to extract correct candi-dates, incorrect candidates, and answer-shift patterns, providing fine-grained supervision for reliable knowledge-source selection. In addition, we design an answer completeness regularization mechanism to alleviate empty, overly short, and prematurely terminated responses via answer-tail token reinforcement and premature termination suppression. The fine-tuning objective combines correct-answer supervision, incorrect-candidate sup-pression, answer-tail token reinforcement, and premature termi-nation suppression, enabling the model to use reliable external context, resist misleading or irrelevant retrieved content, and fall back to parametric knowledge when retrieved evidence is unreli-able. Experiments across multiple knowledge-conflict scenarios and datasets show that TRACE improves robustness against misleading retrieved knowledge and reduces incomplete answers. These results demonstrate that multi-agent debate traces and answer completeness regularization jointly enhance knowledge-source selection, conflict robustness, and answer quality in RAG models. Our code is available at TRACE. 
+
+Index Terms —Retrieval-Augmented Generation; knowledge conflict; multi-agent debate; fine-tuning; large language models 
+
+I. I NTRODUCTION 
+
+Large Language Models (LLMs), such as GPT [1] and Llama [2], have become strong backbones for open-domain question answering, knowledge reasoning, and text generation. Despite this progress, their responses still depend on para-metric knowledge that can be outdated, incomplete, or incor-rect [3], which may lead to factual hallucinations [4] and un-reliable answers. Retrieval-Augmented Generation (RAG) [5] mitigates this problem by conditioning generation on retrieved documents or knowledge-base content, thereby allowing mod-els to use external evidence beyond their fixed parameters [6], [7]. The central difficulty in RAG is that retrieved context can conflict with the model’s parametric knowledge. In practical retrieval pipelines, external context may be correct, mislead-ing, self-conflicting, or irrelevant [8]. As shown in Fig. 1, conventional RAG prompting becomes unstable when the Wrong Irrelevant Self-Conflict Context Type 90 80 70 60 50 40 30 20 10 0Exact Match (%)     
+
+> Wrong Irrelevant Self-Conflict Context Type 100 90 80 70 60 50 40 30 20 10 0Query-only prompting RAG prompting Our(TRACE)
+> (a) On Qwen2.5-7B (b) On Llama3.1-8B
+> -12.46 +21.71 +29.83 +60.91
+> -2.24 -4.20 +23.07 +29.09 +60.50 -4.10 +4.69 +4.69
+
+Fig. 1. Performance under different knowledge-conflict contexts on ConFiQA-MR, ConFiQA-SC, and ExplainPE. 
+
+retrieved context is unreliable: incorrect or irrelevant context can mislead the model and even make it perform worse than query-only prompting, while self-conflicting context provides only limited gains. These observations indicate that LLMs do not inherently know when to trust retrieved evidence, when to rely on parametric knowledge, or how to revise an answer when the two sources disagree [9]. Therefore, robust RAG requires source-aware generation: the model must use reliable retrieved evidence, resist misleading context, and preserve correct parametric knowledge when retrieval is unreliable. Existing work improves RAG under knowledge conflicts from three main directions: prompt-based knowledge inte-gration [10], retrieval-quality assessment [11], and learnable knowledge-selection strategies [12]. Prompt-based methods guide models to compare internal knowledge with external context [13]; retrieval-quality assessment methods identify, filter, or correct low-quality retrieved content [14]; and learn-able selection methods use decoding control, preference op-timization, or reinforcement learning to choose among infor-mation sources under conflicting conditions [15]. However, these methods still face two limitations. First, many methods introduce additional prompts, reflection stages, retrieval eval-uation modules, or multi-step reasoning at test time, which increases inference overhead. Second, their training signals are usually constructed from final answers, decoding distributions, or sampled rewards, so they rarely preserve the intermediate candidate answers, erroneous paths, and answer revisions that appear during conflict reasoning. As a result, the supervision is often too coarse to teach how a model should move from a misleading answer to a reliable one. Multi-agent debate provides a natural source of process-arXiv:2609.30337v1 [cs.LG] 24 Sep 2026 level supervision for this problem. Prior studies show that interaction, questioning, and revision among multiple model instances can improve factual judgment and com-plex reasoning [16], [17]. Inspired by this observation, we propose TRACE (Debate-TRace and Answer-Completeness rEgularized fine-tuning), a robust fine-tuning method for RAG under knowledge conflicts. TRACE uses multi-agent debate only during training, rather than retaining debate at inference time. It extracts correct candidate answers, incorrect candidate answers, and answer-shift traces from debate trajectories, then converts these traces into positive and negative fine-tuning signals. In this way, the model learns not only which answer is correct, but also which misleading candidates should be suppressed and how answer revisions occur when parametric and retrieved knowledge conflict. Reliable source selection alone is not sufficient, because knowledge-conflict fine-tuning can also introduce answer-incompleteness errors. In our empirical analysis, some mod-els identify the correct answer direction but stop too early, producing empty answers, overly short answers, incomplete entities, or unclear answer boundaries. TRACE therefore adds answer completeness regularization, which reinforces answer-tail tokens and suppresses premature termination inside the answer span. This auxiliary constraint encourages the model to produce complete and parsable final answers after selecting the appropriate knowledge source. The main contributions of this paper are as follows: (1) We propose a debate-trace fine-tuning method that con-verts correct candidates, incorrect candidates, and answer-shift traces into fine-grained supervision signals, enabling the model to select more reliable knowledge when para-metric and retrieved knowledge conflict. (2) We identify an answer-incompleteness issue that can emerge during knowledge-conflict fine-tuning, and de-sign answer completeness regularization to reduce empty, overly short, and incomplete outputs through answer-tail token reinforcement and premature termination suppres-sion. (3) We conduct experiments across correct, wrong, self-conflicting, irrelevant, and partially irrelevant retrieval scenarios. The results show that TRACE improves ro-bustness in explicit conflict settings while preserving the use of correct retrieved knowledge, and ablation studies validate the proposed debate-trace supervision and answer completeness regularization modules. II. RELATED WORK 
+
+A. RAG under Knowledge Conflicts 
+
+RAG under knowledge conflicts aims to decide when re-trieved context should override, complement, or be ignored in favor of parametric knowledge. Prompt-based methods address this problem by explicitly eliciting source comparison or self-critique during inference. Astute RAG [10] elicits internal knowledge and integrates it with retrieved content in a source-aware manner, Self-RAG [18] controls retrieval and critique through reflection tokens, and InstructRAG [13] uses self-generated rationales to extract valid evidence from noisy retrieval. These methods make the reasoning process more interpretable, but they typically depend on additional prompts, reflection steps, or multi-stage reasoning at test time. Retrieval-quality assessment methods improve RAG by judging or repairing the external context before generation. CRAG [11] estimates retrieval reliability and invokes correc-tive retrieval when the context is unreliable, RobustRAG [14] studies robustness against retrieval corruption, and Truthful-RAG [19] converts retrieved text into a knowledge graph to identify factual-level conflicts. These methods reduce the risk of misleading retrieval, but their main focus is obtaining or filtering better context rather than training the generator to choose between parametric and retrieved knowledge. In con-trast, TRACE assumes that the retrieved context may remain correct, wrong, self-conflicting, or irrelevant, and trains the model to make the source-selection decision inside generation. 
+
+B. Learnable Knowledge-Source Selection 
+
+Learnable knowledge-selection methods are the closest line of work to TRACE because they directly optimize how a model uses parametric and contextual knowledge. CK-PlUG [12] controls reliance on parametric and contextual knowledge during decoding, Context-DPO [20] improves context faithfulness through preference pairs, KnowPO [21] formulates knowledge-aware preference optimization, and Knowledgeable-R1 [22] strengthens resistance to contex-tual interference through parametric-knowledge reinforcement. These methods provide important baselines for source-aware RAG, but their supervision is mainly derived from final answers, sampled responses, reward signals, or decoding-level control. TRACE differs by using debate trajectories to preserve correct candidates, incorrect candidates, and answer shifts, so the fine-tuning data contains process-level evidence about how answers become wrong or get corrected under conflict. Existing conflict-oriented RAG work also pays limited at-tention to answer completeness after source selection. Most prior methods evaluate whether the model follows the ap-propriate knowledge source or produces a factually correct final answer, whereas our observations show that knowledge-conflict fine-tuning can produce empty answers, overly short answers, incomplete entities, and unclear answer boundaries. TRACE therefore treats final-answer completeness as a sep-arate generation-side objective, complementing source selec-tion with answer-tail token reinforcement and premature-termination suppression. 
+
+C. Multi-agent Debate as Process-level Supervision 
+
+Multi-agent debate exposes intermediate errors, corrections, and answer revisions that are difficult to observe from a single final response. Liang et al. [23] introduced a debate framework in which multiple agents discuss a problem and a judge deter-mines the final answer. Subsequent studies show that debate can improve factual judgment and reasoning [16], [17], support consensus formation among diverse models [24], and provide trajectories for post-training or preference optimization [25], [26]. These findings suggest that debate records are not only inference-time reasoning traces, but also potential supervision sources. The connection between debate traces and RAG knowledge conflicts remains underexplored. Knowledge conflicts are com-mon in LLM applications [27], and recent work studies how to verify or select knowledge under inconsistent evidence [28]. However, existing RAG conflict methods usually do not mine debate trajectories for source labels, positive candidates, neg-ative candidates, and answer-shift patterns. TRACE fills this gap by using multi-agent debate only during data construction, then converting the resulting trajectories into conflict-aware supervision for a single target model. This design preserves the training value of debate while avoiding debate-time overhead during deployment. III. METHODOLOGY 
+
+A. Task Definition 
+
+Given a question Q and a retrieved context C, a RAG model generates an answer A = fθ (Q, C ). The retrieved context may be reliable, misleading, irrelevant, or internally conflicting, and the model may also rely on its parametric knowledge. This paper focuses on answerable knowledge-conflict settings in which at least one source can support the golden answer. When parametric and retrieved knowledge disagree, the model should select the more reliable source; when both sources are reliable, it should maintain stable answer generation rather than over-suspecting either source. 
+
+B. Overview 
+
+TRACE addresses the two methodological gaps identified in the Introduction and Related Work: coarse conflict supervision and incomplete final answers after knowledge-conflict fine-tuning. As shown in Fig. 2, TRACE first uses multi-agent debate to expose correct candidates, incorrect candidates, and answer-shift trajectories under knowledge conflicts. It then converts these traces into source-aware positive and negative fine-tuning records, allowing the target model to learn which knowledge source to trust without running debate at inference time. Finally, TRACE adds answer completeness regulariza-tion to reduce empty, overly short, and prematurely terminated answers. 
+
+C. Fine-tuning Method Based on Multi-agent Debate Traces 
+
+The first component of TRACE constructs process-level supervision from multi-agent debate traces. This component contains three steps: collecting debate traces under retrieved context, converting the traces into source-labeled training records, and optimizing the target model with positive su-pervision for reliable answers and unlikelihood suppression for misleading candidates. This design turns debate from an inference-time procedure into a training-time supervision source. 
+
+1) Debate Trace Collection: For each training sample, TRACE first queries the base model with Q only to obtain a query-only response, which provides an estimate of the model’s parametric-knowledge behavior. TRACE then con-ducts a multi-round debate with the retrieved context C. The debate has three roles: the response model produces candidate answers, the critic model checks factual consistency, context reliability, and knowledge-source selection, and the judge model decides whether the debate should stop and selects key information from the final candidates. TRACE uses a strong-to-weak debate setting to make the trace informative for fine-tuning. The response model is the weak target model to be fine-tuned, the critic model is stronger, and the judge model has intermediate capability. This configuration encourages the debate to expose misleading candidates, corrections, and answer shifts that are difficult to obtain from a single final response. Because debate is used only to construct training data, TRACE does not introduce multi-agent interaction or additional reasoning rounds during deployment. 
+
+2) Construction of Source-Aware Training Records: 
+
+TRACE converts each debate trace into compact training records instead of directly using the full debate transcript as model input. Each record is built from the query-only response, intermediate debate candidates, the final debate answer, and the golden answer. This representation avoids overfitting to surface debate language and focuses the training signal on source selection, candidate correction, and answer stability. Each training record receives a knowledge-source label si ∈{internal , external , both }. The internal label indicates that parametric knowledge supports the golden answer while the retrieved context is unreliable; the external label indicates that the retrieved context supports the golden answer while the query-only response is incorrect; and the both label indicates that both sources support the golden answer. The first two labels correspond to conflict settings, while both serves as a non-conflict anchor that preserves ordinary RAG answering ability. If neither source supports the golden answer, TRACE excludes the sample because it is closer to unanswerability detection than source-aware answer generation. On top of source labels, TRACE assigns functional type labels according to each constructed record’s training role. These roles include reliable supervision, context usage, con-text resistance, correct-to-wrong prevention, dual-source error suppression, and boundary correction. Intermediate and final debate answers are divided into correct and incorrect can-didates according to the golden answer, with at most two representative incorrect candidates retained from each debate trace to reduce noisy negatives. Table I summarizes the sample taxonomy. A single debate trace can be expanded into multiple training records because different candidates in the same trace may serve different training roles. During training, the source label si determines the source-balance coefficient γsi , and the functional type label τi determines the fixed sample-type TRACE Fine-Tuning Framework for Robust Retrieval-Augmented Generation 
+
+Answer Completeness Regularization Mechanism 
+
+Multi-agent Debate to collect Traces 
+
+Expose correct/incorrect candidates and answer-shift trajectories under conflicts 
+
+Query Q 
+
+Who wrote The Mandalorian? 
+
+Retrieved Context C
+
+Doc 1 （rel. ）
+
+> Jon Favreau is an American filmmaker who created the Star Wars series The Mandalorian.
+
+The Mandalorian was created by Dave Filoni 
+
+Doc 2 
+
+（misleading ）
+
+... 
+
+Multi-round Debate with Retrieved Context 
+
+Critic Model (strong) Judge Model 
+
+> Check factuality, context
+> reliability, and source selection.
+
+(medium) 
+
+> Decide whether to stop and select key information.
+> Round 1 ... Round R
+
+Response Model (weak) (Target model to be fine-tuned) 
+
+Query-only response (parametric knowledge) 
+
+Dave Filoni 
+
+Response Model (weak) 
+
+> Give initial answer and revise by feedback.
+
+Construct Source-aware Training Records 
+
+Convert traces into compact records with source labels and functional types Source Label si (knowledge source) 
+
+internal 
+
+> （parametric correct, context wrong
+> ）
+
+external 
+
+> （parametric wrong, context correct
+> ）
+
+both 
+
+> （both sources support gold
+> ）
+
+Functional Type τi (training role) 
+
+> Reliable Supervision Context Usage Context Resistance Correct-to-Wrong Prevention
+> Dual-Source Hard-negative
+> Boundary Correction
+
+One Debate Trace to Multiple Training Records 
+
+(The retrieved context is correct, so the s i is external) 
+
+τi (Functional Type) siCorrect? Candidate 
+
+> Context usage external No Query-only: Consor... Boundary correction No Round 1: Consor... Reliable supervision Yes Round 2:Consort of the United Kingdom Context usage Yes Final:Consort of the United Kingdom
+
+Source-Aware Positive-Negative Objective 
+
+Learn which source to trust and generate 
+
+Source-Aware Positive-Negative Objective( ℒ𝒎"#$ )
+
+Positive: Cross-Entropy (CE) for correct answers         
+
+> <answer> </answer> <answer> </answer>
+> Supervise the model to generate reliable answers. Mask m t=1 only for content tokens in the answer span.
+> Jon Fav re au Dave Filoni
+
+Sample weight 
+
+𝑤 % & (by functional type) 𝑟 & (𝛾 '! (by source label) stabilization for internal)  
+
+> Context Resistance
+> Dual-Source Hard-Correct-to-Wrong
+> Reliable Supervision
+> Context Usage Prevention negative Boundary Correction
+> Preset weight for each training role.
+> Low High
+> internal external both Balance signals across source conditions.
+> History loss
+> Loss Moderate reduces overly large penalties when inter is correct but external is wrong.
+
+Answer-tail Token Reinforcement 
+
+Gold Answer 
+
+(inside answer span) First Lady of the United States earlier tokens (smaller weight) later tokens (larger weight) 
+
+<answer> First Lady States United the of </answer> 
+
+at
+
+0.125 0.25 0.375 0.5 0.625 0.75 
+
+Later tokens get larger weights to prevent truncation .
+
+Premature Termination Su pp ression 
+
+Inside answer span, reduce the probability of generating termination (eg. , EOS, or </answer>) too early. 
+
+First Lady States United the of </answer> 
+
+Terminate here? 
+
+0.45 0.38 0.29 0.21 0.15 0.10 
+
+0.65 
+
+Too early! 
+
+Unlikelihood on termination tokens 
+
+Answer Completeness Loss Encourages complete well-bounded, and semantically complete answers. 
+
+Total Training Objective Correct candidate Debate rounds Incorrect candidate Judge decision 
+
+Debate Candidates 
+
+（examples 
+
+）
+
+R2 Incorrect 
+
+Dave Filoni 
+
+R1 Correct 
+
+Jon Favreau 
+
+Final Debate Answer 
+
+Dave Filoni 
+
+R3 Shifted 
+
+> Jon Favreau is the
+> director of the Mandalorian
+
+Golden Answer 
+
+Jon Favreau 
+
+321
+
+Negative: Unlikelihood (UL) for incorrect answers 
+
+𝜔 ! = 𝑤 " ! ⋅ 𝛾 #! ⋅ 𝑟 !   
+
+> 𝜇 !-#
+> ℓ!
+> 𝑟 $= max 𝛽, 𝜇 !%# ℓ!+ 𝜖
+
+Fine-tuning Method Based on Multi-agent Debate Traces 
+
+ℒ!"!#$ = ℒ %#&' + 𝜆compℒ 
+
+Note : Debate is used only for training data construction. At inference time, the model answers in a single pass. comp Fig. 2. Overview of TRACE. Debate is used only during data construction to expose source-selection errors and answer shifts. The target model is then fine-tuned with debate-trace supervision and answer completeness regularization. 
+
+weight wτ (i). The main tunable parameters in this component are the incorrect-candidate suppression weight λneg and the source-balance coefficients γint , γext , and γboth .
+
+3) Source-Aware Positive-Negative Objective: Let x =(Q, C ) denote the input, y+ denote a correct answer, and 
+
+y− denote an incorrect candidate answer. For correct answers, TRACE uses cross-entropy (CE) supervision: 
+
+LCE (x, y +) = − 1
+
+T +
+
+T +
+
+X
+
+t=1 
+
+log pθ (y+
+
+t | x, y +
+
+<t ), (1) where T + is the length of the correct answer. This term teaches the model to generate reliable answers under each source condition. For incorrect candidates, TRACE uses an unlikelihood (UL) objective [29] to reduce the probability of misleading answer content. To avoid damaging the output template, this loss is computed only inside the answer span: 
+
+LUL (x, y −) = − 1
+
+P
+
+t mt + ϵ
+
+T −
+
+X
+
+t=1 
+
+mt
+
+log  1 − pθ (y−
+
+t | x, y −
+
+<t ) + ϵ ,
+
+(2) where mt ∈ { 0, 1} is the answer-content mask. The mask equals 1 only for tokens inside the answer span, so structural tags and answer-boundary tokens are not treated as negative samples. This design suppresses wrong answer content without encouraging malformed or incomplete answer boundaries. At the same time, TRACE also uses lightweight balance modulation as an auxiliary stabilization strategy for cases where parametric knowledge is correct but external retrieval is wrong. This component follows the motivation of Knowledge Balance Modulation in Knowledgeable-R1 [22], but it is not treated as the main contribution of this paper. During the early stage of fine-tuning, the loss can be large and later gradually decreases. Therefore, we maintain an exponential moving average (EMA) μt to represent the historical loss level of the current training stage and to reduce the influence of large early losses: 
+
+μt = (1 − η)μt−1 + ηℓ t, (3) where η is the EMA update rate and ℓt is the training loss of the current sample. When computing the scaling factor, the historical baseline before the update, μt−1, is compared with the current loss: 
+
+ri =
+
+
+
+max 
+
+
+
+β, μt−1
+
+ℓt + ϵ
+
+
+
+, si = internal ,
+
+1, otherwise .
+
+(4) For samples where internal knowledge is correct but external retrieval is wrong, this scaling moderately reduces overly TABLE I TAXONOMY OF FINE -TUNING SAMPLES FOR TRACE.            
+
+> Knowledge-source label Functional type Construction condition Training role
+> internal / external / both Reliable supervision Golden answers or reliable correct candidate answers observed during debate. Supervises correct answers and preserves basic an-swering ability. Correct-to-wrong prevention A correct candidate appears in an intermediate round, but the later or final response drifts to an incorrect answer. Suppresses shifts from correct candidates to incorrect answers and improves answer stability. Boundary correction The candidate is close to the correct answer but is overly short, boundary-unclear, or difficult to judge. Improves answer completeness, parsability, and final evaluation determinability. external Context usage The retrieved context supports the golden answer, but the query-only response is incorrect. Trains the model to actively use external evidence when it is reliable. internal Context resistance The query-only response is correct, but the retrieved context contains misleading or irrelevant. Trains the model to avoid blindly following erroneous retrieved content. both Dual-source hard negative Both parametric knowledge and retrieved context support the correct answer, but incorrect candidates still appear during debate. Reduces the probability of abnormal incorrect candi-dates under dual-source reliable conditions.
+
+large penalties and protects the model’s ability to answer with reliable parametric knowledge. The lower bound β prevents such samples from being completely ignored. For other source labels, ri = 1 , so no adjustment is applied. Reliable-supervision records use only the CE term, while conflict-oriented records use joint positive-negative fine-tuning. The main source-aware objective is: 
+
+Lmain = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+ωi
+
+LCE (xi, y + 
+
+> i
+
+) + λneg I(y− 
+
+> i
+
+)LUL (xi, y − 
+
+> i
+
+),
+
+(5) where I(y− 
+
+> i
+
+) indicates whether the i-th record contains an incorrect candidate, λneg controls the suppression strength, and 
+
+ωi is the sample-level weight: 
+
+ωi = wτ (i) · γsi · ri, (6) where wτ (i) is determined by the functional type, γsi is determined by the knowledge-source label, and ri is the sta-bilization factor for internal-correct/external-wrong samples. 
+
+D. Answer Completeness Regularization 1) Motivation: Incomplete Answer Generation: Source-aware fine-tuning improves knowledge selection, but it may also exacerbate answer-incompleteness errors. In these cases, the model often starts to generate the correct answer but stops at a partial word, a partial entity, or the first fragment of a multi-word answer. Such outputs are especially harmful under exact-match evaluation and also reduce semantic clarity for downstream users. Table II shows that these errors are not always caused by choosing the wrong knowledge source. Outputs such as “Consor”, “Fort Dear”, and “First” suggest that the model has identified the correct answer direction but terminates before completing the answer. Therefore, TRACE augments source-aware fine-tuning with an auxiliary objective that explicitly encourages complete final-answer generation. 
+
+2) Design of Answer Completeness Regularization: Answer completeness regularization has two terms: answer-tail token reinforcement and premature termination suppression. The first term gives stronger supervision to later answer tokens, while 
+
+TABLE II EXAMPLES OF INCOMPLETE ANSWERS WITHOUT ANSWER COMPLETENESS REGULARIZATION .                
+
+> Question Incomplete output Complete answer
+> What position does the spouse of the head of state of the country where Heath Ledger is a citizen hold? Consor Consort of the United Kingdom What position is held by the spouse of the head of government of the country where John F. Kelly is a citizen? First First Lady of the United States What is the historical significance of Fort Dearborn in relation to the creator of The Mandalorian ?Fort Dear Fort Dearborn
+
+the second term discourages termination tokens before the answer span is complete. First, answer-tail token reinforcement strengthens the learn-ing signal inside the answer span. Let the target output sequence be y = {y1, y 2, . . . , y T }, where the answer content is located in <answer >... </answer >. Let mt ∈ { 0, 1}
+
+indicate whether the t-th token is inside the answer span, and let at ∈ [0 , 1] denote the relative position of this token inside the answer span. A larger at means that the token is closer to the end of the answer. The coefficient ρ controls the magnitude of answer-tail reinforcement. For a single answer, the answer-span weighted supervision loss is defined as: 
+
+Lans = − 1
+
+PTt=1 mt + ϵ
+
+> T
+
+X
+
+> t=1
+
+mt(1 + ρa t) log pθ (yt | x, y <t ).
+
+(7) This means that in a long answer, later tokens receive relatively larger weights than earlier tokens. The design prevents the model from generating only the answer prefix while ignoring the latter part of multi-word entities, restrictive phrases, or long proper names, thereby reducing cases such as generating “Consor” instead of “Consort of the United Kingdom”. Second, premature termination suppression reduces early stopping before the answer is complete. Let E denote the set of termination tokens, including EOS and </answer >
+
+related tokens. Inside the answer-content span, the model should continue generating answer content, so the probability of termination should be reduced. Let pend  
+
+> t
+
+be the termination probability at the t-th position: 
+
+pend  
+
+> t
+
+= X
+
+> e∈E
+
+pθ (e | x, y <t ). (8) The premature termination suppression loss is: 
+
+Lend = − 1
+
+PTt=1 mt + ϵ
+
+> T
+
+X
+
+> t=1
+
+mt log(1 − pend  
+
+> t
+
+). (9) This term is essentially an unlikelihood constraint on termi-nation tokens. It suppresses early generation of ending tags before the answer body is complete, reducing empty answers, overly short answers, truncated entities, and incomplete answer boundaries. The answer completeness regularization for a single answer is: 
+
+Lcomp = Lans + λend Lend . (10) The final training objective combines source-aware fine-tuning and answer completeness regularization: 
+
+Ltotal = Lmain + λcomp Lcomp , (11) where λcomp controls the contribution of answer completeness regularization. 
+
+3) Difference from Format Constraints: Answer complete-ness regularization is different from a pure format constraint. A format constraint asks whether the answer is placed in the required template and whether tags are well formed. For example, <answer >... </answ is a malformed tag and belongs to the scope of format constraints. In contrast, answer completeness regularization asks whether the content inside a valid answer span is semantically complete. For example, the output “First” can be placed inside a valid answer tag, but it is incomplete when the golden answer is “First Lady of the United States.” TRACE therefore treats answer completeness as an independent generation objective. It does not require the model to generate longer answers in general; rather, it encourages the model to preserve complete entities, restrictive phrases, and answer boundaries once the final knowledge source has been selected. IV. E XPERIMENTS AND RESULTS 
+
+We evaluate around four questions that directly correspond to the claims in the preceding sections. RQ1 asks whether TRACE can preserve the ability to use correct retrieved context while resisting misleading retrieved context. RQ2 
+
+asks whether the same source-aware training remains effec-tive under more complex retrieval conditions, including self-conflicting, irrelevant, and partially relevant contexts. RQ3 
+
+asks whether debate traces, strong-to-weak supervision, and answer completeness regularization are necessary. RQ4 asks whether the debate-trace training framework can improve a substantially weaker target model. 
+
+A. Experimental Setup 
+
+The evaluation covers five retrieved-context scenarios. Sce-nario I (S1) uses correct contextual knowledge, where re-trieved passages support the golden answer. Scenario II (S2) 
+
+uses adversarial contextual knowledge, where retrieved pas-sages contradict the golden answer. We further evaluate three harder retrieval settings: Scenario III (S3) , self-conflicting contextual knowledge; Scenario IV (S4) , irrelevant contextual knowledge; and Scenario V (S5) , partially relevant contextual knowledge mixed with distractors. 
+
+1) Models and Baselines: We use Qwen2.5–7B-Instruct and Llama3.1–8B-Instruct as the main backbone models to evaluate whether TRACE is stable across model families. In the debate stage, unless otherwise specified, the critic model is Qwen3–32B and the judge model is DeepSeek-R1–8B. The maximum number of debate rounds is 5. However, the debate can terminate earlier based on the judge model’s stopping decision, resulting in fewer than 5 rounds per question on average. We compare TRACE with query-only prompting, RAG prompting, Astute-RAG [10], CK-PlUG [12], supervised fine-tuning (SFT), GRPO with RAG [30], and Knowledgeable-R1 [22]. These baselines cover no-retrieval prompting, stan-dard retrieval prompting, prompt-based conflict handling, learnable knowledge-source control, supervised fine-tuning, and reinforcement-learning-based source selection. We use exact match (EM) as the primary metric, following the stan-dard protocol of these benchmarks, and report all scores as percentages where higher is better. All fine-tuned variants are trained for one epoch. During inference, all methods use deterministic decoding with temperature set to 0 to reduce sampling variance. TRACE is implemented with LoRA fine-tuning [31], while some compared methods use full-parameter reinforcement-learning fine-tuning and report results on H100 GPUs. Our experiments are conducted on RTX 4090 GPUs. This setting emphasizes whether debate-trace supervision can provide prac-tical gains under a parameter-efficient training regime. 
+
+2) Datasets: The datasets cover correct, wrong, self-conflicting, irrelevant, and partially relevant retrieval scenarios. S1 and S2 are mainly constructed from ConFiQA [20] and include three subtasks: QA, MR, and MC. QA denotes single-hop question answering. MR denotes multi-hop reasoning where only one evidence step is wrong. MC denotes multi-hop reasoning where multiple steps in the evidence chain are wrong. PC-QA, PC-MR, and PC-MC evaluate the model’s ability to use correct retrieved knowledge, whereas NC-QA, NC-MR, and NC-MC evaluate robustness when the retrieved context contradicts the correct answer. For extended experiments, S3 uses the SC dataset con-structed from ConFiQA, where mutually conflicting evidence is provided to evaluate the model’s ability to handle internal contradictions within the context. S4 uses the ExplainPE medical question-answering dataset [32], where the retrieved content is largely irrelevant to the question, evaluating the model’s resistance to irrelevant-context interference. S5 uses HotPotQA [33], 2WikiMultiHopQA [34], and MuSiQue [35], where useful evidence and distracting passages appear to-gether, evaluating evidence selection under partially relevant retrieval results. 
+
+3) Source of Retrieved Contexts: For all datasets, we use the contexts provided by the benchmarks and do not introduce an additional retriever. Correct and wrong passages are directly taken from the benchmark structure rather than re-indexed or re-retrieved from a larger corpus. We use the first five passages provided by each benchmark and keep their original order. Truncation is applied only when the input exceeds the maximum length supported by the backbone model. 
+
+B. Results on Standard Conflict Scenarios 
+
+The standard conflict scenarios evaluate the central require-ment of source-aware RAG: using reliable context in S1 while resisting wrong context in S2. Table III reports EM results on both backbone models. 
+
+a) Scenario I: Correct contextual knowledge (S1): 
+
+TRACE preserves strong context utilization when retrieved ev-idence is reliable. On Qwen2.5–7B-Instruct, TRACE achieves 90.92%, 91.05%, and 86.91% on PC-MR, PC-MC, and PC-QA, respectively, outperforming Knowledgeable-R1 by 15.84, 15.54, and 6.01 percentage points. On Llama3.1–8B-Instruct, TRACE reaches 91.41%, 84.63%, and 91.91%, improving over Knowledgeable-R1 by 17.65, 4.39, and 11.88 percent-age points. These results show that TRACE does not gain robustness by simply rejecting retrieved content; it continues to exploit correct external evidence. 
+
+b) Scenario II: Adversarial contextual knowledge (S2): 
+
+TRACE also improves robustness when retrieved evidence is wrong, although the margin depends on the backbone and subtask. Conventional RAG prompting suffers a clear drop under S2; for example, on Qwen2.5–7B-Instruct, it obtains only 13.47%, 8.06%, and 11.31% on NC-MR, NC-MC, and NC-QA, all lower than query-only prompting. In contrast, TRACE reaches 47.64%, 39.04%, and 37.48%, improving over GRPO w/ RAG by 20.70, 19.30, and 11.47 percentage points and over Knowledgeable-R1 by 3.70, 1.70, and 8.08 percentage points. On Llama3.1–8B-Instruct, TRACE reaches 50.17%, 43.42%, and 44.91%. It is best on NC-MC and NC-QA, while Knowledgeable-R1 remains stronger on NC-MR. Overall, the S2 results support the main claim that debate-trace supervision improves resistance to misleading retrieved content without removing the ability to use correct context. 
+
+C. Extended Evaluation under More Complex Retrieval Sce-narios 
+
+The extended evaluation tests whether TRACE generalizes beyond the standard correct-context and wrong-context setting. Table IV reports EM results under self-conflicting, irrelevant, and partially relevant retrieval. 
+
+a) Scenario III: Self-conflicting contextual knowledge (S3): TRACE is particularly effective when retrieved ev-idence is internally contradictory. In S3, the model must choose among mutually conflicting contextual claims rather                                                                                                          
+
+> TABLE III EM (%) IN STANDARD CONFLICT SCENARIOS . T HE BEST RESULT IS IN BOLD ,AND THE SECOND -BEST RESULT IS UNDERLINED .
+> S1: Correct S2: Wrong Method PC-MR PC-MC PC-QA NC-MR NC-MC NC-QA
+> Qwen2.5–7B
+> Query-only prompting 27.72% 24.66% 31.67% 25.93% 25.82% 32.31% RAG prompting 65.68% 66.39% 74.35% 13.47% 8.06% 11.31% CK-PlUG 64.69% 66.55% 78.66% 11.62% 8.06% 7.92% Astute-RAG 65.51% 66.05% 77.62% 12.79% 7.07% 10.34% SFT 71.95% 77.70% 74.70% 24.92% 21.05% 21.97% GRPO w/ RAG 77.56% 77.36% 80.03% 26.94% 19.74% 26.01% Knowledgeable-R1 75.08% 75.51% 80.90% 43.94% 37.34% 29.40% TRACE 90.92% 91.05% 86.91% 47.64% 39.04% 37.48%
+> Llama3.1–8B
+> Query-only prompting 29.37% 26.18% 39.93% 27.10% 27.63% 42.65% RAG prompting 64.85% 61.99% 76.42% 22.90% 16.28% 24.88% CK-PlUG 54.79% 58.45% 69.71% 12.12% 9.05% 17.29% Astute-RAG 65.84% 64.86% 77.97% 17.00% 9.05% 17.29% SFT 72.88% 79.22% 73.84% 42.59% 35.53% 35.86% GRPO w/ RAG 78.05% 79.73% 82.62% 41.58% 35.69% 39.26% Knowledgeable-R1 73.76% 80.24% 80.03% 55.39% 41.12% 44.59% TRACE 91.41% 84.63% 91.91% 50.17% 43.42% 44.91%
+
+than merely decide whether to use retrieval. TRACE reaches 90.58% on Qwen2.5–7B-Instruct, outperforming Knowledgeable-R1 by 14.25 percentage points, and reaches 92.58% on Llama3.1–8B-Instruct, outperforming GRPO w/ RAG by 16.00 percentage points. This result is consistent with the method design: debate traces expose competing candidate answers and answer shifts, which provide direct supervision for resolving self-conflicting evidence. 
+
+b) Scenario IV: Irrelevant contextual knowledge (S4): 
+
+TRACE remains competitive when the retrieved context is largely irrelevant, but the strength of the result is backbone-dependent. On ExplainPE with Qwen2.5–7B-Instruct, query-only prompting obtains 64.45%, while RAG prompting drops to 62.21%, showing that irrelevant retrieval can hurt answer accuracy. TRACE reaches 69.14%, outperform-ing Knowledgeable-R1 and indicating stronger resistance to irrelevant-context interference. On Llama3.1–8B-Instruct, TRACE reaches 47.95%, improving over RAG prompting by 8.79 percentage points and slightly outperforming GRPO w/ RAG, but remaining below Knowledgeable-R1. 
+
+c) Scenario V: Partially relevant contextual knowledge (S5): S5 reveals the main boundary of TRACE. On Qwen2.5– 7B-Instruct, TRACE is best on MuSiQue and second-best on 2Wiki, but it is below Knowledgeable-R1 on HotPotQA. On Llama3.1–8B-Instruct, TRACE is second-best on MuSiQue but lags behind the strongest baseline on HotPotQA and 2Wiki. This pattern suggests that TRACE is strongest when the central challenge is source conflict or misleading candidates, while partially relevant long-context multi-hop settings require finer paragraph-level evidence localization and evidence-chain composition. These results motivate future extensions that combine debate-trace supervision with explicit evidence-chain supervision. TABLE IV EM (%) IN MORE COMPLEX RETRIEVAL SCENARIOS . T HE BEST RESULT IS IN BOLD , AND THE SECOND -BEST RESULT IS UNDERLINED .                                                                                       
+
+> S3: Conflict S4: Irrelevant S5: Partly Irrelevant Method SC ExplainPE HotPotQA 2Wiki MuSiQue
+> Qwen2.5–7B
+> Query-only prompting 29.67% 64.45% 20.90% 25.54% 4.36% RAG prompting 59.50% 62.21% 20.36% 22.53% 6.41% CK-PlUG 55.00% 55.00% 22.74% 24.76% 6.25% Astute-RAG 54.20% 56.74% 17.87% 20.35% 6.29% SFT 68.50% 66.60% 30.14% 32.20% 11.75% GRPO w/ RAG 75.33% 66.50% 27.93% 33.95% 11.79% Knowledgeable-R1 76.33% 67.57% 31.45% 37.52% 12.04% TRACE 90.58% 69.14% 29.29% 37.44% 12.37%
+> Llama3.1–8B
+> Query-only prompting 32.08% 43.26% 20.69% 21.02% 6.16% RAG prompting 61.17% 39.16% 24.44% 23.50% 8.19% CK-PlUG 42.00% 31.54% 22.35% 24.63% 5.25% Astute-RAG 59.83% 40.14% 1.65% 30.26% 9.64% SFT 70.12% 47.17% 33.59% 38.24% 13.36% GRPO w/ RAG 76.58% 47.56% 34.84% 41.22% 16.59%
+> Knowledgeable-R1 73.67% 49.61% 37.06% 45.37% 14.69% TRACE 92.58% 47.95% 31.17% 38.88% 15.18%
+
+TABLE V ABLATION RESULTS ON CON FIQA EM (%). T HE BEST RESULT IN EACH COLUMN IS IN BOLD .                              
+
+> Variant PC-MC NC-MC PC-MR NC-MR PC-QA NC-QA
+> Full TRACE 91.05% 39.04% 90.92% 47.64% 86.91% 37.48%
+> w/o debate 85.14% 35.86% 86.30% 44.94% 87.26% 36.99% w/o strong-teaching-weak 92.06% 38.15% 87.45% 45.45% 85.54% 35.86% w/o answer completeness regularization 85.97% 38.65% 83.00% 42.59% 85.88% 32.14%
+
+D. Ablation Study 
+
+The ablation study evaluates whether the main modules in TRACE are responsible for the observed gains. We evaluate three variants on the QA, MC, and MR subsets of ConFiQA. 
+
+Without debate removes multi-agent debate and directly uses query-only and RAG responses from the base LLM. Without strong-teaching-weak keeps the debate format but replaces all debate roles with the base LLM. Without answer complete-ness regularization sets the weight of answer completeness regularization to 0. Removing debate reduces the average EM from 65.51% to 62.75%, with drops on all wrong-context metrics. The only local improvement is PC-QA, which increases from 86.91% to 87.26%. This pattern indicates that simple single-hop ques-tions under correct context can be solved without debate traces, but robustness under misleading retrieval benefits from intermediate candidate answers and positive-negative samples exposed by debate. Replacing strong-to-weak debate with same-model debate also weakens overall performance. PC-MC increases from 91.05% to 92.06%, but NC-MC, PC-MR, NC-MR, PC-QA, and NC-QA all decrease, and average EM drops from 65.51% to 64.09%. This result suggests that stronger critic and judge models provide useful correction and counterfactual-discrimination signals, especially under wrong-context set-tings. Removing answer completeness regularization causes the largest average drop, from 65.51% to 61.37%. All six metrics decrease, with the largest drop on NC-QA. This supports the PC-QA NC-QA PC-MC NC-MC PC-MR NC-MR 100 90 80 70 60 50 40 30 20 10 0  
+
+> Exact Match(%)
+> Qwen2.5-1.5b(TRACE) Qwen2.5-7b(Knowledgeable-R1) Qwen2.5-7b(TRACE)
+
+Fig. 3. Role-conversion results between stronger debate models and a weaker target model, with comparison to the strongest baseline. 
+
+claim that source selection alone is insufficient: after the model identifies a reliable answer direction, answer-tail reinforcement and premature-termination suppression help preserve complete answer boundaries and reduce incomplete outputs. To complement these quantitative ablations, Appendix A provides two representative cases that illustrate how TRACE resists misleading retrieved evidence and preserves complete answer boundaries. 
+
+E. Role Conversion between Strong and Weak Models 
+
+The role-conversion experiment tests whether TRACE can transfer supervision from relatively stronger models to a sub-stantially weaker target model. In the main setting, the strong model is Qwen3–32B, the intermediate model is DeepSeek-R1–8B, and the weak target model is Qwen2.5–7B. In the role-conversion setting, Qwen2.5–7B is used as the strongest model, Qwen2.5–3B is used as the intermediate model, and Qwen2.5–1.5B is used as the weak target model for fine-tuning. Fig. 3 shows that TRACE can still improve a weak tar-get model in several knowledge-conflict settings. Although Qwen2.5–1.5B has only 21.3% of the parameters of Qwen2.5– 7B, the fine-tuned model remains competitive and surpasses the 7B-level Knowledgeable-R1 baseline on some metrics. This result suggests that debate-trace supervision can transfer useful source-selection behavior to weaker models, although the effect is not uniform across all scenarios. V. C ONCLUSION AND FUTURE WORK 
+
+This paper addresses knowledge conflicts in RAG by proposing TRACE, a source-aware fine-tuning framework that learns when to use retrieved context and when to rely on parametric knowledge. The key idea is to use multi-agent de-bate only during data construction: debate trajectories expose correct candidates, misleading candidates, and answer-shift patterns, which are converted into positive and negative fine-tuning signals for a single target model. TRACE further adds answer completeness regularization so that source selection is paired with complete final-answer generation. Experiments across correct, wrong, self-conflicting, irrele-vant, and partially relevant retrieval settings show that TRACE preserves the use of reliable context while improving robust-ness to misleading or conflicting retrieval. Ablation results confirm the contribution of debate traces, strong-to-weak su-pervision, and answer completeness regularization, and the role-conversion study suggests that the supervision can also benefit a weaker target model. These findings indicate that debate trajectories can serve as process-level supervision for source-aware RAG without requiring debate at inference time. A current limitation is that TRACE is strongest in explicit source-conflict settings and less uniformly effective in par-tially relevant long-context multi-hop scenarios, where an-swer correctness depends on fine-grained evidence localization and evidence-chain composition. Future work will therefore combine debate-trace supervision with explicit evidence-chain supervision, reduce the cost and noise of debate-based data construction, and evaluate source-aware training under more realistic retrieval pipelines beyond benchmark-provided con-texts. ACKNOWLEDGMENTS 
+
+This research was supported by the Key R&D Program of Shandong Province, China (Project No. 2024CXGC010109), the Shandong Provincial Natural Science Foundation (Project No. ZR2026QC1574), and the 2026 Linyi University High-Level Talent (Doctoral) Research Start-up Fund (Natural Sci-ence), Grant No. Z6126063. REFERENCES [1] A. Singh, A. Fry, A. Perelman, A. Tart, A. Ganesh, A. El-Kishky, A. McLaughlin, A. Low, A. Ostrow, A. Ananthram et al. , “Openai gpt-5 system card,” arXiv preprint arXiv:2601.03267 , 2025. [2] H. Touvron, T. Lavril, G. Izacard, X. Martinet, M.-A. Lachaux, T. Lacroix, B. Rozi` ere, N. Goyal, E. Hambro, F. Azhar et al. ,“Llama: Open and efficient foundation language models,” arXiv preprint arXiv:2302.13971 , 2023. [3] S. Lin, J. Hilton, and O. Evans, “Truthfulqa: Measuring how models mimic human falsehoods,” in Proceedings of the 60th annual meeting of the association for computational linguistics (volume 1: long papers) ,2022, pp. 3214–3252. [4] Z. Ji, N. Lee, R. Frieske, T. Yu, D. Su, Y. Xu, E. Ishii, Y. J. Bang, A. Madotto, and P. Fung, “Survey of hallucination in natural language generation,” ACM computing surveys , vol. 55, no. 12, pp. 1–38, 2023. [5] P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, H. K¨ uttler, M. Lewis, W.-t. Yih, T. Rockt¨ aschel et al. , “Retrieval-augmented generation for knowledge-intensive nlp tasks,” Advances in neural information processing systems , vol. 33, pp. 9459–9474, 2020. [6] Y. Gao, Y. Xiong, X. Gao, K. Jia, J. Pan, Y. Bi, Y. Dai, J. Sun, H. Wang, H. Wang et al. , “Retrieval-augmented generation for large language models: A survey,” arXiv preprint arXiv:2312.10997 , 2023. [7] K. Guu, K. Lee, Z. Tung, P. Pasupat, and M. Chang, “Retrieval augmented language model pre-training,” in International conference on machine learning . PMLR, 2020, pp. 3929–3938. [8] S. Longpre, K. Perisetla, A. Chen, N. Ramesh, C. DuBois, and S. Singh, “Entity-based knowledge conflicts in question answering,” in Proceed-ings of the 2021 conference on empirical methods in natural language processing , 2021, pp. 7052–7063. [9] J. Xie, K. Zhang, J. Chen, R. Lou, and Y. Su, “Adaptive chameleon or stubborn sloth: Revealing the behavior of large language models in knowledge conflicts,” in International Conference on Learning Repre-sentations , vol. 2024, 2024, pp. 35 623–35 646. [10] F. Wang, X. Wan, R. Sun, J. Chen, and S. O. Arik, “Astute rag: Overcoming imperfect retrieval augmentation and knowledge conflicts for large language models,” in Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 2025, pp. 30 553–30 571. [11] S.-Q. Yan, J.-C. Gu, Y. Zhu, and Z.-H. Ling, “Corrective retrieval augmented generation,” CoRR , vol. abs/2401.15884, 2024. [Online]. Available: https://doi.org/10.48550/arXiv.2401.15884 [12] B. Bi, S. Liu, Y. Wang, Y. Xu, J. Fang, L. Mei, and X. Cheng, “Parameters vs. context: Fine-grained control of knowledge reliance in language models,” in The Fourteenth International Conference on Learning Representations , 2026. [Online]. Available: https: //openreview.net/forum?id=TJ3DqFiGau [13] Z. Wei, W.-L. Chen, and Y. Meng, “Instructrag: Instructing retrieval-augmented generation via self-synthesized rationales,” in International Conference on Learning Representations , 2025, pp. 82 731–82 754. [14] C. Xiang, T. Wu, Z. Zhong, D. Wagner, D. Chen, and P. Mittal, “Certifiably robust rag against retrieval corruption,” arXiv preprint arXiv:2405.15556 , 2024. [15] E. Choi, J. Park, H. Lee, and J. Lee, “Conflict-aware soft prompting for retrieval-augmented generation,” in Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , 2025, pp. 26 969–26 983. [16] H. K. Choi, J. Zhu, and S. Li, “Debate or vote: Which yields better decisions in multi-agent large language models?” Advances in Neural Information Processing Systems , vol. 38, pp. 101 732–101 764, 2025. [17] Y. Du, S. Li, A. Torralba, J. B. Tenenbaum, and I. Mordatch, “Improving factuality and reasoning in language models through multiagent debate,” in Forty-first international conference on machine learning , 2024. [18] A. Asai, Z. Wu, Y. Wang, A. Sil, and H. Hajishirzi, “Self-rag: Learning to retrieve, generate, and critique through self-reflection,” in Interna-tional conference on learning representations , vol. 2024, 2024, pp. 9112–9141. [19] S. Liu, Y.-M. Shang, and X. Zhang, “Truthfulrag: Resolving factual-level conflicts in retrieval-augmented generation with knowledge graphs,” in 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , vol. 40, no. 38, 2026, pp. 32 168–32 176. [20] B. Bi, S. Huang, Y. Wang, T. Yang, Z. Zhang, H. Huang, L. Mei, J. Fang, Z. Li, F. Wei et al. , “Context-dpo: Aligning language models for context-faithfulness,” in Findings of the Association for Computational Linguistics: ACL 2025 , 2025, pp. 10 280–10 300. [21] R. Zhang, Y. Xu, Y. Xiao, R. Zhu, X. Jiang, X. Chu, J. Zhao, and Y. Wang, “Knowpo: Knowledge-aware preference optimization for con-trollable knowledge selection in retrieval-augmented language models,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 39, no. 24, 2025, pp. 25 895–25 903. [22] C. Lin, Y. Wen, D. Su, H. Tan, F. Sun, M. Chen, C. Bao, and Z. Lv, “Resisting contextual interference in RAG via parametric-knowledge reinforcement,” in The Fourteenth International Conference on Learning Representations , 2026. [Online]. Available: https: //openreview.net/forum?id=6Qc6sO1jh9 [23] T. Liang, Z. He, W. Jiao, X. Wang, Y. Wang, R. Wang, Y. Yang, S. Shi, and Z. Tu, “Encouraging divergent thinking in large language models through multi-agent debate,” in Proceedings of the 2024 conference on empirical methods in natural language processing , 2024, pp. 17 889– 17 904. [24] J. Chen, S. Saha, and M. Bansal, “Reconcile: Round-table conference improves reasoning via consensus among diverse llms,” in Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 2024, pp. 7066–7085. [25] S. R. Motwani, C. Smith, R. J. Das, R. Rafailov, I. Laptev, P. Torr, F. Pizzati, R. Clark, and C. S. de Witt, “MALT: Improving reasoning with multi-agent LLM training,” in Workshop on Reasoning and Planning for Large Language Models , 2025. [Online]. Available: https://openreview.net/forum?id=lIf7grAC7n [26] X. Zhou, H.-Y. Huang, and L. Liao, “Debate, reflect, and distill: Multi-agent feedback with tree-structured preference optimization for efficient language model enhancement,” in Findings of the Association for Computational Linguistics: ACL 2025 , 2025, pp. 9122–9137. [27] R. Xu, Z. Qi, Z. Guo, C. Wang, H. Wang, Y. Zhang, and W. Xu, “Knowledge conflicts for llms: A survey,” in Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing ,2024, pp. 8541–8565. [28] S. Zeng, J. Zhang, B. Li, Y. Lin, T. Zheng, D. Everaert, H. Lu, H. Liu, Y. Xing, M. X. Cheng et al. , “Towards knowledge checking in retrieval-augmented generation: A representation perspective,” in Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the As-sociation for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) , 2025, pp. 2952–2969. [29] S. Welleck, I. Kulikov, S. Roller, E. Dinan, K. Cho, and J. Weston, “Neural text generation with unlikelihood training,” in International Conference on Learning Representations , 2020. [Online]. Available: https://openreview.net/forum?id=SJeYe0NtvH [30] D. Guo, D. Yang, H. Zhang, J. Song, P. Wang, Q. Zhu, R. Xu, R. Zhang, S. Ma, X. Bi et al. , “Deepseek-r1 incentivizes reasoning in llms through reinforcement learning,” Nature , vol. 645, no. 8081, pp. 633–638, 2025. [31] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, W. Chen et al. , “Lora: Low-rank adaptation of large language models.”                       
+
+> Iclr , 2022. [32] Y. Wen, Z. Wang, and J. Sun, “Mindmap: Knowledge graph prompting sparks graph of thoughts in large language models,” in Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , 2024, pp. 10 370–10 388. [33] Z. Yang, P. Qi, S. Zhang, Y. Bengio, W. Cohen, R. Salakhutdinov, and C. D. Manning, “Hotpotqa: A dataset for diverse, explainable multi-hop question answering,” in Proceedings of the 2018 conference on empirical methods in natural language processing , 2018, pp. 2369–2380. [34] X. Ho, A.-K. D. Nguyen, S. Sugawara, and A. Aizawa, “Constructing a multi-hop qa dataset for comprehensive evaluation of reasoning steps,” in Proceedings of the 28th International Conference on Computational Linguistics , 2020, pp. 6609–6625. [35] H. Trivedi, N. Balasubramanian, T. Khot, and A. Sabharwal, “
+> musique: Multihop questions via single-hop question composition,”
+> Transactions of the Association for Computational Linguistics , vol. 10, pp. 539–554, 2022.
+
+APPENDIX ACASE ANALYSIS 
+
+This appendix provides two representative cases to illustrate the behavior of TRACE under misleading retrieved contexts. We summarize the key misleading evidence in each case and compare the outputs of Knowledgeable-R1 [22] and TRACE. Case 1 mainly reflects context resistance under erroneous retrieval, and case 2 shows the importance of answer com-pleteness regularization mechanism. 
+
+A. Case 1: Resisting a Misleading Citizenship Chain 
+
+Question. 
+
+What is the native language of the head of gov-ernment of the country where Robert Evans has citizenship? 
+
+Misleading evidence. The retrieved passage incorrectly de-scribes Robert Evans as a citizen of Belgium. It then builds a misleading reasoning chain from Belgium to its head of government and further associates the final answer with Dutch. The passage also contains noisy and internally inconsistent statements, such as connecting Belgium with Narendra Modi and describing him as a native Puerto Rican Spanish speaker. 
+
+Knowledgeable-R1 output.                         
+
+> <think >Robert Evans is acitizen of Belgium. The head of government in Belgium is the Prime Minister. The native language of the Prime Minister of Belgium is Dutch.
+> </think ><answer >Dutch </answer >
+
+TRACE output.                                           
+
+> <think >The information provided about Robert Evans is incorrect, as he is aU.S. citizen, not a Belgian. However, the question asks about his citizenship, which is the United States. The head of government of the United States is the President, and the native language of the President is English. </think ><answer >English </answer >
+
+Analysis. This case illustrates the context-resistance ability of TRACE. The thinking process of Knowledgeable-R1 shows that it accepts the incorrect retrieved premise that Robert Evans is a Belgian citizen, and then follows the misleading chain “Belgium, Prime Minister,Dutch.” As a result, it produces an incorrect final answer. By contrast, the thinking process of TRACE explicitly identifies the retrieved citizenship statement as unreliable and falls back to parametric knowledge. It then maps the country to the United States, the head of government to the U.S. President, and the native language to English. This example provides qualitative evidence that debate-trace supervision can help the model resist misleading retrieved content when parametric knowledge is more reliable. 
+
+B. Case 2: Preserving the Complete Answer Boundary 
+
+Question. 
+
+What position is held by the spouse of the head of state of the country where Bam Adebayo is a citizen? 
+
+Misleading evidence. The retrieved passage contains noisy and irrelevant descriptions. It incorrectly introduces Bam Adebayo as being from the Russian Empire, then shifts to unrelated statements about Charles’s Empire, Charles III, and Ronald Reagan. 
+
+Model outputs. Knowledgeable-R1 produces an answer in the correct general direction but with an incomplete answer: 
+
+<answer> First Lady </answer> 
+
+TRACE gives a more complete answer: 
+
+<answer> First Lady of the United States </answer> 
+
+Analysis. The core of this analysis is not mainly about choosing between parametric knowledge or retrieved knowl-edge. The key difference lies in answer completeness. Knowledgeable-R1 outputs only the head noun phrase, while TRACE preserves the complete answer boundary by including the country-specific qualifier “of the United States.” For exact-match style evaluation and for semantic clarity, this qualifier is important because it makes the final answer more specific and less ambiguous. This example therefore supports the role of answer-completeness regularization: answer-tail token reinforcement and premature termination suppression help LLM generate a complete final answer rather than stopping at a shorter answer fragment. 
+
+C. Summary 
+
+The first case shows that TRACE can resist some misleading retrieved chain and recover the answer from reliable paramet-ric knowledge more effectively during some situations. The second case shows that TRACE can produce a more complete answer. Together, they provide qualitative evidence for the two central components of TRACE: the fine-tuning method based on multi-agent debate traces helps LLM choose more reliable knowledge and answer completeness regularization mechanism helps LLMs reduce the generation of incomplete answer.
