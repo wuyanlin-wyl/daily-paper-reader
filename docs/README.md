@@ -6,77 +6,78 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-10-02
-- 运行时间：2026-10-02 22:35:18 UTC
+- 最新运行日期：2026-10-03
+- 运行时间：2026-10-03 22:14:52 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日筛选19篇医学视觉语言与图像分割论文，精读7篇、速读12篇，重点关注眼科与皮肤科VLM评测。最值得看的是EyeVQA（9.0/10）对眼科视觉语言模型从识别到空间定位的基准测试，以及皮肤科研究揭示医学VLM对视觉编码器利用不足的问题。普通读者可优先了解VLM在专科影像中的真实能力边界，再关注DSA血管与脑肿瘤分割的少样本、标签高效方案。
-- 详情：[/202610/02/README](/202610/02/README)
+1) 今日筛出19篇，精读7篇、速读12篇，医疗AI多模态与临床问答成为高分主线。  
+2) 最
+- 详情：[/202610/03/README](/202610/03/README)
 
 ### 精读区论文标签
-1. [EyeVQA: Benchmarking Ophthalmic Vision-Language Models from Recognition to Spatial Grounding](/202610/02/2609.32352v2-eyevqa-benchmarking-ophthalmic-vision-language-models-from-recognition-to-spatial-grounding)  
+1. [SAM Meets VLM: Parameter-Decoupled Full-Parameter Training for Unified Medical Reasoning and Segmentation](/202610/03/2609.37283v1-sam-meets-vlm-parameter-decoupled-full-parameter-training-for-unified-medical-reasoning-and-segmentation)  
+   标签：评分：10.0/10、query:vlmmed
+   evidence：VLM与SAM统一医学推理与分割
+2. [ARCagent: An Adaptive Retrieval Calibration Agent for Clinical Question Answering](/202610/03/2609.36392v1-arcagent-an-adaptive-retrieval-calibration-agent-for-clinical-question-answering)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：面向医学眼科影像的视觉语言模型评测基准
-2. [How Medical VLMs Underutilize Their Vision Encoders: A Dermatology Perspective](/202610/02/2609.36557v1-how-medical-vlms-underutilize-their-vision-encoders-a-dermatology-perspective)  
+   evidence：面向临床问答的自适应检索智能体
+3. [Hierarchical Compression of Vision-Language Model Benchmarks](/202610/03/2609.37515v1-hierarchical-compression-of-vision-language-model-benchmarks)  
+   标签：评分：9.0/10、query:vl
+   evidence：视觉语言模型基准压缩
+4. [PLRS-IC: A Dual-Calibration Framework for Chest X-Ray Vision-Language Alignment](/202610/03/2609.39266v1-plrs-ic-a-dual-calibration-framework-for-chest-x-ray-vision-language-alignment)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：医学视觉语言模型未充分利用视觉编码器
-3. [SAM Meets VLM: Parameter-Decoupled Full-Parameter Training for Unified Medical Reasoning and Segmentation](/202610/02/2609.37283v1-sam-meets-vlm-parameter-decoupled-full-parameter-training-for-unified-medical-reasoning-and-segmentation)  
+   evidence：胸部X光视觉语言对齐用于医学分析
+5. [Hetero-modal learning and corruption-resistant hetero-modal inference for joint segmentation of white matter hyperintensities and ischaemic stroke lesions in MRI](/202610/03/2610.00553v1-hetero-modal-learning-and-corruption-resistant-hetero-modal-inference-for-joint-segmentation-of-white-matter-hyperintensities-and-ischaemic-stroke-lesions-in-mri)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：VLM结合SAM实现统一医学推理与分割
-4. [CRAFT: Causal Responsibility and Failure Tracing in Medical Vision Language Models](/202610/02/2609.38810v1-craft-causal-responsibility-and-failure-tracing-in-medical-vision-language-models)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：医学视觉语言模型的注意力头机制分析
-5. [Learning Where to Look: Anatomical Grounding and Guided Attention for Cardiac MRI Vision-Language Models](/202610/02/2609.39899v1-learning-where-to-look-anatomical-grounding-and-guided-attention-for-cardiac-mri-vision-language-models)  
-   标签：评分：9.0/10、query:vlmmed
-   evidence：心脏MRI视觉语言模型与解剖引导注意力
-6. [SynDORBench: Evaluating LVLM Perceptual Robustness Under Physically Constrained Visibility Conditions](/202610/02/2609.31823v1-syndorbench-evaluating-lvlm-perceptual-robustness-under-physically-constrained-visibility-conditions)  
+   evidence：异模态MRI分割白质高信号与卒中病灶
+6. [OmniMoE-VL: A Sparse Vision-Language Model with Coupled Visual-Depth Routing](/202610/03/2609.32780v1-omnimoe-vl-a-sparse-vision-language-model-with-coupled-visual-depth-routing)  
    标签：评分：8.0/10、query:vl
-   evidence：LVLM感知鲁棒性基准
-7. [OmniMoE-VL: A Sparse Vision-Language Model with Coupled Visual-Depth Routing](/202610/02/2609.32780v1-omnimoe-vl-a-sparse-vision-language-model-with-coupled-visual-depth-routing)  
+   evidence：带视觉深度路由的稀疏视觉语言模型
+7. [Geometric Encoding for Spatial Reasoning in Vision-Language Models](/202610/03/2609.34148v1-geometric-encoding-for-spatial-reasoning-in-vision-language-models)  
    标签：评分：8.0/10、query:vl
-   evidence：稀疏视觉语言模型，视觉深度路由
+   evidence：为视觉语言模型提供几何编码增强空间推理
 
 ### 速读区论文标签
-1. [ConPro: Contrast Projection Pretraining for Label-Efficient Vessel Segmentation in DSA Sequences](/202610/02/2609.30043v1-conpro-contrast-projection-pretraining-for-label-efficient-vessel-segmentation-in-dsa-sequences)  
+1. [From PDF to Evidence: Structure-Aware Retrieval for Clinical Practice Guidelines](/202610/03/2609.33447v1-from-pdf-to-evidence-structure-aware-retrieval-for-clinical-practice-guidelines)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：医学DSA序列血管分割自监督预训练
-2. [Combining General and Domain-Specific Pretext Tasks for Brain MR Image Segmentation](/202610/02/2609.30708v1-combining-general-and-domain-specific-pretext-tasks-for-brain-mr-image-segmentation)  
+   evidence：临床指南证据的结构感知检索
+2. [Large Language Models for Structured Clinical Data Analysis: Dual-Agent Grounding and Validation](/202610/03/2609.34039v1-large-language-models-for-structured-clinical-data-analysis-dual-agent-grounding-and-validation)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：自监督预训练用于脑部MR图像分割
-3. [FSS-UBrain: Multi-region Few-Shot Brain Tumor MRI Segmentation](/202610/02/2609.32273v1-fss-ubrain-multi-region-few-shot-brain-tumor-mri-segmentation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：基于少样本的脑肿瘤MRI多区域分割框架
-4. [USAI-Quant: A Quantitative Reasoning Benchmark for Vision-Language Models in Built Environments](/202610/02/2609.32813v1-usai-quant-a-quantitative-reasoning-benchmark-for-vision-language-models-in-built-environments)  
+   evidence：面向临床数据分析的双智能体验证框架
+3. [ConvCue: Complementary Visual Inductive Biases for Vision-Language Models](/202610/03/2609.34196v1-convcue-complementary-visual-inductive-biases-for-vision-language-models)  
    标签：评分：8.0/10、query:vl
-   evidence：视觉语言模型定量推理基准
-5. [Looks the Same, Answers Differently: Flip-Direction Steering for Robust Vision-Language Reasoning](/202610/02/2609.28851v1-looks-the-same-answers-differently-flip-direction-steering-for-robust-vision-language-reasoning)  
-   标签：评分：7.0/10、query:vl
-   evidence：免训练引导提升视觉语言模型推理稳定性
-6. [Domain Recentering and Confidence-Weighted Prior Calibration for Vision-Language Models](/202610/02/2609.29358v1-domain-recentering-and-confidence-weighted-prior-calibration-for-vision-language-models)  
-   标签：评分：7.0/10、query:vl
-   evidence：面向CLIP等视觉语言模型的无训练校准
-7. [The Alignment Illusion in Multimodal Large Language Models](/202610/02/2609.30210v1-the-alignment-illusion-in-multimodal-large-language-models)  
-   标签：评分：7.0/10、query:vl
-   evidence：对13个多模态大模型的对齐度量进行分析评测
-8. [MedTokenBudget: Lesion-Preserving Token Routing for Dermoscopic Image Classification](/202610/02/2609.30613v1-medtokenbudget-lesion-preserving-token-routing-for-dermoscopic-image-classification)  
+   evidence：用CNN特征增强视觉语言模型表征
+4. [Distilling Visual Reasoning into Text Space](/202610/03/2609.34408v1-distilling-visual-reasoning-into-text-space)  
+   标签：评分：8.0/10、query:vl
+   evidence：大型视觉语言模型多模态推理蒸馏
+5. [MedTokenBudget: Lesion-Preserving Token Routing for Dermoscopic Image Classification](/202610/03/2609.30613v1-medtokenbudget-lesion-preserving-token-routing-for-dermoscopic-image-classification)  
    标签：评分：7.0/10、query:vlmmed
-   evidence：面向皮肤镜分类的视觉Transformer令牌路由
-9. [Multimodal Thinking with Renderable Programs](/202610/02/2609.30130v1-multimodal-thinking-with-renderable-programs)  
+   evidence：面向皮肤镜Transformer分类的病灶感知令牌路由机制
+6. [Can Linguistic Reasoning Vectors Enhance Multimodal Reasoning Ability?](/202610/03/2609.31140v1-can-linguistic-reasoning-vectors-enhance-multimodal-reasoning-ability)  
+   标签：评分：7.0/10、query:vl
+   evidence：将基座LLM推理迁移到视觉语言模型
+7. [CytoSPM: Open-Vocabulary Cytopathology Detection with Structured Prompt Bank](/202610/03/2609.31314v1-cytospm-open-vocabulary-cytopathology-detection-with-structured-prompt-bank)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：基于结构化形态提示的开放词汇细胞病理检测
+8. [SynDORBench: Evaluating LVLM Perceptual Robustness Under Physically Constrained Visibility Conditions](/202610/03/2609.31823v1-syndorbench-evaluating-lvlm-perceptual-robustness-under-physically-constrained-visibility-conditions)  
+   标签：评分：7.0/10、query:vl
+   evidence：大视觉语言模型鲁棒性基准评测
+9. [MBFormer: Microbubble Transformer for 3D Time-Series Da-ta Processing to Improve Bound Bubble Detection in Nonde-structive Ultrasound Molecular Imaging](/202610/03/2609.30618v1-mbformer-microbubble-transformer-for-3d-time-series-da-ta-processing-to-improve-bound-bubble-detection-in-nonde-structive-ultrasound-molecular-imaging)  
+   标签：评分：6.0/10、query:vlmmed
+   evidence：带注意力机制的Transformer用于医学超声成像
+10. [SEA-CLIP-Tiny: Efficient Multilingual Text-Vision Embedding for Southeast Asian Languages](/202610/03/2609.30739v1-sea-clip-tiny-efficient-multilingual-text-vision-embedding-for-southeast-asian-languages)  
    标签：评分：6.0/10、query:vl
-   evidence：视觉语言模型的可渲染多模态推理
-10. [A Living Benchmark for Information Retrieval from Electronic Health Records](/202610/02/2609.30205v1-a-living-benchmark-for-information-retrieval-from-electronic-health-records)  
+   evidence：多语言文本-视觉嵌入模型
+11. [Effects of Transcript Compression on LLM-based Medical Misinformation Detection in Japanese YouTube Videos](/202610/03/2609.30882v1-effects-of-transcript-compression-on-llm-based-medical-misinformation-detection-in-japanese-youtube-videos)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：面向电子健康记录检索的LLM基准
-11. [A Living Benchmark for Information Retrieval from Electronic Health Records](/202610/02/2609.30205v2-a-living-benchmark-for-information-retrieval-from-electronic-health-records)  
+   evidence：基于RAG的文本压缩用于医学虚假信息检测
+12. [Stale-Document Poisoning: When Outdated Retrieval Overrides Correct Model Answers](/202610/03/2609.31342v1-stale-document-poisoning-when-outdated-retrieval-overrides-correct-model-answers)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：基于LLM的电子病历临床信息检索基准
-12. [Parameters vs. Context: TRACE Fine-Tuning for Robust Retrieval-Augmented Generation](/202610/02/2609.30337v1-parameters-vs-context-trace-fine-tuning-for-robust-retrieval-augmented-generation)  
-   标签：评分：6.0/10、query:vlmmed
-   evidence：知识冲突下的鲁棒RAG微调
+   evidence：RAG时序失效含医学知识反转
 
 
 <div class="dpr-home-promo-card">
