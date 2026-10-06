@@ -1,0 +1,498 @@
+Title: Position Aware Layer Queries for Test Time Training in Vision Language Models
+
+URL Source: https://arxiv.org/pdf/2609.34021v1
+
+Published Time: Tue, 29 Sep 2026 02:54:55 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+Preprint 
+
+# POSITION AWARE LAYER QUERIES FOR 
+
+# TEST TIME TRAINING IN VISION LANGUAGE MODELS 
+
+Rajat Modi ∗
+
+, Priyank Pathak, Xin Liang & Yogesh Singh Rawat 
+
+Institute of Artificial Intelligence University of Central Florida Orlando, FL 32816, USA 
+
+## ABSTRACT 
+
+Test-Time Training (TTT) adapts models to incoming test samples ( e.g. out-of-distribution, (OOD)) when conventional fine-tuning is infeasible. Existing TTT methods for Vision-Language Models (VLMs) create supervision from several augmented views, each requiring forward (and often backward) passes through the entire VLM, incurring substantial computational cost. We observe that one forward pass with all the intermediate layer outputs already yields far more sig-nal than the final embedding from all augmentations. We introduce Layer Query Network (LQN) , a lightweight approach that can adapt a frozen VLM ( teacher ) in a single forward pass of the VLM via a small model ( student ). LQN uses Position-Aware Distillation (PAD) to mimic the teacher VLM’s intermediate-layer spatial tokens by querying spatial coordinates of intermediate tokens. LQN addition-ally relies on Location Consistency Regularization (LCR) , a self-supervision technique, replacing expensive O(H×W ) image augmentation with O(1) coor-dinate sampling. Integrating these, LQN i) Adapts and improves zero-shot CLIP ViT-B/16 by 9.8% Top-1 on OOD ImageNet, ii) Outperforms the previous best GS-Bias on fine-grained classification by 3.9% Top-1, iii) Faster convergence than TPS for CLIP ResNet-50 (47 mins vs 55 mins) iv) Generalizes adaptation to VLMs like SigLIP, EVA-CLIP, and CoCa, and lightweight students like MLP, ResNet, VGG, and v) Extends to panoptic, instance, and semantic segmentation. 
+
+## 1 INTRODUCTION 
+
+CLIP (Radford et al., 2021) is widely regarded as one of the first Vision-Language Models (VLMs) to demonstrate strong zero-shot generalization in tasks like image classification, image–text re-trieval, image segmentation, video text retrieval, and audio classification (Wang et al., 2025b; Hur et al., 2025; Dixit et al., 2024). As real-world deployment of VLMs grows, a key question emerges: 
+
+“Is there an efficient way to boost the out-of-distribution generalization of VLMs for real-world?” 
+
+VLMs degrade under distribution shift, i.e. unseen out-of-distribution (OOD) test domains (Shu et al., 2023). Parameter-efficient fine-tuning, such as Adapters (Yin et al., 2023), LoRA (Hu et al., 2022), VPT (Jia et al., 2022), NN & TK0 (Pathak et al., 2026), etc . can adapt VLMs but require labeled target data; an assumption that rarely holds in the real world. Improving this, Test-Time Adaptation ‘peeks’ at target data on-the-fly (Zhang et al., 2024), but relies on multiple test samples (e.g. cache seen samples) to refine predictions (Nguyen et al., 2025), limiting applicability in data-constrained scenarios e.g. medical diagnostics. Overcoming this constraint, Test-Time Training (TTT , Sun et al. (2020)) adapts using just one test sample . TTT frameworks like TPT (Shu et al., 2022) and TPS (Sui et al., 2025) adapt by self-supervising consistency across multiple augmenta-tions for each test sample, (fig. 1 (a)). Although effective, this requires the VLM to perform multiple unnecessary forward (& backward) passes for each augmentation, incurring high computational cost. We take a different view: the signal is already inside the VLM even without augmentations. A single forward pass produces not only a final embedding but also L layers of H×W spatial tokens of D-dimension ( e.g. CLIP). We treat this stack as a 3D hidden-state volume as Teacher output Y 1,2...L img ∈
+
+> ∗
+
+Correspondence to {rajatmodi62,priyankpathak50 }@gmail.com ,
+
+yogesh@crcv.ucf.edu 
+
+1arXiv:2609.34021v1 [cs.CV] 27 Sep 2026 Preprint Logits Augmentations  
+
+> (a) Test-Time Prompt Tuning (TPT)
+> loss Trainable Prompts +
+> Cat Dog …
+> ×
+> Text Encoder
+> Image Encoder
+> Feature Positions
+> $, &, ' ×)
+> Cat Dog …
+> Text Encoder
+> All layer Features Logits
+> (b) Layer Query Network (LQN)
+> ×
+> Teacher
+> Image Encoder
+> Student
+> Image Encoder
+> loss
+> Backward Forward Feature Positions
+> !, #, $
+> ×-
+> Cat Dog …Text Encoder
+> All layer Features
+> Logits
+> Layer Query Network (LQN )
+> (Ours) (c)
+> ×
+> Teacher
+> Image Encoder
+> Student
+> Image Encoder
+> loss
+> Student Model
+> (c) Location Consistency Regularization (LCR)
+> Src1
+> Student Model
+
+loss 
+
+> Src2
+> Dest
+> Test Image
+
+Figure 1: Comparison with existing works: (a) Left: TPT trains prompts via multiple augmenta-tions, requiring multiple forward/backward passes of VLM (b) Middle: LQN trains small student in single forward pass from VLM (w/o any augmentation), by iteratively distilling intermediate fea-tures of image encoder via positional encoding ( i, j, l coordinates for i, j spatial token at l layer) (c) Right: Self-supervision via varying src coordinates saves compute on expensive image augmenta-tion and avoids over-reliance on VLMs (teacher) embedding on OOD samples. 
+
+RH×W ×L×D and fit a lightweight, randomly initialized small student network. Conditioned on the coordinates of the spatial tokens, this student mimics the teacher’s feature at any spatial position and depth. Such coordinate-conditioned very small networks have the potential to fit smooth structure, avoiding noise (Rahaman et al., 2019; Ulyanov et al., 2018), thereby, potentially acting as a denoiser for teacher’s OOD features. We call this Layer Query Network (LQN) , a technique for adapting large frozen VLMs using a lightweight network in only 1 VLM forward pass per test sample. LQN is composed of two complementary objectives: Position-Aware Distillation (PAD) and Lo-cation Consistency Regularization (LCR) . PAD distills the teacher VLM’s token at randomly sampled coordinates ( dest , (i, j, l )), encoded with a 3D RoPE (fig. 1 (b)). Unlike traditional layer-wise distillation (Romero et al., 2015), PAD does not need block-to-block correspondence between teacher and student, but the student can mimic every layer of a VLM. LCR is a self-supervised regu-larization on the student network without teacher supervision (fig. 1 (c)). By varying the input spatial coordinates src , the student maintains consistent predictions across locations. Sampling the src co-ordinate costs O(1) , compared with expensive O(H×W ) image augmentations. Additionally, LCR reduces the reliance on the teacher for OOD inputs where VLM outputs may be unreliable. LQN offers several benefits: 1) Efficient : Distilling intermediate teacher layers helps small student networks converge in fewer iterations (reduced GFLOPs), surpassing existing TTT approaches. (2) Teacher Adaptation: LQN outperforms existing TTT approaches in adapting CLIP for ImageNet OOD variants and fine-grained benchmarks. (3) Dense prediction: Intermediate feature distillation helps the student learn fine-grained nuances of the teacher and improve dense prediction tasks. (4) Self-Supervision : Reduced reliance on the VLM, where teacher predictions may not be certain for OOD samples. (5) Generalization Since the input rely on coordinates, LQN can predict arbitrary intermediate features, making it easy to apply to a variety of VLMs and student networks. In summary, Layer Query Network ( LQN ) is an efficient test-time training framework for on-the-fly adaptation of large VLMs using lightweight models without needing any image augmentations. LQN is evaluated on 14 classification benchmarks and 5 segmentation tasks. Key contributions in-clude: (1) We introduce PAD , a position-aware distillation objective that fits all intermediate layers with one shared network, and LCR , a teacher-free anchor-consistency objective that replaces aug-mentation at O(1) cost. (2) On classification benchmarks, LQN improves CLIP ViT-B/16 and ViT-L/14 on ImageNet OOD variants by 9.8% and 5.7% over zero-shot, and outperforms the strongest TTT baselines by 3.9% on fine-grained classification benchmarks. (3) LQN extends to dense seg-mentation prediction by adapting EoMT on COCO, Cityscapes, and ADE20K (4) Generalization to VLMs like EVA, SigLIP, and CoCa, and lightweight students like ResNet & VGG. 2Preprint …
+
+> Teacher’s Image Encoder
+> Layer 1Layer 2Layer L
+
+1) LQN Test-Time Training 2) Test-Time Inference     
+
+> For ! = 1, … , &
+> For ' = 1, … , (
+> Position
+> LQN
+> Teacher’s Text Encoder
+> Task Specific Processing Class, Segment Output
+> !, ', )
+> Cat Dog …Random dest
+> Positions Initial src
+> Position
+> 0,0,0 !!, ' !, , + !
+> !"#$%&
+> !", ' ", , + "
+> !"#$%&
+> !#, ' #, + #
+> !"#$%&
+> Student Model
+> LQN
+> Position-Aware Distillation
+
+Figure 2: Layer Query Network (LQN) 1) For a single test image, frozen teacher (VLM) extracts intermediate features across all layers. During test-time training , LQN runs for N iterations by ran-domly sampling different destination (dest) positions (i, j, l ), where (i, j ) is the spatial location and l
+
+the layer depth. Position-Aware Distillation ( PAD ) takes the image, (0 , 0, 0) as the src position, and trains student network to predict the teacher’s feature at dest . Location Consistency Regularization (LCR ) self-supervises LQN to produce consistent features across random src (s). 2) After the final iteration (test-time inference), the student is queried at all spatial locations of the last layer L. Re-sultant features are processed by task-specific modules (eg, zero-shot classification/ segmentation). 
+
+## 2 RELATED WORK 
+
+VLM Adaptation: VLMs are often adapted by fine-tuning the entire model or via LLM prompts (Pratt et al., 2023; Ren et al., 2023). Inspired by parameter-efficient approaches (Lester et al., 2021), adapter-based and cross-modal adaptation works have emerged (Gao et al., 2023; Lin et al., 2023); however, gradients still flow through the entire VLM, increasing optimization cost. 
+
+Test-Time Optimization: Test-Time Adaptation (TTA) methods typically need multiple test sam-ples simultaneously for stable adaptation (Prabhudesai et al., 2023; Yuan et al., 2023; Gong et al., 2022; 2024; Noori et al., 2025), while relying on historical information from multiple test sam-ples. Test-Time Training (TTT) approaches like TPT (Shu et al., 2022) and prompt-tuning (Zhou et al., 2022b;a) enforce consistency across augmented views but require costly passes through the text encoder or require annotated training data. TPS (Sui et al., 2025) avoids this by adjusting pre-computed feature vectors instead. MTA (Zanella & Ben Ayed, 2024), GS-Bias (Huang et al., 2025) further improve zero-shot robustness via mean-shift augmentation, and logit biasing, respectively. TTT-MAE(Gandelsman et al., 2022) uses SSL tasks like rotation/masked prediction, while Diff-TPT Feng et al. (2023) generates OOD data via Stable Diffusion. In contrast to APM (Modi & Rawat, 2024), we distill the teacher VLM’s intermediate features into the student network, without relying solely on the teacher’s features. Compared to previous works, LQN avoids dataset-specific pre-training, multiple expensive augmentations, and the VLM’s separate forward / backward passes per augmentation, thereby saving compute. 
+
+## 3 LAYER QUERY NETWORK (LQN) 
+
+We introduce LQN, a Test-Time Training (TTT) framework designed to enhance the out-of-distribution generalization of Vision-Language Models (VLMs). First, we discuss the background on VLMs such as CLIP. Next, we discuss the Position-Aware Distillation (PAD) and Location Consistency Regularization (LCR) , which describes how LQN functions (section 3.2). 3.1 PRELIMINARIES 
+
+A VLM like CLIP is typically pretrained on millions of image and text pairs. It consists of two parallel encoders, an image encoder Timg and a text encoder Ttext . Given an out-of-distribution test 3Preprint image xood , and a class label description cls , corresponding class probabilities are produced as: 
+
+Yimg = Timg (xood ), Ytext = Ttext (cls ), PCLIP (y = c | (xood ) = exp( Y c 
+
+> text
+
+· Yimg /t )
+
+P 
+
+> c′
+
+exp( Y c′ 
+
+> text
+
+· Yimg /t ) (1) where, Yimg and Ytext are vision and text embeddings, respectively, t is the temperature parameter in softmax and PCLIP (y = c | xood ) is the normalized probability corresponding to this class label 
+
+c. The max probability logit over C classes is chosen as the class prediction. 3.2 TEST -T IME TRAINING (TTT) Following the standard TTT paradigm (Shu et al., 2022; Sui et al., 2025), our goal is to adapt a model (VLM) to an unseen test sample xood within N iterations . Conventionally, VLMs require multiple augmentations of xood , requiring multiple expensive forward/backward passes through the entire VLM. After adaptation, weights are then reset before seeing the next test sample , preventing information leakage across test samples. Our TTT framework adopts a teacher-student distillation framework (fig. 2, algorithm 1), where a lightweight trainable student ( e.g. MLP) mimics a frozen VLM teacher ( e.g. CLIP) for N iterations. Repeated forward / backward passes of small student are computationally much cheaper than those of the teacher VLM, requiring only one forward pass of the teacher ( Yimg , and Ytext , eq. (1)). Student network is optimized to mimic the teacher’s intermediate spatial tokens via Position-Aware Distillation (PAD) , and Location Consistency Regularization (LCR) . Finally, the student uses the teacher text embedding Ytext to generate the class logit. 3.2.1 LQN S TUDENT NETWORK 
+
+Adapting / fine-tuning large-scale VLMs on just one sample risks overfitting and potentially losing VLM’s zero-shot abilities (Pathak et al., 2026; Chen et al., 2024). Instead, we consider adaptation by proxy , where a small lightweight student can iteratively ( N iterations) adapt on a single test sample 
+
+xood (instead of large VLM). This student can ‘learn’ to mimic a larger VLM’s internal embeddings. Student network has three inputs: a test image xood , src , and dest coordinates of the internal spatial features of the VLM teacher. For example, 3D Coordinates like (4,5,2) represent the spatial coor-dinate h, w = (4 , 5) , at the depth of 2nd layer in the VLM teacher. ‘Dest’ represents the location of the target spatial token in the teacher for distillation. The student is tasked to maintain a consis-tent output despite varying input src coordinates. This step may be considered equivalent to having multiple input image augmentations . While augmentation is computationally costly, O( H × W )pixels augmentation, sampling source coordinates is O(1) retrieval, thereby helping the model gen-erate robust embedding efficiently. To distinguish between the locations of src and dest (line 9 of algorithm 1), we concatenate [·|· ] an additional constant sinusoidal positional-encoding ‘flag’ 
+
+P T ∈ R2×D. P T [0] and P T [1] indicates location of src and dest , respectively: src = [ Pis,j s,l s |PT[0]] , dest = [ Pid,j d,l d |PT[1]] (2) 3.2.2 POSITION -AWARE DISTILLATION (PAD )Classically, knowledge distillation focuses on matching the final-layer features of the teacher (Shu et al., 2022; Wang et al., 2021). Additionally, distilling large networks ( >200M params) to small networks ( <30M params) often requires distilling intermediate layers (Hao et al., 2023; Yang et al., 2024), thereby improving dense-task predictions ( e.g. segmentation). However, intermediate feature distillation often requires explicit correspondences between teacher and student blocks, e.g. block 1 features of the student mimic block 1 of the teacher; thereby constraining the student architecture. To relax the above constraint, we propose Position-Aware Distillation (PAD). We collect intermedi-ate spatial tokens across all the layers of VLM, Y 1,2,...L img , where Y limg ∈ RH×W ×D ; L denotes all the layers of teacher VLM, and (H, W ) are the all spatial tokens on layer l, with dimension of D.For the input test sample xood , the student Simg mimics the teacher’s (i, j ) spatial token on depth l,
+
+i.e. Simg (xood , i, j, l ) → f , where f ∈ RD is the predicted spatial vector at position (i, j, l ). For N
+
+iterations, the student randomly selects (uniform sampling) a batch of these spatial indices (i, j, l )
+
+and distills teacher embeddings on these indices. However, directly feeding 3D-position coordinates 4Preprint 
+
+Algorithm 1 LQN Pseudo-Code : Image classification shown, but can generalize for other tasks. 
+
+Input : OOD image xood , Class Labels cls (s) 
+
+Require: Teacher Image / Text Encoder Timg / Ttext , Student LQN Simg , N iterations 1: Y 1,2...L img ← T img (xood ) ∈ RH×W ×L×D // Teacher’s all ‘L’ layers spatial image features 2: Ytext ← T text (cls ) // Teacher’s text features 3: Simg ← N (μ, σ ) // Random initialization of student model before seeing xood test sample 4: for iteration k in N do 
+
+5: ####### Position-Aware Distillation (PAD) 
+
+6: id, j d, l d ← Sample(H,W,L) // Uniform Sample ‘dest’ coordinates ∈ [H, W, L ]
+
+7: Pid,j d,l d ← P (id, j d, l d) // RoPE Positional embedding of dest 8: dest ← [Pid,j d,l d |P T [1]] // Concat constant sinusoidal flag P T [1] to dest 9: src ← [P0,0,0|P T [0]] // For const src (0 , 0, 0) concat constant sinusoidal flag P T [0] 
+
+10: LP AD ← 1 −
+
+D Simg (src,dest,x ood )·Yimg [id,j d,l d]  
+
+> ∥S img (src,dest,x ood )∥2∥Yimg [id,j d,l d]∥2
+
+E
+
+// Simg mimics teacher’s ‘dest’ features 11: ####### Location Consistency Regularization (LCR) 
+
+12: (i1, j 1, l 1) & ( i2, j 2, l 2) ← Sample(H,W, L) // Sample two sources ‘src1’ & ‘src2’ like lines 6-9 13: src1 ← [Pi1,j 1,l 1 |P T [0]] & src2 ← [Pi2,j 2,l 2 |P T [0]] // concat flag P T [0] to src1 and src2 14: // Simg self-supervises to predict ‘Dest’ features from separate src1/src2 15: LLCR ← 1 −
+
+D Simg (src 1,dest,x ood )·S img (src 2,dest,x ood )  
+
+> ∥S img (src 1,dest,x ood )∥2∥S img (src 2,dest,x ood )∥2
+
+E
+
+> cos
+
+− ⟨ log ∥wsrc ∥2 + ϵ⟩
+
+16: Loss ← LP AD + αL LCR =⇒ Update Simg // Update using both losses 17: end for 
+
+18: ####### Prediction / Inference / Evaluation 
+
+19: for ∀(i, j ) ∈ (H, W ), last layer L do 
+
+20: Pi,j,L ← P (i, j, L ) Dest ← [Pi,j,L |P T [1]] & Src ← [P0,0,0|P T [0]] // Constant source (0 , 0, 0) 
+
+21: Y Student img += Simg (src, dest, x ood ) / (H · W ) // Spatial averaged of xood features via Simg 
+
+22: end for 
+
+23: Pcls ← Y Student img · Ytext // Classification is product of student image features with teacher text features 24: Output: Pcls 
+
+(i, j, l ) to a neural network leads to poor convergence (Mildenhall et al., 2021). Therefore, we en-code location (i, j, l ) as a constant 3D RoPE positional-encoding P (i, j, l ) Su et al. (2023). The student takes as input a fixed source ( src ) location (0 , 0, 0) and a random destination dest location 
+
+(id, j d, l d), and learns to mimic teacher’s token at dest via Cosine loss (algorithm 1 (line 10)). LPAD = 1 −
+
+ Simg (src , dest , x ood ) · Yimg [id, j d, l d]
+
+∥Simg (src , dest , x ood )∥2∥Yimg [id, j d, l d]∥2
+
+
+
+> cosine
+
+(3) 3.2.3 LOCATION CONSISTENCY REGULARIZATION (LCR )Traditional TTT has shown the benefits of self-supervision consistency across multiple augmented views of the image. Instead of expensive O(H×W ) image augmentations, we vary input coordi-nates of the spatial tokens, i.e. sampling the src coordinates ( O(1) cost). We name this Location Consistency Regularization (LCR) , a self-supervised objective that complements PAD. Intuitively, LCR encourages the student to produce consistent representations at a given dest across different 
+
+src(s) locations, providing an additional signal beyond direct distillation (fig. 1 (c)). LCR is not an augmentation, but rather a coordinate-conditioned consistency constraint that serves as a proxy for augmentation consistency. In addition to serving as a cost-effective proxy to input augmentations, LCR reduces the blind reliance on teacher for OOD inputs where VLM outputs may be unreliable. Here, we sample two random locations: src 1 = ( i1, j 1, l 1), src 2 = ( i2, j 2, l 2) and a single destina-tion location dest = ( id, j d, l d). The intuition is that, irrespective of whether the student operates on (src 1, dest ) or (src 2, dest ), it should predict the same representation at dest every time LLCR = 1 −
+
+ Simg (src1 , dest , x ood ) · Simg (src2 , dest , x ood )
+
+∥Simg (src1 , dest , x ood )∥2∥Simg (src2 , dest , x ood )∥2
+
+
+
+> cosine
+
+− ⟨ log ∥wsrc ∥2 + ϵ⟩ (4) A trivial solution to the above is the model simply ignoring the source, i.e. weight of the source 
+
+wsrc → 0. We prevent this by adding an extra regularization (-log with ϵ = 1 e − 7, clamped at max value of 0.7) on wsrc to prevent weight collapse. While PAD only needs dest (src ← 0), LCR uses randomly sampled src (s). 5Preprint Table 1: Natural distribution shifts: Top-1 Results for ImageNet and its distribution-shifted vari-ants (ImageNet-A/-V2/-R/-Sketch). Requirements column specifies resources needed during test-time; Augment. : multiple augmented views of each test sample; LQN doesn’t need any augmented views for test samples. Use of the CLIP variant as a teacher is shown on the left. Avg: across all cols, OOD Avg: all cols except ImageNet. Method Augment. ImageNet ImageNet-A ImageNet-V2 ImageNet-R ImageNet-Sketch Avg OOD Avg CLIP-B/16 CLIP-ViT-B/16 ✗ 66.7 47.8 60.8 73.9 46.0 59.0 57.1 Ensemble ✗ 68.3 49.8 61.8 77.6 48.2 61.1 59.4 TPT ✓ 68.9 54.7 63.4 77.0 47.9 62.4 60.8 Diff-TPT ✓ 70.3 55.6 65.1 75.0 46.8 62.6 60.6 MTA + TPT ✓ 70.0 58.0 64.2 78.3 49.6 64.0 62.5 APM ✗ 68.1 52.1 67.2 76.5 49.3 62.6 61.3 GS-Bias ✓ 70.5 56.6 64.6 80.4 50.3 64.5 63.0 TPS ✓ 70.1 60.0 64.7 80.2 49.9 65.0 63.7 LQN (Our) ✗ 73.1 60.8 71.2 83.1 52.6 68.2 66.9 LQN (Pretrained, Our ) ✗ 74.5 62.3 72.9 84.8 53.9 69.7 68.5 CLIP ViT-L/14 ✗ 76.2 69.6 72.1 85.9 58.8 72.5 71.6 APM ✗ 77.3 71.8 72.8 87.1 62.2 74.2 73.5 LQN (Our) ✗ 80.5 75.4 76.9 91.3 65.7 78.0 77.3 CLIP-L/14 LQN (Pretrained, Our ) ✗ 81.4 76.5 77.5 92.2 66.4 78.8 78.2 3.2.4 INFERENCE AND LOSS 
+
+Both Position-Aware Distillation (PAD) and Location Consistency Regularization (LCR) are jointly 
+
+performed on a test sample for N iterations. We further control the impact of LCR via α. Combining both (line 16 in algorithm 1), the final loss is given by: Loss = LPAD + αLLCR . (5) During evaluation, features corresponding to the last-layer L of the VLM teacher is predicted; i.e. 
+
+src = (0 , 0, 0) and dest = ( i, j, L ), for all 1 ≤ i ≤ H, 1 ≤ j ≤ W , generating the final Y student img .Classification averages spatial features followed by the teacher’s textual feature dot product (line 23 in algorithm 1). For image segmentation, Y student img is directly fed to the teacher’s frozen mask-head (frozen mask head + adapted LQN), where upsampled features produce the segmentation mask. 
+
+## 4 EXPERIMENTS ON LQN 
+
+Tasks and Datasets: LQN is evaluated on 14 classification benchmarks and 5 segmentation tasks. Following TPT (Shu et al., 2022), LQN is evaluated on two types of classification benchmarks: 1) Natural distribution shift : evaluation on ImageNet val (2009), along with its distribution-shifted variants, namely ImageNet-A (2021b) , ImageNet-V2 (2019), ImageNet-R (2021a), and ImageNet-Sketch (2019). (2) Cross-dataset generalization : Experiments on 9 datasets, including Flowers102 (2008), DTD (2014), OxfordPets (2012), UCF101 (2012), Caltech101 (2022), Food101 (2014), SUN397 (2010), FGVCAircraft (2013), and EuroSAT (2019). 3) Dense Segmentation task: Re-sults on COCO (2014), ADE20K (2017), and Cityscapes (2016). 
+
+Evaluation Metrics For experiments with distribution shifts (Tab1, 4), we report Top-1 classifica-tion accuracy (across all datasets, namely ImageNet val, ImageNet-A, ImageNet-V2, ImageNet-R, ImageNet-Sketch), and Top-1 OOD Accuracy (all splits except ImageNet val). For dense segmenta-tion tasks (Tab 3), we report Panoptic Quality (PQ), and Average Precision. 
+
+Implementation LQN student (25 M ) contains 5 linear layers, with ReLU activation and one conv filter of 16 ×16 kernel, and stride 16 . We evaluate two variants of LQN: LQN and LQN (Pretrained). (i) LQN uses PAD and LCR and is initialized from scratch. (ii) LQN (Pretrained) first performs SSL pre-training (distilling) ImageNet features from DINOv2, and then perform TTT on each sam-ple independently. We reset the weights to pre-trained weights prior to processing a new sample. Detailed implementation details in Supplementary section B. 4.1 MAIN RESULTS 
+
+1) Natural Distribution Shifts : Table 1 evaluates LQN on ImageNet and its 4 OOD vari-ants. Zero-Shot CLIP underperforms, obtaining 57 .1% average OOD accuracy. Compared with 6Preprint Table 2: Cross-dataset generalization from ImageNet to fine-grained classification tasks. Top-1 accuracy reported. CLIP-B/16 as teacher. Avg. averages all columns. Method Augment. Flower102 DTD Pets UCF101 Caltech101 Food101 SUN397 Aircraft EuroSAT Avg CLIP-ViT-B/16 ✗ 67.4 44.3 88.3 65.1 93.4 83.7 62.6 23.7 42.0 63.4 Ensemble ✗ 67.0 45.0 86.9 65.2 93.6 82.9 65.6 23.2 50.4 64.4 TPT ✓ 69.0 47.8 87.8 68.0 94.2 84.7 65.5 24.8 42.4 64.9 DiffTPT ✓ 70.1 47.0 88.2 62.6 92.4 87.2 65.7 25.6 43.1 64.7 MTA ✓ 68.0 45.9 88.2 68.6 94.2 85.0 66.6 25.2 45.3 65.2 APM ✗ 62.0 48.9 81.6 72.6 89.6 84.2 65.7 29.7 55.7 65.5 GS-Bias ✓ 71.9 46.1 90.3 67.5 94.6 86.0 67.4 26.4 52.4 67.0 LQN (Our) ✗ 69.8 54.5 88.1 76.3 96.2 89.2 70.9 33.1 60.2 70.9 LQN (Pretrained, Our ) ✗ 71.1 55.9 89.4 77.5 97.1 90.8 72.4 34.2 61.8 72.2 Table 3: Dense-task Segmentation Input resolution of 1280 × 1280 ; semantic segmentation has 
+
+1024 ×1024 . PQ: Panoptic Quality, AP: Average Precision. LQN performs TTT on EoMT (teacher). 
+
+Panoptic Instance Semantic 
+
+COCO ADE20K COCO Cityscapes ADE20K Method PQ ↑ PQ ↑ AP ↑ mIoU ↑ mIoU ↑
+
+EoMT 58.3 51.7 48.8 84.2 58.4 LQN (Our) 64.5 57.1 55.2 87.5 64.3 LQN (Pretrained, Our ) 64.9 58.6 56.7 88.2 65.8 
+
+Table 4: Generalization across various VLMs teacher LQN+ {SigLIP, EVA-CLIP for various classification benchmarks. Similar averaging as table 1 and table 2. ImageNet and OOD Fine-grained classification Method ImageNet IN-A IN-V2 IN-R IN-Sketch Avg OOD Avg Flowers102 DTD Pets UCF101 Caltech101 Food101 SUN397 Aircraft EuroSAT Avg SigLIP 76.0 45.3 68.9 90.3 67.9 69.7 68.1 85.8 64.7 94.1 72.5 90.5 89.8 69.8 43.8 43.8 72.8 + LQN 79.2 48.7 72.4 93.4 71.6 73.1 71.5 89.2 68.5 97.4 76.2 94.1 93.1 73.5 47.3 47.6 76.3 EVA-CLIP 76.1 64.6 68.9 89.1 63.3 72.4 71.5 72.0 59.3 93.7 74.1 90.4 89.7 71.9 28.5 69.9 72.2 + LQN 79.8 68.9 73.1 92.5 67.4 76.3 75.5 76.4 63.2 97.2 78.6 94.3 93.7 75.9 32.7 74.1 76.2 CoCa 63.6 21.5 55.7 73.2 51.3 53.1 50.4 64.7 53.3 89.1 61.4 89.1 77.3 66.1 18.8 45.3 62.8 + LQN 68.1 25.1 60.2 77.6 55.7 57.3 54.7 69.4 57.8 93.6 66.0 93.3 82.1 70.6 22.9 50.1 67.3 other TTT baselines ( e.g. TPT 2022, Diff-TPT 2023, MTA + TPT, APM 2024, GS-Bias 2025, TPS 2025), LQN/LQN (pretrained) on average outperform by 4.9%/6.5% on OOD-Avg CLIP-ViT-Base. 2) Cross-Dataset Generalization: Table 2 observes a similar performance improvement on fine-grained benchmarks. LQN/LQN (pretrained) on average outperforms previous results by 5.4%/6.8%, and even surpasses previous best GS-Bias. 3) Generalization to segmentation: Ta-ble 3 shows the results for more challenging dense-level segmentation tasks, where LQN adapts EoMT (Kerssies et al., 2025) as teacher. Figure 4 (left) shows a few sample qualitative segmentation results of LQN. 4) Generalization across VLMs: Table 4 shows LQN’s generalization across vari-ous VLMs other than CLIP like SigLIP (Zhai et al., 2023), EVA (Fang et al., 2023), and CoCa (Yu et al., 2022) 5) Extension to Test Time Augmentation (TTA): We have mainly focused on TTT; however, LQN can be generalized to TTA (Supplementary tab. 11), i.e. using multiple data points. 4.2 ANALYSIS ON LQN LQN (47 mins, 64%) 
+
+> (OUR)
+> DPE (1h 50m, 63.4%) TDA (16mins, 61.3%) TPS (55mins, 61.4%) APM (1h 7mins, 61.6%) TPT (9h 15mins, 60.7%) DiffTPT (>20h, 60.8%) CLIP ResNet-50
+> Model to be adapted
+> (9min, 59.8%)
+> ImageNe Accuracy
+
+Time (World Clock minutes in log scale) 
+
+> Requires Past data Ours Model to be adapted Prev. TTT works
+
+Figure 3: Wall-clock time CLIP ResNet-50 on ImageNet. 
+
+FLOP Analysis: Figure 4 (middle) compares total GFLOPS consumed during TTT for both TPT and LQN. TPT only does one gradient update per test sample; however requires 
+
+63 augmentations, i.e. 63 + 1 = 64 forward passes through VLM, totaling 1312 GFLOPS. In contrast, LQN performs one VLM forward pass (CLIP) costing 20 .5 GFLOPs. How-ever, the subsequent N = 14 backward steps for updating the student network cost 10 GFLOPs, yielding a total of 
+
+20 .5 + 14 × 10 = 160 .5 GFLOPs; far less than TPT. Fig-ure 3 reports the actual wall-clock time (Zhang et al., 2024) required for TTT over 50 ,000 ImageNet validation images on a single A6000 GPU. APM consumes 1hr+, while LQN converges in 47 mins; improving accuracy by 4.2% .7Preprint Input EoMT LQN  
+
+> EoMT LQN Input
+
+Figure 4: Left: Segmentation Mask Quality: EoMT vs LQN (Above) LQN can even segment persons occluded behind the window of the bus. (Bottom) LQN semantically groups visual elements of the scene ( e.g. walls), whereas EoMT falls short. Middle: Cost vs. Performance. Left) TPT’s 63 augmentations result in high overhead. Right: Generalization: Performance improves even at unseen final layers (COCO PQ), showing LQN’s ability to generalize beyond TTT teacher layers. Error Layer 2 Layer 4 Layer 6 Layer 8    
+
+> Whole Part Input
+> Layer 9 (i) (ii)
+
+Figure 5: Left: Token visualizations of the teacher model EoMT (top), LQN (middle), and their difference ( Error , bottom) showing LQN’s predictions matching EoMT. Right (i) Augmenting test image during TTT harms LQN (red), but improves CLIP ViT-B/16 (blue). (ii) Distilling more 
+
+teacher locations improves performance, verifying benefits of intermediate layer distillation. naug 
+
+& nlocation represent the # of augmentations and the # of coordinates to distill in PAD. 
+
+Unseen teacher layers: In Figure 4 (right), we use EoMT ViT-L as LQN’s teacher for panoptic segmentation on COCO. When TTT is performed by distilling 
+
+all 24 layers of the teacher into LQN, we obtain a peak mIoU of 64 .5. Next, we perform TTT using only the first 20 layers of EoMT. However, during inference, we predict that the 20 − 24 layer as input to the segmentation head, observing a performance increase from 56 .2 in the 20 th layer to 60 .3
+
+in the 24 th layer. This shows that the position-conditioned student can extrapolate to layers not seen during PAD. 
+
+LQN similarity with teacher’s features: We feed-forward a sample COCO dataset image into both the EoMT teacher and LQN. Instead of predicting the final-layer features, we predict intermediate-layer spatial tokens. Fig 5 (left) shows the t-SNE of the intermediate representations of EoMT teacher and LQN prediction. We observe that the predicted features are very similar to the teacher’s. 
+
+Why not augment test sample itself? In Fig. 5(right)(i), we perform augmentation of a same test-sample. This improves ViT-B based model consistent with prior observations in TPT/TPS. However, this harms LQN performance. Fig. 5(right)(ii), we gradually increase the number of locations (with uniform sampling) to distill over (PAD) 1. We observe performance increases with more spatial co-ordinates, indicating the importance of distilling all locations. 
+
+Both src & dest vs just dest? Table 5 compares LQN variants with only dest (no src) i.e. only PAD (LCR only makes sense with src). This has the worst performance, possibly because of blind re-liance on the teacher for xood . Next, we apply LCR (eq. (4)) by enforcing self-consistency between locations dest and dest + △, where △ is Gaussian noise. The intuition is that minor perturba-tions in dest should self-supervise and reduce reliance on the teacher (improved performance over       
+
+> 1Uniform sampling from a subset of H×W×Lteacher VLM internal locations (Algo 1 line 6).
+
+8Preprint Table 5: LCR variations 
+
+W/o src , only PAD can be applied. △: LCR w/ Gaus-sian noise instead of src .        
+
+> Parts Food-101 COCO PAD (-src )71.8 54.9 PAD + △76.0 58.1 PAD + LCR 89.2 64.5
+
+Table 6: Student Architectures .Student Food-101 VGG 84.9 ResNet 18 85.4 ResNet 34 87.2 MLP 90.8 Table 7: Type of loss in PAD & LCR Loss Food-101 COCO L1 75.8 52.0 MSE 85.7 61.1 Cosine 89.2 64.5 Table 8: Positional Encodings . Coord. feeds int positions. Pos. Food-101 COCO Coord. 33.1 27.9 Sin-Cos 88.6 63.8 RoPE 89.2 64.5 Table 9: Sampling Strategies for VLM Layers.        
+
+> Sampling Strategy Food-101 COCO Sampling more from shallow layers 81.9 43.7 Sampling more from deeper layers 87.8 52.0 Uniform Sampling 89.2 64.5
+
+Table 10: Effect of Weight Regularization (Reg.) on LCR (Equation (4))      
+
+> Configuration Food-101 COCO PAD + LCR (w/o weight Reg.) 87.4 62.6 PAD + LCR (w/ weight Reg.) 89.2 64.5
+
+only PAD). Finally, we test our LQN with consistency between (src 1, dest ) & (src 2, dest ), outper-forming others. This indicates the importance of reduced reliance on the teacher, while maintaining self-consistency via src . We believe this is likely because src comes from a similar domain as other 
+
+dest input, while △ Gaussian noise likely suffers from a domain mismatch with dest .4.3 ABLATIONS ON LQN We discuss various design choices made in LQN. We perform the following ablations on Food-101 classification (Top-1 Acc) and COCO segmentation (Panoptic Quality (PQ)). 
+
+LQN Student can work with multiple architectures : LQN can be generalized to standard small ConvNet networks like VGG/ResNet18/34 ( < 30 M params) as well. Table 6 shows the results for these backbones (ImageNet pretrained) as student networks. ResNets / VGG add an additional channel to the RGB input (3+1 channels) with the extra channel containing d-dimensional positional encoding repeated for all spatial locations. Using a trainable projector, 4D channel input is projected back to 3D input. All other layers are kept frozen. 
+
+Different Losses : Table 7 shows the effects of different losses applied to LQN for both PAD / LCR. Intuitively, L1/L 2 constrain the student to exactly mimic the teacher’s features ( > 200 M params), which may be harder given smaller student ( < 30 M params). We observe that cosine performs the best, since it enforces angular similarity between student and teacher (alignment). 
+
+Positional embeddings : Table 8 shows different strategies for injecting positional information in LQN. Simply injecting 3D integer coordinates harms performance. RoPE outperforms absolute encoding (Vaswani et al., 2017), indicating that rotating vectors in higher dimensions works well. 
+
+Sampling Strategy of teacher’s locations : Table 9 shows results with different ‘spatial token lo-cation’ sampling strategies, e.g. uniform, higher probabilities of sampling from shallow / deeper layers. Uniform sampling appears to yield optimal results. 
+
+LCR Regularization : LQN’s input consists of both src and dest . A trivial solution for LCR (Eq. 4) is when src weights → 0, i.e. the output depends only on dest , ignoring src . Table 10 shows weight regularization ⟨log ∥wsrc ∥2 + ϵ⟩ has a visible performance impact in preventing this collapse. 
+
+## 5 CONCLUSION & F UTURE WORK 
+
+Our work shows it is possible to adapt VLMs on unseen test samples by updating a small proxy network, without relying on expensive augmentations or multiple forward/backward VLM passes. 
+
+Layer Query Network (LQN) allows us to mimic VLMs’ intermediate features conditioned on 3D positional coordinates of the features ( Positional Aware Distillation, PAD), while reducing reliance on the teacher via Location Consistency Regularization (LCR). Conditioning input on 3D coordi-nates helps generalize LQN across VLMs like CLIP, SigLIP, EVA, and CoCa, and smaller networks like MLP, ResNet, and VGG. Empirical generalization is shown across a variety of classification and segmentation tasks, while maintaining faster convergence compared to its counterparts. 9Preprint A potential next step could be to generalize these capabilities for streaming videos, eg, adapting se-lectively/dynamically to incoming frames. In principle, memory/compute may be improved further by reducing the overhead of intermediate feature storage (during backprop), efficient feed-forward via top-k token selection, and feature compression. 
+
+## REPRODUCIBILITY STATEMENT 
+
+To facilitate reproducibility, we have included the detailed implementation details and hyperparam-eters in the Supplementary. Supplementary section B describes the number of neurons in each layer of LQN. Similarly, Table 13 discusses the size of the hidden dimension, floating point precision, and hardware configuration of the computing machine on which experiments were performed. 
+
+## REFERENCES 
+
+Yoshua Bengio, Geoffrey Hinton, Andrew Yao, Dawn Song, Pieter Abbeel, Trevor Darrell, Yu-val Noah Harari, Ya-Qin Zhang, Lan Xue, Shai Shalev-Shwartz, et al. Managing extreme ai risks amid rapid progress. Science , 384(6698):842–845, 2024. Lukas Bossard, Matthieu Guillaumin, and Luc Van Gool. Food101. In European Conference on Computer Vision (ECCV) , 2014. Wei-Ting Chen, Yu-Jiet Vong, Sy-Yen Kuo, Sizhou Ma, and Jian Wang. Robustsam: Segment anything robustly on degraded images. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 4081–4091, 2024. Mircea Cimpoi, Subhransu Maji, Iasonas Kokkinos, Sammy Mohamed, and Andrea Vedaldi. De-scribing textures in the wild. In Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 3606–3613, 2014. Marius Cordts, Mohamed Omran, Sebastian Ramos, Timo Rehfeld, Markus Enzweiler, Rodrigo Benenson, Uwe Franke, Stefan Roth, and Bernt Schiele. The cityscapes dataset for semantic urban scene understanding. In Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 3213–3223, 2016. Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale hier-archical image database. In 2009 IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 248–255. IEEE, 2009. Satvik Dixit, Laurie M Heller, and Chris Donahue. Vision language models are few-shot audio spectrogram classifiers. arXiv preprint arXiv:2411.12058 , 2024. Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint arXiv:2010.11929 , 2020. Yuxin Fang, Wen Wang, Binhui Xie, Quan Sun, Ledell Wu, Xinggang Wang, Tiejun Huang, Xinlong Wang, and Yue Cao. Eva: Exploring the limits of masked visual representation learning at scale. In 2023 IEEE/CVF conference on computer vision and pattern recognition (CVPR) , pp. 19358– 19369. IEEE, 2023. Chun-Mei Feng, Kai Yu, Yong Liu, Salman Khan, and Wangmeng Zuo. Diverse data augmentation with diffusions for effective test-time prompt tuning. In Proceedings of the IEEE/CVF Interna-tional Conference on Computer Vision , pp. 2704–2714, 2023. Yossi Gandelsman, Yu Sun, Xinlei Chen, and Alexei Efros. Test-time training with masked autoen-coders. Advances in Neural Information Processing Systems , 35:29374–29385, 2022. Peng Gao, Shijie Geng, Renrui Zhang, Teli Ma, Rongyao Fang, Yongfeng Zhang, Hongsheng Li, and Yu Qiao. Clip-adapter: Better vision-language models with feature adapters. International Journal of Computer Vision , pp. 1–15, 2023. 10 Preprint Taesik Gong, Jongheon Jeong, Taewon Kim, Yewon Kim, Jinwoo Shin, and Sung-Ju Lee. Note: Ro-bust continual test-time adaptation against temporal correlation. Advances in Neural Information Processing Systems , 35:27253–27266, 2022. Taesik Gong, Yewon Kim, Taeckyung Lee, Sorn Chottananurak, and Sung-Ju Lee. Sotta: Robust test-time adaptation on noisy data streams. Advances in Neural Information Processing Systems ,36, 2024. Zhiwei Hao, Jianyuan Guo, Kai Han, Yehui Tang, Han Hu, Yunhe Wang, and Chang Xu. One-for-all: Bridge the gap between heterogeneous architectures in knowledge distillation. Advances in Neural Information Processing Systems , 36:79570–79582, 2023. Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr Doll´ ar, and Ross Girshick. Masked au-toencoders are scalable vision learners. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 16000–16009, 2022. Patrick Helber, Benjamin Bischke, Andreas Dengel, and Damian Borth. Eurosat. IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing , 12(7):2217–2226, 2019. Dan Hendrycks, Steven Basart, Norman Mu, Saurav Kadavath, Frank Wang, Evan Dorundo, Rahul Desai, Tyler Zhu, Samyak Parajuli, Mike Guo, et al. The many faces of robustness: A criti-cal analysis of out-of-distribution generalization. In Proceedings of the IEEE/CVF international conference on computer vision , pp. 8340–8349, 2021a. Dan Hendrycks, Kevin Zhao, Steven Basart, Jacob Steinhardt, and Dawn Song. Natural adversarial examples. In Proceedings of the IEEE/CVF conference on computer vision and pattern recogni-tion , pp. 15262–15271, 2021b. Geoffrey Hinton. How to represent part-whole hierarchies in a neural network. Neural Computation ,35(3):413–452, 2023. Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, Weizhu Chen, et al. Lora: Low-rank adaptation of large language models. ICLR , 1(2):3, 2022. Zhaohong Huang, Yuxin Zhang, Jingjing Xie, Fei Chao, and Rongrong Ji. Gs-bias: Global-spatial bias learner for single-image test-time adaptation of vision-language models. arXiv preprint arXiv:2507.11969 , 2025. Chan Hur, Jeong-hun Hong, Dong-hun Lee, Dabin Kang, Semin Myeong, Sang-hyo Park, and Hyey-oung Park. Narrating the video: Boosting text-video retrieval via comprehensive utilization of frame-level captions. In Proceedings of the Computer Vision and Pattern Recognition Confer-ence , pp. 24077–24086, 2025. Menglin Jia, Luming Tang, Bor-Chun Chen, Claire Cardie, Serge Belongie, Bharath Hariharan, and Ser-Nam Lim. Visual prompt tuning. In European conference on computer vision , pp. 709–727. Springer, 2022. Tommie Kerssies, Niccol` o Cavagnero, Alexander Hermans, Narges Norouzi, Giuseppe Averta, Bas-tian Leibe, Gijs Dubbelman, and Daan de Geus. Your ViT is Secretly an Image Segmentation Model. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recogni-tion (CVPR) , 2025. Brian Lester, Rami Al-Rfou, and Noah Constant. The power of scale for parameter-efficient prompt tuning. arXiv preprint arXiv:2104.08691 , 2021. Fei-Fei Li, Marco Andreeto, Marc’Aurelio Ranzato, and Pietro Perona. Caltech 101, Apr 2022. Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Doll´ ar, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In European conference on computer vision , pp. 740–755. Springer, 2014. Zhiqiu Lin, Samuel Yu, Zhiyi Kuang, Deepak Pathak, and Deva Ramanan. Multimodality helps unimodality: Cross-modal few-shot learning with multimodal models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 19325–19337, 2023. 11 Preprint Subhransu Maji, Esa Rahtu, Juho Kannala, Matthew Blaschko, and Andrea Vedaldi. Fgvc-aircraft. In Technical report, Visual Geometry Group, University of Oxford , 2013. Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. Communications of the ACM , 65(1):99–106, 2021. Rajat Modi and Yogesh Rawat. Asynchronous perception machine for efficient test time training. 
+
+Advances in Neural Information Processing Systems , 37:106020–106058, 2024. Khanh-Binh Nguyen, Phuoc-Nguyen Bui, Hyunseung Choo, and Duc Thanh Nguyen. Adap-tive cache enhancement for test-time adaptation of vision-language models. arXiv preprint arXiv:2508.07570 , 2025. M-E Nilsback and A Zisserman. Flowers102. Proceedings of the Indian Conference on Computer Vision, Graphics and Image Processing , 2008. Mehrdad Noori, David Osowiechi, Gustavo Adolfo Vargas Hakim, Ali Bahri, Moslem Yazdanpanah, Sahar Dastani, Farzad Beizaee, Ismail Ben Ayed, and Christian Desrosiers. Test-time adaptation of vision-language models for open-vocabulary semantic segmentation. ArXiv , abs/2505.21844, 2025. URL https://api.semanticscholar.org/CorpusID:278959297 .Omkar M Parkhi, Andrea Vedaldi, Andrew Zisserman, and CV Jawahar. Cats and dogs. In 2012 IEEE conference on computer vision and pattern recognition , pp. 3498–3505. IEEE, 2012. Priyank Pathak, Mukilan Karuppasamy, Aaditya Baranwal, Shruti Vyas, and Yogesh S. Rawat. Ro-bust onion: Peeling open vocab object detectors under noise. In Computer Vision – ECCV 2026 ,pp. 353–373, Cham, 2026. Springer Nature Switzerland. ISBN 978-3-032-37095-2. Mihir Prabhudesai, Tsung-Wei Ke, Alexander Cong Li, Deepak Pathak, and Katerina Fragkiadaki. Diffusion-tta: Test-time adaptation of discriminative models via generative feedback. In Thirty-seventh Conference on Neural Information Processing Systems , 2023. Sarah Pratt, Ian Covert, Rosanne Liu, and Ali Farhadi. What does a platypus look like? gener-ating customized prompts for zero-shot image classification. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 15691–15701, 2023. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International conference on machine learning , pp. 8748–8763. PMLR, 2021. Nasim Rahaman, Aristide Baratin, Devansh Arpit, Felix Draxler, Min Lin, Fred A. Hamprecht, Yoshua Bengio, and Aaron Courville. On the spectral bias of neural networks. In International Conference on Machine Learning (ICML) , 2019. Benjamin Recht, Rebecca Roelofs, Ludwig Schmidt, and Vaishaal Shankar. Do imagenet classifiers generalize to imagenet? In International Conference on Machine Learning (ICML) , pp. 5389– 5400. PMLR, 2019. Zhiyuan Ren, Yiyang Su, and xiaoming Liu. Chatgpt-powered hierarchical comparisons for image classification. Advances in neural information processing systems , 2023. Adriana Romero, Nicolas Ballas, Samira Ebrahimi Kahou, Antoine Chassang, Carlo Gatta, and Yoshua Bengio. Fitnets: Hints for thin deep nets. In International Conference on Learning Representations (ICLR) , 2015. Manli Shu, Weili Nie, De-An Huang, Zhiding Yu, Tom Goldstein, Anima Anandkumar, and Chaowei Xiao. Test-time prompt tuning for zero-shot generalization in vision-language models. 
+
+Advances in Neural Information Processing Systems , 35:14274–14289, 2022. Yang Shu, Xingzhuo Guo, Jialong Wu, Ximei Wang, Jianmin Wang, and Mingsheng Long. Clipood: Generalizing clip to out-of-distributions. In International conference on machine learning , pp. 31716–31731. PMLR, 2023. 12 Preprint Khurram Soomro, Amir Roshan Zamir, and Mubarak Shah. Ucf101. In arXiv preprint arXiv:1212.0402 , 2012. Jianlin Su, Yu Lu, Shengfeng Pan, Ahmed Murtadha, Bo Wen, and Yunfeng Liu. Roformer: En-hanced transformer with rotary position embedding, 2023. Elaine Sui, Xiaohan Wang, and Serena Yeung-Levy. Just shift it: Test-time prototype shifting for zero-shot generalization with vision-language models. In 2025 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV) , pp. 825–835. IEEE, 2025. Yu Sun, Xiaolong Wang, Zhuang Liu, John Miller, Alexei Efros, and Moritz Hardt. Test-time train-ing with self-supervision for generalization under distribution shifts. In International conference on machine learning , pp. 9229–9248. PMLR, 2020. Dmitry Ulyanov, Andrea Vedaldi, and Victor Lempitsky. Deep image prior. In IEEE/CVF Confer-ence on Computer Vision and Pattern Recognition (CVPR) , 2018. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural informa-tion processing systems , 30, 2017. Guo-Hua Wang, Yifan Ge, and Jianxin Wu. Distilling knowledge by mimicking features. IEEE Transactions on Pattern Analysis and Machine Intelligence , 44(11):8183–8195, 2021. Haohan Wang, Songwei Ge, Zachary Lipton, and Eric P Xing. Learning robust global representa-tions by penalizing local predictive power. Advances in neural information processing systems ,32, 2019. Jianyuan Wang, Minghao Chen, Nikita Karaev, Andrea Vedaldi, Christian Rupprecht, and David Novotny. Vggt: Visual geometry grounded transformer. In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 5294–5306, 2025a. Zhengyang Wang, Tingliang Feng, Fan Lyu, Fanhua Shang, Wei Feng, and Liang Wan. Dual seman-tic guidance for open vocabulary semantic segmentation. In Proceedings of the Computer Vision and Pattern Recognition Conference , pp. 20212–20222, 2025b. Jianxiong Xiao, James Hays, Krista A Ehinger, Aude Oliva, and Antonio Torralba. Sun397. In 
+
+Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , 2010. Zhendong Yang, Zhe Li, Ailing Zeng, Zexian Li, Chun Yuan, and Yu Li. Vitkd: Feature-based knowledge distillation for vision transformers. In 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW) , pp. 1379–1388, 2024. doi: 10.1109/ CVPRW63382.2024.00145. Dongshuo Yin, Leiyi Hu, Bin Li, and Youqun Zhang. Adapter is all you need for tuning visual tasks. 
+
+arXiv preprint arXiv:2311.15010 , 2023. Jiahui Yu, Zirui Wang, Vijay Vasudevan, Legg Yeung, Mojtaba Seyedhosseini, and Yonghui Wu. Coca: Contrastive captioners are image-text foundation models. arXiv preprint arXiv:2205.01917 , 2022. Longhui Yuan, Binhui Xie, and Shuang Li. Robust test-time adaptation in dynamic scenarios. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 15922–15932, 2023. Maxime Zanella and Ismail Ben Ayed. On the test-time zero-shot generalization of vision-language models: Do we really need prompt learning? In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 23783–23793, 2024. Xiaohua Zhai, Basil Mustafa, Alexander Kolesnikov, and Lucas Beyer. Sigmoid loss for language image pre-training. In Proceedings of the IEEE/CVF international conference on computer vision ,pp. 11975–11986, 2023. 13 Preprint Ce Zhang, Simon Stepputtis, Katia Sycara, and Yaqi Xie. Dual prototype evolving for test-time generalization of vision-language models. Advances in Neural Information Processing Systems ,37:32111–32136, 2024. Bolei Zhou, Hang Zhao, Xavier Puig, Sanja Fidler, Adela Barriuso, and Antonio Torralba. Scene parsing through ade20k dataset. In Proceedings of the IEEE conference on computer vision and pattern recognition , pp. 633–641, 2017. Kaiyang Zhou, Jingkang Yang, Chen Change Loy, and Ziwei Liu. Conditional prompt learning for vision-language models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 16816–16825, 2022a. Kaiyang Zhou, Jingkang Yang, Chen Change Loy, and Ziwei Liu. Learning to prompt for vision-language models. International Journal of Computer Vision , 130(9):2337–2348, 2022b. 14 Preprint 
+
+# Appendix 
+
+## A BROADER IMPACT 
+
+There are two core ideas that motivated us to design the Layer Query Network (LQN). The first idea is that positional encodings could function as an addressing mechanism (Vaswani et al., 2017). When a network is conditioned on a specific positional encoding, it becomes capable of ‘retrieving’ the relevant entity stored at that location (Modi & Rawat, 2024). The second idea is that by ”jumping” between higher and lower layer indices during LCR, we simulate both bottom-up and top-down dynamics(Hinton, 2023). LQN can be thought to lie in the middle of two extremes of distillation literature: 1) standard knowledge-distillation only distills logits of the final layer of the teacher. This misses rich interme-diate representations. 2) layer-wise knowledge-distillation distills few/all layers, however requires the student to have identical structure to teacher, leading to slow inference. LQN offers the best of both worlds: it allows weight-sharing the net across all intermediate layers, and compute features in a single forward-pass. 
+
+Limitations: While this work focused on processing one test sample at a time (TTT), in the future we would like to study how such co-ordinate based network perform when trained on large-scale data. Ultimately, we would like to study LQN on videos: mimicking how spatio-temporal processing occurs in the infero-temporal pathway of human primates. 
+
+Ethical Considerations: We emphasize that LQN should not be deployed in applications involving surveillance, manipulation, or deceptive content generation, and advocate for its use in settings that prioritize transparency, accountability, and societal benefit. A scenario may emerge where LQN student-teacher can learn ‘recursively’ from each other and lead to a form of self-referential learning. A theoretical ceiling on improvements which can be obtained/safety-alignment should be studied. Please note that experiments with teacher also being tuned in parallel to the student remain out of scope of this paper, and instead follow standard experimental setups in TTT literature. Similarly, training such nets at large-scale should adhere to principles put forth in (Bengio et al., 2024). 
+
+## B IMPLEMENTATION DETAILS 
+
+Architecture: In Tab 12, we inflate the full architecture of our LQN. LQN consists of a single CNN filter. Given an input image xood , we first run a single convolution filter on it with a stride s. The resultant h/s × w/s × 1 vector is then ‘flattened’. The two locations (src, dest ) are encoded as 3-D positional encodings, along with the flag positional encoding (Alg 1). The flattened input image, along with d-dimensional source, and d- dimensional destination are passed through an MLP. The first layer of the MLP contains (h/s ∗ w/s + dp + d†
+
+> p
+
+) * 4096 learnable parameters. The subsequent layers contain 4096 * 4096 , 4096 * 2048 , 2048 * 1024 parameters respectively. Finally, we have a projection head which projects the MLP output to 1024 , d , where d is the dimensionality of internal tokens of a teacher. Table 11: Test Time Augmentation .
+
+History means cumulative of test samples. CLIP-B/16 (teacher). Method Requirements ImageNet ↑                      
+
+> TDA [CVPR’24] History 69.5 DMN-ZS [CVPR’24] History 72.2 DPE [NeurIPS’24] History 71.9 DynaPrompt [ICLR’25] History 72.9 CoOp [IJCV’22] Labeled Data 71.5 CoCoOp [CVPR’22] Labeled Data 71.0 TPT + CoOp Labeled Data 73.6 TPT + CoCoOp Labeled Data 71.0 MTA + Coop [CVPR’24] Labeled Data 73.9 LQN History 76.2 LQN (Pretrained) History 77.5
+
+These variants are optimized with Adam using a learning rate of 1 × 10 −4. Input images are nor-malized to ImageNet statistics. The total number of iterations is set to T = 15 . The GFLOPs are mea-sured using Meta’s fvcore package (FLOPs ×10 9). To ensure statistical reliability, we report the mean accuracy of three runs with different seeds. Given all possible spatial tokens (n = H ×
+
+W × L), there are  n
+
+> 3
+
+ = O(n3) plausible triplets 
+
+(src 1, src 2, dest ) for recirculation. Iterating over all of these is computationally infeasible; instead we randomly sample 5% of these triplets, which pro-vides sufficient performance gains, without incur-ring excessive compute costs (dropping tokens with 15 Preprint minimal loss in performance (He et al., 2022)). All hyperparameters were chosen empirically. Table 12: LQN architecture for TTT : with input dimensions h, w, c and feature dimension dp:dimensionality of positional encoding. s: stride of convolutional filter in encoder, dc: dimension of the intermediate token of teacher on which LQN learns. LQN contains two locations, (src, dest ),so additional dp term is added to the input. † : LQN-[src] contains only a single location, so this term is not added. Layer Feature Dimension nkernels Stride Padding      
+
+> (H ×W×C) Input / Output
+
+Input h × w × c
+
+Encoder Conv h/s × w/s × d 1 s 0 / 0 Decoder Linear (h/s ∗ w/s + dp + d†
+
+> p
+
+) * 4096 - - -Linear 4096 * 4096 - - -Linear 4096 * 2048 - - -Linear 2048 * 1024 - - -Feature Projection Head Linear 1024 * dc - - -Table 13: LQN hyperparameters during test-time-training. Number of Test samples 50000 (Imagenet Splits), variable for other datasets. Testing iterations 15 Batch Size 1Learning Rate 1e-4 Optimizer Adam Feature Output size d 768 /1024 
+
+Positional Encoding size 768 /1024 
+
+Image/Crop Size 448 Augmentations Normalization, μ = (0 .485 , 0.456 , 0.406) , σ = (0 .229 , 0.224 , 0.225) 
+
+Precision fp16 (grad-scaled) Num of Workers 8Operating System 1x rtx a6000 48GB/96GB ram/Ubuntu 22.04/2TB ssd/5TB HDD Table 14: Values of α, i.e. the weight of LCR loss for different datasets used in the experiments. 
+
+α = 0 .7, for the remaining datasets not shown here, for eg, COCO, ADE20k. Optimal values were found by grid search and choosing the parameters that gave lowest values of the LCR loss. Note that this procedure does not use any labels at test-time. Dataset ImageNet Flowers102 DTD Caltech101 Aircraft IN-A IN-v2 Pets Sun397 Eurosat IN-R UCF101 Food101                            
+
+> α0.7 0.5 0.7 0.5 0.7 0.6 0.6 0.6 0.6 0.6 0.8 0.8 0.8
+> ϵ(in LCR) 1e-7 1e-7 1e-7 1e-7 1e-7 1e-7 1e-7 1e-7 1e-7 1e-7 1e-7 1e-7 1e-7
+
+Hyperparameters: All hyper-parameters utilized for LQN during test-time-training are detailed in 13. We leveraged the seed 0/7/42 in most of our experiments. The weight matrices in LQN were initialized from a normal distribution with μ = 0 and σ = 0 .01 . We tried initializing the net with other schemes such as Xavier initialization etc, but found normal-weight initialization to work the best. All our code has been written in Pytorch version 1.13.0. However, since we only use pytorch, and no external libraries, we expect that our codebase will also support more recent versions, for eg, PyTorch 2.0+. We will also release our implementation in Jax, in light of recent trends. We also note that performing test-time-training with 16 bit floating point allows us to effectively use recent GPU architectures for eg, Ampere: they contain a larger number of tensor cores in addition 
+
+to CUDA cores which results in significant speedups during the experimentation process. Finally, we normalize an input image using standard Imagenet stats, and don’t resort to any other form of augmentation , thereby making the pipeline far-simpler. Similarly, Table 14 illustrates values of α, i.e. the LCR loss for various datasets used in the exper-iments. Optimal values were found by grid search and choosing the parameters that gave lowest 16 Preprint values of the LCR loss. Note that this procedure does not use any labels at test-time. We found that experiments are not particularly sensitive to datasets, and results lie within 0.2% − 0.5% standard deviation if α = 0 .7 is chosen, and experiments were run for different seeds. 
+
+ViT Encoder: During our experiments in test-time-training, LQN relies on higher-dimensional intermediate token distilled from a teacher trained on a large-scale-dataset, often via contrastive image-text objectives. CLIP is a zero-shot model from OpenAI which contains a vision encoder, and a textual encoder. The textual encoder tokenizes input class names to features. Both image/text encoder project them to common dimensionality, and classification happens by measuring distances in contrastive space, thereby offering a higher degree of freedom, as opposed to training a class-sensitive linear-probe. It also offers the flexibility that the last layer of a neural net does not need to be re-trained to perform classification on a class never seen during training. This used to be a fundamental problem in earlier neural nets that applied softmax on a linear layer consisting of a fixed no of neurons. CLIP replaced this idea and instead treats classification as a problem of finding distances in the representational space. CLIP VIT-L outputs a CLS token of 768 dimensions, while CLIP VIT-H outputs 1024 dimensions. 
+
+## C DETAILS OF THE DATASETS 
+
+Evaluating a model’s robustness to distribution shifts necessitates testing on datasets that feature a broad spectrum of perturbations, such as fog, snow, rain , and other real-world variations. A com-mon strategy is to apply synthetic corruptions to well-established test sets (e.g., ImageNet) to create benchmark splits suitable for controlled evaluation. Alternatively, new test sets may be manually compiled from online sources to capture modality changes, such as sketches or artistic reinter-pretations . Below, we describe the key datasets used in this work to assess the robustness and generalization capabilities of LQN. These datasets consist of both classification and segmentation benchmarks. C.1 CORRUPTION & D ISTRIBUTION SHIFT BENCHMARKS 
+
+CIFAR-10-C: Comprising 10 ,000 test samples from CIFAR-10, this benchmark introduces 15 cor-ruption types (e.g., blur, noise, weather effects), each applied at 5 severity levels. Our evaluation focuses on the most difficult setting—level 5—due to computational constraints. 
+
+ImageNet-C: A widely used benchmark for corruption robustness based on the original ImageNet dataset. It includes 15 distortion types applied at 5 severity levels, affecting all 1,000 classes. The corruptions degrade image quality in ways that simulate real-world noise and artifacts. 
+
+ImageNet-V2: A re-collection of ImageNet-like samples from the web, preserving label distribution across 1,000 categories. The dataset consists of 10,000 images across three distinct splits, offering a testbed for evaluating generalization to naturally shifted data. 
+
+ImageNet-A: Contains 7,500 images from 200 categories that are hard for standard models like ResNet-50. These examples are “naturally adversarial”—real-world images that consistently cause misclassification. 
+
+ImageNet-R: Focuses on stylized renditions of ImageNet classes, including paintings, cartoons, and other artistic formats. It contains approximately 30,000 images across 200 categories and evaluates robustness to stylistic domain shifts. 
+
+ImageNet-Sketch: A challenging modality shift dataset containing 50,000 black-and-white sketches corresponding to 1,000 ImageNet categories. It tests the model’s ability to recognize ab-stract shapes and contours, without relying on color or texture cues. To ensure consistency with prior work (e.g., CLIP), we evaluate LQN using an ensemble of 80 handcrafted textual prompts across these ImageNet-derived benchmarks. C.2 DENSE PREDICTION BENCHMARKS 
+
+COCO (Common Objects in Context): A large-scale dataset for object detection, segmentation, and captioning tasks. It features over 200,000 labeled images containing instances of 80 object 17 Preprint categories in diverse, cluttered scenes. COCO is widely used to evaluate models’ ability to handle multi-object, real-world environments. 
+
+Cityscapes: Focused on urban street scenes, this dataset contains 5,000 finely annotated images from 50 different European cities. It includes 19 semantic classes relevant to autonomous driving (e.g., road, pedestrian, traffic light) and is primarily used for evaluating semantic segmentation under real-world conditions. 
+
+ADE20K: A challenging benchmark for semantic segmentation that includes 25,000 images anno-tated with over 150 object and stuff categories. The dataset spans indoor, outdoor, urban, and natural scenes, providing a diverse set of environments for evaluating dense prediction tasks. 
+
+## D ADDITIONAL EXPERIMENTS 
+
+D.1 VARIATIONS OF SRC IN LQN 
+
+Figure 6: Fixed src performs best. During final iteration N , LQN decodes final layer fea-tures by setting src to (0,0,0). But why set a fixed source? In Fig6, we experiment with different values of src . Please note that this experiment was performed for Food101 classification, using CLIP VIT-B/16 teacher. Using a random source merely achieves 59 .1, and not us-ing the source at all only obtains 71 .8. Using a fixed source (0,0,0), (2,5,9) seems to obtain similar perfor-mance of 89 .2 and 89 .0 respectively. An intuitive rea-son may be that selecting a fixed source forces multiple destination coordinates (in the last layer) to be decoded 
+
+relative to an anchor. D.2 CONCATENATING EMBEDDINGS PERFORMS BETTER THAN ADDING THEM TO INPUT 
+
+Recall that first MLP layer of LQN contains as input the test sample’s representation x′, and po-sitional encoding corresponding to dest . Instead of concatenating these inputs, we perform an ad-ditional experiment where positional encoding is added to x’. Specifically, given xood , we first convolve it with a CNN filter to yield x′ ∈ Rh′×w′×1. The resultant x′ is flattened and added to 
+
+psrc , which similar to a transformer. Note that we project positional encoding through a learnt em-bedding layer, prior to adding to x. We don’t decrease the dimension of encoding directly for the fairness of comparisons. We find that the TTT performance on ImageNet for LQN model using CLIP VIT-B/16 as a teacher drops from 73 .1 to 62 .8. However, we do note that in the original VIT paper, (Dosovitskiy et al., 2020), the best results were estimated by adding the positional encoding to the image features. D.3 VARYING NUMBER OF ITERATIONS N
+
+Table 15: Model performance (Accuracy) across different iteration counts N .
+
+N 5 8 12 15 20 25 Accuracy 80.5 83.9 88.6 89.2 87.8 81.0 On Food-101, we vary number of iterations N while performing TTT on LQN, using CLIP VIT B/16 teacher. We find a peak performance of 89 .2 at N = 15 , with subsequent drops at other iterations. Please note that these are average scores on the entire dataset. D.4 ABLATIONS WITH ENTROPY MINIMIZATION 
+
+We use LQN-pretrained variant, and evaluate on ImageNet val split with a CLIP VIT-B/16 teacher. An entropy-minimization objective (similar to TPT) on LQN drops performance from 74 .5 to 67 .4,indicating that Cosine might serve as a better loss. 18 Preprint 
+
+Figure 7: Qualitative results on LQN. LQN reconstructs RGB images with lowest pixelwise loss (numbers marked in yellow) as compared to MAE/APM. This illustrates the extreme scenario when input images contain repeating textures and tests whether the model encodes semantics consistently. Note that these results are not cherry-picked. D.5 EVALUATING SEMANTIC -CONSISTENCY ON REPEATED TEXTURES 
+
+LQN has the ability to process different locations of an image in parallel. It consists of two proce-dures aka PAD, and LCR. During the PAD phase, different locations ‘never’ interact among them-selves other than mere weight-sharing of LQN across different positions. This raises the question: How can the network learn long-range dependencies, and how does it actually perform in cases of repeated textures? . Indeed, repeated textures have presented challenges to various computer-vision systems (Wang et al., 2025a), where the neural nets are unable to find “correspondences” between regions that have repeating textures. To investigate this, we make following changes to LQN: 1) we remove the LCR procedure, and only test the PAD procedure. 2) LQN is made to perform RGB reconstruction similar to MAE. We train LQN on ImageNet val, and test the rgb-reconstruction per-formance on a manually curated test-set of images with repeated textures. Fig 7 shows that LQN incurs lowest L2 error during reconstruction. D.6 EVALUATING LATENCY ON CONSTRAINED -D EVICES 
+
+In Tab16, we report GFlops/ Memory occupied/ time taken for single forward pass, as well as total time for TTT, when running LQN using EoMT teacher for panoptic segmentation on COCO. We find that around 66 .38% is consumed through first forward pass through the teacher (at N = 0), and inference of the segmentation mask (at N = 15). For an alternate classification task (like on imagenet val), the inference happens in latentspace, and does not require any forward pass through a separate segmentation head, which is why it can be done quickly. Table 16: Memory and GFlop Analysis. 
+
+Memory ORIN AGX Thor Ampere GFlops 
+
+EoMT (teacher) 2.1 GB 0.5 sec 0.1sec 0.08sec 4146 LQN (student) / iter 600 MB 0.68sec 0.37sec 0.29sec 24.5 LQN total (15 iters) 2.7 GB 8.9sec 4.3sec 2.88sec 4384 D.7 APPLICABILITY TO DIFFERENT DOMAINS 
+
+Table 17 evaluates the applicability of LQN to a different domain that the teacher has not seen. For eg, here we experiment with a medical dataset (Kaggle Pneumothorax Lung Dataset), consisting of binary classification of chest x-rays for collapsed lungs vs healthy lungs. Zero-shot accuracy of CLIP VIT-L is 74.9. By distilling different number of layers, LQN is able to improve the teacher network 19 Preprint to 77 .3% . Please note that, in theory, it would be possible to use a teacher pre-trained explicitly on medical data (eg, MedCLIP). However, that violates the test for applicability to different domains. Table 17: Accuracy comparison across different layer configurations. 
+
+Model CLIP ViT-L 2 Layers 4 Layers 8 Layers 10 Layers 
+
+Accuracy 74.9 75.8 76.5 77.3 77.0 D.8 APPLICABILITY TO NON -VIT BACKBONES 
+
+In Tab18, we evaluate applicability of LQN to distill from Non-VIT backbones. We benchmark Vision Mamba on ImageNet val set. LQN with Vision-Mamba as a teacher is able to improve performance from 78 .3 → 80 .9 for tiny variant . Similarly, with Vision-Mamba Small variant, we see performance improve from 81 .4 → 83 .2.Table 18: Performance comparison of Vision-Mamba models with LQN. 
+
+Model Base + LQN 
+
+Vision-Mamba-T 78.3 80.9 Vision-Mamba-S 81.4 83.2 D.9 EXPERIMENTS ON IMAGE NET -C Following TTT-MAE(Gandelsman et al., 2022), we evaluate our method on ImageNet-C. ImageNet-C is a dataset which consists of 15 types of corruptions applied to the original ImageNet validation set. As evidenced in Tab 19, we obtain the highest accuracy of 53 .0 on the highest severity level 5,thereby showcasing the efficacy of LQN. Table 19: LQN’s performance on ImageNet-C, level 5 . The first three rows are fixed models without test-time training. The third row, ViT probing, is the baseline used in (Gandelsman et al., 2022). A ✓ in P means that method leveraged pre-trained weights on clean variant of train set aka, Image-net and downstream-ttt on corrupted version. OpenCLIP VIT-L/14 is generally more robust. LQN does better than APM. P brigh cont defoc elast fog frost gauss glass impul jpeg motn pixel shot snow zoom Average Joint Train ✓ 62.3 4.5 26.7 39.9 25.7 30.0 5.8 16.3 5.8 45.3 30.9 45.9 7.1 25.1 31.8 24.8 Fine-Tune ✓ 67.5 7.8 33.9 32.4 36.4 38.2 22.0 15.7 23.9 51.2 37.4 51.9 23.7 37.6 37.1 33.7 ViT Probe ✓ 68.3 6.4 24.2 31.6 38.6 38.4 17.4 18.4 18.2 51.2 32.2 49.7 18.2 35.9 32.2 29.2 TTT-MAE ✓ 69.1 9.8 34.4 50.7 44.7 50.7 30.5 36.9 32.4 63.0 41.9 63.0 33.0 42.8 45.9 44.4 OpenCLIP VIT-L/14(t) ✗ 71.9 47.0 50.3 32.7 58.3 46.9 26.0 26.5 28.1 62.7 37.7 58.3 28.2 50.4 37.9 42.1 APM ✗ 77.4 51.9 56.6 37.9 64.8 53.2 28.7 31.4 33.0 68.4 44.1 64.5 33.1 56.9 43.9 50.3 LQN (Ours) ✗ 80.1 55.2 60.4 41.5 68.7 56.4 31.6 34.2 36.0 71.9 47.2 67.9 36.3 60.3 47.1 53.0 
+
+Table 20: Performance on ImageNet-C, level 4 . The first two rows are from the supplementary materials of (Gandelsman et al., 2022). A ✓ in column P indicates use of pre-trained weights 
+
+on clean ImageNet followed by TTT on corrupted inputs. OpenCLIP ViT-L/14 shows stronger robustness than earlier models. LQN does better than APM. P brigh cont defoc elast fog frost gauss glass impul jpeg motn pixel shot snow zoom Average Baseline ✓ 73.1 33.1 35.8 56.9 54.2 45.2 39.6 26.0 38.2 62.0 43.2 60.3 32.2 44.2 40.7 47.4 TTT-MAE ✓ 72.7 39.6 45.7 64.9 58.3 52.6 48.5 42.8 47.6 67.0 50.5 66.6 42.4 45.7 51.5 53.2 OpenCLIP VIT-L/14 ✗ 74.2 64.2 58.7 57.8 66.3 52.8 45.3 34.6 45.2 68.9 46.6 63.9 41.1 56.2 45.6 54.8 APM ✗ 79.2 70.4 64.9 63.7 72.3 58.6 51.2 40.4 51.3 74.1 53.0 70.0 46.7 62.5 51.8 59.6 LQN (Ours) ✗ 80.9 72.1 66.5 65.2 73.9 59.9 52.9 41.9 52.8 75.3 54.2 71.4 47.9 63.9 53.3 61.2 
+
+D.10 EXPERIMENTS ON CIFAR10-C We report more results on CIFAR-10-C in Table 24, where LQN model gets the lowest error rate of 
+
+13 .0.20 Preprint Table 21: Performance on ImageNet-C, level 3 . The first two rows are from the supplementary materials of (Gandelsman et al., 2022). A ✓ in column P indicates that the method used pre-trained weights on clean ImageNet and applied TTT on the corrupted set. OpenCLIP ViT-L/14 is more robust than earlier models. LQN does better than APM. P brigh cont defoc elast fog frost gauss glass impul jpeg motn pixel shot snow zoom Average Baseline ✓ 75.8 62.7 49.5 67.1 59.8 47.6 57.1 35.0 57.4 68.6 60.2 70.1 54.3 54.7 48.0 57.6 TTT-MAE ✓ 75.8 64.4 59.4 71.2 64.0 54.0 63.6 50.7 64.2 71.3 64.2 73.1 61.8 58.0 57.4 64.4 OpenCLIP VIT-L/14 ✗ 75.8 71.8 65.5 67.7 69.0 54.7 58.9 42.4 59.5 72.8 59.9 69.7 58.2 63.5 51.8 62.5 APM ✗ 80.5 77.2 71.3 73.3 74.8 60.6 64.7 48.5 65.4 77.8 61.6 75.2 64.1 69.3 58.0 68.5 LQN (Ours) ✗ 81.9 78.8 72.8 74.9 76.2 61.9 66.3 49.9 66.9 79.1 62.8 76.7 65.5 70.5 59.5 69.9 
+
+Table 22: Performance on ImageNet-C, level 2 . The first two rows are from the supplementary materials of (Gandelsman et al., 2022). A ✓ in column P indicates that the method used pre-trained weights on clean ImageNet and performed TTT on the corrupted version. OpenCLIP ViT-L/14 is generally more robust than earlier models. LQN does better than APM. P brigh cont defoc elast fog frost gauss glass impul jpeg motn pixel shot snow zoom Average Baseline ✓ 77.4 71.2 62.3 51.0 66.3 58.4 68.6 59.2 64.9 70.4 70.6 74.7 66.2 54.2 55.2 64.1 TTT-MAE ✓ 77.8 71.5 69.4 49.7 69.8 62.7 72.5 66.4 70.0 72.7 72.3 76.2 70.6 58.7 63.6 68.3 OpenCLIP VIT-L/14 ✗ 76.6 74.4 71.4 53.8 72.0 62.6 67.6 64.0 64.6 73.8 69.0 72.8 66.4 61.8 58.3 66.1 APM ✗ 81.1 79.4 76.6 59.4 77.3 68.2 73.1 70.0 70.3 78.6 74.5 77.8 72.0 67.8 64.3 72.4 LQN (Ours) ✗ 82.4 81.0 78.4 60.9 78.9 69.8 74.7 71.3 71.7 80.1 75.8 79.2 73.4 69.1 65.8 74.1 
+
+Table 23: APM and LQN performance on ImageNet-C, level 1 . The first two rows are reproduced from the supplementary materials of (Gandelsman et al., 2022). A ✓ in column P indicates that the method used pre-trained weights on clean ImageNet and applied TTT on the corrupted set. OpenCLIP VIT-L/14 is generally more robust than earlier models. LQN does better than APM. P brigh cont defoc elast fog frost gauss glass impul jpeg motn pixel shot snow zoom Average Baseline ✓ 78.5 74.5 68.1 73.9 70.5 70.6 74.8 68.6 72.3 73.0 75.2 75.9 73.6 69.3 63.7 71.4 TTT-MAE ✓ 78.9 74.7 72.5 74.7 72.9 72.2 76.8 72.2 75.5 74.5 75.8 77.0 75.9 71.9 69.3 73.1 OpenCLIP VIT-L/14 ✗ 77.3 75.4 73.5 73.1 73.5 71.4 71.9 70.2 69.9 75.1 73.7 74.2 71.9 71.2 65.2 71.1 APM ✗ 81.6 80.3 78.6 78.0 78.6 76.6 77.2 75.7 75.1 79.6 78.7 79.1 76.9 76.4 70.7 76.0 LQN (Ours) ✗ 83.2 82.0 80.3 79.6 80.1 78.0 78.6 77.0 76.5 80.9 80.2 80.5 78.4 77.9 72.3 77.6 
+
+Table 24: CIFAR-10-C results at highest severity level of 5. We report Error Rate (%, lower is better). The t- model acts as the teacher for APM and LQN variants. TTT was performed on the test set with randomly initialized weights. APM and LQN weights were reinitialized after each TTT iteration to prevent information leakage. Method orig gauss shot impul defoc glass motn zoom snow frost fog brit contr elas pixel jpeg Avg TTT-Online 8.2 25.8 22.6 30.6 14.6 34.4 18.3 17.1 20.0 18.0 16.9 11.2 15.6 21.6 18.1 21.2 19.1 UDA-SS 9.0 28.2 26.5 20.8 15.6 43.7 24.5 23.8 25.0 24.9 17.2 12.7 11.6 22.1 20.3 22.6 21.4 Zeroshot CLIP ViT-L/14 4.63 35.4 32.3 21.9 19.3 49.7 19.3 17.3 17.0 15.1 21.6 8.4 15.9 34.6 25.0 27.4 24.5 CLIP ViT-L/14 (t) APM 3.5 21.9 30.1 13.7 15.2 34.1 11.9 11.1 15.0 9.0 13.5 5.8 9.5 23.0 15.8 17.0 14.8 LQN (Ours) 2.9 18.8 20.0 12.5 14.1 30.2 10.5 10.1 13.4 8.1 11.7 4.9 8.1 19.3 13.6 14.3 13.0 21 Preprint 
+
+## E VISUALIZATION OF SEGMENTATION MASKS Input EoMT APM LQN (Ours) 
+
+Figure 8: Qualitative results on LQN. Panoptic segmentation on COCO-Val set. LQN obtains more semantically-detailed masks than the EoMT/APM baselines via test-time-training. Masks visualized after 15 iterations of TTT on both APM/LQN. EoMT is a fully-supervised, fixed baseline. TTT on APM/LQN is performed with EoMT as the teacher. The red regions are the regions where a kind reader can focus on to see the comparison in the prediction quality. Starting from above, LQN easily segments the books in the bookshelf as white region, spoon as a white outline on the plate, distinguishes between the people in the background, and easily partitions chairs into two distinct parts, whereas other EoMT and APM group them together. 22 Preprint Input EoMT APM LQN (Ours) 
+
+Figure 9: Qualitative results on LQN. Panoptic segmentation on COCO-Val set. LQN obtains more semantically detailed masks than the EoMT/APM baselines via test-time training. Masks visualized after 15 iterations of TTT on both APM/LQN. EoMT is a fully-supervised, fixed baseline. TTT on APM/LQN is performed with EoMT as the teacher. The red regions are the regions where a kind reader can focus on to see the comparison in the prediction quality. Starting from above, (first row) LQN gets the passengers in the bus in the background, even though they are partially occluded; (second row) easily segments the building into the blue regions; (third row) partitions buildings into a green colored region, whereas the other two methods don’t detect it as all/term it as background; (fourth row) gets the window in the proper shape. 23 Preprint Input EoMT APM LQN (Ours) 
+
+Figure 10: Qualitative results on LQN. Panoptic segmentation on COCO-Val set. LQN obtains more semantically-detailed masks than the EoMT/APM baselines via test-time-training. Masks visualized after 15 iterations of TTT on both APM/LQN. EoMT is a fully-supervised, fixed baseline. TTT on APM/LQN is performed with EoMT as the teacher. The red regions are the regions where a kind reader can focus on to see the comparison in the prediction quality. Starting from above, (first row) LQN properly segments the suitcases, (second row) Precise boundaries of the cellphone in the person’s hand, even though part of the cellphone is gripped very tightly by the person’s hand. (third row) segments the base of the tree, whereas the other two methods don’t detect it at all (fourth row) is able to understand the fine regions which correspond to the bag/floor. In contrast, EoMT/APM confuse that some part of the purse is also the background. 24

@@ -1,0 +1,1999 @@
+Title: CRAFT: Causal Responsibility and Failure Tracing in Medical Vision Language Models
+
+URL Source: https://arxiv.org/pdf/2609.38810v2
+
+Published Time: Mon, 05 Oct 2026 01:41:54 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+# CRAFT: Causal Responsibility and Failure Tracing in Medical Vision Language Models 
+
+Chunzheng Zhu 1,* , Jiaqi Zeng 1,* , Hongbo Zhao 1,Yihang Chen 2, Yijun Wang 1, †, Jianxin Lin 1, †
+
+> 1
+
+Hunan University 2University of Hong Kong 
+
+> *
+
+Equal contribution. †Corresponding authors. 
+
+Abstract 
+
+As vision language models are increasingly deployed in clinical diagnosis, under-standing how they internally resolve competing visual and textual signals becomes a safety imperative. Existing mechanistic analyses remain confined to unimodal text and offer no explanation for why a single misleading sentence can override a correct image based diagnosis, or why a model commits to a confident answer despite insufficient visual evidence. We find that these two safety risks, arbitra-tion failure where textual context overrides visual grounding and brake failure where the model commits without adequate evidence, are mediated by spatially disjoint attention head populations: arbitration heads form a mid-to-deep wideband reflecting cross-layer evidence competition, while brake heads concentrate in a narrow middle-to-late layer band that regulates evidence sufficiency and abstention behavior. To ground these observations in causal circuitry, we introduce C RAFT ,which localizes each failure mode to a minimal causal head set via dual criteria and verifies necessity and sufficiency through temporal probes and Tuned Lens trajectory analysis. Excising arbitration heads sharply reduces conflict following with negligible degradation on clean inputs, while excising brake heads restores ap-propriate abstention under degraded visual evidence. The two interventions target spatially disjoint head sets and produce distinct corrective effects, underscoring the mechanistic separability of the failure modes. Experiments across multiple medical VQA benchmarks and VLM architectures validate both the localization and inter-ventions, demonstrating that the identified heads causally drive each failure mode and that targeted modulation generalises without retraining. The code is available at https://github.com/zhcz328/CRAFT .
+
+1 Introduction 
+
+Medical vision language models are increasingly deployed for clinical question answering and diagnostic support [3, 5, 37], yet their behavior can change sharply when visual evidence, textual context, and parametric medical knowledge disagree [40, 35]. For safety critical deployment, observing these failures at the output level is insufficient: we need tools for identifying which internal components are sensitive to each failure mode and whether targeted interventions can correct the behavior without damaging clean diagnostic reasoning. Mechanistic interpretability provides a natural starting point [8, 6]. Prior work has mapped specialized attention heads in language models, including memory heads for parametric recall [16], context heads for in-context integration [19, 13], and induction heads for token copying [32], while activation patching studies have localized factual recall to specific MLP modules [23, 31]. Recent extensions trace intra memory knowledge conflicts to MLP attention interactions [28] and reveal that parametric versus contextual signals can superpose within the same head [19]. However, these analyses focus          
+
+> 40th Conference on Neural Information Processing Systems (NeurIPS 2026). arXiv:2609.38810v2 [cs.CV] 2 Oct 2026 Medical VLM
+> Xt:no cough reported
+> Pneumonia infiltrates
+> Conflict
+> Possesses correct answer internally
+> ~39% ~61%
+> Non-pneumonia CFR>60%
+> Medical VLM
+> Xt:no cough reported
+> Pneumonia infiltrates
+> Conflict CRAFT
+> ~81% ~19%
+> Non-pneumonia CFR<20%
+> Medical VLM
+> Possesses correct answer internally
+> Malignant ~68% ~1%
+> Probability UR=31%
+> Medical VLM
+> CRAFT
+> unknown Malignant
+> Probability UR=56%
+> Xv: Occluded
+> unknown
+> Insufficient evidence
+> Xv: Occluded
+> Gating amplified
+> Benign Benign ~2% ~42%
+> 𝑞: Is this malignant?
+> 𝑞: Is this malignant? Commits despite insufficient evidence Abstains under insufficient evidence
+> 𝑦 % = 𝑦 !
+> 𝑦 % = 𝑦 "
+> Override path excised
+> Arbitration Failure Brake Failure Insufficient evidence
+
+Figure 1: Two failure modes in medical VLMs and C RAFT interventions. Left (Arbitration Failure): Contradictory text hijacks a correct visual diagnosis, causing the model to follow the misleading answer. Right (Brake Failure): The model commits despite occluded evidence. exclusively on text only LLMs and binary knowledge conflicts. Medical VLMs introduce an additional axis of competition: the model must arbitrate among image evidence, textual context, and learned medical priors, and it should sometimes abstain when visual evidence is insufficient. Cross modal competition therefore transcends the binary “follow context vs. retrieve memory” choice studied in prior work [22, 38, 30], giving rise to a tripartite interaction among three causal pathways: a visual anchoring path Pv , a parametric knowledge path PΘ, and a textual override path Pt (Fig. 1). This three way competition creates two mechanistically distinct safety risks: (i) Arbitration failure :misleading text contradicts a correct visual diagnosis and the model erroneously privileges text, e.g., a chest radiograph showing clear pneumonia infiltrates accompanied by “no cough reported” yields the output non-pneumonia . (ii) Brake failure : visual evidence degrades below clinical sufficiency yet the model commits to a definitive answer rather than abstaining, e.g. , a dermoscopy image with the lesion region masked still prompts a specific diagnosis. Both failures produce unsafe clinical outputs but reflect fundamentally different computational regimes: arbitration failure indicates a model that possesses the correct answer but is hijacked by a competing textual signal ; brake failure indicates one that lacks sufficient evidence yet commits regardless . Prior work documents these phenomena at the output level [22, 40] and proposes training free mitigations via contrastive decoding [41] or image grounded guidance [42], but has not addressed where in the computation graph correct reasoning is overridden . Purely observational head rankings conflate causal influence with correlation: a head active during conflicted outputs may be predictive without being a useful intervention target [24, 11]. Three open challenges remain: 
+
+(C1) whether the two failure modes share circuitry or exhibit separable intervention sensitive patterns; 
+
+(C2) how to identify heads whose manipulation changes failure behavior rather than merely predicts it; (C3) whether failure specific circuits can be intervened upon without degrading clean reasoning. We introduce C RAFT , an activation patching framework for tracing and intervening on these two failure modes in medical VLMs. In the first stage, C RAFT identifies a critical layer band through layer wise conflict scoring, then isolates within that band the minimal head sets whose causal effect on the targeted failure is large while their perturbation to clean input reasoning remains small. In the second stage, linear probes and Tuned Lens trajectories [4] provide complementary temporal evidence about when conflict signals become linearly decodable and when answer preferences shift across layers. Our principal contributions are: 
+
+⋄ We formalize two medical VLM failure modes: arbitration failure under textual conflict and brake failure under visual degradation, separating textual override from insufficient evidence commitment within a unified structural causal framework. 
+
+⋄ We propose C RAFT , which narrows the causal search to a critical layer band via conflict scoring, then isolates a minimal head set whose excision maximally reduces the targeted failure while preserving clean capacity. The resulting targets are failure specific: arbitration head excision suppresses textual override; brake head excision restores abstention under degraded evidence. 
+
+⋄ On multiple VLMs, our experiments reveal that arbitration-sensitive heads form a mid-to-deep band while brake-sensitive heads concentrate in a disjoint late-layer band. Targeted interventions 2(b) Path Dominance              
+
+> Arbitration Brake
+> 𝑋 !
+> 𝜃 ℎ"
+> 𝑋 #
+> 𝑦 $
+> 𝑋 &%
+> 𝜃 ℎ"𝑦 $
+> (c) Deconfounding
+> 𝑋 !𝜃 𝑈 &
+> ℎ"$' 𝑦 (
+> 𝑃 %𝑃 )
+> (a) SCM
+> 𝑋 !𝑋 #𝜃 ℎ"$' ℎ"
+> 𝑃 %𝑃 #𝑃 )
+> 𝑌
+> 𝑈 &
+> ℎ!"!#$%
+> Dominant path Insufficient path
+> Interrupted path
+> 𝑑𝑜 (ℎ!:= ℎ!"!#$% )
+> 𝑋 #
+> 𝑃 #
+> Front-door preserved Back-door blocked
+
+Figure 2: Interventional tracing setup. (a) The evidence conflict problem can be modeled by a structural causal model with three competing paths: visual anchoring Pv , parametric knowledge PΘ,and textual override Pt, plus latent confounders Uc that open back-door paths. (b) Path dominance under each failure mode. (c) Clean-state interchange blocks back-door paths through Uc while preserving the front-door visual causal path, isolating genuine causal effects for head selection. reduce Conflict Flip Rate ( CFR ) by up to 41 absolute points and raise Uncertainty Rate ( UR )under insufficient evidence by 75%, with minimal collateral damage on clean diagnostic accuracy. 
+
+2 Related Work 
+
+Mechanistic Interpretability and Knowledge Conflicts. Circuit discovery via activation patch-ing [23, 6], path patching [10], and attribution based head analysis [1] have identified specialized attention heads for factual recall and in context retrieval [26, 36]. These tools have been extended to knowledge conflict settings: locating “memory heads” whose ablation restores context faithful-ness [16], revealing superposition of parametric and contextual signals within the same head [19], and tracing intra memory conflicts to specific MLP attention interactions [28]. Inference time intervention methods such as ITI [20], RepE [44], and conceptor based steering [29] demonstrate that activation modulation can redirect model behavior without weight updates, but operate on coarse trait directions rather than failure specific circuits. Critically, all above studies address text only LLMs; initial mechanistic analyses of VLMs do not study multimodal evidence conflict or clinical failure modes. 
+
+Medical VLM Safety and Selective Prediction. Medical VLMs achieve strong radiology QA performance [18, 21, 43] yet remain susceptible to hallucination under ambiguous or degraded inputs [27, 14]. Recent training free mitigation strategies include contrastive decoding guided by expert models [41], image grounded guidance from open source detectors [42], and probing internal representations to predict hallucination risk before token generation [17]. Orthogonally, the selective prediction framework [9] and LLM abstention literature [34] advocate withholding answers when confidence is low, but current implementations rely on output calibration or prompt heuristics rather than mechanistic intervention. Our work bridges these threads by providing a training free mechanism that directly modulates the internal circuits responsible for over commitment, enabling selective abstention without retraining, while acknowledging that clinically valid abstention thresholds require deployment specific human in the loop validation. 
+
+3 Background and Preliminaries 
+
+3.1 Transformer Residual Structure 
+
+Given a medical image v and a textual query q, a VLM processes the concatenated visual and textual token sequence through an L-layer decoder. Let hl,t denote the residual stream at layer l and token position t, and let tans denote the answer-token position used for next-token prediction. At layer l,the residual stream accumulates contributions from nh parallel heads and a feed-forward network: 
+
+hl,t = hl−1,t +
+
+> nh
+
+X
+
+> i=1
+
+Wl,i O al,i,t + FFN l(hl−1,t ), (1) where al,i,t = Attn l,i (hl−1)t is the value aggregated by head i at position t. The additive structure permits zeroing any individual head’s output Wl,i O al,i,t 7 → 0 without compensatory redistribution among remaining heads [8, 31], forming the basis for per-head activation interventions that modify a single additive term while leaving the rest of the forward pass unchanged. 33.2 Two Failure Modes and Problem Formulation Structural view. We posit exogenous variables U = {Xv , X t, Θ, U c}, where Xv denotes the visual input (with ˜Xv denoting its degraded counterpart in the brake setting), Xt the textual input, Θ the model parameters, and Uc unobserved exogenous noise capturing latent confounders ( e.g. , lexical over-lap, visual ambiguity, cross-modal coupling). The endogenous variables are V = {h1, . . . , hL, Y },where hl is the hidden representation at layer l and Y is the model output. These variables are governed by the structural equations hl = fl(hl−1, X v , X t, Θ, U c) and Y = g(hL,t ans ), where tans 
+
+is the answer token position and fl, g are deterministic functions. The induced directed acyclic graph (Fig. 2a) admits three competing directed paths from sources to outcome: visual anchoring Pv
+
+(information flow from Xv ), parametric knowledge PΘ (from Θ), and textual override Pt (from Xt). 
+
+Preference margin. We formalize both failure modes through δ = log p(y−) − log p(y+), where 
+
+y+ denotes the correct answer, y− the incorrect answer, and p(y) is the model-assigned probability. A positive margin δ > 0 indicates the model favours the wrong answer. For multi-token answers, 
+
+log p(y) denotes the length-normalised log-likelihood under teacher forcing; for multiple-choice datasets, y corresponds to the candidate option token. Two mechanistically distinct failures arise from evidence conflict: 
+
+Arbitration failure (Pt dominates Pv and PΘ): misleading textual evidence Xt contradicts visual and parametric sources. The model possesses the correct answer under clean conditions ( δclean < 0,where δclean is the margin under non-conflicting inputs) yet is hijacked under conflict ( δconflict , the margin under conflicting inputs) (Fig. 2b, left). 
+
+Brake failure (Pv insufficient): degraded visual evidence Xv = xdegrade  
+
+> v
+
+cannot sustain a diagnosis, yet the model commits to a concrete answer ycom ∈ Y con (the set of concrete answers) rather than abstaining with yunk (an “unknown” or abstention option) (Fig. 2b, right). Formally: (Arbitration) δconflict − δclean > 0, i.e. , conflict shifts preference toward y−, (2) (Brake) log p(ycom ) > log p(yunk ), ycom ∈ Y con , ; Xv = xdegrade  
+
+> v
+
+. (3) 
+
+3.3 Interventional Tracing Setup The confounding problem. Naïve observational attribution ( e.g. , ranking heads by activation magnitude) conflates causation with correlation. In the SCM of Fig. 2(a), the latent variable Uc
+
+opens back-door paths hl ← Uc → Y : token-level shortcuts inflate apparent head importance, visual ambiguity causes widespread activation variance correlated with Y through Uc rather than through 
+
+Pv , and cross-modal coupling via shared normalisation creates statistical dependence that does not reflect causal influence. The observational quantity E[Y | al,i ] therefore conflates the direct causal effect h → Y with the spurious association h ← Uc → Y .
+
+Deconfounding via clean-state interchange. To block these back-door paths, we exploit the modularity of structural causal models: intervening on an endogenous variable severs all incoming arrows while preserving downstream equations [7]. For each conflict input we construct a paired conflict-free counterfactual sharing the same (Xv , q ) and cache its clean activation hclean  
+
+> l
+
+. The interchange intervention do( hl := hclean  
+
+> l
+
+) fixes the head output independently of the current Uc
+
+realisation, thereby d-separating hl from Uc and blocking all back-door paths (Fig. 2c). Any residual change in Y is then attributable solely to the conflict mechanism mediated by the intervened head rather than to confounding (Appendix 9 for the d-separation proof). 
+
+Per-head activation scaling. We index heads by h = ( l, i ) and write C ⊆ [L] × [nh] for a head set with Cl = {i : ( l, i ) ∈ C} . For a set C we define additive head-level scaling at all token positions: 
+
+Y (α) 
+
+> C
+
+= g
+
+
+
+hL,t ans hl,t ← hl,t + X
+
+> i∈C l
+
+(αl,i − 1) Wl,i O al,i,t , ∀l, t 
+
+
+
+, (4) where αh = ϵ with ϵ → 0+ realises near-complete suppression (denoted excise( C), used for both arbitration and brake heads). Because the intervention fixes head outputs independently of the current realisation of Uc, the measured effect reflects the deconfounded causal contribution of each head 4(a) Layer trace (b) Head Distribution            
+
+> Layer index
+> WW
+> Encoding Competition Commitment Encoding Competition Commitment
+> Layer index
+> Causal Key Heads Fidelity Heads Backbone Heads Fidelity Heads CER BCP
+> Causal Key Heads Fidelity Heads Backbone Heads Fidelity Heads CER BCP
+> 𝜏 !"#
+> 𝜏 "$%
+> 𝜏 !"#
+> 𝜏 "$%
+> Hulu-Med Internvl3.5 Hulu-Med Internvl3.5
+> 𝑠(𝑙) 𝑠(𝑙)
+
+Figure 3: Arbitration failure localization. (a) Layer-wise S(l): shaded window marks layers where override concentrates. (b) CER vs. BCP: red points (upper left) are selected causal key heads. to the targeted failure mode. In this work, “intervention” consistently refers to this activation-level do-operation rather than to a claim about the input-level data-generating process. 
+
+localization objective. Equipped with these two deconfounded operations, we identify sparse intervention targets whose interventions improve the targeted failure mode while limiting collateral damage. Rather than treating the selection boundaries or the number of selected targets as pre-specified hyperparameters, we obtain them empirically from the observed intervention profiles after scanning candidate heads or layers: 
+
+C∗ 
+
+> arb
+
+= ParetoKnee C {CFR(excise( C)) ↓, C2W(excise( C)) ↓, |C| ↓} , (5) 
+
+L∗ 
+
+> brk
+
+= ParetoKnee L {UR(attenuate( L; β)) ↑, U2O(attenuate( L; β)) ↓, |L| ↓} . (6) Here, C∗ 
+
+> arb
+
+denotes the selected arbitration heads, while L∗ 
+
+> brk
+
+denotes the selected brake-related layers under layer-wise attenuation with β < 1. CFR is the proportion of conflict samples following the misleading text, UR is the fraction of degraded samples where the model correctly abstains, and 
+
+C2W /U2O capture collateral damage on clean inputs. The effective selection boundaries and the resulting number of selected targets are therefore empirical outcomes of the localization procedure, rather than manually fixed hyperparameters (Appendix 8.2 for definitions). 
+
+4 Causal Tracing of Failure Circuitry 
+
+We trace each failure mode to its causal origin through a coarse to fine procedure: scoring layers to identify a critical band, then resolving heads within that band driving override circuitry (arbitration failure) and gating circuitry (brake failure). Both stages apply the deconfounded intervention of Sec. 3.3 to ensure selected components are causal drivers rather than observational correlates. 
+
+4.1 Arbitration Failure Method. Given a visual input xv , a question q, and conflicting text xconf  
+
+> t
+
+asserting a misleading answer y−, the preference margin δ = log pθ (y− | xv , x conf  
+
+> t
+
+, q )−log pθ (y+ | xv , x conf  
+
+> t
+
+, q ) quantifies textual hijacking, where δ > 0 means the model follows the misleading text. We first narrow the search space via a layer wise conflict score. Let δbase denote the preference margin under clean input and δconflict that under adversarial text. For each layer l, we cache the clean run hidden state and replace the layer l output in the conflict forward pass with this cached representation, yielding a patched margin δpatched (l). The conflict score is then: 
+
+S(l) = |δconflict − δbase | − | δpatched (l) − δbase |, (7) measuring how much patching layer l reduces the conflict effect toward the clean baseline. The critical band W is identified from the S(l) profile by selecting layers where the score rises sharply and remains elevated, corresponding to layers that actively sustain the textual override. Within W, we isolate individual heads using two causal metrics: CER exc (h) = δconflict − δexcise( h),measuring how much excising head h reduces the override, and BCP exc (h) = Acc clean −
+
+Acc excise( h), measuring collateral damage on clean inputs. The arbitration critical head set is: 
+
+C∗ 
+
+> arb
+
+= {h : CER exc (h) > τ s ∧ BCP exc (h) < τ d}, (8) retaining only heads causally responsible for the override yet dispensable for normal reasoning. 5Fidelity heads in the deep tail show the inverse:              
+
+> •Near zero CER: not responsible for override
+> •High BCP: essential for output fidelity BCP CER Fidelity heads
+> Conflict identification and recovery
+> ØHigh CER/ low BCP heads propagate textual override signal
+> Ø𝛿 progressively shifts toward "follow misleading text”
+> ØNegligible conflict or fidelity circuitry
+> ØResidual score reflects distributed output formation, not sparse causal heads
+> Backbone heads:
+> negligible effect on both conflict and clean outputs (w/ low CER & BCP) BCP CER
+> Q: Is there evidence of pneumoperitoneum ?
+> Conflict (Textual Override)
+> 𝑋 𝑡 : “ No evidence of pneumoperitoneum. ”
+> Wrong Answer: No
+> Recovered Answer: Yes
+> Within the override band, causal key heads exhibit:
+> •High CER: excision strongly reduces override
+> •Low BCP: removal causes minimal clean damage BCP CER key heads
+> Override Band (L12-22) Late Commitment Tail (L32-35)
+> Spatial roles: override, fidelity, and backbone
+
+Figure 4: Arbitration head localization (Hulu-Med 4B). Left: conflict heads (blue) cluster in the Override Band with high CER and low BCP; the Late Commitment Tail shows negligible conflict or fidelity circuitry, with residual score reflecting distributed output formation. Centre: layer ×head grid with per layer CER and BCP bars. Right: selection criterion and recovery example. 
+
+Experiments and Analysis. We evaluate on VQA-RAD [18] and SLAKE [21] using Hulu-Med 4B [14] (QwenVL [2] backbone) and InternVL3.5 4B [33]; dataset construction and conflict injection details are provided in Sec. 8. Fig. 3(a) shows that S(l) peaks broadly across mid to deep layers (layers 12–17 in Hulu-Med; 14–20 in InternVL), confirming that textual override distributes across a wideband rather than localizing to a single layer. This contrasts with unimodal factual recall, which concentrates in narrow MLP bands [23]. Fig. 3(b) reveals a sparse cluster in the upper left quadrant: heads with strong causal effect on the conflict yet minimal baseline disruption, constituting fewer than 1% of total heads. Fig. 4 further resolves the spatial structure: conflict heads form a continuous band spanning layers 12–22, while the deepest layers (32–35) exhibit per head CER near zero with negligible conflict or fidelity circuitry, their elevated S(l) reflecting distributed output formation rather than sparse causal heads. This dichotomy persists across architectures, suggesting a shared motif: mid layer override wideband functionally distinct from late layer output formation. 
+
+4.2 Brake Failure localization HuluMed InternVL3.5 Fidelity Heads Fidelity Heads Backbone Heads Fidelity Heads Fidelity Heads Backbone Heads Causal Key Heads   
+
+> BCP BCP HR HR
+> Causal Key Heads
+> HuluMed InternVL3.5
+
+𝜏 !"# 
+
+𝜏 "$% 
+
+𝜏 !"# 
+
+𝜏 "$% 
+
+(c) (b)    
+
+> Brake Heads Backbone Heads Hallucination Relevance Fidelity Relevance Fidelity Heads
+
+(a) 
+
+Figure 5: Brake head localization (Hulu-Med 4B). (a) HR( l)map with positive peaks at the deepest layers. (b,c) BCP versus HR landscape separating different heads from backbone. 
+
+Method. For brake failure, vi-sual evidence is degraded such that the correct response is abstention 
+
+yunk , yet the model commits to a concrete answer ycom . We ap-ply the same causally grounded de-confounded intervention logic: we first identify layers whose atten-uation shifts probability mass to-ward abstention under degraded in-put, then localize individual heads within those layers for excision. Following the same deconfounded intervention protocol described above, the layer-wise hallucination relief score quantifies how much scaling down all head outputs in a given layer l by a factor β < 1
+
+shifts the model’s output probability mass toward the abstention token under degraded visual input: 
+
+HR( l) = pθ (yunk | attenuate( l)) − pθ (yunk | original) . (9) A positive HR( l) indicates that weakening layer l helps the model recognise insufficient visual evidence and suppress premature commitment. Within high HR layers, we isolate individual brake heads by jointly requiring that per head hallucination relief HR exc (h) exceeds a suppression bound while the collateral metric BCP exc (h) = Acc clean − Acc exc( h) remains below a preservation bound, 6Table 1: Arbitration failure on multimodal benchmarks under textual conflict. CFR : conflict following rate ( ↓); Resist: resist rate ( ↑); C2W : correct to wrong ( ↓); W2C: wrong to correct ( ↑). Bold: best comparison result. All CRAFT gains are significant ( p < 0.01 ).                                                                                                                                                                                                                                                                                                                                                                                         
+
+> Prefix Before Q Before A Benchmark Model Method CFR ↓Resist ↑C2W ↓W2C ↑CFR ↓Resist ↑C2W ↓W2C ↑CFR ↓Resist ↑C2W ↓W2C ↑
+> VQA-RAD
+> Hulu-Med 4B Baseline 33.33 66.67 N/A N/A 44.62 55.38 N/A N/A 98.21 1.79 N/A N/A
+> Random 33.59 66.41 1.79 1.54 40.77 59.23 1.03 4.87 98.72 1.28 0.51 0.00 CRAFT 15.38 84.62 0.26 18.21 14.36 85.64 0.51 30.77 70.26 29.74 0.00 27.95
+> Hulu-Med 7B Baseline 25.80 74.20 N/A N/A 36.50 63.50 N/A N/A 88.00 12.00 N/A N/A
+> Random 25.40 74.60 0.90 1.30 35.20 64.80 0.80 2.10 88.30 11.70 0.35 0.05 CRAFT 14.20 85.80 0.10 11.70 14.70 85.30 0.20 22.00 67.50 32.50 0.00 20.50
+> Hulu-Med 14B Baseline 13.80 86.20 N/A N/A 10.60 89.40 N/A N/A 24.20 75.80 N/A N/A
+> Random 14.10 85.90 0.50 0.20 10.40 89.60 0.30 0.50 24.90 75.10 0.80 0.10 CRAFT 8.60 91.40 0.40 5.60 6.90 93.10 0.25 3.95 16.80 83.20 0.20 7.60
+> InternVL3.5 4B Baseline 30.29 69.71 N/A N/A 21.71 78.29 N/A N/A 60.57 39.43 N/A N/A
+> Random 34.29 65.71 4.57 0.57 24.00 76.00 4.00 1.71 77.71 22.29 17.71 0.57 CRAFT 9.14 90.86 0.57 21.71 7.43 92.57 2.29 16.57 19.43 80.57 0.00 41.14
+> Qwen3-VL-8B Baseline 27.84 72.16 N/A N/A 16.16 83.84 N/A N/A 57.98 42.02 N/A N/A
+> Random 28.10 71.90 0.90 0.64 17.00 83.00 1.00 0.16 58.20 41.80 0.35 0.13 CRAFT 11.90 88.10 0.20 16.14 7.50 92.50 0.15 8.81 34.00 66.00 0.10 24.08 SLAKE
+> Hulu-Med 4B Baseline 19.15 80.85 N/A N/A 19.15 80.85 N/A N/A 87.73 12.27 N/A N/A
+> Random 21.28 78.72 2.95 0.82 20.79 79.21 4.09 2.45 91.00 9.00 4.26 0.98 CRAFT 12.11 87.89 5.07 12.11 7.04 92.96 0.65 12.77 46.32 53.68 4.91 46.32
+> Hulu-Med 7B Baseline 15.40 84.60 N/A N/A 14.20 85.80 N/A N/A 75.00 25.00 N/A N/A
+> Random 15.90 84.10 1.00 0.50 14.80 85.20 0.90 0.30 76.20 23.80 1.50 0.30 CRAFT 11.00 89.00 1.50 5.90 6.70 93.30 0.40 7.90 45.00 55.00 1.00 31.00
+> Hulu-Med 14B Baseline 8.80 91.20 N/A N/A 6.90 93.10 N/A N/A 10.40 89.60 N/A N/A
+> Random 9.10 90.90 0.50 0.20 7.10 92.90 0.40 0.20 10.80 89.20 0.60 0.20 CRAFT 6.20 93.80 0.40 3.00 5.20 94.80 0.30 2.00 4.90 95.10 0.40 5.90
+> InternVL3.5 4B Baseline 12.66 87.34 N/A N/A 8.93 91.07 N/A N/A 16.40 83.60 N/A N/A
+> Random 18.18 81.82 8.28 2.76 18.51 81.49 10.71 1.14 23.70 76.30 8.77 1.46 CRAFT 6.66 93.34 0.65 6.66 5.84 94.16 0.65 3.73 5.84 94.16 2.27 12.82
+> Qwen3-VL-8B Baseline 15.60 84.40 N/A N/A 11.80 88.20 N/A N/A 45.20 54.80 N/A N/A
+> Random 16.20 83.80 0.85 0.25 12.40 87.60 0.75 0.15 47.00 53.00 2.10 0.30 CRAFT 10.80 89.20 0.30 5.10 7.20 92.80 0.25 4.85 23.20 76.80 0.30 22.30
+
+yielding the candidate set C∗
+
+brk . The interpretation mirrors arbitration: we seek heads that are causally responsible for suppressing abstention yet dispensable for normal diagnostic reasoning. 
+
+Experiments and Analysis. We construct degraded inputs by masking diagnostically critical regions and set abstention as the target (protocol in Sec. 8). Fig. 5(a) reveals a spatial signature distinct from arbitration: while the arbitration override distributes across a broad mid to deep wideband, the hallucination relief signal is sharply focal , concentrating in layers 31–35 of Hulu-Med and layers 25–35 of InternVL3.5. This narrow band accounts for over 78% of total HR improvement despite spanning fewer than 15% of model depth, indicating that the abstention mechanism is governed by a 
+
+compact, late-layer circuit . At head level (Fig. 5(b, c)), only 4–7 heads per model carry statistically significant brake signal ( p < 0.01 , permutation test). Excising these heads yields HR gains of 34.2 (Hulu-Med) and 29.7 (InternVL3.5) with BCP below 2.1, restoring appropriate uncertainty without degrading correct answers. Notably, the selected brake layers are entirely disjoint from the arbitration critical band, corroborating that conflict resolution and confidence calibration are handled by separate sub-circuits. Tuned Lens trajectory analysis further shows that brake heads act as late redirectors: the output distribution commits to a hallucinated token by layer 24, and brake heads enforce premature commitment only in the deepest layers, explaining why shallow probe methods fail to detect. 
+
+5 Functional Roles and Decoupling Analysis 
+
+Having localized intervention-sensitive heads, we evaluate whether the two failure modes respond to distinct interventions and examine the functional specialisation of the identified head sets. 
+
+5.1 Decoupling of Arbitration and Brake Interventions Setup We compare C RAFT against random ablation using the same head count as |C ∗|. For VQA experiments, evaluation spans four medical VLMs (Hulu-Med 4B, Hulu-Med 7B, InternVL3.5 4B, and Qwen3-VL-8B [2]) on VQA-RAD and SLAKE for textual conflict, and on SLAKE and HealMed-VQA [25] for image conflict. More backbone and task results are reported in Appendix 17. 7Table 2: Brake failure under visual degradation. C RAFT excises the localized brake heads to recover abstention. UR: unknown rate ( ↑); O2U: non-unknown to unknown ( ↑); U2O: unknown to other ( ↓).                                                                                                               
+
+> Hulu-Med 4B Hulu-Med 7B Hulu-Med 14B InternVL3.5 4B Qwen3-VL-8B Benchmark Method UR ↑O2U ↑U2O ↓UR ↑O2U ↑U2O ↓UR ↑O2U ↑U2O ↓UR ↑O2U ↑U2O ↓UR ↑O2U ↑U2O ↓
+> SLAKE
+> Baseline 37.88 ––44.12 ––48.90 ––22.58 ––42.42 ––Random 45.45 8.33 0.76 48.82 5.29 0.59 51.10 3.00 0.80 16.13 0.00 6.45 47.73 6.06 0.75 CRAFT 65.15 27.27 0.00 61.18 17.06 0.00 58.40 10.20 0.70 32.26 9.68 0.00 55.30 12.88 0.00 HealMed-VQA
+> Baseline 78.44 ––85.07 ––88.61 ––81.56 ––84.72 ––Random 86.83 10.18 1.80 88.19 4.31 1.19 89.58 1.45 0.48 82.47 3.06 2.15 87.50 4.17 1.39 CRAFT 98.20 19.76 0.00 95.83 11.10 0.34 93.06 4.80 0.35 93.64 12.46 0.38 95.14 11.11 0.69
+
+Table 3: Comparison of selection criteria at equal head count. Left: arbitration failure (CER only: highest conflict effect; BCP only: lowest collateral). Right: brake failure on validation split (HR only: highest hallucination relief; BCP only: lowest collateral). Shaded: CRAFT.                                                                
+
+> Model Criterion CFR ↓|∆CFR | ↑ C2W ↓#Heads Hulu-Med 4B CER only 6.7 37.9 1.8 6BCP only 44.4 0.3 1.3 6Dual (Ours) 14.4 30.3 0.5 6InternVL3.5 4B CER only 9.7 12.0 4.0 10 BCP only 7.4 14.3 2.3 10 Dual (Ours) 7.4 14.3 0.0 10
+> Model Criterion UR ↑∆(UR) ↑U2O ↓#Heads Hulu-Med 4B HR only 65.2 27.3 0.0 6BCP only 38.6 0.8 0.0 6Dual (Ours) 65.2 27.3 0.0 6InternVL3.5 4B HR only 61.3 38.7 21.6 7BCP only 16.1 -6.5 6.5 7Dual (Ours) 32.3 9.7 0.0 7
+
+Table 1 reports the effect of excising identified arbitration heads. The critical observation is not merely that CFR decreases, but how : the intervention shifts the model from following conflicting text to resisting it, while leaving clean accuracy virtually unchanged (C2W near zero). This aligns with the causal interpretation from Sec. 3.3: excising arbitration heads removes the Pt override without disrupting the front door path Pv . Random ablation, by contrast, increases CFR in several conditions (e.g. , InternVL3.5 Before A), confirming that indiscriminate head removal can exacerbate failure by disrupting backbone reasoning while leaving the override intact. A further insight emerges from conflict position dependence: Before A shows the highest baseline CFR and strongest resistance to intervention, suggesting that when conflicting text is placed immediately before the answer token, the override exploits a shorter residual path beyond the identified head set. Table 2 reports the corresponding results under visual degradation. Ablating the brake heads identified via the localization procedure in Sec. 4.2 consistently increases the unknown rate across all four models while keeping U2O collateral at zero or near zero, with the improvement driven by larger O2U transitions that redirect non-abstaining predictions toward unknown . Random ablation is unstable, yielding smaller gains on Hulu-Med and Qwen3-VL-8B and even reducing UR on SLAKE for InternVL3.5 while introducing nonzero U2O, confirming that mitigating brake failure requires 
+
+targeted suppression of the localized commitment heads rather than generic perturbation. 
+
+5.2 Contribution of Individual Selection Objectives 
+
+Sec. 5.1 compares selection strategies at equal candidate count. For arbitration, CER only achieves the strongest raw CFR reduction on Hulu-Med 4B ( |∆CFR |=37 .9) but incurs C2W of 1.8, whereas BCP nearly fails to suppress conflict; the dual criterion balances both objectives, yielding substantial CFR reduction with C2W at 0.5. On InternVL3.5 4B, CER only increases C2W to 4.0, revealing entanglement between high CER candidates and clean reasoning pathways, while the dual criterion matches the CFR reduction of BCP only and eliminates all collateral (C2W =0.0). For brake failure, HR only and dual coincide on Hulu-Med 4B, but on InternVL3.5 4B HR only causes severe U2O degradation (21.6%) whereas the dual criterion keeps U2O at 0.0 with cleaner UR gain. These results confirm that the joint criterion is essential for reliable intervention across both failure modes. 
+
+6 Causal Verification via Internal Probes 
+
+The localization procedure in §4 identifies heads via interventional effects. We verify these correspond to interpretable representational transitions using temporal probing and Tuned Lens [4] trajectory analysis on Hulu-Med 4B (VQA-RAD for arbitration, SLAKE for brake failure). 
+
+6.1 Temporal Probe Separation 
+
+81 5 10 15 20 25 30 35 Layer Index 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0           
+
+> AUROC / Macro-F1
+> (a) Arbitration Failure
+> 1510 15 20 25 30 35 Layer Index
+> (b) Brake Failure
+> Probe-A AUROC Probe-A AUROC (post-abl.) Probe-B Macro-F1 Probe-B Macro-F1 (post-abl.)
+
+Figure 6: Temporal probe separation. Probe A (detection) sat-urates before Probe B (commitment), revealing a detect then commit structure. Post-intervention selectively suppresses Probe B while preserving Probe A. We train two binary logistic probes on per-layer hidden states at the answer position. Probe A (conflict detection) predicts whether the input contains conflict-inducing evidence. Probe B 
+
+(failure prediction) predicts whether the model will enter the correspond-ing failure mode. If the identified heads mediate a tran-sition from evidence registration to failure commitment, we expect three testable predictions: (P1) Probe A be-comes accurate before Probe B across layers; (P2) Probe B peaks in later lay-ers; (P3) intervening on C∗ selectively weakens Probe B more than Probe A. i) For arbitration failure (Fig. 6(a)), Probe A saturates around layers 17–21 (AUROC > 0.97 ), while Probe B peaks 3–5 layers later (Macro F1 ≈ 0.85–0.87), delineating a computational window where the model has registered the conflict but has not yet committed to following it. After intervening on C∗
+
+> arb
+
+, Probe A remains intact whereas Probe B drops substantially, confirming that the identified heads govern commitment rather than conflict encoding. ii) For brake failure (Fig. 6(b)), Probe A is predictive from shallow layers onward, indicating that degraded visual evidence is linearly decodable early. Probe B peaks later (layers 22–27) with greater variance and lower ceiling. After intervening on C∗
+
+> brk
+
+, Probe B shows non-monotonic behavior, consistent with the observation that the intervention reorganises late layer competition between commitment and abstention rather than erasing a single pathway. 
+
+6.2 Tuned Lens Trajectory Analysis 1 6 12 18 24 30 36 Layer Index -10 010 20         
+
+> Preference margin  >0: correct
+> <0: wrong
+> (a) Arbitration Failure
+> 1612 18 24 30 36 Layer Index -5 0510
+> Preference margin  >0: non-hallu.
+> <0: hallu.
+> (b) Brake Failure
+> Failure subset Resist subset After CRAFT
+
+Figure 7: Tuned Lens trajectories. The preference margin ∆l
+
+flips sign within the override window under conflict. Inter-vention suppresses this reversal, restoring correct dominance. We apply the Tuned Lens [4] to project layer’s hidden state into vocab-ulary space, computing the preference margin δl = logit l(y−) − logit l(y+)
+
+to track when the latent prediction crosses from correct to incorrect. Under conflict free conditions, δl re-mains negative throughout (Fig. 7). Under conflict, δl transitions from neg-ative to positive between layers 18 and 25, placing the preference rever-sal within the wideband identified by causal localization. The reversal accu-mulates over several layers, consistent with a distributed override circuit. After excising C∗
+
+> arb
+
+, this transition is suppressed and δl stays negative through the critical window. The convergence of three independent signals (interventional CER, temporal probes, and Tuned Lens trajectories) on the same layer band provides triangulated evidence that the localized heads causally mediate this reversal. Full distributions are in Sec. 12. 
+
+7 Conclusion 
+
+We presented C RAFT , an interventional tracing framework that leverages causal deconfounding to localize failure-critical attention heads in medical VLMs. The framework reveals that arbitration failure and brake failure occupy structurally disjoint circuitry and respond to opposite interventions: excision of a mid-layer override wideband suppresses textual hijacking, while excision of sparse late-layer gating heads recovers appropriate abstention under degraded visual evidence. Both interventions are training-free, modular, and affect fewer than one percent of total heads, suggesting that sparse activation editing may serve as a practical and lightweight post-hoc safety mechanism for deployed medical VLMs. We hope this mechanistic interpretability perspective on multimodal failure modes opens new and productive directions for principled safety analysis in clinical AI applications. 9References 
+
+[1] Achtibat, R., Hatefi, S.M.V., Dreyer, M., Jain, A., Wiegand, T., Lapuschkin, S., Samek, W.: Attnlrp: attention-aware layer-wise relevance propagation for transformers. arXiv preprint arXiv:2402.05602 (2024) 3 [2] Bai, S., Cai, Y., Chen, R., Chen, K., Chen, X., Cheng, Z., Deng, L., Ding, W., Gao, C., Ge, C., et al.: Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 (2025) 6, 7 [3] Bai, S., Chen, K., Liu, X., Wang, J., Ge, W., Song, S., Dang, K., Wang, P., Wang, S., Tang, J., Zhong, H., Zhu, Y., Yang, M., Li, Z., Wan, J., Wang, P., Ding, W., Fu, Z., Xu, Y., Ye, J., Zhang, X., Xie, T., Cheng, Z., Zhang, H., Yang, Z., Xu, H., Lin, J.: Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 (2025) 1 [4] Belrose, N., Ostrovsky, I., McKinney, L., Furman, Z., Smith, L., Halawi, D., Biderman, S., Steinhardt, J.: Eliciting latent predictions from transformers with the tuned lens. arXiv preprint arXiv:2303.08112 (2023) 2, 8, 9, 19 [5] Chen, Z., Wu, J., Wang, W., Su, W., Chen, G., Xing, S., Zhong, M., Zhang, Q., Zhu, X., Lu, L., et al.: Internvl: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 24185–24198 (2024) 1 [6] Conmy, A., Mavor-Parker, A., Lynch, A., Heimersheim, S., Garriga-Alonso, A.: Towards automated circuit discovery for mechanistic interpretability. Advances in Neural Information Processing Systems 36 , 16318–16352 (2023) 1, 3 [7] Didelez, V., Pigeot, I.: Causality: models, reasoning, and inference (2001) 4, 15 [8] Elhage, N., Nanda, N., Olsson, C., Henighan, T., Joseph, N., Mann, B., Askell, A., Bai, Y., Chen, A., Conerly, T., et al.: A mathematical framework for transformer circuits. Transformer Circuits Thread 1(1), 12 (2021) 1, 3 [9] Geifman, Y., El-Yaniv, R.: Selectivenet: A deep neural network with an integrated reject option. In: International conference on machine learning. pp. 2151–2159. PMLR (2019) 3 [10] Goldowsky-Dill, N., MacLeod, C., Sato, L., Arora, A.: Localizing model behavior with path patching. arXiv preprint arXiv:2304.05969 (2023) 3 [11] Golovanevsky, M., Rudman, W., Palit, V., Singh, R., Eickhoff, C.: What do vlms notice? a mech-anistic interpretability pipeline for gaussian-noise-free text-image corruption and evaluation. arXiv preprint arXiv:2406.16320 (2024) 2 [12] Grattafiori, A., Dubey, A., Jauhri, A., Pandey, A., Kadian, A., Al-Dahle, A., Letman, A., Mathur, A., Schelten, A., Vaughan, A., et al.: The llama 3 herd of models. arXiv preprint arXiv:2407.21783 (2024) 13 [13] Hendel, R., Geva, M., Globerson, A.: In-context learning creates task vectors. In: Findings of the Association for Computational Linguistics: EMNLP 2023. pp. 9318–9333 (2023) 1 [14] Jiang, S., Wang, Y., Song, S., Hu, T., Zhou, C., Pu, B., Zhang, Y., Yang, Z., Feng, Y., Zhou, J.T., et al.: Hulu-med: A transparent generalist model towards holistic medical vision-language understanding. arXiv preprint arXiv:2510.08668 (2025) 3, 6 [15] Jin, Q., Dhingra, B., Liu, Z., Cohen, W., Lu, X.: Pubmedqa: A dataset for biomedical research question answering. In: Proceedings of the 2019 conference on empirical methods in natural language processing and the 9th international joint conference on natural language processing (EMNLP-IJCNLP). pp. 2567–2577 (2019) 13 [16] Jin, Z., Cao, P., Yuan, H., Chen, Y., Xu, J., Li, H., Jiang, X., Liu, K., Zhao, J.: Cutting off the head ends the conflict: A mechanism for interpreting and mitigating knowledge conflicts in language models. In: Findings of the Association for Computational Linguistics: ACL 2024. pp. 1193–1215 (2024) 1, 3 10 [17] Kogilathota, S.A., EG, S.V., Sun, L., Zhou, J.: Halp: Detecting hallucinations in vision-language models without generating a single token. In: Proceedings of the 19th Conference of the European Chapter of the Association for Computational Linguistics (Volume 1: Long Papers). pp. 6067–6085 (2026) 3, 16 [18] Lau, J.J., Gayen, S., Ben Abacha, A., Demner-Fushman, D.: A dataset of clinically generated visual questions and answers about radiology images. Scientific data 5(1), 180251 (2018) 3, 6 [19] Li, G., Chen, Y., Tong, H.: Taming knowledge conflicts in language models. arXiv preprint arXiv:2503.10996 (2025) 1, 3 [20] Li, K., Patel, O., Viégas, F., Pfister, H., Wattenberg, M.: Inference-time intervention: Eliciting truthful answers from a language model. Advances in Neural Information Processing Systems 
+
+36 , 41451–41530 (2023) 3, 16 [21] Liu, B., Zhan, L.M., Xu, L., Ma, L., Yang, Y., Wu, X.M.: Slake: A semantically-labeled knowledge-enhanced dataset for medical visual question answering. In: 2021 IEEE 18th international symposium on biomedical imaging (ISBI). pp. 1650–1654. IEEE (2021) 3, 6 [22] Longpre, S., Perisetla, K., Chen, A., Ramesh, N., DuBois, C., Singh, S.: Entity-based knowledge conflicts in question answering. In: Proceedings of the 2021 conference on empirical methods in natural language processing. pp. 7052–7063 (2021) 2 [23] Meng, K., Bau, D., Andonian, A., Belinkov, Y.: Locating and editing factual associations in gpt. Advances in neural information processing systems 35 , 17359–17372 (2022) 1, 3, 6 [24] Neo, C., Ong, L., Torr, P., Geva, M., Krueger, D., Barez, F.: Towards interpreting visual information processing in vision-language models. arXiv preprint arXiv:2410.07149 (2024) 2 [25] Nguyen, D., Ho, M.K., Ta, H., Nguyen, T.T., Chen, Q., Rav, K., Dang, Q.D., Ramchandre, S., Phung, S.L., Liao, Z., et al.: Localizing before answering: A benchmark for grounded medical visual question answering. In: Thirty-Fourth International Joint Conference on Artificial Intelligence (IJCAI-25). International Joint Conferences on Artificial Intelligence Organization (2025) 7 [26] Olsson, C., Elhage, N., Nanda, N., Joseph, N., DasSarma, N., Henighan, T., Mann, B., Askell, A., Bai, Y., Chen, A., et al.: In-context learning and induction heads. arXiv preprint arXiv:2209.11895 (2022) 3 [27] Pal, A., Umapathi, L.K., Sankarasubbu, M.: Med-halt: Medical domain hallucination test for large language models. In: Proceedings of the 27th Conference on Computational Natural Language Learning (CoNLL). pp. 314–334 (2023) 3 [28] Pham, M.V., Borkakoty, H., Hou, Y.: Where knowledge collides: A mechanistic study of intra-memory knowledge conflict in language models. arXiv preprint arXiv:2601.09445 (2026) 1, 3 [29] Postmus, J., Abreu, S.: Steering large language models using conceptors: Improving addition-based activation engineering. arXiv preprint arXiv:2410.16314 (2024) 3 [30] Shi, D., Jin, R., Shen, T., Dong, W., Wu, X., Xiong, D.: Ircan: Mitigating knowledge conflicts in llm generation via identifying and reweighting context-aware neurons. Advances in Neural Information Processing Systems 37 , 4997–5024 (2024) 2 [31] Vig, J., Gehrmann, S., Belinkov, Y., Qian, S., Nevo, D., Singer, Y., Shieber, S.: Investigating gender bias in language models using causal mediation analysis. Advances in neural information processing systems 33 , 12388–12401 (2020) 1, 3 [32] Wang, K., Variengien, A., Conmy, A., Shlegeris, B., Steinhardt, J.: Interpretability in the wild: a circuit for indirect object identification in gpt-2 small, 2022. URL https://arxiv. org/abs/2211.00593 2 (2022) 1 [33] Wang, W., Gao, Z., Gu, L., Pu, H., Cui, L., Wei, X., Liu, Z., Jing, L., Ye, S., Shao, J., et al.: Internvl3. 5: Advancing open-source multimodal models in versatility, reasoning, and efficiency. arXiv preprint arXiv:2508.18265 (2025) 6 11 [34] Wen, B., Yao, J., Feng, S., Xu, C., Tsvetkov, Y., Howe, B., Wang, L.L.: Know your limits: A sur-vey of abstention in large language models. Transactions of the Association for Computational Linguistics 13 , 529–556 (2025) 3 [35] Wu, W., Xu, X., Gao, C., Diao, X., Li, S., Salas, L.A., Gui, J.: Assessing and mitigating medical knowledge drift and conflicts in large language models. arXiv preprint arXiv:2505.07968 (2025) 1, 13 [36] Wu, W., Wang, Y., Xiao, G., Peng, H., Fu, Y.: Retrieval head mechanistically explains long-context factuality. arXiv preprint arXiv:2404.15574 (2024) 3 [37] Xia, P., Chen, Z., Tian, J., Gong, Y., Hou, R., Xu, Y., Wu, Z., Fan, Z., Zhou, Y., Zhu, K., et al.: Cares: A comprehensive benchmark of trustworthiness in medical vision language models. Advances in Neural Information Processing Systems 37 , 140334–140365 (2024) 1 [38] Xie, J., Zhang, K., Chen, J., Lou, R., Su, Y.: Adaptive chameleon or stubborn sloth: Revealing the behavior of large language models in knowledge conflicts. In: The Twelfth International Conference on Learning Representations (2023) 2 [39] Yang, A., Li, A., Yang, B., Zhang, B., Hui, B., Zheng, B., Yu, B., Gao, C., Huang, C., Lv, C., et al.: Qwen3 technical report. arXiv preprint arXiv:2505.09388 (2025) 13 [40] Yeh, C.H., Wang, J., Graham, A.D., Liu, A.J., Tan, B., Chen, Y., Ma, Y., Lin, M.C.: Insight: A multi-modal diagnostic pipeline using llms for ocular surface disease diagnosis. In: International Conference on Medical Image Computing and Computer-Assisted Intervention. pp. 711–721. Springer (2024) 1, 2 [41] Zhang, X., Meng, Z., Lever, J., Ho, E.S.: Ccd: Mitigating hallucinations in radiology mllms via clinical contrastive decoding. arXiv preprint arXiv:2509.23379 (2025) 2, 3, 16 [42] Zhao, L., Deng, Y., Zhang, W., Gu, Q.: Mitigating object hallucination in large vision-language models via image-grounded guidance. arXiv preprint arXiv:2402.08680 (2024) 2, 3, 16 [43] Zhu, C., Lin, Y., Chen, S., Wang, Y., Lin, J.: Medeyes: Learning dynamic visual focus for medical progressive diagnosis. In: Proceedings of the AAAI Conference on Artificial Intelligence. vol. 40, pp. 13916–13924 (2026) 3 [44] Zou, A., Phan, L., Chen, S., Campbell, J., Guo, P., Ren, R., Pan, A., Yin, X., Mazeika, M., Dombrowski, A.K., et al.: Representation engineering: A top-down approach to ai transparency. arXiv preprint arXiv:2310.01405 (2023) 3 12 8 More Experimental Details 
+
+8.1 Models, conflict construction, and data splits 0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+> Mask scale
+> 010 20 30 40 50
+> Unknown rate (%)  50% saturation
+> main setting mask scale = 2.0
+> Mask-scale Sensitivity
+
+Figure 8: The Unknown rate increases with 
+
+mask_scale , but remains below 50% even under the strongest masking. We use 
+
+mask_scale =2.0 as the default degradation setting. We evaluate four medical VLMs: Hulu-Med 4B (36 layers, 32 heads, d=2560 ), Hulu-Med 7B, In-ternVL3.5 4B (36 layers, 32 heads, d=2560 ), and Qwen3-VL-8B, all running in FP16 on two NVIDIA GeForce RTX 5090 GPUs with 32 GB peak mem-ory. For the arbitration setting, we restrict evaluation to binary answer instances and construct textual in-terventions via an EVIDENCE template: the support condition asserts the correct answer y+ while the con-flict condition asserts the alternative y−. We retain only instances where the model predicts y+ on clean input, remains correct under support, and flips to y−
+
+under conflict. For the brake setting, we construct degraded inputs by masking diagnostically relevant regions resolved from detection.json (preferring pixel level masks when available, otherwise falling back to detection rectangles) with black fill enlarged by mask_scale = 2 .0. The prompt explicitly permits answering unknown ; filtering keeps only instances answered correctly without masking. A mask scale sweep (Fig. 8) confirms that the Unknown rate increases monotonically yet remains below 50% even at mask_scale = 3 .0, motivating intervention. After filtering, all retained examples are split 70/30 into a training split (layer tracing, head localization, threshold selection) and a validation split on which all reported metrics are evaluated. 
+
+8.2 Metric Formal Definitions and Text-Only Results 
+
+(i) Evaluation metrics. The main paper reports four metrics for arbitration failure (Table 1) and three for brake failure (Table 2). Let ˆypre  
+
+> i
+
+, ˆypost  
+
+> i
+
+denote the model prediction on conflict instance i before and after intervention, and let y+ 
+
+> i
+
+, y − 
+
+> i
+
+denote the visually correct and textually misleading answers respectively. For Arbitration setting: 
+
+CFR (↓) = 1 
+
+> |D conf |
+
+P 
+
+> i∈D conf
+
+⊮ˆypost  
+
+> i
+
+= y−
+
+> i
+
+, (10) RESIST (↑) = 1 − CFR , (11) 
+
+C2W ( ↓) = 1 
+
+> |D conf |
+
+P 
+
+> i
+
+⊮ˆypre  
+
+> i
+
+=y+ 
+
+> i
+
+∧ ˆypost  
+
+> i
+
+=y−
+
+> i
+
+, (12) 
+
+W2C ( ↑) = 1 
+
+> |D conf |
+
+P 
+
+> i
+
+⊮ˆypre  
+
+> i
+
+=y− 
+
+> i
+
+∧ ˆypost  
+
+> i
+
+=y+
+
+> i
+
+. (13) Here R ESIST denotes “not following the misleading answer” and can include correct, abstention, or other non misleading outputs. 
+
+Brake setting. Let yunk denote abstention and ycom ∈ { y+, y −} a concrete answer; instances are drawn from the visually degraded subset Ddeg .UR (↑) = 1 
+
+> |D deg |
+
+P 
+
+> i
+
+⊮ˆypost  
+
+> i
+
+= yunk , (14) 
+
+C2U ( ↑) = 1 
+
+> |D deg |
+
+P 
+
+> i
+
+⊮ˆypre  
+
+> i
+
+=ycom ∧ ˆypost  
+
+> i
+
+=yunk , (15) 
+
+U2O ( ↓) = 1 
+
+> |D deg |
+
+P 
+
+> i
+
+⊮ˆypre  
+
+> i
+
+=yunk ∧ ˆypost  
+
+> i
+
+=ycom . (16) 
+
+(ii) Text-only benchmark results. Table 5 reports results on two text-only medical QA benchmarks, ConflictMedQA [35] and PubMedQA [15], using Qwen3-4B [39] and Llama3.2-3B [12], where conflict is injected purely through contradictory textual context without visual inputs. 
+
+Analysis. Across both benchmarks, C RAFT consistently lowers CFR and improves R ESIST over both the baseline and random head ablation. The effect is especially strong on ConflictMedQA, where C RAFT substantially reduces conflict compliance across both models and all injection positions 13 Table 4: Threshold sensitivity (Hulu-Med 4B). Left : arbitration on VQA-RAD (Before Q). Right :brake on SLAKE (image conflict). Highlighted: final settings.                                                   
+
+> τsτdCFR ↓C2W ↓W2C ↑#Heads
+> 0.133 0.550 18.7 4.9 30.8 25 0.271 0.183 24.6 0.5 20.5 20.156 0.445 22.1 7.9 30.5 31
+> 0.350 0.500 18.2 0.8 27.4 6
+> τsτdUR ↑O2U ↑U2O ↓#Heads
+> 0.2 0.5 57.58 20.45 0.76 40.0 0.3 54.55 16.67 0.00 30.0 0.8 62.88 26.52 1.52 9
+> 0.0 0.5 65.15 27.27 0.00 6
+
+Table 5: Text only benchmark results. CFR : conflict compliance ( ↓); Resist : resist rate ( ↑); C2W :correct to wrong ( ↓); W2C : wrong to correct ( ↑). Bold : best per block; shaded rows: C RAFT . Random uses the same head count.                                                                                                                                                            
+
+> ConflictMedQA PubMedQA Position Model Method CFR ↓Resist ↑C2W ↓W2C ↑CFR ↓Resist ↑C2W ↓W2C ↑
+> Prefix
+> Qwen3-4B Baseline 83.33 16.67 ––49.67 50.33 ––Random 94.25 5.75 12.07 1.15 57.17 42.83 12.17 4.67 CRAFT 37.36 62.64 0.00 45.98 23.59 76.41 0.00 26.09
+> Llama3.2-3B Baseline 57.69 42.31 ––58.46 41.54 ––Random 42.31 57.69 26.92 42.31 63.08 36.92 8.85 4.23 CRAFT 27.88 72.12 0.00 29.81 46.15 53.85 1.15 13.46 Before Q
+> Qwen3-4B Baseline 94.83 5.17 ––53.70 46.30 ––Random 89.66 10.34 1.15 6.32 46.30 53.70 3.91 11.30 CRAFT 68.39 31.61 1.15 27.59 3.70 96.30 0.00 50.00
+> Llama3.2-3B Baseline 76.92 23.08 ––71.54 28.46 ––Random 81.73 18.27 11.54 6.73 68.08 31.92 4.62 8.08 CRAFT 57.69 42.31 0.00 19.23 59.23 40.77 1.54 13.85 Before A
+> Qwen3-4B Baseline 80.46 19.54 ––65.98 34.02 ––Random 76.44 23.56 4.02 8.05 85.33 14.67 20.54 1.20 CRAFT 23.56 76.44 0.57 57.47 51.41 48.59 0.00 14.57
+> Llama3.2-3B Baseline 43.27 56.73 ––66.92 33.08 ––Random 48.08 51.92 16.35 11.54 72.31 27.69 9.23 3.85 CRAFT 31.73 68.27 2.88 14.42 54.62 45.38 2.31 14.62
+
+while keeping C2W near zero. On PubMedQA, C RAFT remains effective under longer and more naturalistic medical contexts, with the strongest case reducing CFR from 53.70 to 3.70 and increasing RESIST from 46.30 to 96.30. Compared with random ablation using the same number of heads, CRAFT achieves a better balance between W2C gains and C2W collateral damage, confirming that the selected heads are involved in conflict following rather than general answer generation. 
+
+8.3 Key Parameter Selection and Sensitivity 
+
+The threshold procedure selects C∗ by requiring heads to exceed τs on the suppression score ( CER exc 
+
+or HR ) while falling below τd on the disruption score ( BCP exc ), with τs set near the 90th percentile of the suppression distribution and τd near the 10th percentile of the disruption distribution, yielding 
+
+|C ∗
+
+> arb
+
+| ∈ [4 , 13] and |C ∗
+
+> brk
+
+| ∈ [5 , 7] depending on architecture. All metrics are computed on the held out 30% split, averaged over three random seeds (standard deviations < 1.5 pp), with significance assessed via two sided permutation tests ( n=10 ,000 , p < 0.01 ). A threshold sensitivity sweep (Table 4) confirms the trade off: looser settings improve correction ( W2C /O2U ) at the cost of increased collateral damage ( C2W /U2O ), while overly strict settings leave failure unresolved; the operating points balance target effect retention against competence preservation. 
+
+9 Theoretical Analysis of Deconfounding 
+
+This appendix formalizes the causal deconfounding argument underlying the head selection procedure in Sec. 4. We first show that observational activation attribution is confounded (theorem 9.1), then prove that clean state interchange eliminates this bias (theorem 9.2), and finally establish that the 
+
+CER metric inherits the deconfounding guarantee (theorem 9.3). 14 9.1 Confounding in Observational Attribution Proposition 9.1 (Confounded Observational Attribution) . Under the SCM defined in Sec. 3.2 with latent confounder Uc and structural equations hl = fl(hl−1, X v , X t, Θ, U c), Y = g(hL,t ans ), the observational conditional E[Y | al,i ] does not equal the interventional quantity E[Y | do( al,i = a)] 
+
+whenever Uc is not d-separated from Y given al,i in the mutilated graph. Proof. (i) Active back door path. In the original DAG the path al,i ← Uc → Y is active because 
+
+Uc is a common cause that is never conditioned on. Since Uc encompasses lexical overlap, visual ambiguity, and cross modal coupling, it is neither directly measurable nor finite dimensional, so the back door criterion [7] cannot be satisfied by observational adjustment. 
+
+(ii) Bias decomposition. Applying the truncated factorisation formula yields: 
+
+E[Y | al,i =a] = E[Y | do( al,i =a)] 
+
+| {z }
+
+> causal effect
+
++ Bias( Uc→al,i , U c→Y )
+
+| {z }
+
+> confounding bias
+
+, (17) where the bias term is generically nonzero whenever Uc simultaneously affects both the head activation and the model output through distinct structural equations. 
+
+(iii) Implication. Activation magnitude ranking is therefore a biased estimator of causal importance: a head may appear highly influential simply because Uc drives both its activation and the erroneous output, without the head itself mediating the failure. 
+
+9.2 D Separation under Clean State Interchange Theorem 9.2 (Deconfounding via Interchange Intervention) . Let aclean  
+
+> l,i
+
+denote the activation of head 
+
+(l, i ) computed from the conflict free counterfactual sharing (Xv , q ) with the original conflict sample. Under do( al,i := aclean  
+
+> l,i
+
+), the back door path al,i ← Uc → Y is blocked, and the measured effect 
+
+CDE( l, i ) = EY | do( al,i := aclean  
+
+> l,i
+
+) − EY | do( al,i := aconflict  
+
+> l,i
+
+) (18) 
+
+equals the controlled direct effect of the conflict mechanism mediated through head (l, i ).Proof. The do operator do( al,i := aclean  
+
+> l,i
+
+) replaces the structural equation for al,i with a constant assignment, mutilating the graph by severing all incoming edges to al,i [7]. 
+
+(i) Back door severed. Since al,i is fixed to a constant that no longer depends on the Uc realisation, the edge Uc → al,i is removed from the mutilated graph, blocking the only back door path al,i ←
+
+Uc → Y .
+
+(ii) Front door preserved. All downstream structural equations remain intact. The causal path 
+
+Xv → hl−1 → hl → Y continues to operate through other heads and FFN components, so the intervention does not destroy the forward computation. 
+
+(iii) Input level matching. Both the conflict and conflict free samples share (Xv , q ), so the only variation in Uc arises from the presence or absence of adversarial text Xconf  
+
+> t
+
+. Fixing al,i to its clean state value ensures constancy across both Uc conditions, achieving d separation: 
+
+al,i ⊥⊥ Uc | do( al,i ) in the mutilated graph. (19) Combining (i) through (iii) , CDE( l, i ) isolates the causal contribution of head (l, i ) to the conflict induced failure, free of confounding bias from Uc.
+
+Corollary 9.3 (Validity of CER as Causal Metric) . The conflict effect reduction metric CER exc (h) = 
+
+δconflict − δexcise( h) is a valid estimate of the controlled direct effect of head h on the preference margin, provided the paired counterfactual shares (Xv , q ) with the conflict sample. Proof. The excise operation ( αh → 0+) is a special case of the interchange intervention in theo-rem 9.2 that replaces the head output with a near zero vector. The d separation guarantee holds for any 
+
+fixed replacement value, since the key property is that al,i becomes constant with respect to Uc, not that it takes a particular value. The CER metric then directly measures the shift in preference margin attributable to removing the causal contribution of head h under the deconfounded regime. 15 Table 6: Inference time safety baselines. Highlighted: the proposed method.                         
+
+> Method Paradigm Extra Model Training Target Failure
+> CCD [41] Decoding guidance ✓✗Textual conflict MARINE [42] Decoding guidance ✓✗Textual conflict ITI [20] Activation steering ✗✓General truthfulness HALP [17] Hallucination detection ✗✓Pre generation risk CRAFT Causal head repair ✗✗Arbitration + brake
+
+Table 7: Arbitration failure (Hulu-Med 4B, VQA-RAD, Before Q). Bold: best.                                           
+
+> Method Extra Train CFR ↓Resist ↑C2W ↓W2C ↑
+> Baseline ✗✗44.62 55.38 0.00 0.00 Random heads ✗✗40.77 59.23 1.03 4.87 CCD ✓✗31.28 68.72 1.28 13.34 MARINE ✓✗28.46 71.54 1.03 16.92 ITI ✗✓34.10 65.90 1.79 12.31 CRAFT ✗✗14.36 85.64 0.51 30.77
+
+10 Comparison with Existing Safety Methods 
+
+We include a controlled comparison in which all methods are evaluated under the same answer extraction rule and clean performance measurement protocol. Table 6 summarises four representative baselines spanning three intervention paradigms: decoding guidance (CCD [41], MARINE [42]), 
+
+trait level activation steering (ITI [20]), and pre generation hallucination detection (HALP [17]). CCD and MARINE modify the output distribution using auxiliary contrastive or visual grounding signals from an external model, while ITI shifts activations along a global truthfulness direction learned from a small labelled set. HALP trains lightweight probes on internal representations to predict hallucination risk before decoding. In contrast, C RAFT identifies and excises failure specific 
+
+causal head sets without external models or additional training. 
+
+Analysis. For arbitration failure (Table 7), random head removal provides only modest improvement, confirming that the gain is not caused by nonspecific perturbation. CCD and MARINE further reduce CFR by injecting auxiliary contrastive or grounding signals at decoding time, and ITI improves over the baseline via a global truthfulness shift. However, C RAFT achieves the lowest CFR and highest Resist while keeping C2W minimal , indicating that targeted excision of the localized override circuit outperforms both output level calibration and generic activation steering. For brake failure (Table 8), HALP routed abstention improves UR by detecting high risk cases before generation, but introduces nonzero U2O because the routing decision can abstain on cases already correctly handled. C RAFT 
+
+yields a larger UR gain with zero U2O , showing that direct intervention on the brake head set recovers abstention while better preserving previously abstaining predictions. 
+
+Reproducibility. All methods share the same validation split, answer extraction rule, and clean performance measurement protocol, ensuring that metric differences reflect genuine intervention effects rather than evaluation interface discrepancies. 
+
+10.1 Clean Accuracy Preservation under Baseline Methods 
+
+To complement the failure mitigation results, we compare the clean accuracy preservation of C RAFT 
+
+with several baseline interventions. For arbitration failure, we report the Before Q setting on VQA-RAD, following the main baseline comparison. For brake failure, we report the SLAKE image conflict setting. All values are measured on clean inputs before and after intervention. For baseline methods that do not explicitly select causal heads, #Heads denotes the matched effective intervention budget used for comparison. 
+
+Analysis. Across both failure modes, C RAFT preserves clean accuracy better than the compared baselines under comparable intervention budgets. For arbitration failure, C RAFT produces the smallest clean accuracy drop while using the sparsest head set, indicating that the gain in conflict resistance is not obtained by broadly degrading clean visual question answering. For brake failure, HALP and the generic intervention baselines introduce larger clean accuracy losses under matched or 16 Table 8: Brake failure (Hulu-Med 4B, SLAKE image conflict). Bold: best. 
+
+Method Extra Train UR ↑ O2U ↑ U2O ↓
+
+Baseline ✗ ✗ 37.88 0.00 0.00 Random heads ✗ ✗ 45.45 8.33 0.76 HALP routed abstention ✗ ✓ 56.82 21.21 2.27 CRAFT ✗ ✗ 65.15 27.27 0.00 
+
+Table 9: Clean accuracy preservation under baseline methods. ∆Acc denotes post minus pre intervention accuracy (%). Bold: best preservation result.                                                                                                                                                       
+
+> Hulu-Med 4B InternVL3.5 4B Qwen3-VL-8B Benchmark Setting Method #Heads Original After ∆Acc #Heads Original After ∆Acc #Heads Original After ∆Acc VQA-RAD Arbitration failure Random heads 6100.00 94.87 −5.13 10 100.00 93.71 −6.29 8100.00 95.80 −4.20 CCD 7100.00 91.79 −8.21 11 100.00 91.43 −8.57 9100.00 93.60 −6.40 MARINE 7100.00 92.31 −7.69 11 100.00 92.00 −8.00 9100.00 94.20 −5.80 ITI 8100.00 91.03 −8.97 12 100.00 90.86 −9.14 10 100.00 93.10 −6.90 CRAFT 6100.00 96.41 −3.59 10 100.00 96.57 −3.43 8100.00 97.80 −2.20 SLAKE Brake failure Random heads 6100.00 88.40 −11.60 7100.00 86.23 −13.77 8100.00 91.60 −8.40 CCD 7100.00 83.73 −16.27 8100.00 80.65 −19.35 9100.00 88.40 −11.60 MARINE 7100.00 85.07 −14.93 8100.00 82.58 −17.42 9100.00 89.30 −10.70 ITI 8100.00 86.22 −13.78 9100.00 84.19 −15.81 10 100.00 90.10 −9.90 HALP 8100.00 84.61 −15.39 9100.00 81.94 −18.06 10 100.00 87.90 −12.10 CRAFT 6100.00 90.67 −9.33 7100.00 88.87 −11.13 8100.00 93.20 −6.80
+
+Table 10: Comparison with fine tuning based safety adaptation on textual conflict. Hulu-Med 4B, VQA-RAD Before Q. Shaded rows denote C RAFT .
+
+Method Training CFR ↓ Resist ↑ C2W ↓ W2C ↑ Clean Acc. ↑
+
+Baseline ✗ 44.62 55.38 0.00 0.00 100.00 Random heads ✗ 40.77 59.23 1.03 4.87 96.67 CONFLICT SFT ✓ 22.31 77.69 2.05 24.36 97.18 PREFERENCE TUNING ✓ 19.49 80.51 1.54 26.67 97.44 CRAFT ✗ 14.36 85.64 0.51 30.77 96.41 CONFLICT SFT + C RAFT ✓ 10.77 89.23 1.03 35.90 96.92 
+
+Table 11: Comparison with fine tuning based safety adaptation on visual brake failure. Hulu-Med 4B, SLAKE image conflict pool. Shaded rows denote C RAFT .
+
+Method Training UR ↑ O2U ↑ U2O ↓ Clean Acc. ↑ Net Gain ↑
+
+Baseline ✗ 37.88 0.00 0.00 100.00 0.00 Random heads ✗ 45.45 8.33 0.76 96.90 7.57 CONFLICT SFT ✓ 54.55 19.70 2.27 96.97 16.67 PREFERENCE TUNING ✓ 57.58 21.97 1.52 96.21 19.70 CRAFT ✗ 65.15 27.27 0.00 90.67 27.27 CONFLICT SFT + C RAFT ✓ 69.70 32.58 0.76 92.42 31.82 
+
+near matched budgets, whereas C RAFT maintains the highest post intervention clean accuracy on all three backbones. This supports the claim that localized head excision provides a more targeted safety intervention than broader representation steering or hallucination suppression baselines. 
+
+10.2 Comparison with Fine Tuning Based Safety Adaptation 
+
+We compare C RAFT with two training based baselines under the same Hulu-Med 4B settings (VQA-RAD Before Q for textual arbitration, SLAKE image conflict pool for visual brake failure). C ONFLICT 
+
+SFT fine tunes on conflict aware examples whose target is the clean gold answer (textual conflict) or 
+
+unknown (degraded visual evidence). P REFERENCE TUNING applies RLHF optimization where the preferred response resists the conflict or abstains and the rejected response follows it. Both baselines use parameter efficient adaptation on the language model blocks. We also combine C ONFLICT SFT with C RAFT to test whether the training free intervention is complementary to fine tuning. 17 Table 12: Open ended textual conflict results. The judge classifies each response into gold claim, conflict claim, or qualified response. Shaded rows denote C RAFT .                                                          
+
+> Hulu-Med 4B InternVL3.5 4B Benchmark Method Gold ↑Conflict ↓Qualified ↑Clean Fact. ↑Gold ↑Conflict ↓Qualified ↑Clean Fact. ↑
+> VQA RAD
+> Baseline 54.20 39.60 6.20 96.00 56.40 36.80 6.80 96.30 Random 57.10 35.70 7.20 95.10 58.20 34.70 7.10 95.40 CRAFT 70.90 21.80 7.30 94.70 78.40 13.20 8.40 95.00
+> SLAKE
+> Baseline 51.80 42.20 6.00 95.30 59.10 34.60 6.30 96.80 Random 54.40 38.60 7.00 94.60 60.30 32.20 7.50 96.10 CRAFT 68.60 23.10 8.30 93.80 82.60 9.10 8.30 95.90
+
+Table 13: Open ended degraded vision results. The judge evaluates whether the response expresses calibrated uncertainty or makes an unsupported diagnosis. Shaded rows denote C RAFT .                                                          
+
+> Hulu-Med 4B InternVL3.5 4B Benchmark Method Uncert. ↑Unsup. ↓Evid. Req. ↑Clean Compl. ↑Uncert. ↑Unsup. ↓Evid. Req. ↑Clean Compl. ↑
+> SLAKE
+> Baseline 36.20 59.10 4.70 95.60 24.80 69.40 5.80 94.80 Random 44.00 50.70 5.30 94.70 18.60 75.20 6.20 93.70 CRAFT 63.40 29.90 6.70 90.80 34.80 58.60 6.60 92.80
+> HealMed-VQA
+> Baseline 73.60 21.80 4.60 96.20 76.40 18.70 4.90 95.60 Random 79.10 15.80 5.10 95.10 78.80 16.00 5.20 94.70 CRAFT 89.40 5.90 4.70 91.70 88.20 7.30 4.50 92.40
+
+Analysis. Table 10 shows that both C ONFLICT SFT and P REFERENCE TUNING reduce CFR and raise Resist over the baseline, confirming that training on conflict aware supervision can teach the model to resist textual overrides. Nevertheless, C RAFT achieves a lower CFR than either training based method without any parameter update, suggesting that the failure is concentrated in a sparse set of causal heads whose direct suppression yields a strong correction. The combined C ONFLICT 
+
+SFT plus C RAFT row further lowers CFR to 10.77 and raises Resist to 89.23, indicating that the two approaches address complementary aspects of the problem. Table 11 reveals a parallel pattern for visual brake failure. Fine tuning increases UR under degraded visual evidence but introduces nonzero U2O , meaning some originally abstaining predictions are incorrectly shifted into concrete answers. C RAFT obtains a larger UR gain and keeps U2O at zero, though it incurs a greater clean accuracy cost because the brake intervention directly suppresses answer commitment under insufficient evidence. Combining fine tuning with C RAFT achieves the largest net gain (31.82), showing that fine tuning provides broad behavioral calibration and better clean accuracy preservation, while C RAFT supplies a sparse, training free mechanistic intervention for failure specific causal repair at inference time. 
+
+11 Computational Cost 
+
+Table 14 reports the online inference overhead after head selection. Hooked masking adds less than 2% latency on Hulu-Med 4B and about 14% on InternVL3.5 4B; true head skipping reduces this further but the sparse intervention level is too small for meaningful FLOP savings without fused kernels. These results clarify that C RAFT is a safety oriented post hoc intervention rather than an inference acceleration method. Table 15 reports the one time offline localization cost. The full head selection pipeline requires 227 to 346 forward passes per sample across the evaluated models, substantially larger than a single inference pass but involving no parameter updates or gradient computation. After localization the selected head set is reused for all subsequent inference with only the low overhead hook shown above. Therefore, C RAFT trades a moderate one time diagnostic cost for low overhead inference time repair. 18 Table 14: Online computational cost of head intervention on VQA-RAD. Hooked masking is the analysis implementation; true head skipping offers marginal FLOP savings.                                    
+
+> Model Implementation #Heads Normal Lat. Interv. Lat. ∆Lat. Normal FLOPs ∆FLOPs
+> Hulu-Med 4B Hooked masking 6206.39 ms 210.31 ms +1.90% 19539.96G 0.00% Hulu-Med 4B True head skipping 6207.11 ms 208.10 ms +0.48% 19539.96G 0.11% lower InternVL3.5 4B Hooked masking 10 43.27 ms 49.43 ms +14.24% 3629.54G 0.00% InternVL3.5 4B True head skipping 10 43.91 ms 47.03 ms +7.11% 3629.54G 0.10% lower
+
+Table 15: Offline cost of head selection. The localization cost is paid once before deployment. Prompt forward counts include diagnostic passes for layer tracing, head scoring, and selection.                     
+
+> Model Setting Loc. Samples Total Forwards Forwards / Sample Param. Update
+> Hulu-Med 4B VQA-RAD Before Q 391 111,342 284.8 ✗
+> InternVL3.5 4B VQA-RAD Before Q 698 158,446 227.0 ✗
+> Qwen3-VL-8B VQA-RAD Before Q 698 241,508 346.0 ✗
+
+12 Probe and Tuned Lens Implementation 
+
+12.1 Temporal Probe Architecture 
+
+Both Probe A (conflict detection) and Probe B (follow prediction) are implemented as lightweight linear classifiers: 
+
+ˆpl = σ(w⊤ 
+
+> l
+
+hl + bl), (20) where hl ∈ Rd is the residual stream representation at layer l, wl ∈ Rd and bl ∈ R are learned parameters, and σ is the sigmoid function. 
+
+Training details. Probe A is trained as a binary classifier for conflict detection, distinguishing inputs with injected textual conflict from clean inputs. Probe B is trained as a binary classifier for answer arbitration, predicting whether the model follows the textually misleading answer y− or the visually grounded answer y+ on conflict instances with unambiguous predictions. Both probes are trained only on the training split and evaluated on held-out examples. Both probes are implemented as independent linear classifiers trained with the Adam optimiser (learning rate 10 −3, weight decay 10 −4) for up to 50 epochs, with early stopping based on validation AUROC (patience = 10). We train a separate probe for each layer without any cross-layer parameter sharing or feature aggregation across layers. 
+
+12.2 Tuned Lens Configuration 
+
+The tuned lens [4] transforms intermediate representations to the output vocabulary space: 
+
+TL l(hl) = WU · fl(hl) + bU , (21) where fl is a learned affine transformation (one per layer) and WU , bU are the unembedding matrix and bias used for projection. 
+
+Training details. Each layer-specific transformation fl is parameterised as an affine mapping 
+
+fl(x) = Alx + bl, where Al ∈ Rd×d. The tuned lens is trained on a held-out medical text corpus by minimising the KL divergence between the transformed logits TL l(hl) and the model’s final output distribution. Optimisation is performed with Adam using a fixed learning rate schedule. At evaluation time, we track preference dynamics across layers by computing the logit difference 
+
+TL l(hl)[ y+] − TL l(hl)[ y−].
+
+12.3 Head-Level Tuned-Lens Preference Distributions 
+
+To complement the layer-level Tuned-Lens trajectories, we analyse head-level preference-margin distributions under text-conflict and image-conflict settings. 19 For text-conflict examples, the horizontal axis is the gold-versus-wrong preference margin: 
+
+mh = TL (h)(y+) − TL (h)(y−), (22) where larger values indicate stronger preference for the gold answer. For image-conflict examples, where the desired behavior under masked visual evidence is abstention, the horizontal axis is the abstention margin: 
+
+ah = TL (h)(yunk ) − max 
+
+> y∈Y con
+
+TL (h)(y), (23) where larger values indicate stronger preference for unknown over the best competing concrete answer. In Figure 10, NC corresponds to the unmasked image and is expected to favour a concrete answer; after masking the diagnostically relevant region, IC should shift rightward if the model correctly abstains under insufficient visual evidence. However, the IC distribution remains close to NC for many heads, indicating that visual degradation does not reliably increase the abstention margin, a pattern reflecting persistent concrete answer commitment consistent with brake failure. In Figure 9, NC is expected to lie to the right of IC because clean inputs favour the gold answer while conflict inputs push the model toward the misleading alternative; the observed leftward shift from NC to IC captures textual override at the head level preference distribution. Together, these two patterns delineate the two failure modes: textual conflict produces a clear gold to wrong preference shift ,whereas image degradation often fails to elicit the expected concrete to unknown shift , underscoring an asymmetry in how modality specific evidence is arbitrated at the attention head level. 
+
+13 Patching Strategy Analysis 
+
+Clean-state definition. For each conflict instance (xv , x conflict  
+
+> t
+
+, q ), we define the clean state as the hidden representation obtained by running the same visual input with a non-conflicting textual context: hclean  
+
+> l
+
+= fl(xv , x clean  
+
+> t
+
+, q ). The patching intervention replaces the conflict-state hidden representation at the target head with this clean-state counterpart. 
+
+Local patch window. Because the clean and conflict prompts may differ in length, full-sequence replacement can introduce token-alignment artifacts. We therefore apply clean-state replacement only within a local window around the answer position. Let Kpatch denote the number of answer-neighbouring tokens to patch. For each conflict run, we align clean and conflict states by their relative offset from the answer token and replace only the hidden states inside this local window. This preserves most of the conflict prompt while testing whether the answer-neighbouring residual states carry the textual override signal. 
+
+Patch window metrics. For each patch window size Kpatch , we obtain a layer-wise score curve 
+
+SK (l) and evaluate its stability using two complementary statistics. 
+
+Robustness quantifies deviation from the consensus trace ¯S(l) = median K eSK (l):
+
+Rob( K) = 1 − 1
+
+L
+
+> L
+
+X
+
+> l=1
+
+eSK (l) − ¯S(l) , eSK ≜ MinMaxNorm( SK ). (24) 
+
+Smoothness quantifies adjacent-layer variation: 
+
+Smo( K) = 1
+
+L − 1
+
+> L−1
+
+X
+
+> l=1
+
+|SK (l + 1) − SK (l)| . (25) 
+
+Rob ↑ indicates stronger agreement with the local-window consensus; Smo ↓ indicates less layer-to-layer fluctuation. However, Smoothness alone is insufficient for selecting Kpatch : large windows can overwrite non-conflict token states, producing artificially flat curves while weakening causal locality. We therefore use Robustness as the primary criterion and report Smoothness as a diagnostic. 
+
+Analysis. Table 16 shows that Kpatch = 8 achieves the highest Robustness across all evaluated models, indicating that a compact answer-centred window suffices to recover a stable layer-wise 20 Table 16: Patch window sensitivity. Robustness (R) ↑ measures agreement with the local window consensus; Smoothness (S) ↓ measures adjacent layer variation. Best R and best S are bolded separately for each model.                                                       
+
+> Model (R / S)
+> Kpatch Qwen3-4B Llama3.2-3B Hulu-Med-4B Hulu-Med-7B InternVL3.5-4B Qwen3-VL-8B
+> 20.9718 / 0.8577 0.9214 / 0.1475 0.9288 / 0.0671 0.9346 / 0.0648 0.9478 / 0.1633 0.9415 / 0.1586 40.9792 / 0.8553 0.9237 / 0.1483 0.9506 / 0.0687 0.9569 / 0.0665 0.9868 / 0.1775 0.9821 / 0.1694
+> 80.9991 / 0.8449 0.9987 / 0.1501 0.9991 / 0.0714 0.9988 / 0.0698 0.9948 / 0.1781 0.9962 / 0.1726 16 0.9160 / 0.8983 0.9561 / 0.1459 0.9736 / 0.0741 0.9758 / 0.0726 0.9733 / 0.1818 0.9714 / 0.1769 32 0.8206 / 0.2564 0.9004 / 0.0442 0.8255 / 0.0153 0.8389 / 0.0147 0.8595 / 0.0535 0.8668 / 0.0512
+> Full 0.6966 / 0.2396 0.7957 / 0.0645 0.7465 / 0.0173 0.7584 / 0.0161 0.8560 / 0.1046 0.8497 / 0.0973
+
+conflict trace. Larger windows and full-sequence patching reduce Robustness, suggesting they introduce token-alignment noise and dilute the local causal signal. Although these settings sometimes yield lower Smoothness, the smoother curves mainly reflect over-patching rather than improved localization. We therefore use Kpatch = 8 in all main experiments and exclude full-sequence patching from the consensus curve. 
+
+14 Downstream Propagation after Arbitration Head Ablation 
+
+We further examine whether arbitration head ablation changes how conflict information is propagated in later layers. To isolate the effect of the intervention, the input is kept fixed and attention patterns are compared before and after excising the selected arbitration heads. 
+
+Setup. For each downstream attention head h, the attention mass from the answer position to image tokens V and injected conflict text tokens C is computed as 
+
+α(h) 
+
+> v
+
+= 1
+
+|V| 
+
+X
+
+> j∈V
+
+A(h) 
+
+> tans ,j
+
+, α(h) 
+
+> c
+
+= 1
+
+|C| 
+
+X
+
+> j∈C
+
+A(h) 
+
+> tans ,j
+
+, (26) where A(h) is the attention matrix of head h and tans denotes the answer position. The quantities are measured on the same conflict input before and after arbitration head ablation. 
+
+Findings. As shown in Fig. 11, downstream layers attend visibly to the injected conflict text before intervention. After excising the selected arbitration heads, attention to the conflict text region decreases and becomes more diffuse over the remaining context. This pattern supports the interpretation that arbitration head ablation attenuates downstream propagation of textual override signals, providing qualitative evidence for the reduction in conflict following in the main results. 
+
+15 Layer-wise Attenuation Sensitivity for Brake localization 
+
+We evaluate the sensitivity of brake localization to the layer-wise attenuation coefficient β used during image-conflict tracing. This coefficient corresponds to the scaling factor in attenuate( L; β) in eq. (6). In implementation, it is denoted as layer_scale . Smaller values impose stronger attenuation, whereas β = 1 .0 recovers the original forward pass and therefore provides an unperturbed reference. 
+
+Analysis. Table 17 shows that brake localization requires a non trivial attenuation signal. For β < 1,attenuating candidate layers yields positive HR , indicating that these layers contribute to concrete answer commitment under degraded visual evidence. As β approaches 1.0, the perturbation vanishes and HR decreases toward zero, as expected from an unchanged forward pass. The tracing score alone does not determine held out intervention performance. Although β = 0 .0
+
+gives the largest HR , it produces a smaller ∆UR than β = 0 .2 after head selection. The setting 
+
+β = 0 .2 achieves the largest unknown rate gain while retaining a strong hallucination relief signal. Larger values from β = 0 .4 to β = 1 .0 weaken the localization contrast and yield smaller abstention gains. Accordingly, β = 0 .2 is used for layer wise brake tracing in the main experiments. 21 Table 17: Layer wise attenuation sensitivity. ∆UR denotes the post intervention increase in unknown rate on the held out image conflict split. HR is the layer level hallucination relief score in eq. (9). The highlighted row denotes the setting used for brake tracing.                      
+
+> β# Selected Heads ∆UR HR
+> 0.0 67.23 0.7477
+> 0.2 79.68 0.7444 0.4 53.35 0.5581 0.6 63.23 0.4156 0.8 53.24 0.2455 1.0 43.23 -0.0001
+
+16 Robustness to Local Visual Noise 
+
+In addition to hard region masking, a local visual noise variant is evaluated on the Hulu-Med 4B SLAKE image conflict pool. Local noise preserves the annotated diagnostic region while degrading its signal quality, approximating acquisition noise, motion artefacts, or low-dose imaging conditions. Stochastic noise is applied only to the annotated diagnostic region, and the head set selected under the main image conflict setting is reused without re-localizing heads for each noise level. Table 18: Robustness to local visual noise. Brake head intervention remains effective under local corruption at varying noise strengths.                       
+
+> Noise std #Heads UR Pre UR Post ∆UR
+> 24 61.82 35.45 33.64 36 63.18 36.14 32.95 48 67.05 40.45 33.41 64 611.59 43.64 32.05
+
+Analysis. Table 18 shows that the brake head intervention remains effective when diagnostic evidence is locally corrupted instead of removed by masking. As noise strength increases, the pre intervention 
+
+UR rises from 1.82 to 11.59, indicating that stronger local corruption makes the visual evidence less reliable. After excising the same six brake heads, UR increases substantially at all noise levels, with ∆UR remaining stable around 32 to 34 points . Clean image accuracy is unchanged across the sweep, suggesting that the effect is concentrated on locally corrupted inputs. These results indicate that the selected brake heads are not specific to mask based evidence removal; they also modulate abstention when diagnostic regions remain visible but unreliable, supporting the interpretation that the intervention strengthens abstention under degraded visual evidence .
+
+17 More Experiment Results 
+
+17.1 Head-Set Disjointness between Arbitration and Brake localization 
+
+We examine whether the two failure modes are associated with the same intervention sensitive heads. For each model, we compare the selected arbitration heads C∗ 
+
+> arb
+
+and brake heads C∗ 
+
+> brk
+
+on SLAKE, and report their set overlap in Table 19. Across both Hulu-Med 4B and InternVL3.5 4B, the two selected head sets have zero intersection . This provides additional evidence for the decoupling analysis in Sec. 5.1: arbitration failure and brake failure are localized to distinct selected head populations 
+
+under our intervention based criterion. 
+
+17.2 Arbitration Head Distribution in InternVL3.5 and Qwen3-VL 
+
+As shown in Fig. 12, the same dual threshold selection procedure yields a similar spatial pattern in InternVL3.5 4B and Qwen3-VL-8B. For InternVL3.5 4B, the selected arbitration heads are concentrated in a broad mid layer band spanning roughly layers 13 to 22, with the strongest layer level CER around layer 21. The selected backbone heads are more diffuse, but retain a visible late 22 Table 19: Head set overlap between arbitration and brake localization on SLAKE. Both Jaccard and overlap coefficient are zero, confirming disjoint head sets.                   
+
+> Model Brake Heads Arbitration Heads Intersection Union Jaccard Overlap Coef.
+> Hulu-Med 4B 610 016 0.000 0.000 InternVL3.5 4B 78015 0.000 0.000
+
+layer tail at layers 32 and 34. Relative to Hulu-Med (Fig. 4), the arbitration band in InternVL3.5 4B appears slightly deeper overall. Qwen3-VL-8B shows the same qualitative organization. Its arbitration heads again form a contiguous band, here extending roughly from layers 14 to 24, with the strongest CER around layer 22. Backbone heads are distributed more broadly across the same range and also extend into the late layers, particularly layer 34. Thus, although the exact peak layer varies by architecture, the overall separation remains consistent: heads with high conflict sensitivity occupy a wide override band, whereas clean preserving backbone heads are more dispersed and include a late layer component. Taken together with Hulu-Med, these results suggest that the arbitration circuit is not confined to a single architecture . Across all three backbones, localization recovers a broad mid layer override region rather than isolated single head hotspots, while backbone heads remain comparatively distributed. This cross model regularity supports the view that the wideband override pattern reflects a shared functional organization of arbitration failure. 
+
+17.3 Cross-Dataset and Cross-Model Transfer 
+
+We evaluate whether the selected intervention targets transfer beyond the dataset or model used for localization. For arbitration failure, transfer is measured by the change in resist rate, ∆Resist . For brake failure, transfer is measured by the change in unknown rate, ∆UR . Arbitration heads transfer consistently across datasets and model backbones, whereas brake head transfer is weaker and less directional. This asymmetry suggests that arbitration heads capture a more reusable textual override mechanism , while brake heads are more sensitive to the target model and visual degradation regime. Table 20: Cross dataset transfer results. Arbitration transfer reports ∆Resist ; brake transfer reports 
+
+∆UR .                                                     
+
+> Model Failure Mode Transfer #Heads ∆Resist ∆UR
+> Hulu-Med 4B Arbitration SLAKE heads →VQA-RAD 10 30.77 –Arbitration VQA-RAD heads →SLAKE 612.44 –Brake HealMed heads →SLAKE 5–4.55 Brake SLAKE heads →HealMed 6–21.56 InternVL3.5 4B Arbitration SLAKE heads →VQA-RAD 813.71 –Arbitration VQA-RAD heads →SLAKE 10 1.14 –Brake HealMed heads →SLAKE 7–1.29 Brake SLAKE heads →HealMed 7–3.68
+
+Table 21: Cross model transfer of arbitration head sets. Transfer is reported as ∆Resist .
+
+Benchmark Transfer #Heads ∆Resist 
+
+VQA-RAD InternVL → Hulu-Med 10 17.95 VQA-RAD Hulu-Med → InternVL 6 12.00 SLAKE VQA InternVL → Hulu-Med 8 5.07 SLAKE VQA Hulu-Med → InternVL 10 2.76 
+
+Analysis. The transfer results reveal a consistent asymmetry between the two intervention targets. Arbitration head transfer remains positive across dataset and model shifts . In cross dataset transfer, Hulu-Med 4B obtains ∆Resist gains of 30.77 and 12.44 points, while InternVL3.5 4B also shows 23 Table 22: Cross model transfer of brake head sets. Transfer is reported as ∆UR .
+
+Benchmark Transfer #Heads ∆UR 
+
+SLAKE VQA Hulu-Med → InternVL 6 0.00 SLAKE VQA InternVL → Hulu-Med 7 -3.03 HealMed-VQA Hulu-Med → InternVL 6 0.42 HealMed-VQA InternVL → Hulu-Med 7 -2.76 
+
+Table 23: Clean competence stratified head set summary. The 100% stratum is the main setting. Lower strata are sensitivity checks only.                                              
+
+> Model Stratum #Heads Dominant layers Overlap with C100 Interpretation
+> Hulu-Med 4B
+> 100% clean correct 14 8, 12–15, 18–21 100% Main clean conflict arbitration set. 80% clean correct 15 12–22, mainly 18–21 65–75% Largely preserves the C100 core with neighbouring heads. 50% clean correct 21 14–27 plus 32–35 10–25% Less localized; recruits difficulty sensitive heads. 30% clean correct 24 15–27 plus 32–35 5–20% Shifts toward late answer commitment heads. 0% / all wrong 20 diffuse across 0–35 <10% No stable conflict core; resembles wrong prior heads. InternVL3.5 4B
+> 100% clean correct 21 13–21, 24, 34 100% Main clean conflict arbitration set. 80% clean correct 21 13–24 plus 34 65–80% Close to C100, with mid layer additions. 50% clean correct 21 15–28 plus 32–34 10–25% Shifts toward difficulty and commitment heads. 30% clean correct 25 15–28 plus 32–35 5–20% Similar to 50% with stronger late layer participation. 0% / all wrong 19 diffuse across 0–35 <10% No stable clean conflict core.
+
+positive transfer with gains of 13.71 and 1.14 points. Together with the results, where transferred arbitration head sets improve Resist in all evaluated directions, this suggests that arbitration heads capture a reusable textual override mechanism rather than a dataset specific localization artefact. Brake head transfer is weaker and less directional. Although cross dataset transfer can increase UR ,the magnitude varies substantially across target datasets and model backbones. Moreover, cross model brake transfer does not consistently improve abstention: on SLAKE VQA, Hulu-Med heads leave UR unchanged on InternVL, whereas InternVL heads reduce UR on Hulu-Med. These results indicate that brake heads are more tightly coupled to the target model and the visual degradation regime. We therefore interpret arbitration heads as comparatively transferable intervention targets, while treating brake heads as setting specific abstention control heads .
+
+17.4 Clean-Competence-Stratified Head localization 40 20 0      
+
+> (a) HuluMed-4B
+> 20
+> 10
+> 010 20
+> 40 20 0
+> (b) InternVL3.5-4B
+> 20
+> 10
+> 010 20 100% Correct 80% Correct 50% Correct 30% Correct All Wrong
+
+Figure 13: Bootstrap visualisation of clean com-petence stratified head sets. Each point denotes a bootstrap sample of the head set under a given stra-tum. Shaded regions show kernel density estimates. The 100% and 80% strata remain nearby, whereas 50% and 30% strata shift toward an intermediate re-gion and the all wrong stratum is clearly separated. Our main experiments localize arbitration heads on a clean correct subset, where the model answers correctly before conflict injec-tion. This filtering controls a key confounder: if the model does not know the answer under the clean condition, conflict following cannot be cleanly separated from ordinary knowledge failure. The resulting intervention is therefore intended to isolate conflict arbitration rather than general answer instability. We further examine whether the identified head set is specific to the fully clean correct subset. To this end, we repeat head localiza-tion under different clean competence strata, constructed to contain approximately 100%, 80%, 50%, 30%, and 0% clean correct sam-ples. The 100% stratum corresponds to the main experimental protocol. Lower competence strata progressively include samples on which the model is less reliable before conflict is introduced. This analysis is used only as a sensitivity check: when clean competence is relaxed, selected heads may reflect a mixture of conflict arbitration, sample difficulty, uncertainty handling, and wrong answer commitment. 
+
+Analysis. Fig. 13 and Table 23 show a consistent transition as the clean correctness requirement is relaxed. At 80% clean correctness, the selected head sets remain close to the C100 stratum in the 24 Table 24: Full train/val results on ConflictMedQA. Results across three injection positions. Shaded rows denote C RAFT .                                                                                                                                                           
+
+> Train Val Position Model Method CFR ↓Resist ↑C2W ↓W2C ↑CFR ↓Resist ↑C2W ↓W2C ↑
+> Prefix
+> Qwen3-4B Baseline 81.60 18.40 ––83.33 16.67 ––Random 91.04 8.96 11.79 2.36 94.25 5.75 12.07 1.15 CRAFT 33.49 66.51 0.47 48.58 37.36 62.64 0.00 45.98
+> Llama3.2-3B Baseline 54.58 45.42 ––57.69 42.31 ––Random 38.33 61.67 27.08 43.33 42.31 57.69 26.92 42.31
+> CRAFT 29.17 70.83 1.25 26.67 27.88 72.12 0.00 29.81
+> Before Q
+> Qwen3-4B Baseline 89.15 10.85 ––94.83 5.17 ––Random 84.43 15.57 1.89 6.60 89.66 10.34 1.15 6.32 CRAFT 76.42 23.58 0.94 13.68 68.39 31.61 1.15 27.59
+> Llama3.2-3B Baseline 77.92 22.08 ––76.92 23.08 ––Random 81.67 18.33 12.50 8.75 81.73 18.27 11.54 6.73 CRAFT 54.58 45.42 0.42 23.75 57.69 42.31 0.00 19.23 Before A
+> Qwen3-4B Baseline 75.47 24.53 ––78.16 21.84 ––Random 73.11 26.89 5.66 8.02 76.44 23.56 5.75 7.47 CRAFT 25.00 75.00 0.47 50.94 23.56 76.44 0.57 55.17
+> Llama3.2-3B Baseline 35.00 65.00 ––43.27 56.73 ––Random 49.58 50.42 22.08 7.50 48.08 51.92 16.35 11.54 CRAFT 22.50 77.50 2.08 14.58 31.73 68.27 2.88 14.42
+
+bootstrap embedding and retain substantial overlap with the main head set. This suggests that the main arbitration heads are not an artefact of using an overly narrow fully clean correct subset. The pattern changes at 50% and 30% clean correctness. For both models, the selected sets move away from the C100 region and become broader, with more participation from middle to late layers. This indicates that localization begins to capture factors beyond conflict arbitration, including sample difficulty, unstable clean predictions, uncertainty suppression, and answer commitment behavior. The all wrong stratum is separated from the clean correct strata and has little overlap with C100. In this regime, the model already fails before conflict injection, so the selected heads cannot be interpreted as clean conflict arbitration heads. These results support the clean correct filtering strategy used in the main experiments. The C100 setting yields a compact and stable arbitration related head set, whereas relaxing the clean competence constraint changes the selected head distribution and weakens the causal interpretation. 
+
+17.5 Full Results: ConflictMedQA 
+
+Table 24 provides the full train/validation results on ConflictMedQA across three conflict injection positions. Across Qwen3-4B and Llama3.2-3B, C RAFT consistently lowers CFR and increases the resist rate on the validation split, indicating that the selected arbitration heads generalize beyond the localization set. Compared with random ablation, C RAFT produces larger W2C transitions while keeping C2W low, suggesting that the intervention mainly corrects conflict induced errors with limited damage to clean predictions. The Before A setting yields the largest improvements, consistent with the injected evidence being closest to the answer position and therefore exerting stronger influence on final answer selection. 
+
+17.6 Full Results: PubMedQA 
+
+Table 25 reports the full train/validation results on PubMedQA across three conflict injection positions. Across both Qwen3-4B and Llama3.2-3B, C RAFT consistently reduces CFR and improves the resist rate on the validation split, showing that the selected arbitration heads generalize beyond the localization set. The gains are especially strong for Qwen3-4B under the Before Q setting, where 25 Table 25: Full train/val results on PubMedQA. Results across three injection positions. Shaded rows denote C RAFT .                                                                                                                                                           
+
+> Train Val Position Model Method CFR ↓Resist ↑C2W ↓W2C ↑CFR ↓Resist ↑C2W ↓W2C ↑
+> Prefix
+> Qwen3-4B Baseline 48.40 51.60 ––49.67 50.33 ––Random 22.40 77.60 0.80 26.80 57.17 42.83 12.17 4.67 CRAFT 22.00 78.00 0.40 26.80 23.59 76.41 0.00 26.09
+> Llama3.2-3B Baseline 56.80 43.20 ––58.46 41.54 ––Random 60.40 39.60 7.60 4.00 63.08 36.92 8.85 4.23 CRAFT 44.80 55.20 1.20 13.20 46.15 53.85 1.15 13.46 Before Q
+> Qwen3-4B Baseline 53.60 46.40 ––53.70 46.30 ––Random 19.80 80.20 0.60 34.40 46.30 53.70 3.91 11.30 CRAFT 6.20 93.80 0.00 47.40 3.70 96.30 0.00 50.00
+> Llama3.2-3B Baseline 69.20 30.80 ––71.54 28.46 ––Random 65.60 34.40 4.80 8.40 68.08 31.92 4.62 8.08 CRAFT 57.20 42.80 1.60 13.60 59.23 40.77 1.54 13.85 Before A
+> Qwen3-4B Baseline 61.80 38.20 ––65.98 34.02 ––Random 92.80 7.20 31.00 0.00 85.33 14.67 20.54 1.20 CRAFT 51.00 49.00 0.00 10.80 51.41 48.59 0.00 14.57
+> Llama3.2-3B Baseline 64.80 35.20 ––66.92 33.08 ––Random 70.00 30.00 8.40 3.20 72.31 27.69 9.23 3.85 CRAFT 52.80 47.20 2.40 14.40 54.62 45.38 2.31 14.62
+
+validation CFR drops from 53.70 to 3.70 and the resist rate increases from 46.30 to 96.30. In contrast, random ablation is unstable: although it can reduce CFR in some settings, it can also increase conflict following, as seen in the Before A position for Qwen3-4B. C RAFT also keeps C2W close to zero in most settings while producing substantially larger W2C transitions, indicating that the intervention primarily converts conflict induced wrong predictions back to correct ones with only limited collateral damage to otherwise clean predictions. 
+
+17.7 Full Results on Multimodal Conflict Benchmarks 
+
+Tables 26 and 27 report the full train/validation results for arbitration failure on VQA-RAD and SLAKE. We evaluate three positions for injecting misleading textual evidence: Prefix, Before Q, and Before A. Across both benchmarks, C RAFT consistently lowers validation CFR and increases the resist rate relative to the baseline, indicating that the selected arbitration heads transfer beyond the subset used for localization. The gains are also larger than those obtained by random head ablation in nearly all settings. This is reflected by higher W2C and generally low C2W , suggesting that the intervention primarily converts conflict following predictions back to the correct answer rather than broadly disrupting clean predictions. The effect is most pronounced in the Before A setting, where the misleading evidence is placed closest to the answer token. On VQA-RAD, C RAFT reduces validation CFR from 98.21 to 70.26 for Hulu-Med 4B, from 88.00 to 67.50 for Hulu-Med 7B, from 60.57 to 19.43 for InternVL3.5 4B, and from 57.98 to 34.00 for Qwen3-VL-8B. On SLAKE, the same intervention reduces validation CFR 
+
+from 87.73 to 46.32 for Hulu-Med 4B, from 75.00 to 45.00 for Hulu-Med 7B, from 16.40 to 5.84 for InternVL3.5 4B, and from 45.20 to 23.20 for Qwen3-VL-8B. Random ablation is substantially less reliable in this regime and can increase conflict following, especially for InternVL3.5 4B under Before A. These results support the interpretation that arbitration heads are not merely correlated with conflict behavior, but form effective intervention targets for reducing textual override. Table 28 reports the corresponding full results for brake failure under visual degradation. Here the target behavior is abstention, measured by the unknown rate UR . Ablating the selected brake heads consistently increases held out UR on both SLAKE and HealMed-VQA, with positive O2U and near zero U2O in most settings. On SLAKE, C RAFT raises validation UR from 37.88 to 65.15 26 Table 26: Full train/val results on VQA-RAD textual conflict. Results across three injection positions. Shaded rows denote C RAFT .
+
+Train Val Position Model Method CFR ↓ Resist ↑ C2W ↓ W2C ↑ CFR ↓ Resist ↑ C2W ↓ W2C ↑
+
+Prefix 
+
+Hulu-Med 4B Baseline 33.76 66.24 – – 33.33 66.67 – –Random 34.53 65.47 2.81 2.05 33.59 66.41 1.79 1.54 CRAFT 16.11 83.89 0.77 18.41 15.38 84.62 0.26 18.21 
+
+Hulu-Med 7B Baseline 26.40 73.60 – – 25.80 74.20 – –Random 26.10 73.90 0.90 1.20 25.40 74.60 0.90 1.30 CRAFT 14.80 85.20 0.10 11.70 14.20 85.80 0.10 11.70 
+
+InternVL3.5 4B Baseline 39.83 60.17 – – 30.29 69.71 – –Random 47.71 52.29 9.60 1.72 34.29 65.71 4.57 0.57 CRAFT 16.33 83.67 0.43 23.93 9.14 90.86 0.57 21.71 
+
+Qwen3-VL-8B Baseline 29.10 70.90 – – 27.84 72.16 – –Random 29.40 70.60 0.90 0.60 28.10 71.90 0.90 0.64 CRAFT 12.80 87.20 0.20 16.50 11.90 88.10 0.20 16.14 Before Q 
+
+Hulu-Med 4B Baseline 47.57 52.43 – – 44.62 55.38 – –Random 44.25 55.75 2.05 5.37 40.77 59.23 1.03 4.87 CRAFT 15.09 84.91 0.77 33.25 14.36 85.64 0.51 30.77 
+
+Hulu-Med 7B Baseline 37.20 62.80 – – 36.50 63.50 – –Random 36.00 64.00 0.80 2.00 35.20 64.80 0.80 2.10 CRAFT 15.60 84.40 0.20 21.80 14.70 85.30 0.20 22.00 
+
+InternVL3.5 4B Baseline 29.94 70.06 – – 21.71 78.29 – –Random 37.25 62.75 9.46 2.15 24.00 76.00 4.00 1.71 CRAFT 14.33 85.67 3.72 19.34 7.43 92.57 2.29 16.57 
+
+Qwen3-VL-8B Baseline 17.05 82.95 – – 16.16 83.84 – –Random 17.90 82.10 1.00 0.15 17.00 83.00 1.00 0.16 CRAFT 8.40 91.60 0.15 8.80 7.50 92.50 0.15 8.81 Before A 
+
+Hulu-Med 4B Baseline 97.70 2.30 – – 98.21 1.79 – –Random 97.19 2.81 0.26 0.77 98.72 1.28 0.51 0.00 CRAFT 74.42 25.58 0.00 23.27 70.26 29.74 0.00 27.95 
+
+Hulu-Med 7B Baseline 89.20 10.80 – – 88.00 12.00 – –Random 89.50 10.50 0.35 0.05 88.30 11.70 0.35 0.05 CRAFT 68.20 31.80 0.00 21.00 67.50 32.50 0.00 20.50 
+
+InternVL3.5 4B Baseline 64.90 35.10 – – 60.57 39.43 – –Random 80.95 19.05 16.33 0.29 77.71 22.29 17.71 0.57 CRAFT 29.51 70.49 0.86 36.25 19.43 80.57 0.00 41.14 
+
+Qwen3-VL-8B Baseline 58.90 41.10 – – 57.98 42.02 – –Random 59.30 40.70 0.60 0.20 58.20 41.80 0.35 0.13 CRAFT 36.20 63.80 0.10 22.80 34.00 66.00 0.10 24.08 
+
+for Hulu-Med 4B, from 44.12 to 61.18 for Hulu-Med 7B, from 22.58 to 32.26 for InternVL3.5 4B, and from 42.42 to 55.30 for Qwen3-VL-8B. On HealMed-VQA, the same trend is stronger: validation UR increases from 78.44 to 98.20 for Hulu-Med 4B, from 85.07 to 95.83 for Hulu-Med 7B, from 81.56 to 93.64 for InternVL3.5 4B, and from 84.72 to 95.14 for Qwen3-VL-8B. Together, the arbitration and brake results show that the two interventions act on distinct failure behaviors :arbitration head ablation suppresses textual override, while brake head ablation recovers abstention when visual evidence is insufficient. 
+
+17.8 Validation Confusion Matrix Diagnostics 
+
+27 Table 27: Full train/val results on SLAKE textual conflict. Results across three injection positions. Shaded rows denote C RAFT .
+
+Train Val Position Model Method CFR ↓ Resist ↑ C2W ↓ W2C ↑ CFR ↓ Resist ↑ C2W ↓ W2C ↑
+
+Prefix 
+
+Hulu-Med 4B Baseline 18.17 81.83 – – 19.15 80.85 – –Random 21.32 78.68 3.93 0.70 21.28 78.72 2.95 0.82 CRAFT 11.16 88.84 3.86 10.87 12.11 87.89 5.07 12.11 
+
+Hulu-Med 7B Baseline 16.00 84.00 – – 15.40 84.60 – –Random 16.50 83.50 1.00 0.50 15.90 84.10 1.00 0.50 CRAFT 11.60 88.40 1.50 5.90 11.00 89.00 1.50 5.90 
+
+InternVL3.5 4B Baseline 15.71 84.29 – – 12.66 87.34 – –Random 20.50 79.50 8.06 3.27 18.18 81.82 8.28 2.76 CRAFT 8.90 91.10 0.49 7.30 6.66 93.34 0.65 6.66 
+
+Qwen3-VL-8B Baseline 16.20 83.80 – – 15.60 84.40 – –Random 16.90 83.10 0.95 0.25 16.20 83.80 0.85 0.25 CRAFT 11.60 88.40 0.30 4.90 10.80 89.20 0.30 5.10 Before Q 
+
+Hulu-Med 4B Baseline 18.51 81.49 – – 19.15 80.85 – –Random 20.62 79.38 3.86 1.75 20.79 79.21 4.09 2.45 CRAFT 8.20 91.80 0.98 11.29 7.04 92.96 0.65 12.77 
+
+Hulu-Med 7B Baseline 14.80 85.20 – – 14.20 85.80 – –Random 15.30 84.70 0.80 0.30 14.80 85.20 0.90 0.30 CRAFT 7.20 92.80 0.40 8.00 6.70 93.30 0.40 7.90 
+
+InternVL3.5 4B Baseline 10.91 89.09 – – 8.93 91.07 – –Random 19.81 80.19 10.35 1.46 18.51 81.49 10.71 1.14 CRAFT 7.51 92.49 0.63 4.03 5.84 94.16 0.65 3.73 
+
+Qwen3-VL-8B Baseline 12.40 87.60 – – 11.80 88.20 – –Random 13.10 86.90 0.85 0.15 12.40 87.60 0.75 0.15 CRAFT 7.90 92.10 0.25 4.75 7.20 92.80 0.25 4.85 Before A 
+
+Hulu-Med 4B Baseline 87.17 12.83 – – 87.73 12.27 – –Random 92.08 7.92 5.75 0.84 91.00 9.00 4.26 0.98 CRAFT 47.62 52.38 5.33 44.88 46.32 53.68 4.91 46.32 
+
+Hulu-Med 7B Baseline 76.40 23.60 – – 75.00 25.00 – –Random 77.50 22.50 1.40 0.30 76.20 23.80 1.50 0.30 CRAFT 46.20 53.80 0.80 31.00 45.00 55.00 1.00 31.00 
+
+InternVL3.5 4B Baseline 21.06 78.94 – – 16.40 83.60 – –Random 30.23 69.77 10.56 1.39 23.70 76.30 8.77 1.46 CRAFT 9.38 90.62 1.60 13.27 5.84 94.16 2.27 12.82 
+
+Qwen3-VL-8B Baseline 46.50 53.50 – – 45.20 54.80 – –Random 48.20 51.80 2.05 0.35 47.00 53.00 2.10 0.30 CRAFT 24.60 75.40 0.30 22.20 23.20 76.80 0.30 22.30 Before Intervention After Intervention   
+
+> Yes No Yes No Yes No Yes No
+
+Figure 14: Binary validation confusion matrices for arbitration intervention on Hulu-Med 4B and VQA-RAD. To better understand how arbitration head ablation changes prediction behavior, we visualise validation set confusion matrices for Hulu-Med 4B on VQA-RAD. Since most validation answers are binary yes or no labels, we focus on this major subset and report row normalised yes or no confusion matrices before and after ablating the selected arbitration heads. 
+
+Analysis. Before ablation (Fig. 14), conflicting context induces errors in both directions: 36.6% of gold yes sam-ples are predicted as no, and 53.2% of gold no samples are predicted as yes. After ablating the selected arbitration 28 Table 28: Full train/val results for brake failure under visual degradation. CRAFT ablates brake heads to recover abstention. ∆UR = O2U − U2O . Shaded rows denote C RAFT .
+
+Train Val Benchmark Model Method UR ↑ O2U ↑ U2O ↓ UR ↑ O2U ↑ U2O ↓
+
+SLAKE 
+
+Hulu-Med 4B Baseline 36.90 – – 37.88 – –Random 44.23 8.10 0.77 45.45 8.33 0.76 CRAFT 64.20 27.30 0.00 65.15 27.27 0.00 
+
+Hulu-Med 7B Baseline 43.40 – – 44.12 – –Random 47.85 5.05 0.60 48.82 5.29 0.59 CRAFT 60.10 16.70 0.00 61.18 17.06 0.00 
+
+InternVL3.5 4B Baseline 23.29 – – 22.58 – –Random 20.55 1.37 4.11 16.13 0.00 6.45 CRAFT 26.03 2.74 0.00 32.26 9.68 0.00 
+
+Qwen3-VL-8B Baseline 41.80 – – 42.42 – –Random 47.10 6.05 0.75 47.73 6.06 0.75 CRAFT 54.60 12.80 0.00 55.30 12.88 0.00 HealMed-VQA 
+
+Hulu-Med 4B Baseline 77.90 – – 78.44 – –Random 86.10 10.00 1.80 86.83 10.18 1.80 CRAFT 97.60 19.70 0.00 98.20 19.76 0.00 
+
+Hulu-Med 7B Baseline 84.60 – – 85.07 – –Random 87.70 4.30 1.20 88.19 4.31 1.19 CRAFT 95.30 11.04 0.34 95.83 11.10 0.34 
+
+InternVL3.5 4B Baseline 81.10 – – 81.56 – –Random 82.00 3.05 2.15 82.47 3.06 2.15 CRAFT 93.20 12.48 0.38 93.64 12.46 0.38 
+
+Qwen3-VL-8B Baseline 84.30 – – 84.72 – –Random 87.10 4.20 1.40 87.50 4.17 1.39 CRAFT 94.70 11.09 0.69 95.14 11.11 0.69 
+
+heads, the diagonal entries increase from 63.4% to 88.4% for gold yes samples and from 46.8% to 94.4% for gold no samples. This shows that the correction is bidirectional rather than driven by a generic preference for a single answer label. Instead, the intervention restores the yes or no decision boundary under conflicting context, consistent with the increased resist rate reported in the main results. 
+
+18 Failure Case Studies Q: What is the cause of this finding? A: medical process B: physical injury   
+
+> Q: Which is bigger in this image, kidney or liver? Source Mask Arbitration Failure The question requires etiology-level visual grounding, but under conflicting context the model remains biased toward physical injury. After CRAFT, the gold-vs-wrong margin improves from $-4.0417 \rightarrow -0.8913$, indicating weakened conflict routing, though the margin remains negative and physical injury is still top-ranked. Fail to Resolve Etiology
+> Brake Failure After diagnostic-region masking, the visual evidence is insufficient for a reliable concrete answer. The desired behavior is to abstain with unknown. Before CRAFT, the ranking is: CRAFT raises the score of unknown, but Kidney remains the top-ranked answer .
+> wrong > gold > unknown. After CRAFT: wrong > unknown > gold. Fail to Abstain
+> Gold: Liver Desired: unknown Wrong: Kidney
+
+Figure 15: Representative persistent failures after CRAFT intervention. Upper: arbitration failure case. Lower: brake failure case. Although C RAFT improves arbitration and brake behavior in aggregate, some valida-tion samples remain unresolved after inter-vention. We visualise two representative persistent failures in Fig. 15. The goal of this analysis is not to introduce new met-rics, but to clarify which residual errors remain after sparse head excision. The two examples correspond to the two fail-ure modes studied in the main paper: ar-bitration failure under conflicting textual evidence and brake failure under degraded visual evidence. 
+
+18.1 Arbitration Failure 
+
+The upper case in Fig. 15 is a VQA-RAD arbitration example from the Before A set-29 ting (Sec. 4.1). The question asks whether the visual finding is caused by a medical process 
+
+or physical injury . The gold answer is medical process , while the conflicting textual cue favours physical injury .After C RAFT intervention, the model does move toward the gold answer. The gold against wrong margin improves from ∆gold ,wrong = −4.0417 to ∆gold ,wrong = −0.8913 . This indicates that the selected arbitration heads contribute to the harmful conflict pathway. However, the margin remains negative, so physical injury is still the top ranked answer. This case therefore remains an arbitration failure . The residual error is not a complete failure of intervention, since the conflict preference is weakened. Instead, the remaining conflict signal is still strong enough to determine the final answer. The case also requires etiology level visual grounding: the model must infer whether the finding is better explained by a medical process or by physical injury. This explains why the figure labels the residual pattern as Fail to Resolve Etiology .
+
+18.2 Brake Failure 
+
+The lower case in Fig. 15 is a SLAKE brake example from the image conflict setting (Sec. 4.2). The question asks which organ is bigger in the image, kidney or liver . In the original image, the gold answer is Liver . After diagnostic region masking, the visual evidence is insufficient for a reliable concrete answer, so the desired behavior is unknown .Before intervention, the ranking is wrong > gold > unknown . After C RAFT intervention, the ranking becomes wrong > unknown > gold . Thus, C RAFT raises the score of unknown , showing that the selected brake heads are related to abstention control. However, Kidney remains the top ranked answer, so the model still commits to a concrete wrong prediction. The intervention partially activates abstention behavior but does not make unknown overtake the wrong concrete answer. This explains why the figure labels the residual pattern as Fail to Abstain .Together, the cases show that sparse head excision can correct the target failure mode in aggregate, while hard samples may still require additional mechanisms. In particular, difficult etiology attribution may require stronger image grounded reasoning, and difficult brake cases may require adaptive abstention thresholds or localization aware decoding. 
+
+19 Computational Cost 
+
+We report the inference overhead of C RAFT style head intervention under the Before Q setting on VQA-RAD. The benchmark is conducted on one validation sample for each model, using the corresponding selected arbitration heads. We compare two implementations. The first applies head masking through forward hooks, which is the implementation used in our analysis experiments. This implementation leaves the original attention computation intact and therefore does not reduce the profiled matrix multiplication FLOPs. The second implements a query head skipping variant that removes the selected query heads from the attention computation before the output projection. This variant reduces profiled FLOPs, but it is implemented with Python level module patching rather than fused kernels. Table 29: Computational cost of head intervention on VQA-RAD. Hooked masking is the analysis implementation; true head skipping offers marginal FLOP savings.                                    
+
+> Model Implementation #Heads Normal Lat. Interv. Lat. ∆Lat. Normal FLOPs ∆FLOPs
+> Hulu-Med 4B Hooked masking 6206.39 ms 210.31 ms +1.90% 19539.96G 0.00% Hulu-Med 4B True head skipping 6207.11 ms 208.10 ms +0.48% 19539.96G 0.11% lower InternVL3.5 4B Hooked masking 10 43.27 ms 49.43 ms +14.24% 3629.54G 0.00% InternVL3.5 4B True head skipping 10 43.91 ms 47.03 ms +7.11% 3629.54G 0.10% lower
+
+Analysis. Hooked masking is designed for faithful analysis, not acceleration. It leaves attention computation intact and therefore does not reduce profiler FLOPs. True head skipping gives a small theoretical FLOP reduction, but the sparse intervention level is too small for latency gains without fused kernels. These results clarify that C RAFT is a safety oriented post hoc intervention rather than an inference acceleration method. 30 20 Limitations and Future Directions 
+
+Limitations. (i) Model scope. Our mechanistic analysis is restricted to open-weight models up to 14B parameters. Larger or closed-source systems may distribute arbitration and brake circuits across a wider set of layers, and our fixed scan window might miss relevant heads in such architectures. (ii) 
+
+Language coverage. All evaluated prompts and conflict injections are in English. Medical VLMs deployed in multilingual clinical environments may exhibit language-dependent attention routing, and the current head discovery pipeline has not been validated on non-English inputs. (iii) Imaging modality. The benchmarks predominantly feature chest X-rays and fundoscopy. Three-dimensional modalities (CT, MRI) that produce multi-slice inputs could engage different visual token aggregation patterns not captured by our single-image protocol. (iv) Static intervention. Head suppression is applied uniformly across all tokens and decoding steps. A more refined approach would modulate intervention strength dynamically based on per-token conflict signals, which we leave unexplored. 
+
+Future directions. (i) Adaptive and input-conditioned intervention. A promising extension is to replace static head zeroing with a lightweight gating network that activates suppression only when conflict is detected in the current input. This would reduce the risk of over-abstention on unambiguous cases and enable deployment as a real-time clinical safety layer that imposes negligible cost on routine (non-conflicting) queries. Preliminary experiments with a single-layer binary classifier on the residual stream at the conflict-sensitive layer suggest that such gating is feasible with <0.5% additional latency. (ii) Scaling to multimodal agents and report generation. Current evaluation focuses on single-turn VQA; however, clinical AI systems increasingly operate as multi-step agents that retrieve records, compare serial images, and generate structured reports. Extending C RAFT to trace arbitration circuits across multi-turn reasoning chains, where conflicts may arise between the model’s own prior outputs and new visual evidence, would address a critical safety gap. We envision a hierarchical tracing framework that first localises conflict-sensitive layers within each reasoning step, then tracks how unresolved conflicts propagate across steps, enabling targeted intervention at the earliest point of failure.ervention at the earliest point of failure. 31 -11.69 -4.80 2.09 
+
+Tuned lens value 
+
+0.0 0.2 0.4 0.6 
+
+> Density
+
+NC -0.038 IC -4.160 4.121 
+
+L32H08 
+
+-7.38 -2.84 1.69 
+
+Tuned lens value 
+
+0.0 0.2 0.4 0.6 0.8 NC 0.016 IC -2.179 2.196 
+
+L33H26 
+
+-4.74 -1.92 0.91 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 NC -0.070 IC -1.783 1.713 
+
+L32H09 
+
+-4.32 -1.29 1.75 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 
+
+NC 0.082 IC -1.243 1.325 
+
+L33H25 
+
+-1.73 -0.34 1.04 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 NC 0.042 IC -0.865 0.907 
+
+L34H08 
+
+-2.79 -0.67 1.46 
+
+Tuned lens value 
+
+0.0 0.2 0.4 0.6 
+
+> Density
+
+NC -0.024 IC -0.855 0.831 
+
+L33H27 
+
+-1.34 -0.06 1.21 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 NC 0.273 IC -0.371 0.643 
+
+L34H27 
+
+-1.43 -0.38 0.68 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 
+
+NC 0.007 IC -0.530 0.536 
+
+L34H09 
+
+-1.57 0.11 1.78 
+
+Tuned lens value 
+
+0.0 0.2 0.4 0.6 NC 0.279 IC -0.204 0.483 
+
+L35H03 
+
+-1.67 -0.26 1.15 
+
+Tuned lens value 
+
+0.0 0.2 0.4 0.6 0.8 NC 0.121 IC -0.266 0.387 
+
+L35H09 
+
+-1.10 -0.12 0.85 
+
+Tuned lens value 
+
+0.00 0.25 0.50 0.75 1.00 
+
+> Density
+
+NC 0.151 IC -0.221 0.372 
+
+L32H24 
+
+-0.97 0.11 1.18 
+
+Tuned lens value 
+
+0.0 0.2 0.4 0.6 0.8 1.0 NC 0.230 IC -0.134 0.364 
+
+L35H04 
+
+-0.92 -0.28 0.36 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 2.0 2.5 NC 0.027 IC -0.331 0.358 
+
+L21H29 
+
+-0.77 0.09 0.96 
+
+Tuned lens value 
+
+0.00 0.25 0.50 0.75 1.00 
+
+NC 0.256 IC -0.078 0.334 
+
+L35H02 
+
+-1.12 -0.38 0.38 
+
+Tuned lens value 
+
+0246 NC 0.001 IC -0.286 0.287 
+
+L33H16 
+
+-0.86 -0.22 0.42 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 2.0 
+
+> Density
+
+NC 0.023 IC -0.249 0.272 
+
+L21H30 
+
+-2.38 0.04 2.47 
+
+Tuned lens value 
+
+0.0 0.1 0.2 0.3 0.4 NC 0.039 IC -0.226 0.265 
+
+L35H08 
+
+-0.72 -0.16 0.41 
+
+Tuned lens value 
+
+012
+
+NC 0.052 IC -0.192 0.244 
+
+L21H31 
+
+-2.10 0.00 2.10 
+
+Tuned lens value 
+
+0.0 0.1 0.2 0.3 0.4 
+
+NC 0.024 IC -0.218 0.241 
+
+L34H28 
+
+-0.81 0.06 0.93 
+
+Tuned lens value 
+
+0.00 0.25 0.50 0.75 1.00 
+
+NC 0.115 IC -0.125 0.239 
+
+L20H13 
+
+-1.41 -0.09 1.22 
+
+Tuned lens value 
+
+0.0 0.5 1.0 
+
+> Density
+
+NC 0.196 IC -0.036 0.231 
+
+L35H01 
+
+-1.15 0.12 1.40 
+
+Tuned lens value 
+
+0.0 0.2 0.4 0.6 0.8 1.0 NC 0.130 IC -0.093 0.223 
+
+L32H25 
+
+-0.96 -0.09 0.77 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 2.0 
+
+NC 0.058 IC -0.141 0.200 
+
+L35H31 
+
+-1.07 0.26 1.59 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 2.0 
+
+NC 0.086 IC -0.096 0.182 
+
+L33H24 
+
+-0.54 0.06 0.66 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 2.0 NC 0.101 IC -0.048 0.149 
+
+L32H23 
+
+-0.41 0.00 0.41 
+
+Tuned lens value 
+
+0123
+
+> Density
+
+NC 0.026 IC -0.117 0.143 
+
+L18H25 
+
+-0.41 -0.03 0.35 
+
+Tuned lens value 
+
+0123 NC 0.021 IC -0.111 0.132 
+
+L20H24 
+
+-0.29 0.03 0.35 
+
+Tuned lens value 
+
+02468 NC 0.039 IC -0.090 0.129 
+
+L17H07 
+
+-0.45 -0.06 0.33 
+
+Tuned lens value 
+
+0246
+
+NC -0.009 IC -0.124 0.116 
+
+L33H17 
+
+-0.35 0.02 0.39 
+
+Tuned lens value 
+
+01234 NC 0.013 IC -0.086 0.099 
+
+L18H24 
+
+-0.81 -0.06 0.69 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 
+
+> Density
+
+NC 0.011 IC -0.085 0.097 
+
+L34H14 
+
+-2.04 -0.55 0.94 
+
+Tuned lens value 
+
+0123
+
+NC -0.039 IC -0.131 0.092 
+
+L32H17 
+
+-0.71 -0.08 0.54 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 2.0 NC 0.036 IC -0.048 0.083 
+
+L34H13 
+
+-0.81 -0.06 0.69 
+
+Tuned lens value 
+
+0.0 0.2 0.4 0.6 0.8 1.0 NC -0.007 IC -0.086 0.080 
+
+L34H12 
+
+-0.39 -0.05 0.29 
+
+Tuned lens value 
+
+02468
+
+NC -0.086 IC -0.165 0.079 
+
+L33H15 
+
+-0.35 0.00 0.35 
+
+Tuned lens value 
+
+0123
+
+> Density
+
+NC 0.026 IC -0.049 0.075 
+
+L20H20 
+
+-2.70 -0.90 0.90 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 2.0 2.5 NC -0.002 IC -0.077 0.075 
+
+L33H30 
+
+-0.91 -0.21 0.49 
+
+Tuned lens value 
+
+01234 NC -0.124 IC -0.199 0.075 
+
+L32H10 
+
+-0.81 -0.06 0.69 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 NC -0.002 IC -0.074 0.072 
+
+L34H24 
+
+-0.41 -0.09 0.23 
+
+Tuned lens value 
+
+010 20 30 40 NC 0.002 IC -0.070 0.072 
+
+L18H13 
+
+-0.29 0.00 0.29 
+
+Tuned lens value 
+
+0246
+
+> Density
+
+NC -0.011 IC -0.083 0.072 
+
+L14H31 
+
+-1.33 -0.09 1.14 
+
+Tuned lens value 
+
+0.0 0.2 0.4 0.6 
+
+NC -0.056 IC -0.127 0.071 
+
+L33H11 
+
+-0.60 -0.06 0.47 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 2.0 NC -0.013 IC -0.083 0.070 
+
+L17H06 
+
+-0.54 0.00 0.54 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 NC 0.034 IC -0.035 0.070 
+
+L22H11 
+
+-0.41 0.06 0.54 
+
+Tuned lens value 
+
+0123 NC 0.103 IC 0.034 0.069 
+
+L22H12 
+
+-0.64 -0.02 0.60 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 
+
+> Density
+
+NC 0.064 IC -0.003 0.067 
+
+L32H12 
+
+-0.92 -0.12 0.67 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 2.0 2.5 NC 0.017 IC -0.046 0.063 
+
+L35H30 
+
+-0.35 0.14 0.64 
+
+Tuned lens value 
+
+012345 NC -0.038 IC -0.100 0.062 
+
+L33H29 
+
+-1.06 0.05 1.16 
+
+Tuned lens value 
+
+0.00 0.25 0.50 0.75 1.00 
+
+NC 0.004 IC -0.056 0.060 
+
+L33H28 
+
+-0.41 0.03 0.47 
+
+Tuned lens value 
+
+0.0 0.5 1.0 1.5 2.0 
+
+NC 0.020 IC -0.040 0.060 
+
+L35H21 
+
+NC IC Figure 9: Head-level tuned-lens preference distributions under textual conflict. Each panel shows one selected arbitration-sensitive head. The horizontal axis is the gold-versus-wrong preference margin, log p(y+) − log p(y−), under the no-conflict condition (NC, green) and the injected-conflict condition (IC, red). Larger values indicate stronger preference for the gold answer. Across many heads, IC shifts left relative to NC, showing that textual conflict pushes head-level preferences from the correct answer toward the misleading answer. 32 -0.10 0.12 0.35 
+
+log-prob(unknown) - log-prob(best competing) 
+
+0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 
+
+> Density
+
+NC 0.153 IC 0.117 0.036 
+
+L35H05 
+
+-0.10 0.09 0.29 
+
+log-prob(unknown) - log-prob(best competing) 
+
+012345
+
+NC 0.107 IC 0.090 0.017 
+
+L35H14 
+
+-0.35 -0.16 0.04 
+
+log-prob(unknown) - log-prob(best competing) 
+
+01234
+
+NC -0.136 IC -0.139 0.003 
+
+L17H20 
+
+-0.23 0.28 0.79 
+
+log-prob(unknown) - log-prob(best competing) 
+
+0.0 0.2 0.4 0.6 0.8 1.0 1.2 
+
+NC 0.373 IC 0.371 0.002 
+
+L35H25 
+
+-0.16 0.00 0.16 
+
+log-prob(unknown) - log-prob(best competing) 
+
+01234567 NC -0.038 IC -0.039 0.001 
+
+L35H15 
+
+-0.29 -0.09 0.10 
+
+log-prob(unknown) - log-prob(best competing) 
+
+012345
+
+> Density
+
+NC -0.115 IC -0.115 0.001 
+
+L16H27 
+
+-0.10 0.00 0.10 
+
+log-prob(unknown) - log-prob(best competing) 
+
+010 20 30 40 50 60 NC -0.001 IC -0.001 0.000 
+
+L17H16 
+
+-0.16 -0.03 0.10 
+
+log-prob(unknown) - log-prob(best competing) 
+
+0246810 12 
+
+NC -0.022 IC -0.022 0.000 
+
+L17H17 
+
+-0.16 -0.03 0.10 
+
+log-prob(unknown) - log-prob(best competing) 
+
+0246810 
+
+NC -0.038 IC -0.038 0.000 
+
+L35H19 
+
+-0.29 -0.06 0.16 
+
+log-prob(unknown) - log-prob(best competing) 
+
+0.0 0.5 1.0 1.5 2.0 2.5 3.0 
+
+NC -0.030 IC -0.029 -0.000 
+
+L17H13 
+
+-0.16 0.00 0.16 
+
+log-prob(unknown) - log-prob(best competing) 
+
+02468
+
+> Density
+
+NC 0.004 IC 0.005 -0.001 
+
+L17H18 
+
+-0.10 0.06 0.23 
+
+log-prob(unknown) - log-prob(best competing) 
+
+02468
+
+NC 0.053 IC 0.054 -0.001 
+
+L16H31 
+
+-0.16 -0.03 0.10 
+
+log-prob(unknown) - log-prob(best competing) 
+
+02468
+
+NC -0.028 IC -0.027 -0.001 
+
+L35H11 
+
+-0.10 0.00 0.10 
+
+log-prob(unknown) - log-prob(best competing) 
+
+0510 15 20 
+
+NC 0.002 IC 0.004 -0.001 
+
+L35H10 
+
+-0.10 0.03 0.16 
+
+log-prob(unknown) - log-prob(best competing) 
+
+01234567 NC 0.027 IC 0.028 -0.002 
+
+L16H08 
+
+-0.23 -0.06 0.10 
+
+log-prob(unknown) - log-prob(best competing) 
+
+012345678
+
+> Density
+
+NC -0.060 IC -0.058 -0.002 
+
+L35H16 
+
+-0.16 -0.03 0.10 
+
+log-prob(unknown) - log-prob(best competing) 
+
+012345678
+
+NC -0.027 IC -0.023 -0.004 
+
+L16H12 
+
+-0.16 0.00 0.16 
+
+log-prob(unknown) - log-prob(best competing) 
+
+012345678 NC -0.005 IC -0.000 -0.004 
+
+L35H20 
+
+-0.23 -0.06 0.10 
+
+log-prob(unknown) - log-prob(best competing) 
+
+012345
+
+NC -0.075 IC -0.070 -0.005 
+
+L35H18 
+
+-0.10 0.12 0.35 
+
+log-prob(unknown) - log-prob(best competing) 
+
+01234 NC 0.111 IC 0.116 -0.005 
+
+L35H21 
+
+NC IC Figure 10: Head-level tuned-lens abstention distributions under visual degradation. Each panel shows one selected image-conflict-sensitive head. The horizontal axis is the abstention margin, 
+
+log p(unknown ) − log p(ybest ), where ybest is the best competing concrete answer. NC denotes the original image, while IC denotes the masked image with relevant evidence removed. If the model properly abstains after masking, IC should shift right. Instead, NC and IC largely overlap for many heads, indicating persistent concrete-answer commitment under degraded visual evidence. 33 Hulu-Med 4B 0 14 28 42 56 70 79 014 28 42 56 70 79 
+
+> Before Ablation
+
+Image tokens Conflict text 
+
+Layer 22 Head 4 
+
+0 14 28 42 56 70 79 014 28 42 56 70 79 
+
+Image tokens Conflict text 
+
+Layer 22 Head 11 
+
+0 14 28 42 56 70 79 014 28 42 56 70 79 
+
+Image tokens Conflict text 
+
+Layer 23 Head 10 
+
+0 14 28 42 56 70 79 014 28 42 56 70 79 
+
+Image tokens Conflict text 
+
+Layer 24 Head 13 
+
+0 14 28 42 56 70 79 014 28 42 56 70 79 
+
+Image tokens Conflict text 
+
+Layer 30 Head 6 
+
+0 14 28 42 56 70 79 014 28 42 56 70 79 
+
+> After Ablation
+
+Image tokens Conflict text 
+
+0 14 28 42 56 70 79 014 28 42 56 70 79 
+
+Image tokens Conflict text 
+
+0 14 28 42 56 70 79 014 28 42 56 70 79 
+
+Image tokens Conflict text 
+
+0 14 28 42 56 70 79 014 28 42 56 70 79 
+
+Image tokens Conflict text 
+
+0 14 28 42 56 70 79 014 28 42 56 70 79 
+
+Image tokens Conflict text 
+
+0.00 0.01 0.02 0.03 0.04 0.05 
+
+0.00 0.01 0.02 0.03 0.04 0.05 
+
+0.00 0.01 0.02 0.03 0.04 0.05 
+
+0.00 0.01 0.02 0.03 0.04 0.05 
+
+0.00 0.01 0.02 0.03 0.04 0.05 
+
+0.00 0.01 0.02 0.03 0.04 0.05 
+
+0.00 0.01 0.02 0.03 0.04 0.05 
+
+0.00 0.01 0.02 0.03 0.04 0.05 
+
+0.00 0.01 0.02 0.03 0.04 0.05 
+
+0.00 0.01 0.02 0.03 0.04 0.05 InternVL3.5 0 15 30 45 60 75 89 015 30 45 60 75 89 
+
+> Before Ablation
+
+Image tokens Conflict text 
+
+Layer 21 Head 14 
+
+0 15 30 45 60 75 89 015 30 45 60 75 89 
+
+Image tokens Conflict text 
+
+Layer 28 Head 7 
+
+0 15 30 45 60 75 89 015 30 45 60 75 89 
+
+Image tokens Conflict text 
+
+Layer 25 Head 28 
+
+0 15 30 45 60 75 89 015 30 45 60 75 89 
+
+Image tokens Conflict text 
+
+Layer 23 Head 9 
+
+0 15 30 45 60 75 89 015 30 45 60 75 89 
+
+Image tokens Conflict text 
+
+Layer 22 Head 16 
+
+0 15 30 45 60 75 89 015 30 45 60 75 89 
+
+> After Ablation
+
+Image tokens Conflict text 
+
+0 15 30 45 60 75 89 015 30 45 60 75 89 
+
+Image tokens Conflict text 
+
+0 15 30 45 60 75 89 015 30 45 60 75 89 
+
+Image tokens Conflict text 
+
+0 15 30 45 60 75 89 015 30 45 60 75 89 
+
+Image tokens Conflict text 
+
+0 15 30 45 60 75 89 015 30 45 60 75 89 
+
+Image tokens Conflict text 
+
+0.000 0.005 0.010 0.015 0.020 0.025 0.030 0.035 0.040 
+
+0.000 0.005 0.010 0.015 0.020 0.025 0.030 0.035 0.040 
+
+0.000 0.005 0.010 0.015 0.020 0.025 0.030 0.035 0.040 
+
+0.000 0.005 0.010 0.015 0.020 0.025 0.030 0.035 0.040 
+
+0.000 0.005 0.010 0.015 0.020 0.025 0.030 0.035 0.040 
+
+0.000 0.005 0.010 0.015 0.020 0.025 0.030 0.035 0.040 
+
+0.000 0.005 0.010 0.015 0.020 0.025 0.030 0.035 0.040 
+
+0.000 0.005 0.010 0.015 0.020 0.025 0.030 0.035 0.040 
+
+0.000 0.005 0.010 0.015 0.020 0.025 0.030 0.035 0.040 
+
+0.000 0.005 0.010 0.015 0.020 0.025 0.030 0.035 0.040 
+
+Figure 11: Downstream attention after arbitration head ablation. Heatmaps compare the same conflict input before and after excising the selected arbitration heads. Blue and red regions denote image tokens and injected conflict text, respectively. Ablation weakens downstream attention to the conflict text region, consistent with reduced textual override propagation. Qwen3-VL Internvl3.5 
+
+> Layer index
+
+Head ID Head ID 
+
+Figure 12: Arbitration head distribution in InternVL3.5 and Qwen3-VL. Blue circles denote selected arbitration heads, green circles denote selected backbone heads, and pale dots denote unselected heads. Circle size is proportional to the corresponding score. Both models exhibit a broad arbitration band in mid to late layers, while backbone heads are more diffuse with a late-layer tail. 34
