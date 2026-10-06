@@ -1,6 +1,6 @@
 # 日报 · 2026-10-06
 
-- 生成时间：2026-10-06 01:12:03 UTC
+- 生成时间：2026-10-06 23:48:04 UTC
 - 当次推荐总数：19
 - 精读区：7
 - 速读区：12
@@ -9,30 +9,33 @@
 - [研究方向与二次创新路线](research-directions.md)
 
 ## 今日简报（AI）
-今日精读7篇、速读12篇共19篇，核心聚焦细胞分割与视觉语言模型压缩。最值得看的是两篇9分工作：UNI2-h到ConvNeXt-T的知识蒸馏实现轻量细胞核实例分割，以及视觉语言模型基准的分层压缩。普通读者可先读这两篇，再顺带浏览结直肠癌分割与医疗VLM失败溯源等速读方向。
+- 今日共生成 19 篇推荐（精读 7 篇，速读 12 篇）
+- 精读：《CRAFT: Causal Responsibility and Failure Tracing in Medical Vision Language Models》（9.0/10）, 《MAGEFormer: Learning Metric-Consistent Representations for Anisotropic CT Segmentation》（9.0/10）
+- 速读：《Revitalizing Medical Time Series with Vision-Informed Retrieval: A Vision-Language Perspective》（8.0/10）, 《RareDx: Controlled Knowledge Integration and Graph-Grounded Policy Optimization for Rare-Disease Diagnosis》（8.0/10）, 《Inductive Visual Logic for Few-Shot Out-Of-Distribution Adaptation in VLMs》（8.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
 
 ## 精读区
-1. [From UNI2-h to ConvNeXt-T: Lightweight Nuclei Instance Segmentation via Knowledge Distillation](/202610/06/2609.35203v1-from-uni2-h-to-convnext-t-lightweight-nuclei-instance-segmentation-via-knowledge-distillation) （9.0/10）
-2. [Hierarchical Compression of Vision-Language Model Benchmarks](/202610/06/2609.37515v1-hierarchical-compression-of-vision-language-model-benchmarks) （9.0/10）
-3. [Revitalizing Medical Time Series with Vision-Informed Retrieval: A Vision-Language Perspective](/202610/06/2609.34652v1-revitalizing-medical-time-series-with-vision-informed-retrieval-a-vision-language-perspective) （8.0/10）
-4. [From Perception to Integration: Revisiting the Internal Dynamics of Reasoning in Vision-Language Models](/202610/06/2609.34809v1-from-perception-to-integration-revisiting-the-internal-dynamics-of-reasoning-in-vision-language-models) （8.0/10）
-5. [Just MLPs: Efficient Visual State Reconstruction for Multimodal Language Models](/202610/06/2609.34972v1-just-mlps-efficient-visual-state-reconstruction-for-multimodal-language-models) （8.0/10）
-6. [Hardware-Aware Functional Kolmogorov-Arnold Networks for Efficient Medical Image Enhancement and Segmentation](/202610/06/2609.36134v1-hardware-aware-functional-kolmogorov-arnold-networks-for-efficient-medical-image-enhancement-and-segmentation) （8.0/10）
-7. [DARE to Mitigate Hallucination: Dual-path Auto-Regressive-aware Editing](/202610/06/2609.36440v1-dare-to-mitigate-hallucination-dual-path-auto-regressive-aware-editing) （8.0/10）
+1. [CRAFT: Causal Responsibility and Failure Tracing in Medical Vision Language Models](/202610/06/2609.38810v2-craft-causal-responsibility-and-failure-tracing-in-medical-vision-language-models) （9.0/10）
+2. [MAGEFormer: Learning Metric-Consistent Representations for Anisotropic CT Segmentation](/202610/06/2610.04036v1-mageformer-learning-metric-consistent-representations-for-anisotropic-ct-segmentation) （9.0/10）
+3. [Localization Lens for Improving Medical Vision-Language Models](/202610/06/2610.04502v1-localization-lens-for-improving-medical-vision-language-models) （9.0/10）
+4. [Decouple, Purify and Unite: Semantic-Structural Prototype Learning for Federated Medical Segmentation](/202610/06/2610.04700v1-decouple-purify-and-unite-semantic-structural-prototype-learning-for-federated-medical-segmentation) （9.0/10）
+5. [ARISE: Adaptive Agentic Reasoning with Image-grounded Self-Evaluation for Interpretable IBD Assessment](/202610/06/2610.04777v1-arise-adaptive-agentic-reasoning-with-image-grounded-self-evaluation-for-interpretable-ibd-assessment) （9.0/10）
+6. [ConvCue: Complementary Visual Inductive Biases for Vision-Language Models](/202610/06/2609.34196v1-convcue-complementary-visual-inductive-biases-for-vision-language-models) （8.0/10）
+7. [LoopVL: Recurrent Visual Intelligence](/202610/06/2609.38426v1-loopvl-recurrent-visual-intelligence) （8.0/10）
 
 ## 速读区
-1. [Colorectal Cancer Segmentation with Adaptive Augmentation and Multi-Resolution Ensemble Models](/202610/06/2609.38419v1-colorectal-cancer-segmentation-with-adaptive-augmentation-and-multi-resolution-ensemble-models) （8.0/10）
-2. [CRAFT: Causal Responsibility and Failure Tracing in Medical Vision Language Models](/202610/06/2609.38810v2-craft-causal-responsibility-and-failure-tracing-in-medical-vision-language-models) （8.0/10）
-3. [Ranking-Aware Prompt Optimization for Multimodal Clinical Diagnosis](/202610/06/2609.40361v1-ranking-aware-prompt-optimization-for-multimodal-clinical-diagnosis) （8.0/10）
-4. [Evaluating Biomedical Reranking for LLM-Based Question Answering over Longitudinal Clinical Notes](/202610/06/2610.01324v1-evaluating-biomedical-reranking-for-llm-based-question-answering-over-longitudinal-clinical-notes) （8.0/10）
-5. [QureRadEmbed: Structuring Radiological Similarity through Attribute and Reasoning Supervision](/202610/06/2609.33075v1-qureradembed-structuring-radiological-similarity-through-attribute-and-reasoning-supervision) （7.0/10）
-6. [OPERA: A Unified Omnimodal Progressive Spatio-Temporal Reasoning Agent for Referring Video Segmentation](/202610/06/2609.33338v1-opera-a-unified-omnimodal-progressive-spatio-temporal-reasoning-agent-for-referring-video-segmentation) （7.0/10）
-7. [Seeing and Solving Are Not Enough for Vision-Language Models](/202610/06/2609.33694v1-seeing-and-solving-are-not-enough-for-vision-language-models) （7.0/10）
-8. [Distilling Visual Reasoning into Text Space](/202610/06/2609.34408v1-distilling-visual-reasoning-into-text-space) （7.0/10）
-9. [Toward Comprehensive 3D Grounding: Orientation Grounding through Vision-Language Models](/202610/06/2609.33109v1-toward-comprehensive-3d-grounding-orientation-grounding-through-vision-language-models) （6.0/10）
-10. [SceneScaffold: Active Scene-State Construction for Unified 3D Scene Understanding](/202610/06/2609.33518v1-scenescaffold-active-scene-state-construction-for-unified-3d-scene-understanding) （6.0/10）
-11. [Does Adversarial Training Improve Generalization in Multi-View VLAs? Revealing and Mitigating View Collapse](/202610/06/2609.33707v1-does-adversarial-training-improve-generalization-in-multi-view-vlas-revealing-and-mitigating-view-collapse) （6.0/10）
-12. [Position Aware Layer Queries for Test Time Training in Vision Language Models](/202610/06/2609.34021v1-position-aware-layer-queries-for-test-time-training-in-vision-language-models) （6.0/10）
+1. [Revitalizing Medical Time Series with Vision-Informed Retrieval: A Vision-Language Perspective](/202610/06/2609.34652v1-revitalizing-medical-time-series-with-vision-informed-retrieval-a-vision-language-perspective) （8.0/10）
+2. [RareDx: Controlled Knowledge Integration and Graph-Grounded Policy Optimization for Rare-Disease Diagnosis](/202610/06/2609.35549v2-raredx-controlled-knowledge-integration-and-graph-grounded-policy-optimization-for-rare-disease-diagnosis) （8.0/10）
+3. [Inductive Visual Logic for Few-Shot Out-Of-Distribution Adaptation in VLMs](/202610/06/2609.38362v1-inductive-visual-logic-for-few-shot-out-of-distribution-adaptation-in-vlms) （8.0/10）
+4. [Colorectal Cancer Segmentation with Adaptive Augmentation and Multi-Resolution Ensemble Models](/202610/06/2609.38419v1-colorectal-cancer-segmentation-with-adaptive-augmentation-and-multi-resolution-ensemble-models) （8.0/10）
+5. [Geometric Encoding for Spatial Reasoning in Vision-Language Models](/202610/06/2609.34148v1-geometric-encoding-for-spatial-reasoning-in-vision-language-models) （7.0/10）
+6. [PACER: Progressive Availability-Conditioned Evidence Routing for Radiology Report Generation under Incomplete Clinical Context](/202610/06/2609.34487v1-pacer-progressive-availability-conditioned-evidence-routing-for-radiology-report-generation-under-incomplete-clinical-context) （7.0/10）
+7. [ACPruner: Visual Token Pruning as Biased Attention Coverage Maximization in LVLMs](/202610/06/2609.34558v1-acpruner-visual-token-pruning-as-biased-attention-coverage-maximization-in-lvlms) （7.0/10）
+8. [When VLMs Trust Context: Evaluating Scene Text Recognition under Misleading Context](/202610/06/2609.34781v1-when-vlms-trust-context-evaluating-scene-text-recognition-under-misleading-context) （7.0/10）
+9. [Distilling Visual Reasoning into Text Space](/202610/06/2609.34408v1-distilling-visual-reasoning-into-text-space) （6.0/10）
+10. [Automatic Generation of Expert-Level Neuron Segmentation Masks from Fluorescence Microscopy Images for Non-Invasive Deep Learning Analysis of Phase-Contrast Images](/202610/06/2609.34464v1-automatic-generation-of-expert-level-neuron-segmentation-masks-from-fluorescence-microscopy-images-for-non-invasive-deep-learning-analysis-of-phase-contrast-images) （6.0/10）
+11. [Backdoor as Probe: Test-Time Adversarial Defense for CLIP](/202610/06/2609.34641v1-backdoor-as-probe-test-time-adversarial-defense-for-clip) （6.0/10）
+12. [Beyond Reconstruction Loss in Post-Training Quantization: Balanced Fitting for Large Vision-Language Models](/202610/06/2609.34765v1-beyond-reconstruction-loss-in-post-training-quantization-balanced-fitting-for-large-vision-language-models) （6.0/10）
 
 ---
 使用键盘方向键可在日报/论文之间快速切换。

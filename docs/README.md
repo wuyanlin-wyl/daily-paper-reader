@@ -7,7 +7,7 @@
 
 ## 每次日报
 - 最新运行日期：2026-10-06
-- 运行时间：2026-10-06 01:12:03 UTC
+- 运行时间：2026-10-06 23:48:04 UTC
 - 运行状态：成功
 - 本次总论文数：19
 - 精读区：7
@@ -15,71 +15,71 @@
 
 ### 今日简报（AI）
 - 今日共生成 19 篇推荐（精读 7 篇，速读 12 篇）
-- 精读：《From UNI2-h to ConvNeXt-T: Lightweight Nuclei Instance Segmentation via Knowledge Distillation》（9.0/10）, 《Hierarchical Compression of Vision-Language Model Benchmarks》（9.0/10）
-- 速读：《Colorectal Cancer Segmentation with Adaptive Augmentation and Multi-Resolution Ensemble Models》（8.0/10）, 《CRAFT: Causal Responsibility and Failure Tracing in Medical Vision Language Models》（8.0/10）, 《Ranking-Aware Prompt Optimization for Multimodal Clinical Diagnosis》（8.0/10）
+- 精读：《CRAFT: Causal Responsibility and Failure Tracing in Medical Vision Language Models》（9.0/10）, 《MAGEFormer: Learning Metric-Consistent Representations for Anisotropic CT Segmentation》（9.0/10）
+- 速读：《Revitalizing Medical Time Series with Vision-Informed Retrieval: A Vision-Language Perspective》（8.0/10）, 《RareDx: Controlled Knowledge Integration and Graph-Grounded Policy Optimization for Rare-Disease Diagnosis》（8.0/10）, 《Inductive Visual Logic for Few-Shot Out-Of-Distribution Adaptation in VLMs》（8.0/10）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
 - 详情：[/202610/06/README](/202610/06/README)
 
 ### 精读区论文标签
-1. [From UNI2-h to ConvNeXt-T: Lightweight Nuclei Instance Segmentation via Knowledge Distillation](/202610/06/2609.35203v1-from-uni2-h-to-convnext-t-lightweight-nuclei-instance-segmentation-via-knowledge-distillation)  
+1. [CRAFT: Causal Responsibility and Failure Tracing in Medical Vision Language Models](/202610/06/2609.38810v2-craft-causal-responsibility-and-failure-tracing-in-medical-vision-language-models)  
    标签：评分：9.0/10、query:vlmmed
-   evidence：病理细胞核实例分割与ViT蒸馏
-2. [Hierarchical Compression of Vision-Language Model Benchmarks](/202610/06/2609.37515v1-hierarchical-compression-of-vision-language-model-benchmarks)  
-   标签：评分：9.0/10、query:vl
-   evidence：视觉语言模型基准的分层压缩
-3. [Revitalizing Medical Time Series with Vision-Informed Retrieval: A Vision-Language Perspective](/202610/06/2609.34652v1-revitalizing-medical-time-series-with-vision-informed-retrieval-a-vision-language-perspective)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：视觉语言模型用于医学时间序列临床分类
-4. [From Perception to Integration: Revisiting the Internal Dynamics of Reasoning in Vision-Language Models](/202610/06/2609.34809v1-from-perception-to-integration-revisiting-the-internal-dynamics-of-reasoning-in-vision-language-models)  
+   evidence：医学视觉语言模型注意力头的机理分析
+2. [MAGEFormer: Learning Metric-Consistent Representations for Anisotropic CT Segmentation](/202610/06/2610.04036v1-mageformer-learning-metric-consistent-representations-for-anisotropic-ct-segmentation)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：面向各向异性CT医学图像分割的ViT框架与几何约束注意力
+3. [Localization Lens for Improving Medical Vision-Language Models](/202610/06/2610.04502v1-localization-lens-for-improving-medical-vision-language-models)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：医学视觉语言模型定位增强
+4. [Decouple, Purify and Unite: Semantic-Structural Prototype Learning for Federated Medical Segmentation](/202610/06/2610.04700v1-decouple-purify-and-unite-semantic-structural-prototype-learning-for-federated-medical-segmentation)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：联邦医学分割的语义结构原型学习
+5. [ARISE: Adaptive Agentic Reasoning with Image-grounded Self-Evaluation for Interpretable IBD Assessment](/202610/06/2610.04777v1-arise-adaptive-agentic-reasoning-with-image-grounded-self-evaluation-for-interpretable-ibd-assessment)  
+   标签：评分：9.0/10、query:vlmmed
+   evidence：面向医学图像评估的智能体VLM推理框架
+6. [ConvCue: Complementary Visual Inductive Biases for Vision-Language Models](/202610/06/2609.34196v1-convcue-complementary-visual-inductive-biases-for-vision-language-models)  
    标签：评分：8.0/10、query:vl
-   evidence：视觉语言模型内部推理动态
-5. [Just MLPs: Efficient Visual State Reconstruction for Multimodal Language Models](/202610/06/2609.34972v1-just-mlps-efficient-visual-state-reconstruction-for-multimodal-language-models)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：多模态大模型视觉令牌优化
-6. [Hardware-Aware Functional Kolmogorov-Arnold Networks for Efficient Medical Image Enhancement and Segmentation](/202610/06/2609.36134v1-hardware-aware-functional-kolmogorov-arnold-networks-for-efficient-medical-image-enhancement-and-segmentation)  
-   标签：评分：8.0/10、query:vlmmed
-   evidence：高效医学图像分割网络
-7. [DARE to Mitigate Hallucination: Dual-path Auto-Regressive-aware Editing](/202610/06/2609.36440v1-dare-to-mitigate-hallucination-dual-path-auto-regressive-aware-editing)  
+   evidence：用互补CNN视觉归纳偏置增强视觉语言模型
+7. [LoopVL: Recurrent Visual Intelligence](/202610/06/2609.38426v1-loopvl-recurrent-visual-intelligence)  
    标签：评分：8.0/10、query:vl
-   evidence：缓解视觉语言大模型幻觉
+   evidence：循环Transformer视觉语言模型与多模态推理
 
 ### 速读区论文标签
-1. [Colorectal Cancer Segmentation with Adaptive Augmentation and Multi-Resolution Ensemble Models](/202610/06/2609.38419v1-colorectal-cancer-segmentation-with-adaptive-augmentation-and-multi-resolution-ensemble-models)  
+1. [Revitalizing Medical Time Series with Vision-Informed Retrieval: A Vision-Language Perspective](/202610/06/2609.34652v1-revitalizing-medical-time-series-with-vision-informed-retrieval-a-vision-language-perspective)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：密集预测Transformer组织病理分割
-2. [CRAFT: Causal Responsibility and Failure Tracing in Medical Vision Language Models](/202610/06/2609.38810v2-craft-causal-responsibility-and-failure-tracing-in-medical-vision-language-models)  
+   evidence：基于VLM检索的医学时间序列分析
+2. [RareDx: Controlled Knowledge Integration and Graph-Grounded Policy Optimization for Rare-Disease Diagnosis](/202610/06/2609.35549v2-raredx-controlled-knowledge-integration-and-graph-grounded-policy-optimization-for-rare-disease-diagnosis)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：医学视觉语言模型因果追踪
-3. [Ranking-Aware Prompt Optimization for Multimodal Clinical Diagnosis](/202610/06/2609.40361v1-ranking-aware-prompt-optimization-for-multimodal-clinical-diagnosis)  
+   evidence：面向罕见病医学诊断的检索与知识图谱推理
+3. [Inductive Visual Logic for Few-Shot Out-Of-Distribution Adaptation in VLMs](/202610/06/2609.38362v1-inductive-visual-logic-for-few-shot-out-of-distribution-adaptation-in-vlms)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：多模态大模型用于临床诊断的提示优化
-4. [Evaluating Biomedical Reranking for LLM-Based Question Answering over Longitudinal Clinical Notes](/202610/06/2610.01324v1-evaluating-biomedical-reranking-for-llm-based-question-answering-over-longitudinal-clinical-notes)  
+   evidence：免训练视觉语言模型OOD适配，用于医学影像分类
+4. [Colorectal Cancer Segmentation with Adaptive Augmentation and Multi-Resolution Ensemble Models](/202610/06/2609.38419v1-colorectal-cancer-segmentation-with-adaptive-augmentation-and-multi-resolution-ensemble-models)  
    标签：评分：8.0/10、query:vlmmed
-   evidence：面向临床笔记问答的检索增强生成
-5. [QureRadEmbed: Structuring Radiological Similarity through Attribute and Reasoning Supervision](/202610/06/2609.33075v1-qureradembed-structuring-radiological-similarity-through-attribute-and-reasoning-supervision)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：放射学视觉语言编码器，用报告推理监督训练
-6. [OPERA: A Unified Omnimodal Progressive Spatio-Temporal Reasoning Agent for Referring Video Segmentation](/202610/06/2609.33338v1-opera-a-unified-omnimodal-progressive-spatio-temporal-reasoning-agent-for-referring-video-segmentation)  
-   标签：评分：7.0/10、query:vlmmed
-   evidence：用于指代视频分割的MLLM推理智能体
-7. [Seeing and Solving Are Not Enough for Vision-Language Models](/202610/06/2609.33694v1-seeing-and-solving-are-not-enough-for-vision-language-models)  
+   evidence：使用密集预测Transformer的病理肿瘤分割
+5. [Geometric Encoding for Spatial Reasoning in Vision-Language Models](/202610/06/2609.34148v1-geometric-encoding-for-spatial-reasoning-in-vision-language-models)  
    标签：评分：7.0/10、query:vl
-   evidence：视觉语言模型的问题级分析
-8. [Distilling Visual Reasoning into Text Space](/202610/06/2609.34408v1-distilling-visual-reasoning-into-text-space)  
+   evidence：视觉语言模型的空间推理
+6. [PACER: Progressive Availability-Conditioned Evidence Routing for Radiology Report Generation under Incomplete Clinical Context](/202610/06/2609.34487v1-pacer-progressive-availability-conditioned-evidence-routing-for-radiology-report-generation-under-incomplete-clinical-context)  
+   标签：评分：7.0/10、query:vlmmed
+   evidence：面向放射报告生成的视觉语言证据路由
+7. [ACPruner: Visual Token Pruning as Biased Attention Coverage Maximization in LVLMs](/202610/06/2609.34558v1-acpruner-visual-token-pruning-as-biased-attention-coverage-maximization-in-lvlms)  
    标签：评分：7.0/10、query:vl
-   evidence：面向大型视觉语言模型的视觉推理文本空间蒸馏
-9. [Toward Comprehensive 3D Grounding: Orientation Grounding through Vision-Language Models](/202610/06/2609.33109v1-toward-comprehensive-3d-grounding-orientation-grounding-through-vision-language-models)  
+   evidence：面向大型视觉语言模型高效推理的视觉token剪枝
+8. [When VLMs Trust Context: Evaluating Scene Text Recognition under Misleading Context](/202610/06/2609.34781v1-when-vlms-trust-context-evaluating-scene-text-recognition-under-misleading-context)  
+   标签：评分：7.0/10、query:vl
+   evidence：视觉语言模型基准评测
+9. [Distilling Visual Reasoning into Text Space](/202610/06/2609.34408v1-distilling-visual-reasoning-into-text-space)  
    标签：评分：6.0/10、query:vl
-   evidence：视觉语言模型方向定位
-10. [SceneScaffold: Active Scene-State Construction for Unified 3D Scene Understanding](/202610/06/2609.33518v1-scenescaffold-active-scene-state-construction-for-unified-3d-scene-understanding)  
+   evidence：为大型视觉语言模型蒸馏视觉推理到文本空间
+10. [Automatic Generation of Expert-Level Neuron Segmentation Masks from Fluorescence Microscopy Images for Non-Invasive Deep Learning Analysis of Phase-Contrast Images](/202610/06/2609.34464v1-automatic-generation-of-expert-level-neuron-segmentation-masks-from-fluorescence-microscopy-images-for-non-invasive-deep-learning-analysis-of-phase-contrast-images)  
    标签：评分：6.0/10、query:vlmmed
-   evidence：3D多模态大模型场景理解
-11. [Does Adversarial Training Improve Generalization in Multi-View VLAs? Revealing and Mitigating View Collapse](/202610/06/2609.33707v1-does-adversarial-training-improve-generalization-in-multi-view-vlas-revealing-and-mitigating-view-collapse)  
+   evidence：显微图像中深度学习神经元分割
+11. [Backdoor as Probe: Test-Time Adversarial Defense for CLIP](/202610/06/2609.34641v1-backdoor-as-probe-test-time-adversarial-defense-for-clip)  
    标签：评分：6.0/10、query:vl
-   evidence：多视角视觉语言动作模型的对抗训练
-12. [Position Aware Layer Queries for Test Time Training in Vision Language Models](/202610/06/2609.34021v1-position-aware-layer-queries-for-test-time-training-in-vision-language-models)  
+   evidence：CLIP视觉语言模型测试时防御
+12. [Beyond Reconstruction Loss in Post-Training Quantization: Balanced Fitting for Large Vision-Language Models](/202610/06/2609.34765v1-beyond-reconstruction-loss-in-post-training-quantization-balanced-fitting-for-large-vision-language-models)  
    标签：评分：6.0/10、query:vl
-   evidence：视觉语言模型的层查询测试时训练
+   evidence：大视觉语言模型的后训练量化
 
 
 <div class="dpr-home-promo-card">
